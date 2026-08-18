@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="es-ES">
+  <String Id="WelcomeDlgTitle" Value="{\WixUI_Font_Bigger}Bienvenido a Herramientas Grupo ITT" />
+  <String Id="WelcomeDlgDescription" Value="Instala en minutos la navaja suiza de ingeniería, topografía y documentación de Grupo ITT. Presiona Siguiente para comenzar." />
+  <String Id="LicenseAgreementDlgTitle" Value="{\WixUI_Font_Bigger}Licencia de uso interno" />
+  <String Id="LicenseAgreementDlgDescription" Value="Lee y acepta las condiciones para continuar." />
+  <String Id="CustomizeDlgTitle" Value="{\WixUI_Font_Bigger}Opciones de instalación" />
+  <String Id="CustomizeDlgDescription" Value="Elige los accesos y la carpeta donde se instalará la aplicación." />
+  <String Id="VerifyReadyDlgInstallTitle" Value="{\WixUI_Font_Bigger}Listo para instalar" />
+  <String Id="VerifyReadyDlgInstallDescription" Value="Herramientas Grupo ITT está lista. Haz clic en Instalar para comenzar." />
+  <String Id="ExitDialogTitle" Value="{\WixUI_Font_Bigger}¡Instalación completada!" />
+  <String Id="ExitDialogDescription" Value="Haz clic en Finalizar para cerrar el instalador." />
+</WixLocalization>

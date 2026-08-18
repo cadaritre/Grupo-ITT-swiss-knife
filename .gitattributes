@@ -1,0 +1,20 @@
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.wxs text eol=lf
+*.wxl text eol=lf
+*.ps1 text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.bmp binary
+*.ico binary
+*.pdf binary
+*.dxf binary
+*.kml binary
+*.kmz binary
+

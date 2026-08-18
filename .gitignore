@@ -1,0 +1,62 @@
+# Entornos y secretos locales
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Compilaciones y empaquetado
+build/
+dist/
+*.spec
+*.wixpdb
+*.msi
+*.exe
+
+# Resultados, pruebas y archivos temporales
+output/
+tmp/
+*.tmp
+*.temp
+*.log
+*.bak
+*.autosave
+
+# Fuentes generativas que no forman parte del producto final
+installer/assets/*-source.png
+
+# Asistentes, agentes y configuraciones de IA
+.codex/
+.openai/
+.claude/
+.cursor/
+.continue/
+.aider*
+.windsurf/
+AGENTS.md
+CLAUDE.md
+copilot-instructions.md
+.github/copilot-instructions.md
+
+# Editores y sistema operativo
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+

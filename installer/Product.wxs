@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package
+    Name="Herramientas Grupo ITT"
+    Manufacturer="Grupo ITT"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="{6B765CD4-1B92-4E93-A313-0141454AF7F4}"
+    Language="3082"
+    InstallerVersion="500"
+    Compressed="yes"
+    Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="Ya existe una versión más reciente de Herramientas Grupo ITT." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="GrupoITT.ico" SourceFile="$(var.ProjectRoot)\assets\logo.ico" />
+    <Property Id="ARPPRODUCTICON" Value="GrupoITT.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://www.grupoitt.com/" />
+    <Property Id="ARPCONTACT" Value="Grupo ITT" />
+
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+              Value="La navaja suiza de Grupo ITT quedó lista. Tus proyectos, ajustes y diccionarios se guardan de forma segura en Documentos\Grupo ITT App." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Abrir Herramientas Grupo ITT ahora" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#AppExecutable]" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="COMPANYFOLDER" Name="Grupo ITT">
+        <Directory Id="INSTALLFOLDER" Name="Herramientas Grupo ITT">
+          <Component Id="MainExecutable" Guid="*">
+            <File Id="AppExecutable"
+                  Source="$(var.SourceExe)"
+                  Name="HerramientasGrupoITT.exe"
+                  KeyPath="yes"
+                  Checksum="yes" />
+          </Component>
+
+          <Component Id="StartWithWindows" Guid="*">
+            <RegistryValue
+              Root="HKLM"
+              Key="Software\Microsoft\Windows\CurrentVersion\Run"
+              Name="Herramientas Grupo ITT"
+              Type="string"
+              Value="&quot;[INSTALLFOLDER]HerramientasGrupoITT.exe&quot;"
+              KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Grupo ITT">
+        <Component Id="ProgramMenuShortcut" Guid="*">
+          <Shortcut
+            Id="ApplicationStartMenuShortcut"
+            Name="Herramientas Grupo ITT"
+            Description="Herramientas internas de ingeniería, topografía y documentación"
+            Target="[INSTALLFOLDER]HerramientasGrupoITT.exe"
+            WorkingDirectory="INSTALLFOLDER"
+            Icon="GrupoITT.ico" />
+          <RemoveFolder Id="CleanApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+          <RegistryValue
+            Root="HKCU"
+            Key="Software\Grupo ITT\Herramientas Grupo ITT"
+            Name="StartMenuShortcut"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="*">
+        <Shortcut
+          Id="ApplicationDesktopShortcut"
+          Name="Herramientas Grupo ITT"
+          Description="Herramientas internas de ingeniería, topografía y documentación"
+          Target="[INSTALLFOLDER]HerramientasGrupoITT.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="GrupoITT.ico" />
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\Grupo ITT\Herramientas Grupo ITT"
+          Name="DesktopShortcut"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature
+      Id="MainFeature"
+      Title="Aplicación principal"
+      Description="Aplicación principal y acceso desde el menú Inicio."
+      Level="1"
+      Display="expand"
+      AllowAbsent="no"
+      ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="ProgramMenuShortcut" />
+
+      <Feature
+        Id="DesktopShortcutFeature"
+        Title="Acceso en escritorio"
+        Description="Crea un icono para abrir la aplicación rápidamente desde el escritorio."
+        Level="1"
+        AllowAbsent="yes">
+        <ComponentRef Id="DesktopShortcut" />
+      </Feature>
+
+      <Feature
+        Id="StartupFeature"
+        Title="Inicio automático"
+        Description="Abre Herramientas Grupo ITT automáticamente cuando inicia la sesión."
+        Level="1"
+        AllowAbsent="yes">
+        <ComponentRef Id="StartWithWindows" />
+      </Feature>
+    </Feature>
+
+    <ui:WixUI Id="WixUI_FeatureTree" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.InstallerAssets)\license-es.rtf" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.InstallerAssets)\topography-welcome.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.InstallerAssets)\topography-banner.bmp" />
+
+    <CustomAction
+      Id="LaunchApplication"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixShellExec"
+      Execute="immediate"
+      Impersonate="yes"
+      Return="ignore" />
+
+    <UI>
+      <Publish
+        Dialog="ExitDialog"
+        Control="Finish"
+        Event="DoAction"
+        Value="LaunchApplication"
+        Order="1"
+        Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+  </Package>
+</Wix>

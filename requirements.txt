@@ -1,0 +1,10 @@
+Pillow>=10.3
+reportlab>=4.2
+pyinstaller>=6.10
+PyMuPDF>=1.24
+Shapely>=2.0
+ezdxf>=1.3
+numpy>=1.26
+pyproj>=3.7
+pyspellchecker>=0.9
+wordfreq>=3.1.1
