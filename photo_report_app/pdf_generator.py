@@ -12,6 +12,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen.canvas import Canvas
 
+from .document_texts import fill_template, report_months, report_texts
 from .maps import build_map
 from .metadata import PhotoInfo
 
@@ -42,7 +43,7 @@ def _fit_text(canvas, text: str, max_width: float, size: float, font="Helvetica-
     return size
 
 
-def _header(c: Canvas, opts: ReportOptions, page: int):
+def _header(c: Canvas, opts: ReportOptions, page: int, texts: dict[str, str]):
     w, h = A4
     if opts.logo and opts.logo.exists():
         try:
@@ -54,7 +55,7 @@ def _header(c: Canvas, opts: ReportOptions, page: int):
     c.drawCentredString(w / 2, h - 45, opts.company)
     c.setFillColor(MUTED)
     c.setFont("Helvetica", 7.5)
-    c.drawCentredString(w / 2, h - 57, "Reporte fotográfico")
+    c.drawCentredString(w / 2, h - 57, texts["header_title"])
     c.setFillColor(ACCENT)
     c.setFont("Helvetica", 8)
     c.drawCentredString(w / 2, h - 68, opts.website)
@@ -63,13 +64,13 @@ def _header(c: Canvas, opts: ReportOptions, page: int):
     c.drawRightString(w - 48, h - 48, opts.report_date.strftime("%d/%m/%Y"))
     c.setFillColor(ACCENT)
     c.setFont("Helvetica-Bold", 7.5)
-    c.drawRightString(w - 48, h - 59, "REPORTE")
+    c.drawRightString(w - 48, h - 59, texts["document_tag"])
     c.setStrokeColor(BLUE)
     c.setLineWidth(1.1)
     c.line(48, h - 87, w - 48, h - 87)
 
 
-def _footer(c: Canvas, opts: ReportOptions, page: int):
+def _footer(c: Canvas, opts: ReportOptions, page: int, texts: dict[str, str]):
     w, _ = A4
     c.setStrokeColor(BLUE)
     c.setLineWidth(.55)
@@ -78,7 +79,7 @@ def _footer(c: Canvas, opts: ReportOptions, page: int):
     c.setFont("Helvetica", 7.2)
     c.drawString(49, 28, opts.footer)
     c.setFillColor(TEXT)
-    c.drawRightString(w - 49, 28, f"Página {page}")
+    c.drawRightString(w - 49, 28, f"{texts['page_label']} {page}")
 
 
 def _safe_image(path: Path, max_pixels=(1800, 1800)) -> Image.Image:
@@ -106,26 +107,31 @@ def generate_report(opts: ReportOptions, progress=None) -> Path:
     c.setTitle(opts.title)
     c.setAuthor(opts.company)
     w, h = A4
+    texts = report_texts()
     page = 1
-    _header(c, opts, page)
+    _header(c, opts, page, texts)
     c.setFillColor(TEXT)
     title_size = _fit_text(c, opts.title, w - 110, 23)
     c.setFont("Helvetica-Bold", title_size)
     c.drawCentredString(w / 2, h - 127, opts.title)
     c.setFillColor(MUTED)
     c.setFont("Helvetica", 11)
-    months = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")
-    c.drawCentredString(w / 2, h - 148, f"{opts.report_date.day:02d} de {months[opts.report_date.month - 1]} de {opts.report_date.year}")
+    months = report_months(texts)
+    date_line = fill_template(
+        texts["cover_date_template"], day=f"{opts.report_date.day:02d}",
+        month=months[opts.report_date.month - 1], year=opts.report_date.year,
+    )
+    c.drawCentredString(w / 2, h - 148, date_line)
     first_photo_on_cover = not opts.include_map
     if opts.include_map:
         map_image, has_map = build_map(opts.photos)
         c.setFillColor(BLUE)
         c.setFont("Helvetica-Bold", 10)
-        c.drawString(52, h - 184, "CROQUIS DE UBICACIÓN")
+        c.drawString(52, h - 184, texts["location_sketch"])
         _draw_contain(c, map_image, (52, 190, w - 104, h - 390))
         c.setFillColor(MUTED)
         c.setFont("Helvetica", 7.5)
-        note = "Los números del croquis corresponden al orden de las fotografías." if has_map else "Las fotografías seleccionadas no contienen ubicación GPS legible."
+        note = texts["map_number_note"] if has_map else texts["map_no_gps_note"]
         c.drawString(52, 174, note)
     else:
         cover_image = _safe_image(opts.photos[0].path)
@@ -136,24 +142,24 @@ def generate_report(opts: ReportOptions, progress=None) -> Path:
             c.setFont("Helvetica", size)
             c.drawCentredString(w / 2, h - 170, description)
         _draw_contain(c, cover_image, (52, 125, w - 104, h - 320))
-    _footer(c, opts, page)
+    _footer(c, opts, page, texts)
     c.showPage()
 
     report_photos = opts.photos[1:] if first_photo_on_cover else opts.photos
     total = len(report_photos)
     for index, photo in enumerate(report_photos, 2 if first_photo_on_cover else 1):
         page += 1
-        _header(c, opts, page)
+        _header(c, opts, page, texts)
         c.setFillColor(BLUE)
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(52, h - 112, f"FOTOGRAFÍA {index:02d}")
+        c.drawString(52, h - 112, f"{texts['photo_label']} {index:02d}")
         c.setFillColor(MUTED)
         c.setFont("Helvetica", 7.5)
         metadata = []
         if photo.taken_at:
-            metadata.append(photo.taken_at.strftime("Capturada: %d/%m/%Y %H:%M"))
+            metadata.append(f"{texts['captured_label']}: {photo.taken_at.strftime('%d/%m/%Y %H:%M')}")
         if photo.has_gps:
-            metadata.append(f"GPS: {photo.latitude:.6f}, {photo.longitude:.6f}")
+            metadata.append(f"{texts['gps_label']}: {photo.latitude:.6f}, {photo.longitude:.6f}")
         c.drawRightString(w - 52, h - 112, "  |  ".join(metadata) or photo.path.name)
         if photo.description.strip():
             description = photo.description.strip()
@@ -163,7 +169,7 @@ def generate_report(opts: ReportOptions, progress=None) -> Path:
             c.drawString(52, h - 128, description)
         image = _safe_image(photo.path)
         _draw_contain(c, image, (52, 78, w - 104, h - 228 if photo.description.strip() else h - 212))
-        _footer(c, opts, page)
+        _footer(c, opts, page, texts)
         if progress:
             progress(index - (1 if first_photo_on_cover else 0), total)
         c.showPage()

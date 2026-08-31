@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
     Name="Herramientas Grupo ITT"
     Manufacturer="Grupo ITT"
@@ -11,13 +10,24 @@
     Compressed="yes"
     Scope="perMachine">
 
-    <MajorUpgrade DowngradeErrorMessage="Ya existe una versión más reciente de Herramientas Grupo ITT." />
+    <MajorUpgrade
+      IgnoreLanguage="yes"
+      DowngradeErrorMessage="Ya existe una versión más reciente de Herramientas Grupo ITT." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Icon Id="GrupoITT.ico" SourceFile="$(var.ProjectRoot)\assets\logo.ico" />
     <Property Id="ARPPRODUCTICON" Value="GrupoITT.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://www.grupoitt.com/" />
     <Property Id="ARPCONTACT" Value="Grupo ITT" />
+    <Property Id="OPERATORNAME" Secure="yes">
+      <RegistrySearch
+        Id="ExistingOperatorName"
+        Root="HKLM"
+        Key="Software\Grupo ITT\Herramientas Grupo ITT"
+        Name="OperatorName"
+        Type="raw"
+        Bitness="always64" />
+    </Property>
 
     <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
               Value="La navaja suiza de Grupo ITT quedó lista. Tus proyectos, ajustes y diccionarios se guardan de forma segura en Documentos\Grupo ITT App." />
@@ -43,6 +53,16 @@
               Name="Herramientas Grupo ITT"
               Type="string"
               Value="&quot;[INSTALLFOLDER]HerramientasGrupoITT.exe&quot;"
+              KeyPath="yes" />
+          </Component>
+
+          <Component Id="OperatorIdentity" Guid="*" Bitness="always64">
+            <RegistryValue
+              Root="HKLM"
+              Key="Software\Grupo ITT\Herramientas Grupo ITT"
+              Name="OperatorName"
+              Type="string"
+              Value="[OPERATORNAME]"
               KeyPath="yes" />
           </Component>
         </Directory>
@@ -100,6 +120,7 @@
       ConfigurableDirectory="INSTALLFOLDER">
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="ProgramMenuShortcut" />
+      <ComponentRef Id="OperatorIdentity" />
 
       <Feature
         Id="DesktopShortcutFeature"
@@ -120,7 +141,7 @@
       </Feature>
     </Feature>
 
-    <ui:WixUI Id="WixUI_FeatureTree" />
+    <UIRef Id="GrupoITT_FeatureTree" />
     <UIRef Id="WixUI_ErrorProgressText" />
 
     <WixVariable Id="WixUILicenseRtf" Value="$(var.InstallerAssets)\license-es.rtf" />

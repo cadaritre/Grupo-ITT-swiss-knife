@@ -22,10 +22,12 @@ CATEGORY_NAMES = {
     "config": "Configuracion",
     "backups": "Respaldos",
     "cache": "Cache",
+    "cloud_queue": "Pendientes de Drive",
+    "pointclouds": "Nubes de puntos",
 }
 
 DEFAULT_SETTINGS = {
-    "version": 3,
+    "version": 5,
     "reports": {
         "include_map": True,
         "open_pdf": True,
@@ -42,6 +44,19 @@ DEFAULT_SETTINGS = {
         "map_layer": "Calles - OpenStreetMap",
         "contour_interval": "Automática",
     },
+    "triangulation": {
+        "draw_preview": True,
+    },
+    "pointclouds": {
+        "preview_limit": 90000,
+    },
+    "cloud": {
+        "enabled": True,
+        "operator_name": "",
+        "drive_url": "",
+        "sync_root": "",
+        "parent_folder": "GRUPO ITT REPORTES",
+    },
     "spelling": {
         "languages": ["es", "en"],
     },
@@ -56,6 +71,11 @@ DEFAULT_SETTINGS = {
         },
     },
     "documents": {
+        "report_texts": {},
+        "quote_texts": {
+            "es": {},
+            "en": {},
+        },
         "quote_palette": {
             "primary": "#07356F",
             "accent": "#0B7FAB",
@@ -207,13 +227,23 @@ def _available_destination(folder: Path, filename: str) -> Path:
 
 
 def preserve_artifact(path: str | Path, category: str) -> Path:
-    """Keep an internal copy when the user intentionally exports elsewhere."""
+    """Keep an internal copy and enqueue eligible exports for the Drive mirror."""
     source = Path(path)
     folder = category_dir(category)
-    if not source.exists() or _same_tree(source, folder):
+    if not source.exists():
         return source
-    target = _available_destination(folder, source.name)
-    shutil.copy2(source, target)
+    if _same_tree(source, folder):
+        target = source
+    else:
+        target = _available_destination(folder, source.name)
+        shutil.copy2(source, target)
+    try:
+        # Local import prevents a settings/storage import cycle during startup.
+        from .cloud_sync import sync_export
+        sync_export(target, category)
+    except Exception:
+        # A cloud problem must never invalidate the export the user just created.
+        pass
     return target
 
 

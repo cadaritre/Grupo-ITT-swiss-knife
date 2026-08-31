@@ -10,7 +10,7 @@ TOOL_SPEC = ToolSpec(
     icon_color="#173B5F",
     icon_asset="quotes.png",
     factory_path="photo_report_app.quotation_tool:QuotationTool",
-    version="1.1.0",
+    version="1.3.0",
     data_category="quotes",
     data_folder="Cotizaciones",
 )

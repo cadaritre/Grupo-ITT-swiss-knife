@@ -8,6 +8,7 @@ from pathlib import Path
 from tkinter import BooleanVar, Button, Canvas, StringVar, colorchooser, filedialog, messagebox
 from tkinter import ttk
 
+from .app_storage import SETTINGS
 from .triangulation import (
     FlowRange,
     SlopeRange,
@@ -85,9 +86,9 @@ class TriangulationTool(ttk.Frame):
         self.tin_file_var = StringVar(value="Ningún archivo seleccionado")
         self.slope_file_var = StringVar(value="Ningún archivo seleccionado")
         self.flow_file_var = StringVar(value="Ningún archivo seleccionado")
-        self.tin_summary_var = StringVar(value="La triangulación aparecerá en la vista previa.")
-        self.slope_summary_var = StringVar(value="La zonificación aparecerá en la vista previa.")
-        self.flow_summary_var = StringVar(value="Las flechas de escurrimiento aparecerán en la vista previa.")
+        self.tin_summary_var = StringVar(value="La triangulación calculada quedará lista para revisar o exportar.")
+        self.slope_summary_var = StringVar(value="La zonificación calculada quedará lista para revisar o exportar.")
+        self.flow_summary_var = StringVar(value="Los escurrimientos calculados quedarán listos para revisar o exportar.")
         self.include_points_var = BooleanVar(value=True)
         self.include_inserts_var = BooleanVar(value=True)
         self.include_poly_vertices_var = BooleanVar(value=False)
@@ -104,6 +105,7 @@ class TriangulationTool(ttk.Frame):
         self.flow_min_slope_var = StringVar(value="0.10")
         self.flow_tin_reference_var = BooleanVar(value=True)
         self.flow_slope_text_var = BooleanVar(value=False)
+        self.draw_preview_var = BooleanVar(value=bool(SETTINGS.get("triangulation.draw_preview", True)))
         self._build()
         self.after(100, self._poll_results)
 
@@ -116,7 +118,7 @@ class TriangulationTool(ttk.Frame):
         ttk.Label(toolbar, text="Herramientas de triangulación DXF", style="HeaderTitle.TLabel").pack(side="left", padx=16)
         undo_button = ttk.Button(toolbar, text="↶ Deshacer", style="HeaderButton.TButton", command=self.undo_configuration)
         undo_button.pack(side="left", padx=(4, 2))
-        attach_tooltip(undo_button, "Recupera la configuración aplicada en la vista previa anterior de esta pestaña.")
+        attach_tooltip(undo_button, "Recupera la configuración aplicada en el cálculo anterior de esta pestaña.")
         reset_button = ttk.Button(toolbar, text="Restablecer", style="HeaderButton.TButton", command=self.reset_configuration)
         reset_button.pack(side="left", padx=2)
         attach_tooltip(reset_button, "Devuelve los parámetros de la pestaña actual a sus valores recomendados.")
@@ -179,7 +181,7 @@ class TriangulationTool(ttk.Frame):
             text="La arista máxima elimina puentes largos en huecos o límites irregulares. Déjala vacía si no deseas filtrar.",
             style="SoftHint.TLabel", wraplength=350, justify="left",
         ).grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=(7, 0))
-        ttk.Button(body, text="Actualizar vista previa TIN", style="Accent.TButton", command=self.start_tin_preview).grid(row=6, column=0, sticky="ew", pady=(12, 4))
+        ttk.Button(body, text="Calcular triangulación TIN", style="Accent.TButton", command=self.start_tin_preview).grid(row=6, column=0, sticky="ew", pady=(12, 4))
 
     def _build_slope_tab(self):
         panel = ScrolledPanel(self.notebook)
@@ -194,7 +196,7 @@ class TriangulationTool(ttk.Frame):
         buttons = ttk.Frame(source, style="Soft.TFrame")
         buttons.pack(fill="x")
         ttk.Button(buttons, text="Seleccionar TIN DXF", style="Accent.TButton", command=self.choose_slope_file).pack(side="left")
-        ttk.Button(buttons, text="Usar vista TIN", style="Secondary.TButton", command=self.use_preview_tin).pack(side="left", padx=5)
+        ttk.Button(buttons, text="Usar TIN calculado", style="Secondary.TButton", command=self.use_preview_tin).pack(side="left", padx=5)
 
         self._section(body, "2. CAPAS TRIANGULADAS", 2)
         layers = ttk.Frame(body, style="Soft.TFrame", padding=8)
@@ -235,7 +237,7 @@ class TriangulationTool(ttk.Frame):
         decimals.pack(fill="x", pady=(5, 0))
         ttk.Label(decimals, text="Decimales de áreas", style="SoftHint.TLabel").pack(side="left")
         ttk.Spinbox(decimals, from_=0, to=6, textvariable=self.decimals_var, width=6).pack(side="right")
-        ttk.Button(body, text="Actualizar zonificación", style="Accent.TButton", command=self.start_slope_preview).grid(row=8, column=0, sticky="ew", pady=(12, 4))
+        ttk.Button(body, text="Calcular zonificación", style="Accent.TButton", command=self.start_slope_preview).grid(row=8, column=0, sticky="ew", pady=(12, 4))
 
     def _build_flow_tab(self):
         panel = ScrolledPanel(self.notebook)
@@ -250,7 +252,7 @@ class TriangulationTool(ttk.Frame):
         buttons = ttk.Frame(source, style="Soft.TFrame")
         buttons.pack(fill="x")
         ttk.Button(buttons, text="Seleccionar TIN DXF", style="Accent.TButton", command=self.choose_flow_file).pack(side="left")
-        ttk.Button(buttons, text="Usar vista TIN", style="Secondary.TButton", command=self.use_preview_tin_for_flow).pack(side="left", padx=5)
+        ttk.Button(buttons, text="Usar TIN calculado", style="Secondary.TButton", command=self.use_preview_tin_for_flow).pack(side="left", padx=5)
 
         self._section(body, "2. CAPAS TRIANGULADAS", 2)
         layers = ttk.Frame(body, style="Soft.TFrame", padding=8)
@@ -294,7 +296,7 @@ class TriangulationTool(ttk.Frame):
         range_buttons.grid(row=2, column=0, sticky="ew", pady=(7, 0))
         ttk.Button(range_buttons, text="+ Rango", style="Secondary.TButton", command=self.add_flow_range).pack(side="left")
         ttk.Button(range_buttons, text="Restaurar", style="Secondary.TButton", command=lambda: self._set_flow_range_rows(clone_default_flow_ranges())).pack(side="left", padx=5)
-        ttk.Button(body, text="Actualizar flechas de escurrimiento", style="Accent.TButton", command=self.start_flow_preview).grid(row=8, column=0, sticky="ew", pady=(12, 4))
+        ttk.Button(body, text="Calcular flechas de escurrimiento", style="Accent.TButton", command=self.start_flow_preview).grid(row=8, column=0, sticky="ew", pady=(12, 4))
 
     @staticmethod
     def _entry_field(parent, row, column, label, variable):
@@ -459,19 +461,36 @@ class TriangulationTool(ttk.Frame):
         header = ttk.Frame(parent, style="Card.TFrame")
         header.grid(row=0, column=0, sticky="ew")
         ttk.Label(header, text="VISTA PREVIA EN PLANTA", style="Section.TLabel").pack(side="left")
+        preview_toggle = ttk.Checkbutton(
+            header, text="Dibujar vista previa", variable=self.draw_preview_var,
+            command=self._preview_enabled_changed,
+        )
+        preview_toggle.pack(side="left", padx=(14, 0))
+        attach_tooltip(preview_toggle, "Desactívala antes de cargar un DXF grande. El cálculo y la exportación continúan, pero Tkinter no dibuja miles de entidades.")
         ttk.Button(header, text="Ajustar", style="Secondary.TButton", command=self.fit_preview).pack(side="right")
         ttk.Button(header, text="+", width=3, style="Secondary.TButton", command=lambda: self.zoom_preview(0.8)).pack(side="right", padx=4)
         ttk.Button(header, text="−", width=3, style="Secondary.TButton", command=lambda: self.zoom_preview(1.25)).pack(side="right")
         self.preview_info = ttk.Label(parent, text="Carga un archivo para revisar la geometría antes de exportar.", style="Hint.Card.TLabel")
         self.preview_info.grid(row=1, column=0, sticky="w", pady=(7, 6))
-        self.preview = Canvas(parent, background="#132331", highlightthickness=1, highlightbackground="#8FA3B0", cursor="fleur")
+        self.preview = Canvas(
+            parent, background="#132331", highlightthickness=1, highlightbackground="#8FA3B0",
+            cursor="fleur" if self.draw_preview_var.get() else "",
+        )
         self.preview.grid(row=2, column=0, sticky="nsew")
         self.preview.bind("<Configure>", self._preview_resized)
         self.preview.bind("<MouseWheel>", self._preview_wheel)
         self.preview.bind("<ButtonPress-1>", self._preview_press)
         self.preview.bind("<B1-Motion>", self._preview_motion)
         self.preview.bind("<ButtonRelease-1>", self._preview_release)
-        ttk.Label(parent, text="Rueda: zoom · Arrastra: mover · El DXF exportado usa exactamente la vista previa calculada.", style="Hint.Card.TLabel").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(parent, text="Rueda: zoom · Arrastra: mover · Puedes desactivar el dibujo sin afectar el DXF exportado.", style="Hint.Card.TLabel").grid(row=3, column=0, sticky="w", pady=(8, 0))
+
+    def _preview_enabled_changed(self):
+        enabled = bool(self.draw_preview_var.get())
+        SETTINGS.set("triangulation.draw_preview", enabled)
+        self._view_bounds = None
+        self.preview.configure(cursor="fleur" if enabled else "")
+        self.redraw_preview()
+        self.status_var.set("Vista previa activada" if enabled else "Vista previa desactivada · cálculo y exportación siguen disponibles")
 
     def choose_tin_file(self):
         chosen = filedialog.askopenfilename(title="DXF con puntos", filetypes=(("AutoCAD DXF", "*.dxf"),))
@@ -505,7 +524,7 @@ class TriangulationTool(ttk.Frame):
         self._remember_applied_configuration("tin")
         source = self.tin_path
         options = (bool(self.include_points_var.get()), bool(self.include_inserts_var.get()), bool(self.include_poly_vertices_var.get()), decimals, max_edge, min_area)
-        token = self._begin_work("Generando triangulación para la vista previa…")
+        token = self._begin_work("Generando triangulación TIN…")
 
         def worker():
             try:
@@ -552,7 +571,7 @@ class TriangulationTool(ttk.Frame):
             if self.tin_model:
                 self.use_preview_tin()
             else:
-                messagebox.showinfo("TIN requerido", "Selecciona un DXF triangulado o genera primero la vista TIN.")
+                messagebox.showinfo("TIN requerido", "Selecciona un DXF triangulado o calcula primero el TIN.")
             return
         selected_layers = [self.layer_tree.item(iid, "text") for iid in self.layer_tree.selection()]
         if not selected_layers:
@@ -579,7 +598,7 @@ class TriangulationTool(ttk.Frame):
 
     def use_preview_tin(self):
         if not self.tin_model:
-            messagebox.showinfo("Sin TIN", "Primero genera una vista previa en la pestaña Puntos → TIN.")
+            messagebox.showinfo("Sin TIN", "Primero calcula la triangulación en la pestaña Puntos → TIN.")
             return
         try:
             ranges = self._ranges_from_form()
@@ -649,7 +668,7 @@ class TriangulationTool(ttk.Frame):
             if self.tin_model:
                 self.use_preview_tin_for_flow()
             else:
-                messagebox.showinfo("TIN requerido", "Selecciona un DXF triangulado o genera primero la vista TIN.")
+                messagebox.showinfo("TIN requerido", "Selecciona un DXF triangulado o calcula primero el TIN.")
             return
         selected_layers = [self.flow_layer_tree.item(iid, "text") for iid in self.flow_layer_tree.selection()]
         if not selected_layers:
@@ -679,7 +698,7 @@ class TriangulationTool(ttk.Frame):
         triangles = self.tin_model.triangles if self.tin_model else self.slope_analysis.triangles if self.slope_analysis else None
         source_name = self.tin_model.source_name if self.tin_model else self.slope_analysis.source_name if self.slope_analysis else "TIN"
         if not triangles:
-            messagebox.showinfo("Sin TIN", "Primero genera una vista TIN o una zonificación de pendientes.")
+            messagebox.showinfo("Sin TIN", "Primero calcula un TIN o una zonificación de pendientes.")
             return
         try:
             options = self._flow_options()
@@ -734,7 +753,7 @@ class TriangulationTool(ttk.Frame):
         self._working = False
         if error:
             self.progress_strip.hide()
-            self.status_var.set("No se pudo preparar la vista previa")
+            self.status_var.set("No se pudo completar el cálculo")
             messagebox.showerror("Error de triangulación", str(error))
             return
         if kind == "tin":
@@ -785,7 +804,7 @@ class TriangulationTool(ttk.Frame):
             self.status_var.set("Escurrimientos listos para revisar y exportar")
             self._preview_kind = "flow"
         self.export_button.state(["!disabled"])
-        self.progress_strip.finish("Vista previa lista")
+        self.progress_strip.finish("Vista previa lista" if self.draw_preview_var.get() else "Cálculo listo")
         self._view_bounds = None
         self.redraw_preview()
 
@@ -840,6 +859,8 @@ class TriangulationTool(ttk.Frame):
         return model.bounds() if model else None
 
     def fit_preview(self):
+        if not self.draw_preview_var.get():
+            return
         self._view_bounds = None
         self.redraw_preview()
 
@@ -874,6 +895,14 @@ class TriangulationTool(ttk.Frame):
 
     def redraw_preview(self):
         self.preview.delete("all")
+        if not self.draw_preview_var.get():
+            self.preview_info.configure(text="Vista previa desactivada para ahorrar memoria y mantener fluida la aplicación.")
+            self.preview.create_text(
+                max(self.preview.winfo_width(), 300) / 2, max(self.preview.winfo_height(), 300) / 2,
+                text="VISTA PREVIA DESACTIVADA\nEl cálculo y la exportación siguen funcionando",
+                justify="center", fill="#91A9B8", font=("Segoe UI", 13),
+            )
+            return
         model = {"tin": self.tin_model, "slope": self.slope_analysis, "flow": self.flow_analysis}[self._preview_kind]
         if not model:
             self.preview.create_text(
@@ -967,6 +996,8 @@ class TriangulationTool(ttk.Frame):
             )
 
     def zoom_preview(self, factor, center=None):
+        if not self.draw_preview_var.get():
+            return
         if not self._view_bounds:
             return
         min_x, min_y, max_x, max_y = self._view_bounds
@@ -978,6 +1009,8 @@ class TriangulationTool(ttk.Frame):
         self.redraw_preview()
 
     def _preview_wheel(self, event):
+        if not self.draw_preview_var.get():
+            return "break"
         if not self._view_bounds:
             return "break"
         min_x, min_y, max_x, max_y = self._view_bounds
@@ -987,9 +1020,13 @@ class TriangulationTool(ttk.Frame):
         return "break"
 
     def _preview_press(self, event):
+        if not self.draw_preview_var.get():
+            return
         self._drag_start = self._drag_last = (event.x, event.y)
 
     def _preview_motion(self, event):
+        if not self.draw_preview_var.get():
+            return
         if not self._drag_last:
             return
         dx, dy = event.x - self._drag_last[0], event.y - self._drag_last[1]
@@ -997,6 +1034,8 @@ class TriangulationTool(ttk.Frame):
         self.preview.move("geometry", dx, dy)
 
     def _preview_release(self, event):
+        if not self.draw_preview_var.get():
+            return
         if not self._drag_start or not self._view_bounds:
             return
         dx, dy = event.x - self._drag_start[0], event.y - self._drag_start[1]
@@ -1075,7 +1114,7 @@ class TriangulationTool(ttk.Frame):
         snapshot = self._history[kind].pop()
         self._apply_configuration(kind, snapshot)
         self._last_applied[kind] = snapshot
-        self.status_var.set("Configuración anterior recuperada · actualizando vista previa")
+        self.status_var.set("Configuración anterior recuperada · recalculando")
         {"tin": self.start_tin_preview, "slope": self.start_slope_preview, "flow": self.start_flow_preview}[kind]()
 
     def reset_configuration(self):
@@ -1093,14 +1132,14 @@ class TriangulationTool(ttk.Frame):
             snapshot = {"ranges": clone_default_flow_ranges(), "length": "", "head": "28", "density": "1", "minimum": "0.10", "reference": True, "text": False}
         self._apply_configuration(kind, snapshot)
         self._last_applied[kind] = snapshot
-        self.status_var.set("Parámetros restablecidos · actualizando vista previa")
+        self.status_var.set("Parámetros restablecidos · recalculando")
         {"tin": self.start_tin_preview, "slope": self.start_slope_preview, "flow": self.start_flow_preview}[kind]()
 
     def export_current(self):
         kind = ("tin", "slope", "flow")[self.notebook.index("current")]
         model = {"tin": self.tin_model, "slope": self.slope_analysis, "flow": self.flow_analysis}[kind]
         if not model:
-            messagebox.showinfo("Sin vista previa", "Genera primero la vista previa que deseas exportar.")
+            messagebox.showinfo("Sin resultado", "Calcula primero el resultado que deseas exportar.")
             return
         source_stem = Path(model.source_name).stem
         suffix = {"tin": "TIN", "slope": "ZONIFICACION_PENDIENTES", "flow": "ESCURRIMIENTOS"}[kind]

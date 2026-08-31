@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="GrupoITT_FeatureTree">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Publish Dialog="LicenseAgreementDlg" Control="Print" Event="DoAction" Value="WixUIPrintEula_X64" />
+
+      <Dialog Id="OperatorDlg" Width="370" Height="270" Title="[ProductName]">
+        <Control Id="Title" Type="Text" X="15" Y="13" Width="340" Height="20"
+                 Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Bigger}¿Quién va a usar esta instalación?" />
+        <Control Id="Subtitle" Type="Text" X="15" Y="39" Width="340" Height="34"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="Este nombre identificará los respaldos creados desde esta computadora en la carpeta compartida de Google Drive." />
+        <Control Id="DividerTop" Type="Line" X="0" Y="82" Width="370" Height="0" />
+
+        <Control Id="NameLabel" Type="Text" X="32" Y="103" Width="306" Height="17"
+                 Text="Nombre de la persona:" />
+        <Control Id="OperatorNameEdit" Type="Edit" X="32" Y="122" Width="306" Height="18"
+                 Property="OPERATORNAME" Text="{80}" />
+        <Control Id="RequiredHint" Type="Text" X="32" Y="146" Width="306" Height="20"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="Campo obligatorio. Después podrás corregirlo desde Ajustes." />
+
+        <Control Id="FolderTitle" Type="Text" X="32" Y="178" Width="306" Height="16"
+                 Transparent="yes" NoPrefix="yes" Text="Estructura de respaldo:" />
+        <Control Id="FolderPreview" Type="Text" X="32" Y="195" Width="306" Height="28"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="GRUPO ITT REPORTES  &gt;  [OPERATORNAME]  &gt;  Cotizaciones / Reportes / Polígonos KML" />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="OperatorDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="OperatorDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="OperatorDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg" Condition="OPERATORNAME &lt;&gt; &quot;&quot;" />
+
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="OperatorDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="CustomizeDlg" Condition="LicenseAccepted = &quot;1&quot;" />
+
+      <Publish Dialog="CustomizeDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="1" Condition="Installed" />
+      <Publish Dialog="CustomizeDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" Order="2" Condition="NOT Installed" />
+      <Publish Dialog="CustomizeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="CustomizeDlg" Order="1" Condition="NOT Installed OR WixUI_InstallMode = &quot;Change&quot;" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="3" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="ChangeButton" Event="NewDialog" Value="CustomizeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+</Wix>

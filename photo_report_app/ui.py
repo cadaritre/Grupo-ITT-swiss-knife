@@ -3,15 +3,17 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 import webbrowser
 from pathlib import Path
-from tkinter import Tk, messagebox
+from tkinter import Canvas, Tk, messagebox
 from tkinter import ttk
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 from .app_storage import APP_DATA_ROOT, ensure_app_folders
 from .branding import active_profile
+from .cloud_sync import flush_cloud_queue
 from .settings_dialog import SettingsDialog
 from .tool_registry import ToolSpec, get_tool, registered_tools, registry_errors
 
@@ -30,6 +32,7 @@ class CompanyApp(Tk):
         self.configure(background="#F4F9FC")
         self.logo_path = self.company.logo_path
         ensure_app_folders()
+        threading.Thread(target=flush_cloud_queue, name="grupoitt-drive-sync", daemon=True).start()
         self._screens = {}
         self._active = None
         self._images = []
@@ -87,8 +90,12 @@ class CompanyApp(Tk):
         style.map("HeaderAccent.TButton", background=[("active", "#0B8DB4")])
         style.configure("Tool.TButton", background="white", foreground="#173B5F", borderwidth=1, relief="solid", padding=(20, 16), font=("Segoe UI Semibold", 13), anchor="w")
         style.map("Tool.TButton", background=[("active", "#EAF3F8")])
-        style.configure("TEntry", padding=7, fieldbackground="white", bordercolor="#C7D4DC", lightcolor="#C7D4DC", darkcolor="#C7D4DC")
-        style.configure("Warning.TEntry", padding=7, fieldbackground="#FFF8DF", bordercolor="#D8A52D", lightcolor="#D8A52D", darkcolor="#D8A52D")
+        # Keep both entry styles on exactly the same font metrics. Replacing
+        # them with different implicit fonts can offset the Windows caret at
+        # non-integer display scaling (125%/150%).
+        entry_font = ("Segoe UI", 10)
+        style.configure("TEntry", font=entry_font, padding=7, fieldbackground="white", bordercolor="#C7D4DC", lightcolor="#C7D4DC", darkcolor="#C7D4DC")
+        style.configure("Warning.TEntry", font=entry_font, padding=7, fieldbackground="#FFF8DF", bordercolor="#D8A52D", lightcolor="#D8A52D", darkcolor="#D8A52D")
         style.configure(
             "TCombobox", padding=6, fieldbackground="white", background="#E1F2F8",
             foreground="#263746", arrowcolor="#173B5F", bordercolor="#BBD2DE",
@@ -179,6 +186,8 @@ class CompanyApp(Tk):
             self._screens["home"] = self._build_home()
         self._active = self._screens["home"]
         self._active.pack(fill="both", expand=True)
+        if hasattr(self, "_home_canvas"):
+            self.bind("<MouseWheel>", self._scroll_home, add="+")
 
     def show_tool(self, tool_id: str):
         try:
@@ -191,6 +200,7 @@ class CompanyApp(Tk):
             messagebox.showerror("No se pudo abrir la herramienta", f"{tool_id}\n\n{exc}")
             return
         self._hide_active()
+        self.unbind("<MouseWheel>")
         self._active = self._screens[tool_id]
         self._active.pack(fill="both", expand=True)
 
@@ -237,8 +247,37 @@ class CompanyApp(Tk):
         self.destroy()
 
     def _build_home(self):
-        page = ttk.Frame(self, style="App.TFrame", padding=24)
-        header = ttk.Frame(page, style="App.TFrame")
+        page = ttk.Frame(self, style="App.TFrame")
+        page.columnconfigure(0, weight=1)
+        page.rowconfigure(0, weight=1)
+        canvas = self._home_canvas = Canvas(
+            page, background="#F4F9FC", highlightthickness=0, borderwidth=0,
+        )
+        scrollbar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        content = ttk.Frame(canvas, style="App.TFrame", padding=24)
+        content_window = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def content_changed(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            needed = content.winfo_reqheight() > canvas.winfo_height() + 2
+            if needed:
+                scrollbar.grid()
+            else:
+                scrollbar.grid_remove()
+                canvas.yview_moveto(0)
+
+        def canvas_changed(event):
+            canvas.itemconfigure(content_window, width=max(1, event.width))
+            self._layout_home_cards(max(1, event.width - 48))
+            self.after_idle(content_changed)
+
+        content.bind("<Configure>", content_changed)
+        canvas.bind("<Configure>", canvas_changed)
+
+        header = ttk.Frame(content, style="App.TFrame")
         header.pack(fill="x", pady=(4, 18))
         if self.logo_path.exists():
             try:
@@ -257,18 +296,13 @@ class CompanyApp(Tk):
         website.pack(anchor="w", pady=(5, 0))
         website.bind("<Button-1>", lambda _event: webbrowser.open(self.company.website))
 
-        tools = ttk.Frame(page, style="App.TFrame")
-        tools.pack(fill="both", expand=True)
+        tools = self._home_tools = ttk.Frame(content, style="App.TFrame")
+        tools.pack(fill="x", expand=False)
         specs = registered_tools()
-        columns = 3
-        rows = max(1, (len(specs) + columns - 1) // columns)
-        for column in range(columns):
-            tools.columnconfigure(column, weight=1)
-        for row in range(rows):
-            tools.rowconfigure(row, weight=1)
-        for index, spec in enumerate(specs):
-            self._tool_card(tools, index // columns, index % columns, spec)
-        footer = ttk.Frame(page, style="App.TFrame")
+        self._home_cards = [self._tool_card(tools, 0, 0, spec) for spec in specs]
+        self._home_columns = 0
+        self._layout_home_cards(1200)
+        footer = ttk.Frame(content, style="App.TFrame")
         footer.pack(fill="x", pady=(20, 0))
         ttk.Label(
             footer,
@@ -292,19 +326,55 @@ class CompanyApp(Tk):
             ).pack(side="right", padx=12)
         return page
 
+    def _scroll_home(self, event):
+        canvas = getattr(self, "_home_canvas", None)
+        if canvas is None or not canvas.winfo_ismapped():
+            return
+        first, last = canvas.yview()
+        if first > 0.0 or last < 1.0:
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+            return "break"
+
+    def _layout_home_cards(self, available_width: int):
+        if not hasattr(self, "_home_cards"):
+            return
+        columns = 3 if available_width >= 1080 else 2 if available_width >= 700 else 1
+        self._home_columns = columns
+        for column in range(3):
+            self._home_tools.columnconfigure(column, weight=1 if column < columns else 0, uniform="home_tools")
+        rows = max(1, (len(self._home_cards) + columns - 1) // columns)
+        for row in range(len(self._home_cards)):
+            self._home_tools.rowconfigure(
+                row, weight=0, minsize=0,
+                uniform="home_tool_rows" if row < rows else "",
+            )
+        card_width = max(230, (available_width - (columns - 1) * 10) // columns)
+        for index, (card, description) in enumerate(self._home_cards):
+            card.grid_forget()
+            card.grid(row=index // columns, column=index % columns, sticky="nsew", padx=5, pady=5)
+            description.configure(wraplength=max(190, card_width - 42))
+        self._home_tools.update_idletasks()
+        if hasattr(self, "_home_canvas"):
+            self._home_canvas.configure(scrollregion=self._home_canvas.bbox("all"))
+
     def _tool_card(self, parent, row: int, column: int, spec: ToolSpec):
         card = ttk.Frame(parent, style="Card.TFrame", padding=18)
         card.grid(row=row, column=column, sticky="nsew", padx=5, pady=5)
+        card.columnconfigure(0, weight=1)
         icon = self._tool_icon(spec.icon_text, spec.icon_color, spec.icon_asset)
-        ttk.Label(card, image=icon, style="Card.TLabel").pack(anchor="w")
-        ttk.Label(card, text=spec.title, style="Card.TLabel", font=("Segoe UI Semibold", 15), foreground="#173B5F").pack(anchor="w", pady=(11, 5))
-        ttk.Label(card, text=spec.description, style="Card.TLabel", font=("Segoe UI", 10), foreground="#647989", wraplength=300, justify="left").pack(anchor="w", fill="x")
+        ttk.Label(card, image=icon, style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(card, text=spec.title, style="Card.TLabel", font=("Segoe UI Semibold", 15), foreground="#173B5F").grid(row=1, column=0, sticky="w", pady=(11, 5))
+        description = ttk.Label(
+            card, text=spec.description, style="Card.TLabel", font=("Segoe UI", 10),
+            foreground="#647989", wraplength=300, justify="left",
+        )
+        description.grid(row=2, column=0, sticky="new")
         command = (lambda selected=spec.tool_id: self.show_tool(selected)) if spec.available else None
         button = ttk.Button(card, text=spec.action_label, style="Accent.TButton", command=command)
-        button.pack(anchor="w", pady=(13, 0))
+        button.grid(row=3, column=0, sticky="w", pady=(13, 0))
         if not spec.available:
             button.state(["disabled"])
-        return card
+        return card, description
 
 
 def run():

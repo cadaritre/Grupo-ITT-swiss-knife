@@ -10,6 +10,9 @@ if (Test-Path '.venv\Scripts\python.exe') { $Python = '.venv\Scripts\python.exe'
   --collect-all pyproj `
   --collect-all spellchecker `
   --collect-all wordfreq `
+  --collect-all laspy `
+  --collect-all lazrs `
+  --collect-all pye57 `
   --collect-submodules photo_report_app `
   main.py
 Write-Host 'EXE creado en dist\HerramientasGrupoITT.exe'

@@ -8,3 +8,5 @@ numpy>=1.26
 pyproj>=3.7
 pyspellchecker>=0.9
 wordfreq>=3.1.1
+laspy[lazrs]>=2.5
+pye57>=0.4

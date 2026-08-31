@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.0.2'
+    [string]$Version = '1.1.2'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +35,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $SourceExe = Join-Path $Workspace 'dist\HerramientasGrupoITT.exe'
 $OutputMsi = Join-Path $Workspace 'dist\HerramientasGrupoITT.msi'
 $Wxs = Join-Path $Workspace 'installer\Product.wxs'
+$CustomUi = Join-Path $Workspace 'installer\CustomFeatureTree.wxs'
 $Localization = Join-Path $Workspace 'installer\es-ES.wxl'
 $InstallerAssets = Join-Path $Workspace 'installer\assets'
 
@@ -42,7 +43,7 @@ if (-not (Test-Path -LiteralPath $SourceExe)) {
     throw "No se generó el ejecutable esperado: $SourceExe"
 }
 
-& $WixPath build $Wxs `
+& $WixPath build $Wxs $CustomUi `
     -arch x64 `
     -ext WixToolset.UI.wixext `
     -ext WixToolset.Util.wixext `

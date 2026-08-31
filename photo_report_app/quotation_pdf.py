@@ -13,6 +13,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import BaseDocTemplate, Flowable, Frame, Image, KeepTogether, PageTemplate, Paragraph, Spacer, Table, TableStyle
 
 from .branding import active_profile, normalize_quote_signer
+from .document_texts import fill_template
 from .quotation_i18n import labels
 from .quotation_models import QuoteData
 from .quote_theme import QuotePalette, quote_palette
@@ -239,7 +240,7 @@ def generate_quote_pdf(quote: QuoteData, output: str | Path, logo: Path | None =
     except ValueError:
         date_text = quote.quote_date
     story += [
-        Paragraph(t["place_date"].format(date=date_text), styles["center"]), Spacer(1, 7 * mm),
+        Paragraph(fill_template(t["place_date"], date=date_text), styles["center"]), Spacer(1, 7 * mm),
         Paragraph(t["sincerely"], styles["center"]), Spacer(1, 8 * mm),
         Paragraph("______________________________", styles["center"]),
         Paragraph(normalize_quote_signer(quote.prepared_by), ParagraphStyle("Signer", parent=styles["center"], fontName="Helvetica-Bold")),
@@ -248,7 +249,7 @@ def generate_quote_pdf(quote: QuoteData, output: str | Path, logo: Path | None =
         path = Path(image.path)
         if not path.exists():
             continue
-        caption = image.caption.strip() or t["reference_image"].format(number=number)
+        caption = image.caption.strip() or fill_template(t["reference_image"], number=number)
         story += [Spacer(1, 10 * mm), Paragraph(f"{t['image']} {number}", styles["concept"]), Spacer(1, 2 * mm), _quote_image(path), Spacer(1, 2 * mm), Paragraph(caption, styles["image"])]
     doc.build(story)
     return target

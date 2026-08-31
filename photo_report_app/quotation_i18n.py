@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .app_storage import SETTINGS
+
 
 LABELS = {
     "es": {
@@ -51,7 +53,14 @@ STANDARD_SIGNERS = {
 
 
 def labels(language: str) -> dict[str, str]:
-    return LABELS["en" if language == "en" else "es"]
+    code = "en" if language == "en" else "es"
+    values = dict(LABELS[code])
+    stored = SETTINGS.get(f"documents.quote_texts.{code}", {})
+    if isinstance(stored, dict):
+        for key, value in stored.items():
+            if key in values and isinstance(value, str):
+                values[key] = value
+    return values
 
 
 def translate_standard_quote_values(quote, target_language: str) -> None:

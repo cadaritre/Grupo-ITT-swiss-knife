@@ -12,6 +12,7 @@ from PIL import Image, ImageOps, ImageTk
 
 from .app_storage import SETTINGS, category_dir, preserve_artifact
 from .branding import active_profile
+from .document_texts import report_texts
 from .metadata import PhotoInfo, read_photo
 from .pdf_generator import ReportOptions, generate_report
 
@@ -24,12 +25,15 @@ class ReportTool(ttk.Frame):
         self.logo_path = logo_path
         self.on_home = on_home
         self.photos: list[PhotoInfo] = []
-        self.title_var = StringVar(value="Reporte fotográfico")
+        self.document_texts = report_texts()
+        self.title_var = StringVar(value=self.document_texts["header_title"])
         self.date_var = StringVar(value=date.today().strftime("%d/%m/%Y"))
         self.open_var = BooleanVar(value=bool(SETTINGS.get("reports.open_pdf", True)))
         self.map_var = BooleanVar(value=bool(SETTINGS.get("reports.include_map", True)))
         self.status_var = StringVar(value="Agrega fotografías para comenzar")
         self._selected_index: int | None = None
+        self._active_photo: PhotoInfo | None = None
+        self._loading_description = False
         self._preview_image = None
         self._events = queue.Queue()
         self._build()
@@ -41,7 +45,7 @@ class ReportTool(ttk.Frame):
         toolbar = ttk.Frame(self, style="Header.TFrame", padding=(22, 12))
         toolbar.grid(row=0, column=0, sticky="ew")
         ttk.Button(toolbar, text="‹ Herramientas", style="HeaderButton.TButton", command=self.on_home).pack(side="left")
-        ttk.Label(toolbar, text="Reporte fotográfico", style="HeaderTitle.TLabel").pack(side="left", padx=18)
+        ttk.Label(toolbar, text=self.document_texts["header_title"], style="HeaderTitle.TLabel").pack(side="left", padx=18)
         ttk.Label(toolbar, text="Fotos, croquis y descripciones en PDF", style="HeaderSub.TLabel").pack(side="left")
 
         body = ttk.Panedwindow(self, orient="horizontal")
@@ -78,7 +82,7 @@ class ReportTool(ttk.Frame):
         table.grid(row=1, column=0, sticky="nsew")
         table.columnconfigure(0, weight=1)
         table.rowconfigure(0, weight=1)
-        self.tree = ttk.Treeview(table, columns=("order", "file", "gps", "date", "format"), show="headings", selectmode="extended")
+        self.tree = ttk.Treeview(table, columns=("order", "file", "gps", "date", "format"), show="headings", selectmode="browse")
         columns = [("order", "#", 42, False), ("file", "Archivo", 280, True), ("gps", "Ubicación", 105, False), ("date", "Captura", 135, False), ("format", "Formato", 85, False)]
         for key, label, width, stretch in columns:
             self.tree.heading(key, text=label)
@@ -101,6 +105,7 @@ class ReportTool(ttk.Frame):
         self.description_text = __import__("tkinter").Text(detail, height=5, wrap="word", font=("Segoe UI", 10), relief="flat", bd=0, padx=8, pady=7, state="disabled", background="white", foreground="#263746")
         self.description_text.grid(row=1, column=1, sticky="nsew", pady=(6, 4))
         self.description_text.bind("<FocusOut>", lambda _: self._save_description())
+        self.description_text.bind("<<Modified>>", self._description_modified)
         ttk.Label(detail, text="Se mostrará con esa fotografía en el PDF.", style="SoftHint.TLabel").grid(row=2, column=1, sticky="w")
         ttk.Label(workspace, textvariable=self.status_var, style="Hint.Card.TLabel").grid(row=3, column=0, sticky="w", pady=(9, 0))
 
@@ -155,14 +160,24 @@ class ReportTool(ttk.Frame):
 
     def _clear_detail(self):
         self._selected_index = None
+        self._active_photo = None
+        self._loading_description = True
         self.description_text.configure(state="normal")
         self.description_text.delete("1.0", END)
+        self.description_text.edit_modified(False)
         self.description_text.configure(state="disabled")
+        self._loading_description = False
         self.preview_label.configure(image="", text="Selecciona una fotografía")
 
     def _save_description(self):
-        if self._selected_index is not None and 0 <= self._selected_index < len(self.photos):
-            self.photos[self._selected_index].description = self.description_text.get("1.0", "end-1c").strip()
+        if self._active_photo is not None and any(photo is self._active_photo for photo in self.photos):
+            self._active_photo.description = self.description_text.get("1.0", "end-1c").strip()
+
+    def _description_modified(self, _event=None):
+        if self._loading_description or not self.description_text.edit_modified():
+            return
+        self._save_description()
+        self.description_text.edit_modified(False)
 
     def _selection_changed(self, _event=None):
         selected = self.tree.selection()
@@ -172,9 +187,13 @@ class ReportTool(ttk.Frame):
         index = int(selected[0])
         self._selected_index = index
         photo = self.photos[index]
+        self._active_photo = photo
+        self._loading_description = True
         self.description_text.configure(state="normal")
         self.description_text.delete("1.0", END)
         self.description_text.insert("1.0", photo.description)
+        self.description_text.edit_modified(False)
+        self._loading_description = False
         try:
             with Image.open(photo.path) as source:
                 image = ImageOps.exif_transpose(source).convert("RGB")
@@ -187,6 +206,7 @@ class ReportTool(ttk.Frame):
             self.preview_label.configure(image="", text="Vista previa no disponible")
 
     def _remove(self):
+        self._save_description()
         selected = sorted((int(i) for i in self.tree.selection()), reverse=True)
         for index in selected:
             self.photos.pop(index)
