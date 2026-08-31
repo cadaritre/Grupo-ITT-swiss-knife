@@ -344,10 +344,15 @@ class CompanyApp(AppTkBase):
     def _layout_home_cards(self, available_width: int):
         if not hasattr(self, "_home_cards"):
             return
-        columns = 3 if available_width >= 1080 else 2 if available_width >= 700 else 1
+        minimum_card_width = 350
+        columns = max(1, min(3, available_width // minimum_card_width))
         self._home_columns = columns
         for column in range(3):
-            self._home_tools.columnconfigure(column, weight=1 if column < columns else 0, uniform="home_tools")
+            active = column < columns
+            self._home_tools.columnconfigure(
+                column, weight=1 if active else 0, minsize=0,
+                uniform="home_tools" if active else "",
+            )
         rows = max(1, (len(self._home_cards) + columns - 1) // columns)
         for row in range(len(self._home_cards)):
             self._home_tools.rowconfigure(
