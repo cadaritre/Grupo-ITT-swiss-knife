@@ -277,4 +277,5 @@ def run_advanced_viewer(payload: dict, status_queue=None) -> None:
     except Exception as exc:
         if status_queue is not None:
             status_queue.put({"kind": "error", "message": str(exc), "traceback": traceback.format_exc()})
-
+        else:
+            raise

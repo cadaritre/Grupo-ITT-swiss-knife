@@ -5,7 +5,7 @@
   <String Id="LicenseAgreementDlgTitle" Value="{\WixUI_Font_Bigger}Licencia de uso interno" />
   <String Id="LicenseAgreementDlgDescription" Value="Lee y acepta las condiciones para continuar." />
   <String Id="CustomizeDlgTitle" Value="{\WixUI_Font_Bigger}Opciones de instalación" />
-  <String Id="CustomizeDlgDescription" Value="Elige los accesos y la carpeta donde se instalará la aplicación." />
+  <String Id="CustomizeDlgDescription" Value="Elige los accesos y si deseas instalar el visor 3D avanzado opcional." />
   <String Id="VerifyReadyDlgInstallTitle" Value="{\WixUI_Font_Bigger}Listo para instalar" />
   <String Id="VerifyReadyDlgInstallDescription" Value="Herramientas Grupo ITT está lista. Haz clic en Instalar para comenzar." />
   <String Id="ExitDialogTitle" Value="{\WixUI_Font_Bigger}¡Instalación completada!" />

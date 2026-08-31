@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.1.6'
+    [string]$Version = '1.1.7'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,6 +33,7 @@ foreach ($Extension in $RequiredExtensions) {
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $SourceExe = Join-Path $Workspace 'dist\HerramientasGrupoITT.exe'
+$ViewerExe = Join-Path $Workspace 'dist\Visor3DGrupoITT.exe'
 $OutputMsi = Join-Path $Workspace 'dist\HerramientasGrupoITT.msi'
 $Wxs = Join-Path $Workspace 'installer\Product.wxs'
 $CustomUi = Join-Path $Workspace 'installer\CustomFeatureTree.wxs'
@@ -42,6 +43,9 @@ $InstallerAssets = Join-Path $Workspace 'installer\assets'
 if (-not (Test-Path -LiteralPath $SourceExe)) {
     throw "No se generó el ejecutable esperado: $SourceExe"
 }
+if (-not (Test-Path -LiteralPath $ViewerExe)) {
+    throw "No se generó el visor opcional esperado: $ViewerExe"
+}
 
 & $WixPath build $Wxs $CustomUi `
     -arch x64 `
@@ -50,6 +54,7 @@ if (-not (Test-Path -LiteralPath $SourceExe)) {
     -culture es-ES `
     -loc $Localization `
     -d "SourceExe=$SourceExe" `
+    -d "ViewerExe=$ViewerExe" `
     -d "ProductVersion=$Version" `
     -d "ProjectRoot=$Workspace" `
     -d "InstallerAssets=$InstallerAssets" `

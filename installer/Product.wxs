@@ -46,6 +46,14 @@
                   Checksum="yes" />
           </Component>
 
+          <Component Id="Advanced3DViewer" Guid="*">
+            <File Id="Advanced3DViewerExecutable"
+                  Source="$(var.ViewerExe)"
+                  Name="Visor3DGrupoITT.exe"
+                  KeyPath="yes"
+                  Checksum="yes" />
+          </Component>
+
           <Component Id="StartWithWindows" Guid="*">
             <RegistryValue
               Root="HKLM"
@@ -138,6 +146,15 @@
         Level="1"
         AllowAbsent="yes">
         <ComponentRef Id="StartWithWindows" />
+      </Feature>
+
+      <Feature
+        Id="Advanced3DViewerFeature"
+        Title="Visor 3D avanzado (Open3D)"
+        Description="Componente opcional con aceleración GPU para visualizar nubes de puntos. No es necesario para registrar ni fusionar archivos."
+        Level="2"
+        AllowAbsent="yes">
+        <ComponentRef Id="Advanced3DViewer" />
       </Feature>
     </Feature>
 

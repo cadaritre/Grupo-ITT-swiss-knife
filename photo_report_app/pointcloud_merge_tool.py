@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
-import importlib.util
 import math
 import multiprocessing
 import os
 import queue
+import subprocess
+import sys
 import threading
+import uuid
 from pathlib import Path
 from tkinter import Canvas, DoubleVar, StringVar, Text, Toplevel, filedialog, messagebox
 from tkinter import ttk
@@ -14,7 +16,7 @@ from tkinter import ttk
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
 
-from .app_storage import category_dir
+from .app_storage import cache_dir, category_dir
 from .pointcloud_registration import (
     UNIT_FACTORS,
     RegistrationError,
@@ -24,7 +26,6 @@ from .pointcloud_registration import (
     sample_cloud_visual,
     solve_rigid_registration,
 )
-from .pointcloud_advanced_viewer import run_advanced_viewer
 
 
 FILE_TYPES = [
@@ -589,10 +590,13 @@ class PointCloudMergeTool(ttk.Frame):
         self.after(100, self._poll_preview)
 
     def open_advanced_viewer(self):
-        if importlib.util.find_spec("open3d") is None:
+        command = self._advanced_viewer_command()
+        if command is None:
             messagebox.showerror(
-                "Visor 3D no disponible",
-                "Open3D no está instalado en esta versión de la aplicación.",
+                "Componente opcional no instalado",
+                "El Visor 3D avanzado no está instalado. Ejecuta nuevamente el instalador, "
+                "elige Cambiar y activa “Visor 3D avanzado (Open3D)”.\n\n"
+                "El registro y la fusión de nubes siguen funcionando normalmente sin este componente.",
                 parent=self,
             )
             return
@@ -606,56 +610,55 @@ class PointCloudMergeTool(ttk.Frame):
     def _launch_advanced_viewer(self):
         if self._visual_samples is None:
             return
-        payload = dict(self._visual_samples)
-        payload["names"] = {
-            "scanner": self.source_path.name if self.source_path else "Escáner",
-            "drone": self.target_path.name if self.target_path else "Dron",
-        }
-        context = multiprocessing.get_context("spawn")
-        status_queue = context.Queue()
-        process = context.Process(
-            target=run_advanced_viewer,
-            args=(payload, status_queue),
-            name="pointcloud-open3d-viewer",
-            daemon=True,
-        )
+        command = self._advanced_viewer_command()
+        if command is None:
+            self.open_advanced_viewer()
+            return
+        payload_path = cache_dir("pointcloud_viewer") / f"viewer_{uuid.uuid4().hex}.npz"
         try:
-            process.start()
+            np.savez(
+                payload_path,
+                scanner_xyz=self._visual_samples["scanner_xyz"],
+                scanner_rgb=self._visual_samples["scanner_rgb"] if self._visual_samples["scanner_rgb"] is not None else np.empty((0, 3), dtype=np.uint16),
+                drone_raw_xyz=self._visual_samples["drone_raw_xyz"],
+                drone_adjusted_xyz=self._visual_samples["drone_adjusted_xyz"],
+                drone_rgb=self._visual_samples["drone_rgb"] if self._visual_samples["drone_rgb"] is not None else np.empty((0, 3), dtype=np.uint16),
+                scanner_name=np.asarray(self.source_path.name if self.source_path else "Escáner"),
+                drone_name=np.asarray(self.target_path.name if self.target_path else "Dron"),
+            )
+            creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            process = subprocess.Popen([*command, str(payload_path)], creationflags=creation_flags)
         except Exception as exc:
+            payload_path.unlink(missing_ok=True)
             messagebox.showerror("No se pudo abrir el visor 3D", str(exc), parent=self)
             return
-        self._advanced_viewers.append({"process": process, "queue": status_queue, "reported": False})
+        self._advanced_viewers.append({"process": process, "payload": payload_path})
         self.status_var.set("Abriendo visor 3D avanzado en una ventana independiente…")
+
+    @staticmethod
+    def _advanced_viewer_command():
+        if getattr(sys, "frozen", False):
+            executable = Path(sys.executable).with_name("Visor3DGrupoITT.exe")
+            return [str(executable)] if executable.exists() else None
+        try:
+            import open3d  # noqa: F401
+        except ImportError:
+            return None
+        return [sys.executable, "-m", "photo_report_app.pointcloud_viewer_entry"]
 
     def _poll_advanced_viewers(self):
         survivors = []
         for viewer in self._advanced_viewers:
             process = viewer["process"]
-            status_queue = viewer["queue"]
-            try:
-                while True:
-                    message = status_queue.get_nowait()
-                    kind = message.get("kind")
-                    if kind == "ready":
-                        viewer["reported"] = True
-                        self.status_var.set("Visor 3D avanzado abierto · renderizado con GPU")
-                    elif kind == "error":
-                        viewer["reported"] = True
-                        messagebox.showerror(
-                            "El visor 3D se cerró con error",
-                            message.get("message", "Open3D no pudo inicializar la ventana."),
-                            parent=self,
-                        )
-            except queue.Empty:
-                pass
-            if process.is_alive():
+            exit_code = process.poll()
+            if exit_code is None:
                 survivors.append(viewer)
             else:
-                process.join(timeout=0.05)
-                if process.exitcode not in (0, None) and not viewer["reported"]:
+                viewer["payload"].unlink(missing_ok=True)
+                if exit_code != 0:
                     messagebox.showerror(
-                        "No se pudo iniciar el visor 3D",
-                        f"El proceso gráfico terminó inesperadamente (código {process.exitcode}).",
+                        "El visor 3D terminó con error",
+                        f"El componente Open3D terminó inesperadamente (código {exit_code}).",
                         parent=self,
                     )
         self._advanced_viewers = survivors
