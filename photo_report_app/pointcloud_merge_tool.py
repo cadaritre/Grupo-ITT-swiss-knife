@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import math
 import multiprocessing
 import os
@@ -20,9 +21,10 @@ from .pointcloud_registration import (
     RegistrationResult,
     inspect_cloud,
     run_merge_worker,
-    sample_cloud,
+    sample_cloud_visual,
     solve_rigid_registration,
 )
+from .pointcloud_advanced_viewer import run_advanced_viewer
 
 
 FILE_TYPES = [
@@ -160,6 +162,9 @@ class PointCloudMergeTool(ttk.Frame):
         self._preview_queue: queue.Queue = queue.Queue()
         self._preview_cancel = threading.Event()
         self._preview_token = 0
+        self._visual_samples: dict | None = None
+        self._open_advanced_when_ready = False
+        self._advanced_viewers: list[dict] = []
         self._merge_queue = None
         self._merge_process = None
         self._merge_cancel = None
@@ -180,6 +185,7 @@ class PointCloudMergeTool(ttk.Frame):
             self.add_coordinate_row()
         self.after(100, self._poll_preview)
         self.after(120, self._poll_merge)
+        self.after(250, self._poll_advanced_viewers)
 
     def _build(self):
         self.columnconfigure(0, weight=1)
@@ -218,7 +224,7 @@ class PointCloudMergeTool(ttk.Frame):
         ttk.Label(footer, textvariable=self.status_var, style="StatusBar.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12))
         self.progress = ttk.Progressbar(footer, variable=self.progress_var, maximum=1.0)
         self.progress.grid(row=0, column=1, sticky="ew", padx=(0, 12))
-        ttk.Label(footer, text="Rígido 3D · sin escala automática", style="StatusBar.TLabel").grid(row=0, column=2)
+        ttk.Label(footer, text="Registro XY · Z absoluta intacta", style="StatusBar.TLabel").grid(row=0, column=2)
 
     def _build_files_tab(self):
         tab = ttk.Frame(self.notebook, style="Card.TFrame", padding=13)
@@ -297,11 +303,13 @@ class PointCloudMergeTool(ttk.Frame):
         qc = ttk.Frame(tab, style="Soft.TFrame", padding=9)
         qc.grid(row=4, column=0, sticky="ew")
         ttk.Label(qc, textvariable=self.qc_var, style="SoftSection.TLabel", wraplength=550, justify="left").pack(anchor="w")
-        self.residual_tree = ttk.Treeview(qc, columns=("point", "error"), show="headings", height=4)
+        self.residual_tree = ttk.Treeview(qc, columns=("point", "xy", "z"), show="headings", height=4)
         self.residual_tree.heading("point", text="Control")
-        self.residual_tree.heading("error", text="Residual 3D (m)")
-        self.residual_tree.column("point", width=100, anchor="center")
-        self.residual_tree.column("error", width=180, anchor="e")
+        self.residual_tree.heading("xy", text="Error XY (m)")
+        self.residual_tree.heading("z", text="Diferencia Z (m)")
+        self.residual_tree.column("point", width=80, anchor="center")
+        self.residual_tree.column("xy", width=145, anchor="e")
+        self.residual_tree.column("z", width=155, anchor="e")
         self.residual_tree.pack(fill="x", pady=(7, 0))
 
     def _build_export_tab(self):
@@ -344,6 +352,10 @@ class PointCloudMergeTool(ttk.Frame):
         ttk.Button(tools, text="Cargar / actualizar", style="Accent.TButton", command=self.start_preview).pack(side="left")
         ttk.Button(tools, text="Vista superior", style="Secondary.TButton", command=lambda: self.preview.set_top_view()).pack(side="left", padx=5)
         ttk.Button(tools, text="Encuadrar", style="Secondary.TButton", command=lambda: self.preview.reset_view()).pack(side="left")
+        ttk.Button(
+            tools, text="Abrir visor 3D avanzado", style="Secondary.TButton",
+            command=self.open_advanced_viewer,
+        ).pack(side="right")
         self.preview = CloudPreview(parent)
         self.preview.grid(row=2, column=0, sticky="nsew")
         ttk.Label(parent, textvariable=self.preview_var, style="Hint.Card.TLabel", wraplength=650, justify="left").grid(row=3, column=0, sticky="ew", pady=(7, 0))
@@ -441,6 +453,7 @@ class PointCloudMergeTool(ttk.Frame):
             self.target_label.set(path.name)
             self.target_info_var.set(details + " · se moverá desde UTM hacia el sistema local del escáner")
         self.registration = None
+        self._visual_samples = None
         self.preview.clear_clouds()
 
     def choose_source(self):
@@ -484,14 +497,25 @@ class PointCloudMergeTool(ttk.Frame):
         unit_note = ""
         if not 0.5 <= scale_ratio <= 2.0:
             unit_note = " · ⚠ revisa unidades o correspondencias: las separaciones difieren mucho"
+        vertical_note = ""
+        if result.vertical_max_difference > 0.03:
+            vertical_note = " · ⚠ las cotas difieren; Z no fue modificada"
         self.qc_var.set(
-            f"RMSE: {result.rmse:.4f} m · Máximo: {result.max_error:.4f} m · {result.pair_count} pares, {check}{unit_note}"
+            f"RMSE XY: {result.planar_rmse:.4f} m · ΔZ RMSE: {result.vertical_rmse:.4f} m · "
+            f"giro Z: {result.yaw_degrees:.5f}° · {result.pair_count} pares, {check}"
+            f"{vertical_note}{unit_note}"
         )
         for item in self.residual_tree.get_children():
             self.residual_tree.delete(item)
-        for index, residual in enumerate(result.residuals, 1):
-            self.residual_tree.insert("", "end", values=(f"P{index}", f"{residual:.4f}"))
-        self.status_var.set(f"Registro calculado · RMSE {result.rmse:.4f} m")
+        for index, (planar, vertical) in enumerate(
+            zip(result.planar_residuals, result.vertical_differences), 1
+        ):
+            self.residual_tree.insert(
+                "", "end", values=(f"P{index}", f"{planar:.4f}", f"{vertical:+.4f}")
+            )
+        self.status_var.set(
+            f"Registro calculado · XY {result.planar_rmse:.4f} m · Z conservada"
+        )
         return True
 
     def start_preview(self):
@@ -516,12 +540,19 @@ class PointCloudMergeTool(ttk.Frame):
 
         def work():
             try:
-                scanner = sample_cloud(scanner_path, scanner_factor, 90_000, cancellation.is_set)
-                drone = sample_cloud(drone_path, drone_factor, 90_000, cancellation.is_set)
+                scanner = sample_cloud_visual(scanner_path, scanner_factor, 250_000, cancellation.is_set)
+                drone = sample_cloud_visual(drone_path, drone_factor, 250_000, cancellation.is_set)
                 rotation = np.asarray(registration.rotation)
                 translation = np.asarray(registration.translation)
-                drone = drone @ rotation.T + translation
-                self._preview_queue.put((token, "done", drone, scanner))
+                drone_adjusted = drone.xyz @ rotation.T + translation
+                visual = {
+                    "scanner_xyz": scanner.xyz,
+                    "scanner_rgb": scanner.rgb,
+                    "drone_raw_xyz": drone.xyz,
+                    "drone_adjusted_xyz": drone_adjusted,
+                    "drone_rgb": drone.rgb,
+                }
+                self._preview_queue.put((token, "done", visual, None))
             except InterruptedError:
                 self._preview_queue.put((token, "cancelled", None, None))
             except Exception as exc:
@@ -539,11 +570,16 @@ class PointCloudMergeTool(ttk.Frame):
                 self.progress.configure(mode="determinate")
                 self.cancel_button.state(["disabled"] if not self._merge_running else ["!disabled"])
                 if kind == "done":
-                    self.preview.set_clouds(first, second)
+                    self._visual_samples = first
+                    self.preview.set_clouds(first["drone_adjusted_xyz"], first["scanner_xyz"])
                     self.preview_var.set(
-                        f"Muestra cargada: {len(second):,} puntos del escáner base y {len(first):,} del dron ajustado. "
-                        "El cálculo exacto usa la tabla, no esta simplificación."
+                        f"Muestra cargada: {len(first['scanner_xyz']):,} puntos del escáner base y "
+                        f"{len(first['drone_adjusted_xyz']):,} del dron ajustado. "
+                        "Usa el visor avanzado para renderizado GPU."
                     )
+                    if self._open_advanced_when_ready:
+                        self._open_advanced_when_ready = False
+                        self._launch_advanced_viewer()
                 elif kind == "error":
                     self.preview_var.set(f"No se pudo cargar la vista previa: {first}")
                 else:
@@ -552,15 +588,89 @@ class PointCloudMergeTool(ttk.Frame):
             pass
         self.after(100, self._poll_preview)
 
+    def open_advanced_viewer(self):
+        if importlib.util.find_spec("open3d") is None:
+            messagebox.showerror(
+                "Visor 3D no disponible",
+                "Open3D no está instalado en esta versión de la aplicación.",
+                parent=self,
+            )
+            return
+        if self._visual_samples is None:
+            self._open_advanced_when_ready = True
+            self.preview_var.set("Preparando la muestra para abrir el visor 3D avanzado…")
+            self.start_preview()
+            return
+        self._launch_advanced_viewer()
+
+    def _launch_advanced_viewer(self):
+        if self._visual_samples is None:
+            return
+        payload = dict(self._visual_samples)
+        payload["names"] = {
+            "scanner": self.source_path.name if self.source_path else "Escáner",
+            "drone": self.target_path.name if self.target_path else "Dron",
+        }
+        context = multiprocessing.get_context("spawn")
+        status_queue = context.Queue()
+        process = context.Process(
+            target=run_advanced_viewer,
+            args=(payload, status_queue),
+            name="pointcloud-open3d-viewer",
+            daemon=True,
+        )
+        try:
+            process.start()
+        except Exception as exc:
+            messagebox.showerror("No se pudo abrir el visor 3D", str(exc), parent=self)
+            return
+        self._advanced_viewers.append({"process": process, "queue": status_queue, "reported": False})
+        self.status_var.set("Abriendo visor 3D avanzado en una ventana independiente…")
+
+    def _poll_advanced_viewers(self):
+        survivors = []
+        for viewer in self._advanced_viewers:
+            process = viewer["process"]
+            status_queue = viewer["queue"]
+            try:
+                while True:
+                    message = status_queue.get_nowait()
+                    kind = message.get("kind")
+                    if kind == "ready":
+                        viewer["reported"] = True
+                        self.status_var.set("Visor 3D avanzado abierto · renderizado con GPU")
+                    elif kind == "error":
+                        viewer["reported"] = True
+                        messagebox.showerror(
+                            "El visor 3D se cerró con error",
+                            message.get("message", "Open3D no pudo inicializar la ventana."),
+                            parent=self,
+                        )
+            except queue.Empty:
+                pass
+            if process.is_alive():
+                survivors.append(viewer)
+            else:
+                process.join(timeout=0.05)
+                if process.exitcode not in (0, None) and not viewer["reported"]:
+                    messagebox.showerror(
+                        "No se pudo iniciar el visor 3D",
+                        f"El proceso gráfico terminó inesperadamente (código {process.exitcode}).",
+                        parent=self,
+                    )
+        self._advanced_viewers = survivors
+        self.after(250, self._poll_advanced_viewers)
+
     def _project_payload(self):
         return {
-            "schema": "grupo-itt.pointcloud-merge-project.v2",
+            "schema": "grupo-itt.pointcloud-merge-project.v3",
             "scanner_path": str(self.source_path or ""),
             "drone_path": str(self.target_path or ""),
             "scanner_unit": self.source_unit.get(),
             "drone_unit": self.target_unit.get(),
             "pairs": self.collect_pairs(),
             "output_reference": "scanner_local_metres",
+            "registration_mode": "yaw_xy_preserve_z",
         }
 
     def save_project(self):
@@ -590,6 +700,7 @@ class PointCloudMergeTool(ttk.Frame):
             if schema not in {
                 "grupo-itt.pointcloud-merge-project.v1",
                 "grupo-itt.pointcloud-merge-project.v2",
+                "grupo-itt.pointcloud-merge-project.v3",
             }:
                 raise ValueError("El archivo no es un proyecto de registro compatible.")
             if schema.endswith(".v1"):
@@ -626,6 +737,7 @@ class PointCloudMergeTool(ttk.Frame):
         self.target_info_var.set("Nube móvil: sus coordenadas UTM se ajustarán al escáner")
         self._replace_rows([])
         self.registration = None
+        self._visual_samples = None
         self.preview.clear_clouds()
         self.qc_var.set("Aún no se ha calculado la transformación")
         self.status_var.set("Proyecto nuevo")
@@ -703,9 +815,21 @@ class PointCloudMergeTool(ttk.Frame):
                         self.progress_var.set(1.0)
                         output = Path(message["output_path"])
                         self.status_var.set(f"Fusión terminada · {message.get('point_count', 0):,} puntos")
+                        audit = message.get("audit", {})
+                        scanner_count = audit.get("scanner_input_points")
+                        drone_count = audit.get("drone_input_points")
+                        output_count = audit.get("output_header_points")
+                        if scanner_count is not None and drone_count is not None and output_count is not None:
+                            audit_text = (
+                                f"\n\nAuditoría de puntos:\n"
+                                f"Escáner: {scanner_count:,}\nDron: {drone_count:,}\n"
+                                f"LAZ final: {output_count:,}\nDiferencia: {audit.get('difference', 0):+,}"
+                            )
+                        else:
+                            audit_text = f"\n\nLAZ final: {message.get('point_count', 0):,} puntos escritos."
                         answer = messagebox.askyesno(
                             "Nubes fusionadas",
-                            f"Se creó:\n{output}\n\nTambién se guardó el reporte de registro JSON.\n\n¿Abrir la carpeta?",
+                            f"Se creó:\n{output}{audit_text}\n\nTambién se guardó el reporte de registro JSON.\n\n¿Abrir la carpeta?",
                             parent=self,
                         )
                         if answer:

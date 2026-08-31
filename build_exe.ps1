@@ -14,6 +14,7 @@ if (Test-Path '.venv\Scripts\python.exe') { $Python = '.venv\Scripts\python.exe'
   --collect-all lazrs `
   --collect-all pye57 `
   --collect-all tkinterdnd2 `
+  --collect-all open3d `
   --collect-submodules photo_report_app `
   main.py
 Write-Host 'EXE creado en dist\HerramientasGrupoITT.exe'

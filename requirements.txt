@@ -11,3 +11,4 @@ wordfreq>=3.1.1
 laspy[lazrs]>=2.5
 pye57>=0.4
 tkinterdnd2>=0.6.2
+open3d>=0.19,<0.20
