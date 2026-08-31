@@ -10,6 +10,6 @@ TOOL_SPEC = ToolSpec(
     icon_color="#B8662C",
     icon_asset="__triangulation__",
     factory_path="photo_report_app.triangulation_tool:TriangulationTool",
-    version="1.1.0",
+    version="1.2.0",
     data_category=None,
 )

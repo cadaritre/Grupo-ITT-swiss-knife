@@ -11,6 +11,12 @@ from tkinter import ttk
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
+try:
+    from tkinterdnd2 import TkinterDnD
+    AppTkBase = TkinterDnD.Tk
+except ImportError:  # The app still starts; report drop support shows as unavailable.
+    AppTkBase = Tk
+
 from .app_storage import APP_DATA_ROOT, ensure_app_folders
 from .branding import active_profile
 from .cloud_sync import flush_cloud_queue
@@ -22,7 +28,7 @@ ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 TOOL_ICON_DIR = ROOT / "assets" / "tool_icons"
 
 
-class CompanyApp(Tk):
+class CompanyApp(AppTkBase):
     def __init__(self):
         super().__init__()
         self.company = active_profile()

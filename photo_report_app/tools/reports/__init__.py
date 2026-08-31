@@ -10,7 +10,7 @@ TOOL_SPEC = ToolSpec(
     icon_color="#0B7FAB",
     icon_asset="reports.png",
     factory_path="photo_report_app.report_tool:ReportTool",
-    version="1.1.0",
+    version="1.2.0",
     data_category="reports",
     data_folder="Reportes Fotograficos",
 )

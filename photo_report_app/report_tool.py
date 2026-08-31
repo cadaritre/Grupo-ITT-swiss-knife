@@ -10,10 +10,15 @@ from tkinter import ttk
 
 from PIL import Image, ImageOps, ImageTk
 
+try:
+    from tkinterdnd2 import DND_FILES
+except ImportError:
+    DND_FILES = None
+
 from .app_storage import SETTINGS, category_dir, preserve_artifact
 from .branding import active_profile
 from .document_texts import report_texts
-from .metadata import PhotoInfo, read_photo
+from .metadata import SUPPORTED_EXTENSIONS, PhotoInfo, read_photo
 from .pdf_generator import ReportOptions, generate_report
 
 
@@ -35,6 +40,10 @@ class ReportTool(ttk.Frame):
         self._active_photo: PhotoInfo | None = None
         self._loading_description = False
         self._preview_image = None
+        self._drag_source: int | None = None
+        self._drag_start_xy: tuple[int, int] | None = None
+        self._drag_target_slot: int | None = None
+        self._drag_active = False
         self._events = queue.Queue()
         self._build()
         self.after(120, self._poll)
@@ -72,11 +81,23 @@ class ReportTool(ttk.Frame):
         workspace.rowconfigure(1, weight=1)
         actions = ttk.Frame(workspace, style="Card.TFrame")
         actions.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        ttk.Label(actions, text="FOTOGRAFÍAS", style="Section.TLabel").pack(side="left")
-        ttk.Button(actions, text="+ Agregar", style="Accent.TButton", command=self._add).pack(side="right")
-        ttk.Button(actions, text="Eliminar", style="Secondary.TButton", command=self._remove).pack(side="right", padx=6)
-        ttk.Button(actions, text="Bajar", style="Secondary.TButton", command=lambda: self._move(1)).pack(side="right", padx=(6, 0))
-        ttk.Button(actions, text="Subir", style="Secondary.TButton", command=lambda: self._move(-1)).pack(side="right")
+        actions.columnconfigure(0, weight=1)
+        ttk.Label(actions, text="FOTOGRAFÍAS", style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        button_bar = ttk.Frame(actions, style="Card.TFrame")
+        button_bar.grid(row=0, column=1, sticky="e")
+        ttk.Button(button_bar, text="Subir", style="Secondary.TButton", command=lambda: self._move(-1)).pack(side="left")
+        ttk.Button(button_bar, text="Bajar", style="Secondary.TButton", command=lambda: self._move(1)).pack(side="left", padx=(6, 0))
+        ttk.Button(button_bar, text="Eliminar", style="Secondary.TButton", command=self._remove).pack(side="left", padx=6)
+        ttk.Button(button_bar, text="+ Agregar", style="Accent.TButton", command=self._add).pack(side="left")
+        self.drop_hint = ttk.Label(
+            actions, text="Arrastra archivos aquí · arrastra renglones para ordenar",
+            style="Hint.Card.TLabel",
+        )
+        self.drop_hint.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 0))
+        actions.bind(
+            "<Configure>",
+            lambda event: self.drop_hint.configure(wraplength=max(220, event.width - 8)),
+        )
 
         table = ttk.Frame(workspace, style="Card.TFrame")
         table.grid(row=1, column=0, sticky="nsew")
@@ -93,6 +114,13 @@ class ReportTool(ttk.Frame):
         ybar.grid(row=0, column=1, sticky="ns")
         self.tree.bind("<<TreeviewSelect>>", self._selection_changed)
         self.tree.bind("<Double-1>", lambda _: self._open_photo())
+        self.tree.bind("<ButtonPress-1>", self._drag_press, add="+")
+        self.tree.bind("<B1-Motion>", self._drag_motion, add="+")
+        self.tree.bind("<ButtonRelease-1>", self._drag_release, add="+")
+        self.tree.bind("<Escape>", self._cancel_drag, add="+")
+        self.tree.tag_configure("drag_target", background="#D9F1F8", foreground="#173B5F")
+        self._enable_file_drop(self.tree)
+        self._enable_file_drop(table)
 
         detail = ttk.Frame(workspace, style="Soft.TFrame", padding=12, height=205)
         detail.grid(row=2, column=0, sticky="ew", pady=(12, 0))
@@ -128,19 +156,158 @@ class ReportTool(ttk.Frame):
 
     def _add(self):
         paths = filedialog.askopenfilenames(title="Seleccionar fotografías", filetypes=[("Fotografías", "*.jpg *.jpeg *.png *.tif *.tiff *.webp")])
+        self._ingest_paths(paths)
+
+    @staticmethod
+    def _expanded_image_paths(raw_paths):
+        result = []
+        for raw in raw_paths:
+            path = Path(raw).expanduser()
+            if path.is_dir():
+                result.extend(
+                    candidate for candidate in sorted(path.iterdir(), key=lambda item: item.name.casefold())
+                    if candidate.is_file() and candidate.suffix.casefold() in SUPPORTED_EXTENSIONS
+                )
+            elif path.is_file() and path.suffix.casefold() in SUPPORTED_EXTENSIONS:
+                result.append(path)
+        return result
+
+    def _ingest_paths(self, raw_paths, *, dropped=False):
+        paths = self._expanded_image_paths(raw_paths)
         existing = {photo.path.resolve() for photo in self.photos}
         errors = []
+        duplicates = 0
+        first_added = len(self.photos)
+        added = 0
         for raw in paths:
             try:
                 path = Path(raw).resolve()
                 if path not in existing:
                     self.photos.append(read_photo(path))
                     existing.add(path)
+                    added += 1
+                else:
+                    duplicates += 1
             except Exception as exc:
                 errors.append(f"{Path(raw).name}: {exc}")
-        self._refresh()
+        self._refresh(first_added if added else self._selected_index)
+        if dropped:
+            if not paths:
+                self.status_var.set("No se encontraron imágenes JPG, PNG, TIFF o WEBP en lo que soltaste")
+            else:
+                detail = f"{added} fotografía(s) agregada(s) al arrastrar"
+                if duplicates:
+                    detail += f" · {duplicates} repetida(s) omitida(s)"
+                self.status_var.set(detail)
         if errors:
             messagebox.showwarning("Algunas fotos no se cargaron", "\n".join(errors[:8]))
+        return added
+
+    def _enable_file_drop(self, widget):
+        if DND_FILES is None or not hasattr(widget, "drop_target_register"):
+            self.drop_hint.configure(text="Arrastra renglones para ordenar · usa + Agregar para archivos")
+            return
+        widget.drop_target_register(DND_FILES)
+        widget.dnd_bind("<<DropEnter>>", self._drop_enter)
+        widget.dnd_bind("<<DropLeave>>", self._drop_leave)
+        widget.dnd_bind("<<Drop>>", self._drop_files)
+
+    def _drop_enter(self, _event=None):
+        self.drop_hint.configure(text="Suelta las fotografías para agregarlas", foreground="#0B7FAB")
+        self.status_var.set("Suelta aquí archivos o una carpeta con fotografías")
+        return "copy"
+
+    def _drop_leave(self, _event=None):
+        self.drop_hint.configure(
+            text="Arrastra archivos aquí · arrastra renglones para ordenar",
+            foreground="#718391",
+        )
+
+    def _drop_files(self, event):
+        self._drop_leave()
+        try:
+            paths = self.tk.splitlist(event.data)
+        except Exception:
+            paths = (event.data,)
+        self._ingest_paths(paths, dropped=True)
+        return "copy"
+
+    def _drag_press(self, event):
+        row = self.tree.identify_row(event.y)
+        if not row:
+            self._cancel_drag()
+            return
+        self._drag_source = int(row)
+        self._drag_start_xy = (event.x, event.y)
+        self._drag_target_slot = self._drag_source
+        self._drag_active = False
+
+    def _drag_slot_at(self, y: int) -> tuple[int, str | None]:
+        row = self.tree.identify_row(y)
+        if row:
+            index = int(row)
+            box = self.tree.bbox(row)
+            after = bool(box and y >= box[1] + box[3] / 2)
+            return index + int(after), row
+        children = self.tree.get_children()
+        if not children:
+            return 0, None
+        first_box = self.tree.bbox(children[0])
+        if first_box and y < first_box[1]:
+            return 0, children[0]
+        return len(self.photos), children[-1]
+
+    def _clear_drag_tags(self):
+        for iid in self.tree.get_children():
+            if "drag_target" in self.tree.item(iid, "tags"):
+                self.tree.item(iid, tags=())
+
+    def _drag_motion(self, event):
+        if self._drag_source is None or self._drag_start_xy is None:
+            return
+        if not self._drag_active:
+            distance = abs(event.x - self._drag_start_xy[0]) + abs(event.y - self._drag_start_xy[1])
+            if distance < 6:
+                return
+            self._save_description()
+            self._drag_active = True
+            self.tree.configure(cursor="fleur")
+        height = self.tree.winfo_height()
+        if event.y < 24:
+            self.tree.yview_scroll(-1, "units")
+        elif event.y > height - 24:
+            self.tree.yview_scroll(1, "units")
+        slot, row = self._drag_slot_at(event.y)
+        self._drag_target_slot = slot
+        self._clear_drag_tags()
+        if row:
+            self.tree.item(row, tags=("drag_target",))
+        self.status_var.set(f"Mover fotografía {self._drag_source + 1} a la posición {min(slot + 1, len(self.photos))}")
+        return "break"
+
+    def _drag_release(self, _event=None):
+        source = self._drag_source
+        slot = self._drag_target_slot
+        active = self._drag_active
+        self._cancel_drag()
+        if not active or source is None or slot is None or not 0 <= source < len(self.photos):
+            return
+        photo = self.photos.pop(source)
+        if slot > source:
+            slot -= 1
+        slot = max(0, min(slot, len(self.photos)))
+        self.photos.insert(slot, photo)
+        self._refresh(slot)
+        self.status_var.set(f"Fotografía movida a la posición {slot + 1}")
+        return "break"
+
+    def _cancel_drag(self, _event=None):
+        self._clear_drag_tags()
+        self.tree.configure(cursor="")
+        self._drag_source = None
+        self._drag_start_xy = None
+        self._drag_target_slot = None
+        self._drag_active = False
 
     def _refresh(self, select: int | None = None):
         self._save_description()

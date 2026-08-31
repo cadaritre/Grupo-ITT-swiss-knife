@@ -232,6 +232,8 @@ Documentos/
 - Logo corporativo predeterminado o reemplazable.
 - Fecha actual editable y nombre personalizado.
 - Reordenamiento, eliminación y apertura de fotografías.
+- Arrastre de archivos o carpetas desde el Explorador de Windows para agregar fotografías; los formatos no compatibles y los duplicados se omiten de forma segura.
+- Reordenamiento directo arrastrando renglones, con indicador de destino, desplazamiento automático y conservación de descripción, GPS y demás metadatos de cada fotografía.
 - Vista previa integrada y descripción independiente por fotografía; cambiar de selección nunca reutiliza el texto de otra imagen.
 - Encabezados, pie, títulos del croquis, etiquetas, meses y leyendas configurables, con restauración de valores originales.
 - PDF A4 con encabezado, pie, numeración y metadatos.
@@ -290,7 +292,7 @@ Documentos/
 
 - Conversión de entidades `POINT`, bloques `INSERT` y, opcionalmente, vértices de polilínea a una superficie TIN Delaunay en `3DFACE`.
 - Filtros gráficos de duplicados XY, área mínima y longitud máxima de arista para evitar triángulos que crucen huecos o límites irregulares.
-- Vista previa en planta con puntos, malla, gradiente de elevaciones, zoom y paneo antes de exportar. El dibujo puede apagarse antes de cargar superficies grandes: el cálculo y la exportación continúan sin crear miles de objetos en el `Canvas` de Tkinter.
+- Vista previa en planta con puntos, malla, gradiente de elevaciones, zoom y paneo antes de exportar. TIN y pendientes rasterizan la superficie completa como una sola imagen: no se omiten caras al optimizar y se evitan decenas de miles de objetos en el `Canvas` de Tkinter. El dibujo puede apagarse antes de cargar superficies extraordinariamente grandes sin afectar el cálculo ni la exportación.
 - Zonificación de una superficie TIN por rangos editables de pendiente, con colores, áreas y porcentajes visibles antes de guardar.
 - Flechas de escurrimiento pluvial calculadas con la dirección de máxima bajada de cada triángulo, con rangos configurables de color, longitud relativa y grosor.
 - Controles para longitud base automática o manual, tamaño de punta, densidad, pendiente mínima, malla de referencia y etiquetas de pendiente.

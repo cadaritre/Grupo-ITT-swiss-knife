@@ -8,6 +8,8 @@ from pathlib import Path
 from tkinter import BooleanVar, Button, Canvas, StringVar, colorchooser, filedialog, messagebox
 from tkinter import ttk
 
+from PIL import Image, ImageDraw, ImageTk
+
 from .app_storage import SETTINGS
 from .triangulation import (
     FlowRange,
@@ -78,6 +80,7 @@ class TriangulationTool(ttk.Frame):
         self._drag_start = None
         self._drag_last = None
         self._resize_job = None
+        self._preview_photo = None
         self._history = {"tin": [], "slope": [], "flow": []}
         self._last_applied = {}
         self.range_rows: list[dict] = []
@@ -917,23 +920,15 @@ class TriangulationTool(ttk.Frame):
         if self._preview_kind == "tin":
             elevations = [sum(point[2] for point in triangle) / 3 for triangle in triangles]
             min_z, max_z = min(elevations), max(elevations)
-            for index in range(0, len(triangles), step):
-                triangle = triangles[index]
+            colors = []
+            for index in range(len(triangles)):
                 ratio = 0.5 if max_z == min_z else (elevations[index] - min_z) / (max_z - min_z)
-                fill = self._elevation_color(ratio)
-                coords = [value for point in triangle for value in self._screen_point(point)]
-                self.preview.create_polygon(coords, fill=fill, outline="#27495C", width=1, tags=("geometry",))
-            point_step = max(1, math.ceil(len(model.points) / 5000))
-            for point in model.points[::point_step]:
-                x, y = self._screen_point(point)
-                self.preview.create_oval(x - 1.8, y - 1.8, x + 1.8, y + 1.8, fill="#F04B3A", outline="#FFFFFF", width=1, tags=("geometry",))
+                colors.append(self._elevation_color(ratio))
+            self._draw_surface_raster(triangles, colors, model.points)
             self.preview_info.configure(text=f"{len(model.points):,} puntos · {len(triangles):,} triángulos · elevación {min(point[2] for point in model.points):,.3f} a {max(point[2] for point in model.points):,.3f} m")
         elif self._preview_kind == "slope":
-            for index in range(0, len(triangles), step):
-                triangle = triangles[index]
-                color = model.ranges[model.assignments[index]].color_hex
-                coords = [value for point in triangle for value in self._screen_point(point)]
-                self.preview.create_polygon(coords, fill=color, outline="#263746", width=1, tags=("geometry",))
+            colors = [model.ranges[model.assignments[index]].color_hex for index in range(len(triangles))]
+            self._draw_surface_raster(triangles, colors)
             self._draw_slope_legend(model)
             self.preview_info.configure(text=f"{len(triangles):,} triángulos · área 2D {model.total_area:,.2f} m² · rellenos agrupados por rango")
         else:
@@ -955,8 +950,33 @@ class TriangulationTool(ttk.Frame):
                 text=f"{len(model.arrows):,} flechas · longitud base {model.base_length:.2f} m · "
                 f"pendiente mínima {model.minimum_slope:g}% · dirección de máxima bajada"
             )
-        if step > 1:
+        if self._preview_kind == "flow" and step > 1:
             self.preview.create_text(12, self.preview.winfo_height() - 12, anchor="sw", text=f"Vista optimizada: 1 de cada {step} triángulos", fill="#AEC0CB", font=("Segoe UI", 8))
+
+    def _draw_surface_raster(self, triangles, colors, points=None):
+        """Render a complete dense surface as one Tk image.
+
+        Skipping every Nth triangle creates holes because adjacent Delaunay
+        faces are independent. Pillow can rasterize every face much more
+        cheaply than creating tens of thousands of Canvas polygon objects.
+        """
+        width = max(2, self.preview.winfo_width())
+        height = max(2, self.preview.winfo_height())
+        image = Image.new("RGB", (width, height), "#132331")
+        draw = ImageDraw.Draw(image)
+        # Keep the mesh legible for normal surveys. Above this threshold the
+        # fill remains complete but edges are omitted to protect interaction.
+        outline = "#27495C" if len(triangles) <= 120_000 else None
+        for triangle, fill in zip(triangles, colors):
+            coordinates = [self._screen_point(point) for point in triangle]
+            draw.polygon(coordinates, fill=fill, outline=outline)
+        if points:
+            point_step = max(1, math.ceil(len(points) / 2000))
+            for point in points[::point_step]:
+                x, y = self._screen_point(point)
+                draw.ellipse((x - 1.0, y - 1.0, x + 1.0, y + 1.0), fill="#FF6B55")
+        self._preview_photo = ImageTk.PhotoImage(image)
+        self.preview.create_image(0, 0, image=self._preview_photo, anchor="nw", tags=("geometry",))
 
     @staticmethod
     def _elevation_color(ratio):
