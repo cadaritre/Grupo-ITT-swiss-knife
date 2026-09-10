@@ -10,6 +10,10 @@ from .app_storage import SETTINGS
 INSTALL_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 ITT_LOGO = INSTALL_ROOT / "assets" / "logo.png"
 TRESVIZO_LOGO = INSTALL_ROOT / "assets" / "logo_tresvizo.png"
+REPORT_SIGNATURE = INSTALL_ROOT / "assets" / "firma_carlos_rivera.png"
+REPORT_LICENSE_CARD = INSTALL_ROOT / "assets" / "cedula_carlos_rivera.jpg"
+REPORT_SIGNER = "ING. CARLOS RIVERA ABAID"
+REPORT_PROFESSIONAL_LICENSE = "1444177"
 LEGACY_ITT_SIGNER = "ING. CARLOS RIVERA ABAID"
 
 PROFILE_DEFAULTS = {

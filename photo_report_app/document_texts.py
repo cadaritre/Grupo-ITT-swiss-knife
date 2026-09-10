@@ -14,6 +14,8 @@ REPORT_TEXT_DEFAULTS = {
     "photo_label": "FOTOGRAFÍA",
     "captured_label": "Capturada",
     "gps_label": "GPS",
+    "credentials_title": "CÉDULA PROFESIONAL Y FIRMA",
+    "professional_license_label": "Cédula Profesional",
     "page_label": "Página",
     "cover_date_template": "{day} de {month} de {year}",
     "months": "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre",

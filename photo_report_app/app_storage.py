@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
     "version": 5,
     "reports": {
         "include_map": True,
+        "include_credentials": False,
         "open_pdf": True,
     },
     "geospatial": {

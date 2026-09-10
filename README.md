@@ -235,6 +235,7 @@ Documentos/
 - Arrastre de archivos o carpetas desde el Explorador de Windows para agregar fotografías; los formatos no compatibles y los duplicados se omiten de forma segura.
 - Reordenamiento directo arrastrando renglones, con indicador de destino, desplazamiento automático y conservación de descripción, GPS y demás metadatos de cada fotografía.
 - Vista previa integrada y descripción independiente por fotografía; cambiar de selección nunca reutiliza el texto de otra imagen.
+- Opción recordada para añadir al final una página de cédula profesional y firma, sin reducir ni cubrir las fotografías del reporte.
 - Encabezados, pie, títulos del croquis, etiquetas, meses y leyendas configurables, con restauración de valores originales.
 - PDF A4 con encabezado, pie, numeración y metadatos.
 - Interfaz sin conexión obligatoria; si OSM no responde conserva los puntos GPS sobre una base neutra.

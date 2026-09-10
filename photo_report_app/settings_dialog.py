@@ -53,6 +53,8 @@ REPORT_TEXT_FIELDS = (
     ("photo_label", "Etiqueta de fotografía"),
     ("captured_label", "Etiqueta de fecha de captura"),
     ("gps_label", "Etiqueta de coordenadas"),
+    ("credentials_title", "Título de la página de cédula y firma"),
+    ("professional_license_label", "Etiqueta del número de cédula"),
     ("page_label", "Etiqueta de página"),
     ("cover_date_template", "Formato de fecha de portada"),
     ("months", "Meses separados con |"),

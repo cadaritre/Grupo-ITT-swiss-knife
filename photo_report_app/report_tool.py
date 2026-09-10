@@ -16,7 +16,13 @@ except ImportError:
     DND_FILES = None
 
 from .app_storage import SETTINGS, category_dir, preserve_artifact
-from .branding import active_profile
+from .branding import (
+    REPORT_LICENSE_CARD,
+    REPORT_PROFESSIONAL_LICENSE,
+    REPORT_SIGNATURE,
+    REPORT_SIGNER,
+    active_profile,
+)
 from .document_texts import report_texts
 from .metadata import SUPPORTED_EXTENSIONS, PhotoInfo, read_photo
 from .pdf_generator import ReportOptions, generate_report
@@ -35,6 +41,7 @@ class ReportTool(ttk.Frame):
         self.date_var = StringVar(value=date.today().strftime("%d/%m/%Y"))
         self.open_var = BooleanVar(value=bool(SETTINGS.get("reports.open_pdf", True)))
         self.map_var = BooleanVar(value=bool(SETTINGS.get("reports.include_map", True)))
+        self.credentials_var = BooleanVar(value=bool(SETTINGS.get("reports.include_credentials", False)))
         self.status_var = StringVar(value="Agrega fotografías para comenzar")
         self._selected_index: int | None = None
         self._active_photo: PhotoInfo | None = None
@@ -70,6 +77,18 @@ class ReportTool(ttk.Frame):
         ttk.Separator(settings).pack(fill="x", pady=15)
         ttk.Checkbutton(settings, text="Incluir croquis de ubicación", variable=self.map_var, command=self._map_changed).pack(anchor="w", pady=4)
         ttk.Label(settings, text="Usa el GPS de las fotografías. Si se desactiva, la primera foto será la portada.", style="Hint.Card.TLabel", wraplength=245).pack(anchor="w", pady=(2, 9))
+        ttk.Checkbutton(
+            settings,
+            text="Incluir cédula y firma",
+            variable=self.credentials_var,
+            command=self._credentials_changed,
+        ).pack(anchor="w", pady=4)
+        ttk.Label(
+            settings,
+            text="Añade una página final con los datos profesionales de Carlos Rivera Abaid.",
+            style="Hint.Card.TLabel",
+            wraplength=245,
+        ).pack(anchor="w", pady=(2, 9))
         ttk.Checkbutton(settings, text="Abrir PDF al terminar", variable=self.open_var, command=self._open_changed).pack(anchor="w", pady=4)
         ttk.Button(settings, text="Cambiar logo", style="Secondary.TButton", command=self._choose_logo).pack(fill="x", pady=(18, 7))
         self.generate_btn = ttk.Button(settings, text="Generar reporte PDF", style="Accent.TButton", command=self._generate)
@@ -153,6 +172,14 @@ class ReportTool(ttk.Frame):
 
     def _open_changed(self):
         SETTINGS.set("reports.open_pdf", bool(self.open_var.get()))
+
+    def _credentials_changed(self):
+        enabled = bool(self.credentials_var.get())
+        SETTINGS.set("reports.include_credentials", enabled)
+        self.status_var.set(
+            "Se añadirá una página final con cédula y firma"
+            if enabled else "El reporte se generará sin cédula ni firma"
+        )
 
     def _add(self):
         paths = filedialog.askopenfilenames(title="Seleccionar fotografías", filetypes=[("Fotografías", "*.jpg *.jpeg *.png *.tif *.tiff *.webp")])
@@ -420,6 +447,11 @@ class ReportTool(ttk.Frame):
             website=company.website_label,
             footer=company.document_footer,
             include_map=self.map_var.get(),
+            include_credentials=self.credentials_var.get(),
+            signature=REPORT_SIGNATURE,
+            license_card=REPORT_LICENSE_CARD,
+            signer=REPORT_SIGNER,
+            professional_license=REPORT_PROFESSIONAL_LICENSE,
         )
         self.generate_btn.state(["disabled"])
         self.progress["value"] = 2

@@ -35,6 +35,11 @@ class ReportOptions:
     website: str = "www.grupoitt.com"
     footer: str = "Ingeniería Técnica y Topográfica | Chihuahua, Chih."
     include_map: bool = True
+    include_credentials: bool = False
+    signature: Path | None = None
+    license_card: Path | None = None
+    signer: str = "ING. CARLOS RIVERA ABAID"
+    professional_license: str = "1444177"
 
 
 def _fit_text(canvas, text: str, max_width: float, size: float, font="Helvetica-Bold") -> float:
@@ -99,6 +104,37 @@ def _draw_contain(c: Canvas, image: Image.Image, box: tuple[float, float, float,
     image.save(stream, format="JPEG", quality=88, optimize=True, progressive=True)
     stream.seek(0)
     c.drawImage(ImageReader(stream), x + (bw - iw) / 2, y + (bh - ih) / 2, iw, ih, preserveAspectRatio=True)
+
+
+def _credentials_page(c: Canvas, opts: ReportOptions, page: int, texts: dict[str, str]):
+    """Draw the optional professional credentials as a separate closing page."""
+    w, h = A4
+    _header(c, opts, page, texts)
+    c.setFillColor(BLUE)
+    c.setFont("Helvetica-Bold", 15)
+    c.drawCentredString(w / 2, h - 126, texts["credentials_title"])
+
+    if opts.signature and opts.signature.exists():
+        signature = _safe_image(opts.signature, max_pixels=(1600, 800))
+        _draw_contain(c, signature, (150, h - 286, w - 300, 82))
+    else:
+        c.setStrokeColor(BLUE)
+        c.setLineWidth(.8)
+        c.line(155, h - 252, w - 155, h - 252)
+
+    c.setFillColor(BLUE)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(w / 2, h - 298, opts.signer)
+    c.setFillColor(TEXT)
+    c.setFont("Helvetica", 10)
+    license_text = f"{texts['professional_license_label']}: {opts.professional_license}"
+    c.drawCentredString(w / 2, h - 314, license_text)
+
+    if opts.license_card and opts.license_card.exists():
+        card = _safe_image(opts.license_card, max_pixels=(1800, 1400))
+        _draw_contain(c, card, (72, 102, w - 144, 340))
+
+    _footer(c, opts, page, texts)
 
 
 def generate_report(opts: ReportOptions, progress=None) -> Path:
@@ -172,6 +208,10 @@ def generate_report(opts: ReportOptions, progress=None) -> Path:
         _footer(c, opts, page, texts)
         if progress:
             progress(index - (1 if first_photo_on_cover else 0), total)
+        c.showPage()
+    if opts.include_credentials:
+        page += 1
+        _credentials_page(c, opts, page, texts)
         c.showPage()
     c.save()
     return opts.output
