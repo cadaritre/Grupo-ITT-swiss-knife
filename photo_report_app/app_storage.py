@@ -24,6 +24,7 @@ CATEGORY_NAMES = {
     "cache": "Cache",
     "cloud_queue": "Pendientes de Drive",
     "pointclouds": "Nubes de puntos",
+    "ppk": "PPK Dron",
 }
 
 DEFAULT_SETTINGS = {

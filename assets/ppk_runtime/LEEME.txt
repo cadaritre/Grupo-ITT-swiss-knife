@@ -1,0 +1,95 @@
+PPK DRON — GRUPO ITT
+
+Abre PPK Dron.exe o INICIAR_PPK.vbs. El cálculo se hace localmente en Windows.
+Las fotografías y los RINEX no se suben a un servidor.
+El ejecutable ya incluye Python/Tkinter: no necesitas instalar Python para
+usarlo. Conserva la carpeta tools junto al ejecutable; contiene los motores
+GNSS, ExifTool y las calibraciones necesarias.
+
+1. Selecciona la carpeta con las fotos. El programa detecta un vuelo DJI con
+   Rinex.obs, Timestamp.MRK y la subcarpeta «Archivos GNSS».
+2. Revisa observaciones del dron, observaciones de la base y MRK. Selecciona
+   todos los archivos de navegación pertinentes: GPS, GLONASS, Galileo, etc.
+3. En «Base y calidad» revisa las coordenadas y altura de antena. El perfil
+   ICHI usa las coordenadas de la placa publicadas por INEGI en enero de 2026,
+   ITRF2008 época 2010.0, y altura vertical 0.188 m. No es una transformación
+   rigurosa entre épocas ni una conversión a otro datum.
+4. «Revisar archivos» comprueba los intervalos. «Procesar y exportar fotos»
+   calcula tres soluciones: combinada, adelante y atrás. La interfaz sigue
+   respondiendo y puedes cancelar el trabajo.
+5. Revisa el informe. Cada ejecución crea una carpeta independiente.
+
+CALIDAD
+FIX_CONCORDANTE: FIX en los tres cálculos, diferencias horizontal/vertical
+bajo los límites, desviaciones internas bajas, offsets MRK válidos y base
+definida. Aun así requiere puntos de comprobación independientes.
+
+PROVISIONAL: no cumple uno o más controles. Sólo se exporta si activas la
+casilla correspondiente. Se separa en Fotos_PPK_PROVISIONALES y RtkFlag=0.
+No implica precisión centimétrica. El estado preciso se conserva en CSV.
+
+SIN_DISPARO_MRK / SIN_SOLUCION: no se exporta como foto corregida. No se
+extrapolan posiciones fuera del registro GNSS ni sobre huecos superiores
+al límite (0.5 s por defecto para rover, 30 s para base).
+
+Las imágenes se emparejan por el nombre de vuelo/índice y la marca GPS
+PhotoDiff de DJI. Si falta PhotoDiff, se valida DateTimeOriginal con el huso
+horario indicado. No se asocian únicamente por el orden alfabético.
+
+ANTENA Y CÁMARA
+MRK: offsets Norte/Este/Abajo en mm; abajo positivo. Se suman en ECEF.
+auto: usa MRK válido; para FC6310R con offsets en cero estima el vector
+nominal (36, 0, 192) mm con la actitud FlightRoll/Pitch/Yaw de cada JPG.
+Ese modelo es aproximado y nunca recibe FIX_CONCORDANTE; se usa un margen
+mínimo de 0.20 m en los indicadores de incertidumbre exportados.
+mrk: exige offsets no nulos; rechaza la posición de cámara si faltan.
+antenna: exporta la posición de antena sin compensar, siempre provisional.
+La calibración de la antena del dron no se conoce; el informe lo describe.
+
+SALIDAS
+Fotos_PPK_FIX / Fotos_PPK_PROVISIONALES: copias JPG con EXIF y XMP DJI.
+coordenadas_y_calidad.csv: coordenadas, asociación, controles, motivos,
+huellas SHA256 y resultado de la verificación de cada foto.
+para_Metashape.csv: nombre, longitud, latitud, altura, indicadores de
+precisión y estado. Configura el datum/época del proyecto antes de importar.
+INFORME.txt y resumen.json: parámetros y limitaciones de la campaña.
+Calculo: RINEX empleados, modelos de antena, configuraciones RTKLIB, POS,
+trazas y registros. Reproduce el cálculo desde esta carpeta con:
+  rnx2rtkp.exe -k combined.conf -o nueva.pos rover.obs base.obs nav_0.rnx ...
+No utilices salidas parciales si existe PROCESO_INCOMPLETO.txt.
+
+REFERENCIA VERTICAL
+La salida usa altura elipsoidal, no altura ortométrica, no geoide ni AGL.
+RelativeAltitude y tiempos de captura de los originales no se modifican.
+Las posiciones geográficas están vinculadas a las coordenadas de la base.
+No etiquetes automáticamente el resultado como UTM/WGS84 transformado.
+
+COMPATIBILIDAD
+Windows x64, Python 3.12/Tkinter si se ejecuta desde el código fuente.
+RINEX OBS v2/v3 de texto con escala temporal GPS; NAV v2/v3; MRK DJI; JPG.
+Los archivos comprimidos deben descomprimirse antes de seleccionarlos.
+Un vuelo y un MRK por ejecución. Para varios vuelos, repite el proceso.
+Se corrige en copia el encabezado Galileo INEGI 2.11/E con cuerpo RINEX 3.
+La asociación precisa de otros modelos DJI requiere PhotoDiff o nombres de
+vuelo compatibles y tiempo EXIF; no se promete compatibilidad universal.
+Instala el programa en una carpeta sin acentos por compatibilidad RTKLIB.
+Los archivos fuente pueden tener espacios; el motor usa copias temporales.
+
+DEPENDENCIAS INCLUIDAS
+RTKLIB Explorer 2.5.1, licencia BSD-2-Clause con cláusulas adicionales:
+tools/RTKLIB_LICENSE.txt; código: https://github.com/rtklibexplorer/RTKLIB
+ExifTool 13.59, distribución Windows de Oliver Betz y licencia incluida en
+tools/exiftool; https://exiftool.org/ y
+https://oliverbetz.de/pages/Artikel/ExifTool-for-Windows
+Archivo ANTEX igs20_2353.atx distribuido con RTKLIB Explorer.
+
+FUENTES
+https://www.inegi.org.mx/contenidos/temas/geodesia_activa/doc/cale2026_itrf2008.pdf
+https://ag.dji.com/phantom-4-rtk/faq
+https://dl.djicdn.com/downloads/phantom_4_rtk/20181015/Phantom_4_RTK_User_Manual_v1.4_EN.pdf
+https://github.com/rtklibexplorer/RTKLIB/releases/tag/v2.5.1
+
+DESARROLLO
+Código: app.py y ppk_core.py. Pruebas: python -m unittest discover -s tests -v
+Sin interfaz: python app.py --project proyecto.json --process
+Comprobar interfaz: python app.py --smoke-test

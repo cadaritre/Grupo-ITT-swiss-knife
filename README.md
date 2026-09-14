@@ -78,6 +78,7 @@ Las herramientas existentes conservan por ahora sus archivos de implementación 
 | ID | Manifiesto | Implementación | Datos persistentes |
 |---|---|---|---|
 | `reports` | `tools/reports/__init__.py` | `report_tool.py` | `Reportes Fotograficos` |
+| `ppk_drone` | `tools/ppk_drone/__init__.py` | `ppk_tool.py` | `PPK Dron` |
 | `quotes` | `tools/quotes/__init__.py` | `quotation_tool.py` | `Cotizaciones` |
 | `sketches` | `tools/sketches/__init__.py` | `sketch_tool.py` | `Croquis` |
 | `geospatial_converter` | `tools/geospatial_converter/__init__.py` | `geospatial_converter_tool.py` | `Conversiones` |
@@ -239,6 +240,16 @@ Documentos/
 - Encabezados, pie, títulos del croquis, etiquetas, meses y leyendas configurables, con restauración de valores originales.
 - PDF A4 con encabezado, pie, numeración y metadatos.
 - Interfaz sin conexión obligatoria; si OSM no responde conserva los puntos GPS sobre una base neutra.
+
+### PPK Dron
+
+- Procesamiento local de vuelos DJI a partir de observaciones RINEX, disparos `Timestamp.MRK` y navegación multiconstelación.
+- Tres soluciones RTKLIB (combinada, hacia adelante y hacia atrás) con clasificación `FIX_CONCORDANTE` o `PROVISIONAL` y tolerancias editables.
+- Asociación de fotografías por vuelo, índice y `PhotoDiff`; no se emparejan únicamente por orden alfabético.
+- Compensación antena-cámara desde offsets MRK o modelo nominal documentado para Phantom 4 RTK.
+- Copias JPG con EXIF/XMP actualizado sin recomprimir el contenido, CSV para Metashape, informe técnico, trazas y resumen JSON.
+- RTKLIB Explorer, ExifTool y el archivo ANTEX necesario se empaquetan en `assets/ppk_runtime`; la herramienta no depende de la carpeta de desarrollo original ni sube archivos a internet.
+- Los proyectos y resultados se guardan por defecto en `Documentos\Grupo ITT App\PPK Dron`.
 
 ### Cotizaciones
 

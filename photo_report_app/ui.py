@@ -125,6 +125,8 @@ class CompanyApp(AppTkBase):
         style.map("Dialog.TCheckbutton", background=[("active", "#F4F9FC"), ("selected", "#F4F9FC")])
         style.configure("Settings.TCheckbutton", background="white", foreground="#263746", padding=2)
         style.map("Settings.TCheckbutton", background=[("active", "white"), ("selected", "white")])
+        style.configure("Settings.TRadiobutton", background="white", foreground="#263746", padding=2)
+        style.map("Settings.TRadiobutton", background=[("active", "white"), ("selected", "white")])
         style.configure("Treeview", rowheight=31, background="white", fieldbackground="white", borderwidth=0, font=("Segoe UI", 9))
         style.configure("Treeview.Heading", background="#E1F2F8", foreground="#173B5F", font=("Segoe UI Semibold", 8), padding=6)
         style.map("Treeview", background=[("selected", "#CDE8F2")], foreground=[("selected", "#173B5F")])
