@@ -262,7 +262,7 @@ Documentos/
 - Subtotal, IVA configurable, total y anticipo.
 - Imágenes de referencia con descripción.
 - Vista previa paginada del PDF.
-- Vista previa ampliable con doble clic o botón dedicado; abre maximizada y permite ajustar página/ancho, hacer zoom, desplazarse y navegar cotizaciones de varias páginas con el teclado.
+- Vista previa ampliable con doble clic o botón dedicado; abre maximizada y permite ajustar página/ancho, hacer zoom, desplazarse y navegar cotizaciones de varias páginas con el teclado. La navegación y el cierre permanecen visibles en una barra inferior aun a pantalla completa.
 - Guardado y apertura de cotizaciones editables en JSON.
 - Al exportar el PDF se crea automáticamente, en la misma carpeta, un JSON con prefijo `EDITABLE_COTIZACION` y el mismo nombre para poder retomar el trabajo después.
 - Exportación final a PDF corporativo.
@@ -277,14 +277,16 @@ Documentos/
 
 ### Croquis de ubicación
 
-- Navegación interactiva con paneo visual inmediato, zoom con rueda y caché de teselas en memoria.
+- Navegación interactiva con paneo y zoom al cursor de respuesta inmediata: muestra una reproyección temporal de la vista actual y actualiza las teselas al terminar de girar la rueda, sin lanzar una descarga por cada paso.
 - Herramientas separadas para mover el mapa, dibujar un polígono libre o trazar un rectángulo; Shift fuerza un cuadrado.
 - Selección fluida sobre una capa local, sin recargar teselas en cada vértice.
 - Vectorización de calles, edificios, estacionamientos, agua, cobertura vegetal, parques/recreación, usos de suelo, equipamiento, infraestructura eléctrica, ferrocarril y barreras desde OpenStreetMap mediante Overpass. Los parques y los predios no se contabilizan automáticamente como área verde.
+- Áreas de hasta 200 km². Si pasan de 50 km², la consulta OSM se divide en bloques pequeños, se eliminan duplicados y se aborta sin aceptar geometría parcial si falla un bloque. Antes de empezar aparece una advertencia clara sobre tiempo, memoria y tamaño del PDF/DXF; al confirmar se guarda automáticamente `RECUPERACION_CROQUIS_*.json` en la carpeta de croquis. Las áreas grandes o dispersas que requieran demasiados bloques deben dividirse en varios croquis.
+- Las huellas individuales de edificios se destacan sobre las capas de fondo cuando existen en OSM. La app muestra el número recibido y avisa si no llegó ninguna; no deduce casas a partir de la imagen del mapa ni inventa polígonos ausentes en los datos abiertos.
 - Capas seleccionables: OpenStreetMap, OpenTopoMap topográfico y base neutra.
 - Al usar OpenTopoMap genera curvas de nivel desde un DEM, con equidistancia automática o de 1, 2, 5, 10, 20 y 50 m.
 - Pestaña de capas para mostrar u ocultar cada categoría, el límite y las etiquetas antes de exportar; la selección se conserva en JSON.
-- Importación de coordenadas desde CSV y guardado editable en JSON.
+- Importación de coordenadas desde CSV o de un polígono KML/KMZ; al importar se reemplaza el área de selección, se ajusta el mapa automáticamente y se conserva el límite en el JSON y en las exportaciones PDF/DXF (capa `LIMITE_AREA`). Si el archivo contiene varios polígonos, se usa el de mayor superficie.
 - Exportación a PDF corporativo con croquis vectorial y vértices del área.
 - Exportación DXF R2010 en metros y WGS84 / UTM, con anchos viales, ejes y bordes sin hatch de calles; conserva edificios cerrados, rellenos de áreas, puntos, textos y curvas de nivel 3D separadas por capas.
 - Hatches agrupados por capa, con contornos de relleno simplificados y sin transparencia para que AutoCAD pueda seleccionar y editar croquis densos con mucha mayor fluidez, sin alterar las polilíneas de trabajo.

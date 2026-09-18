@@ -23,12 +23,18 @@ from .location_sketch import (
     _inverse_xy,
     _xy,
     default_layer_visibility,
+    fit_view_to_points,
     generate_sketch_dxf,
     generate_sketch_pdf,
     render_location_map,
+    reproject_snapshot,
     visible_features,
 )
-from .osm_vector import CATEGORY_LABELS, feature_counts, fetch_osm_features, selection_area_km2
+from .geospatial_converter import read_kml
+from .osm_vector import (
+    CATEGORY_LABELS, MAX_SELECTION_KM2, SINGLE_QUERY_KM2,
+    feature_counts, fetch_osm_features, selection_area_km2,
+)
 from .terrain_contours import fetch_elevation_contours
 from .ux_components import attach_tooltip, help_badge
 
@@ -57,7 +63,9 @@ class LocationSketchTool(ttk.Frame):
         self._drag_last = None
         self._rectangle_preview = None
         self._zoom_job = None
+        self._wheel_remainder = 0
         self._vectorizing = False
+        self._vector_source_state = None
         self.status_var = StringVar(value="Croquis nuevo")
         self._make_vars()
         self._build()
@@ -180,10 +188,18 @@ class LocationSketchTool(ttk.Frame):
         self.points_tree.bind("<<TreeviewSelect>>", self._select_point)
         bottom = ttk.Frame(tab, style="Card.TFrame")
         bottom.grid(row=4, column=0, sticky="ew", pady=(8, 0))
-        ttk.Button(bottom, text="Importar CSV", style="Secondary.TButton", command=self.import_csv).pack(side="left")
-        ttk.Button(bottom, text="Eliminar vértice", style="Secondary.TButton", command=self.delete_point).pack(side="right")
-        ttk.Button(bottom, text="↓", width=3, style="Secondary.TButton", command=lambda: self.move_point(1)).pack(side="right", padx=(4, 0))
-        ttk.Button(bottom, text="↑", width=3, style="Secondary.TButton", command=lambda: self.move_point(-1)).pack(side="right")
+        bottom.columnconfigure(0, weight=1)
+        imports = ttk.Frame(bottom, style="Card.TFrame")
+        imports.grid(row=0, column=0, sticky="w")
+        ttk.Button(imports, text="Importar CSV", style="Secondary.TButton", command=self.import_csv).pack(anchor="w")
+        ttk.Button(imports, text="Importar KML/KMZ", style="Accent.TButton", command=self.import_kml).pack(anchor="w", pady=(4, 0))
+        edits = ttk.Frame(bottom, style="Card.TFrame")
+        edits.grid(row=0, column=1, sticky="e")
+        ttk.Button(edits, text="Eliminar vértice", style="Secondary.TButton", command=self.delete_point).pack(anchor="e")
+        ordering = ttk.Frame(edits, style="Card.TFrame")
+        ordering.pack(anchor="e", pady=(4, 0))
+        ttk.Button(ordering, text="↑", width=3, style="Secondary.TButton", command=lambda: self.move_point(-1)).pack(side="left")
+        ttk.Button(ordering, text="↓", width=3, style="Secondary.TButton", command=lambda: self.move_point(1)).pack(side="left", padx=(4, 0))
 
     def _build_layers_tab(self):
         tab = self._tab("Capas")
@@ -301,7 +317,7 @@ class LocationSketchTool(ttk.Frame):
         self.vector_progress = ttk.Progressbar(actions, mode="determinate", maximum=100, length=105)
         self.vector_progress.pack(side="right", padx=(4, 7))
         self.vector_progress.pack_forget()
-        attach_tooltip(self.vectorize_button, "Consulta OpenStreetMap, recorta la geometría al polígono y, en modo topográfico, genera curvas de nivel desde el modelo de elevación.")
+        attach_tooltip(self.vectorize_button, "Consulta OpenStreetMap y recorta la geometría al polígono. Hasta 200 km²; por encima de 50 km² consulta en bloques y puede tardar o fallar.")
         self.map_info = ttk.Label(parent, text="Sin puntos", style="Hint.Card.TLabel")
         self.map_info.grid(row=3, column=0, sticky="w", pady=(7, 6))
         self.map_preview = Canvas(parent, background="#DCE5EA", highlightthickness=1, highlightbackground="#B8C7D1", cursor="fleur")
@@ -313,7 +329,7 @@ class LocationSketchTool(ttk.Frame):
         self.map_preview.bind("<MouseWheel>", self._map_wheel)
         self.map_preview.bind("<Escape>", lambda _event: self._cancel_drawing())
         self.map_preview.bind("<Return>", lambda _event: self.finish_drawing())
-        ttk.Label(parent, text="Rueda: zoom · Mover: arrastra el mapa · Polígono: clic por vértice · Rectángulo: arrastra (Shift = cuadrado) · Topográfico: genera curvas de nivel.", style="Hint.Card.TLabel", wraplength=760, justify="left").grid(row=5, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(parent, text="Rueda: zoom al cursor · Mover: arrastra el mapa · Polígono: clic por vértice · Rectángulo: arrastra (Shift = cuadrado) · Importar KML: encuadra el predio.", style="Hint.Card.TLabel", wraplength=760, justify="left").grid(row=5, column=0, sticky="w", pady=(8, 0))
 
     def _changed(self):
         if self._loading:
@@ -517,12 +533,46 @@ class LocationSketchTool(ttk.Frame):
             return
         if self._vectorizing:
             return
+        area_km2 = selection_area_km2(self.data.points)
+        if area_km2 <= 0:
+            messagebox.showwarning("Área inválida", "El polígono no tiene una superficie válida.", parent=self)
+            return
+        if area_km2 > MAX_SELECTION_KM2:
+            messagebox.showwarning(
+                "Área demasiado grande",
+                f"El polígono mide {area_km2:.1f} km². El máximo admitido es {MAX_SELECTION_KM2:g} km². "
+                "Divídelo en varios croquis para vectorizarlo.", parent=self,
+            )
+            return
+        if area_km2 > SINGLE_QUERY_KM2:
+            extra = " También descargará y procesará el relieve para las curvas de nivel." if self.data.map_layer.startswith("Topográfico") else ""
+            if not messagebox.askyesno(
+                "⚠ Vectorización grande: riesgo de fallo",
+                f"Vas a procesar {area_km2:.1f} km² en varios bloques de OpenStreetMap.\n\n"
+                "ESTO PUEDE TARDAR VARIOS MINUTOS, FALLAR POR EL SERVIDOR, CONGELAR O CERRAR LA APP "
+                "POR FALTA DE MEMORIA Y GENERAR UN PDF/DXF MUY PESADO." + extra + "\n\n"
+                "Si falla cualquier bloque, no se aceptará un resultado incompleto. "
+                "Se guardará una copia de recuperación del croquis antes de iniciar.\n\n"
+                "¿Quieres intentarlo de todos modos?",
+                icon="warning", default="no", parent=self,
+            ):
+                return
+            try:
+                recovery = category_dir("sketches") / f"RECUPERACION_CROQUIS_{datetime.now():%Y%m%d_%H%M%S}.json"
+                self.data.save(recovery)
+            except Exception as exc:
+                messagebox.showerror(
+                    "No se pudo crear el respaldo",
+                    f"No se iniciará la vectorización grande sin una copia de recuperación.\n\n{exc}", parent=self,
+                )
+                return
         self.draw_mode_var.set("pan")
         self._fixed_view = None
         self.map_preview.configure(cursor="fleur")
         selection = [SketchPoint(point.name, point.latitude, point.longitude, point.description) for point in self.data.points]
         include_contours = self.data.map_layer.startswith("Topográfico")
         contour_interval = self.data.contour_interval
+        self._vector_source_state = self._current_vector_source_state()
         self._vectorizing = True
         self.vectorize_button.state(["disabled"])
         self.vector_progress.pack(side="right", padx=(4, 7), before=self.vectorize_button)
@@ -545,6 +595,12 @@ class LocationSketchTool(ttk.Frame):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _current_vector_source_state(self):
+        return (
+            tuple((point.latitude, point.longitude) for point in self.data.points),
+            self.data.map_layer, self.data.contour_interval,
+        )
+
     def _finish_vectorization(self, features, error):
         self._vectorizing = False
         self.vectorize_button.state(["!disabled"])
@@ -555,11 +611,22 @@ class LocationSketchTool(ttk.Frame):
             self._update_map_info()
             messagebox.showerror("No se pudo vectorizar el mapa", str(error))
             return
+        if self._vector_source_state != self._current_vector_source_state():
+            self.status_var.set("El área o la capa cambió; resultado descartado")
+            self._update_map_info()
+            messagebox.showwarning(
+                "Resultado descartado",
+                "El polígono, la capa de mapa o el intervalo de curvas cambió durante la consulta. "
+                "Vectoriza de nuevo para evitar exportar geometría de otra área.", parent=self,
+            )
+            return
         self.data.features = features or []
         self.data.vectorized_at = datetime.now().isoformat(timespec="seconds")
         self._refresh_layer_counts()
         counts = feature_counts(self.data.features)
         summary = ", ".join(f"{CATEGORY_LABELS.get(category, category)}: {count}" for category, count in sorted(counts.items()))
+        if not counts.get("building"):
+            summary += "\n\nNo llegaron huellas de edificios desde OSM en esta área; la aplicación no las inventa."
         self.status_var.set(f"{len(self.data.features)} elementos OSM vectorizados")
         self.refresh_map()
         if not self.data.features:
@@ -570,6 +637,10 @@ class LocationSketchTool(ttk.Frame):
     @staticmethod
     def _vector_progress_value(message: str) -> int:
         lowered = message.lower()
+        block = re.search(r"bloque\s+(\d+)\s+de\s+(\d+)", lowered)
+        if block:
+            current, total = int(block.group(1)), max(1, int(block.group(2)))
+            return min(30, 6 + round(current / total * 24))
         if "caché" in lowered:
             return 18
         if "servidor" in lowered:
@@ -651,7 +722,43 @@ class LocationSketchTool(ttk.Frame):
         except Exception as exc:
             messagebox.showerror("No se pudo importar", f"Usa encabezados como Punto, Latitud, Longitud y Descripción.\n\n{exc}")
 
+    def import_kml(self):
+        chosen = filedialog.askopenfilename(
+            title="Importar polígono del predio",
+            filetypes=(("Google Earth", "*.kml *.kmz"), ("KML", "*.kml"), ("KMZ", "*.kmz")),
+        )
+        if not chosen:
+            return
+        try:
+            dataset = read_kml(chosen)
+            from .location_sketch import polygon_from_kml
+            points, polygon_count = polygon_from_kml(dataset)
+        except Exception as exc:
+            messagebox.showerror("No se pudo importar el polígono", str(exc), parent=self)
+            return
+        if self.data.points and not messagebox.askyesno(
+            "Reemplazar área", "El polígono KML reemplazará el área actual y su vectorización. ¿Continuar?", parent=self,
+        ):
+            return
+        self.data.points = points
+        self.data.features = []
+        self.data.vectorized_at = ""
+        self.data.layer_visibility["selection"] = True
+        self.layer_vars["selection"].set(True)
+        self._editing_point = None
+        self.draw_mode_var.set("pan")
+        self._fixed_view = None
+        self.clear_point_editor()
+        self._refresh_tree(select=0)
+        suffix = f" · de {polygon_count} polígonos se tomó el mayor" if polygon_count > 1 else ""
+        self.status_var.set(f"Polígono importado: {Path(chosen).name}{suffix}")
+        if not self._fit_area_immediately():
+            self.refresh_map()
+
     def refresh_map(self):
+        if self._zoom_job:
+            self.after_cancel(self._zoom_job)
+            self._zoom_job = None
         self._sync_data()
         self._map_token += 1
         token = self._map_token
@@ -662,7 +769,7 @@ class LocationSketchTool(ttk.Frame):
         fixed_view = self._fixed_view
         preview_width = max(560, self.map_preview.winfo_width())
         preview_height = max(380, self.map_preview.winfo_height())
-        render_width = 900
+        render_width = max(560, min(1000, round(preview_width * 1.1)))
         render_height = max(520, min(760, round(render_width * preview_height / preview_width)))
         if self._map_snapshot is None:
             self.map_preview.delete("all")
@@ -879,7 +986,8 @@ class LocationSketchTool(ttk.Frame):
             latitude, longitude = self._map_snapshot.pixel_to_latlon(new_x, new_y)
             self._fixed_view = (latitude, longitude, self._map_snapshot.zoom)
             self.status_var.set("Mapa desplazado")
-            self.refresh_map()
+            self._show_interim_view(latitude, longitude, self._map_snapshot.zoom)
+            self._schedule_map_refresh(80)
             return
         coordinate = self._event_coordinate(event)
         if coordinate is None:
@@ -897,8 +1005,25 @@ class LocationSketchTool(ttk.Frame):
         self.status_var.set("Coordenadas capturadas; confirma con Agregar vértice")
 
     def _map_wheel(self, event):
-        self.zoom_map(1 if event.delta > 0 else -1, event)
+        self._wheel_remainder += event.delta
+        steps = math.trunc(self._wheel_remainder / 120)
+        if steps:
+            steps = max(-2, min(2, steps))
+            self._wheel_remainder -= steps * 120
+            self.zoom_map(steps, event)
         return "break"
+
+    def _show_interim_view(self, latitude: float, longitude: float, zoom: int):
+        if not self._map_snapshot:
+            return
+        self._map_snapshot = reproject_snapshot(self._map_snapshot, (latitude, longitude), zoom)
+        self._show_map_image()
+
+    def _schedule_map_refresh(self, delay: int = 170):
+        self._map_token += 1  # A completed render of the old view must not replace this one.
+        if self._zoom_job:
+            self.after_cancel(self._zoom_job)
+        self._zoom_job = self.after(delay, self._apply_zoom)
 
     def zoom_map(self, direction: int, event=None):
         if not self._map_snapshot:
@@ -921,18 +1046,30 @@ class LocationSketchTool(ttk.Frame):
             latitude, longitude = self._fixed_view[:2] if self._fixed_view else self._map_snapshot.center()
         self._fixed_view = (latitude, longitude, zoom)
         self.status_var.set(f"Zoom {zoom}")
-        if self._zoom_job:
-            self.after_cancel(self._zoom_job)
-        self._zoom_job = self.after(90, self._apply_zoom)
+        self._show_interim_view(latitude, longitude, zoom)
+        self._schedule_map_refresh()
 
     def _apply_zoom(self):
         self._zoom_job = None
         self.refresh_map()
 
+    def _fit_area_immediately(self) -> bool:
+        if not self._map_snapshot or not self.data.points:
+            return False
+        layer = MAP_LAYERS.get(self.vars["map_layer"].get(), MAP_LAYERS[DEFAULT_MAP_LAYER])
+        latitude, longitude, zoom = fit_view_to_points(
+            self.data.points, self._map_snapshot.image.width, self._map_snapshot.image.height, layer["max_zoom"],
+        )
+        self._fixed_view = (latitude, longitude, zoom)
+        self._show_interim_view(latitude, longitude, zoom)
+        self._schedule_map_refresh(80)
+        return True
+
     def fit_area(self):
         self._fixed_view = None
         self.status_var.set("Ajustando el mapa al área…")
-        self.refresh_map()
+        if not self._fit_area_immediately():
+            self.refresh_map()
 
     def new_sketch(self):
         if not messagebox.askyesno("Nuevo croquis", "¿Crear un croquis nuevo? Los cambios no guardados se perderán."):

@@ -1172,11 +1172,21 @@ class QuotePreviewDialog(Toplevel):
             header, text="Siguiente ›", style="HeaderButton.TButton", command=lambda: self.change_page(1),
         )
         self.next_button.pack(side="left")
+        ttk.Button(header, text="Cerrar vista", style="HeaderAccent.TButton", command=self.destroy).pack(side="right", padx=(10, 0))
         ttk.Button(header, text="−", width=3, style="HeaderButton.TButton", command=lambda: self.zoom(-1)).pack(side="right")
         ttk.Label(header, textvariable=self.zoom_var, style="HeaderSub.TLabel", width=17, anchor="center").pack(side="right", padx=4)
         ttk.Button(header, text="+", width=3, style="HeaderButton.TButton", command=lambda: self.zoom(1)).pack(side="right")
         ttk.Button(header, text="Ajustar ancho", style="HeaderButton.TButton", command=lambda: self.set_fit("width")).pack(side="right", padx=(8, 0))
         ttk.Button(header, text="Página completa", style="HeaderButton.TButton", command=lambda: self.set_fit("page")).pack(side="right", padx=(8, 0))
+
+        # Reserve the footer before the expandable canvas; otherwise Tk's packer
+        # can give all available height to the PDF when the window is maximized.
+        footer = ttk.Frame(self, style="StatusBar.TFrame", padding=(14, 7))
+        footer.pack(side="bottom", fill="x")
+        ttk.Button(footer, text="‹ Anterior", style="Secondary.TButton", command=lambda: self.change_page(-1)).pack(side="left")
+        ttk.Label(footer, textvariable=self.page_var, style="StatusBar.TLabel").pack(side="left", padx=10)
+        ttk.Button(footer, text="Siguiente ›", style="Secondary.TButton", command=lambda: self.change_page(1)).pack(side="left")
+        ttk.Button(footer, text="Cerrar", style="Secondary.TButton", command=self.destroy).pack(side="right")
 
         viewer = ttk.Frame(self, style="Dialog.TFrame")
         viewer.pack(fill="both", expand=True)
@@ -1196,14 +1206,7 @@ class QuotePreviewDialog(Toplevel):
         self.canvas.bind("<MouseWheel>", self._mousewheel)
         self.canvas.bind("<Control-MouseWheel>", self._mousewheel)
 
-        hint = ttk.Frame(self, style="StatusBar.TFrame", padding=(14, 5))
-        hint.pack(fill="x", side="bottom")
-        ttk.Label(
-            hint,
-            text="Doble clic en la miniatura para abrir · Ctrl + rueda cambia el zoom · Flechas cambian de página",
-            style="StatusBar.TLabel",
-        ).pack(side="left")
-        ttk.Button(hint, text="Cerrar", style="Secondary.TButton", command=self.destroy).pack(side="right")
+        self.footer = footer
 
     def _maximize(self):
         try:

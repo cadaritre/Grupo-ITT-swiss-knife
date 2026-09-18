@@ -330,7 +330,9 @@ def _parse_kml_geometry(node: ET.Element) -> list[tuple[str, list[list[Coord]]]]
         return [("LineString", [coordinates])] if coordinates else []
     if kind == "Polygon":
         rings: list[list[Coord]] = []
-        for boundary in node:
+        # KML does not require the outer ring to precede holes in the XML.
+        # Downstream CAD export and croquis selection expect it first.
+        for boundary in sorted(node, key=lambda item: 0 if _local_name(item.tag) == "outerBoundaryIs" else 1):
             boundary_kind = _local_name(boundary.tag)
             if boundary_kind not in {"outerBoundaryIs", "innerBoundaryIs"}:
                 continue

@@ -143,12 +143,57 @@ class SketchData:
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
+def polygon_from_kml(dataset) -> tuple[list[SketchPoint], int]:
+    """Use the largest outer polygon ring as the editable sketch boundary."""
+    candidates: list[tuple[float, list[tuple[float, float]]]] = []
+    for feature in dataset.features:
+        if feature.geometry_type != "Polygon" or not feature.parts:
+            continue
+        ring: list[tuple[float, float]] = []
+        for longitude, latitude, *_ in feature.parts[0]:
+            if not (math.isfinite(longitude) and math.isfinite(latitude)
+                    and -180 <= longitude <= 180 and -85.0511 <= latitude <= 85.0511):
+                raise ValueError("El KML contiene coordenadas fuera de rango o inválidas.")
+            coordinate = (latitude, longitude)
+            if not ring or coordinate != ring[-1]:
+                ring.append(coordinate)
+        if len(ring) > 1 and ring[0] == ring[-1]:
+            ring.pop()
+        if len(set(ring)) < 3:
+            continue
+        # Longitude is scaled locally so areas remain comparable across latitudes.
+        center_latitude = sum(latitude for latitude, _ in ring) / len(ring)
+        scale = math.cos(math.radians(center_latitude))
+        area = abs(sum(
+            (ring[index][1] * ring[(index + 1) % len(ring)][0]
+             - ring[(index + 1) % len(ring)][1] * ring[index][0]) * scale
+            for index in range(len(ring))
+        ))
+        if area > 0:
+            candidates.append((area, ring))
+    if not candidates:
+        raise ValueError("El KML/KMZ no contiene un polígono con al menos tres vértices válidos.")
+    ring = max(candidates, key=lambda candidate: candidate[0])[1]
+    return [SketchPoint(f"V{index}", latitude, longitude) for index, (latitude, longitude) in enumerate(ring, 1)], len(candidates)
+
+
 def layer_is_visible(data: SketchData, layer: str) -> bool:
     return bool(data.layer_visibility.get(layer, True))
 
 
 def visible_features(data: SketchData) -> list[OSMFeature]:
     return [feature for feature in data.features if layer_is_visible(data, feature.category)]
+
+
+def feature_draw_priority(feature: OSMFeature) -> int:
+    # Area fills go behind individual footprints and linework, regardless of
+    # the order in which Overpass returned the objects.
+    return {
+        "landuse": 0, "vegetation": 1, "recreation": 2, "water": 3,
+        "parking": 4, "structure": 5, "amenity": 5, "other": 5,
+        "contour": 6, "road": 7, "railway": 7, "barrier": 7,
+        "power": 7, "building": 9,
+    }.get(feature.category, 5)
 
 
 @dataclass
@@ -171,6 +216,23 @@ class MapSnapshot:
 
     def center(self) -> tuple[float, float]:
         return self.pixel_to_latlon(self.image.width / 2, self.image.height / 2)
+
+
+def reproject_snapshot(snapshot: MapSnapshot, center: tuple[float, float], zoom: int) -> MapSnapshot:
+    """Show a pending pan/zoom immediately, while fresh map tiles load."""
+    width, height = snapshot.image.size
+    center_x, center_y = _xy(center[0], center[1], zoom)
+    left = center_x * TILE_SIZE - width / 2
+    top = center_y * TILE_SIZE - height / 2
+    factor = 2 ** (zoom - snapshot.zoom)
+    transform = Image.Transform.AFFINE if hasattr(Image, "Transform") else Image.AFFINE
+    image = snapshot.image.transform(
+        (width, height), transform,
+        (1 / factor, 0, left / factor - snapshot.left_world_px,
+         0, 1 / factor, top / factor - snapshot.top_world_px),
+        resample=Image.Resampling.BILINEAR, fillcolor="#DCE5EA",
+    )
+    return MapSnapshot(image, zoom, left, top, snapshot.online, snapshot.layer)
 
 
 def _font(size: int, bold: bool = False):
@@ -204,13 +266,25 @@ def _choose_zoom(points: list[SketchPoint], width: int, height: int) -> int:
         return 13
     if len(points) == 1:
         return 16
+    projected = [_xy(point.latitude, point.longitude, 0) for point in points]
+    span_x = max(x for x, _ in projected) - min(x for x, _ in projected)
+    span_y = max(y for _, y in projected) - min(y for _, y in projected)
     for zoom in range(18, 3, -1):
-        pixels = [(_xy(p.latitude, p.longitude, zoom)[0] * TILE_SIZE, _xy(p.latitude, p.longitude, zoom)[1] * TILE_SIZE) for p in points]
-        span_x = max(x for x, _ in pixels) - min(x for x, _ in pixels)
-        span_y = max(y for _, y in pixels) - min(y for _, y in pixels)
-        if span_x <= width * 0.68 and span_y <= height * 0.64:
+        scale = TILE_SIZE * 2**zoom
+        if span_x * scale <= width * 0.68 and span_y * scale <= height * 0.64:
             return zoom
     return 4
+
+
+def fit_view_to_points(points: list[SketchPoint], width: int, height: int, max_zoom: int = 18) -> tuple[float, float, int]:
+    if not points:
+        return DEFAULT_CENTER[0], DEFAULT_CENTER[1], min(13, max_zoom)
+    zoom = min(_choose_zoom(points, width, height), max_zoom)
+    projected = [_xy(point.latitude, point.longitude, zoom) for point in points]
+    center_x = (min(x for x, _ in projected) + max(x for x, _ in projected)) / 2
+    center_y = (min(y for _, y in projected) + max(y for _, y in projected)) / 2
+    latitude, longitude = _inverse_xy(center_x, center_y, zoom)
+    return latitude, longitude, zoom
 
 
 @lru_cache(maxsize=256)
@@ -319,7 +393,7 @@ def render_location_map(
 
     draw = ImageDraw.Draw(canvas, "RGBA")
     feature_styles = {
-        "building": ((86, 96, 108, 105), (55, 65, 76, 230), 2),
+        "building": ((86, 96, 108, 165), (40, 52, 66, 250), 3),
         "road": ((0, 0, 0, 0), (230, 126, 34, 245), 5),
         "water": ((78, 166, 214, 100), (32, 116, 174, 235), 3),
         "vegetation": ((69, 160, 86, 75), (45, 125, 63, 210), 2),
@@ -334,7 +408,7 @@ def render_location_map(
         "landuse": ((194, 165, 120, 42), (145, 117, 78, 190), 2),
         "other": ((0, 0, 0, 0), (91, 112, 126, 210), 2),
     }
-    for feature in features or []:
+    for feature in sorted(features or [], key=feature_draw_priority):
         fill, outline, line_width = feature_styles.get(feature.category, feature_styles["other"])
         if feature.category == "contour" and feature.tags.get("major") == "yes":
             line_width = 2
@@ -477,7 +551,7 @@ def _draw_vector_croquis(canvas: Canvas, data: SketchData, box: tuple[float, flo
         "landuse": (HexColor("#F1E9DC"), HexColor("#9A7B54"), 0.45),
         "other": (None, HexColor("#718391"), 0.55),
     }
-    ordered = sorted(features, key=lambda feature: 0 if any(path.closed for path in feature.paths) else 1)
+    ordered = sorted(features, key=feature_draw_priority)
     labelled: set[str] = set()
     label_positions: list[tuple[float, float]] = []
     labels_drawn = 0

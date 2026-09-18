@@ -19,7 +19,10 @@ OVERPASS_ENDPOINTS = (
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 )
-MAX_SELECTION_KM2 = 50.0
+SINGLE_QUERY_KM2 = 50.0
+MAX_SELECTION_KM2 = 200.0
+LARGE_QUERY_CHUNK_KM2 = 40.0
+MAX_QUERY_CHUNKS = 40
 
 
 @dataclass
@@ -194,7 +197,7 @@ def _query(selection_text: str) -> str:
         'relation["building"]', 'relation["natural"]', 'relation["water"]',
         'relation["landuse"]', 'relation["landcover"]', 'relation["leisure"]', 'relation["amenity"]',
         'relation["man_made"]', 'relation["aeroway"]',
-        'node["natural"="tree"]', 'node["power"~"pole|tower|transformer"]',
+        'node["building"]', 'node["natural"="tree"]', 'node["power"~"pole|tower|transformer"]',
         'node["man_made"~"mast|tower|water_tower|survey_point"]',
         'node["highway"="street_lamp"]',
     )
@@ -225,22 +228,67 @@ def _element_geometry(element: dict, tags: dict[str, str]):
     return Polygon(coordinates) if _is_area(tags, coordinates) else LineString(coordinates)
 
 
-def fetch_osm_features(selection_points, progress: Callable[[str], None] | None = None) -> list[OSMFeature]:
-    notify = progress or (lambda _message: None)
-    if len(selection_points) < 3:
-        raise ValueError("Dibuja al menos tres vértices para delimitar el área de vectorización.")
-    area_km2 = selection_area_km2(selection_points)
-    if area_km2 <= 0:
-        raise ValueError("El polígono de selección no tiene una superficie válida.")
-    if area_km2 > MAX_SELECTION_KM2:
-        raise ValueError(f"El área seleccionada es de {area_km2:.1f} km². Usa un área menor a {MAX_SELECTION_KM2:g} km².")
-    try:
-        from shapely.geometry import Polygon
-    except ImportError as exc:
-        raise RuntimeError("Falta Shapely, necesario para recortar la geometría vectorial.") from exc
+def _geometry_area_km2(geometry) -> float:
+    latitude = geometry.centroid.y
+    return geometry.area * 111320 * math.cos(math.radians(latitude)) * 110574 / 1_000_000
 
-    polygon_text = " ".join(f"{point.latitude:.7f} {point.longitude:.7f}" for point in selection_points)
-    query = _query(polygon_text)
+
+def _polygon_parts(geometry):
+    if geometry.is_empty:
+        return
+    if geometry.geom_type == "Polygon":
+        if geometry.area > 0:
+            yield geometry
+    elif hasattr(geometry, "geoms"):
+        for part in geometry.geoms:
+            yield from _polygon_parts(part)
+
+
+def _query_chunks(selection) -> list:
+    """Split large selections until each Overpass search footprint is bounded."""
+    from shapely.geometry import box
+
+    pending = [(part, 0) for part in _polygon_parts(selection)]
+    chunks = []
+    while pending:
+        polygon, depth = pending.pop()
+        footprint = polygon.minimum_rotated_rectangle
+        if (_geometry_area_km2(polygon) <= LARGE_QUERY_CHUNK_KM2
+                and _geometry_area_km2(footprint) <= SINGLE_QUERY_KM2):
+            chunks.append(polygon)
+            continue
+        if depth >= 16 or len(pending) + len(chunks) >= MAX_QUERY_CHUNKS:
+            raise ValueError(
+                "El área es demasiado extensa o dispersa para consultarla con seguridad. "
+                "Divídela en varios croquis más compactos."
+            )
+        min_x, min_y, max_x, max_y = polygon.bounds
+        width_m = (max_x - min_x) * 111320 * math.cos(math.radians(polygon.centroid.y))
+        height_m = (max_y - min_y) * 110574
+        if width_m >= height_m:
+            middle = (min_x + max_x) / 2
+            halves = (box(min_x, min_y, middle, max_y), box(middle, min_y, max_x, max_y))
+        else:
+            middle = (min_y + max_y) / 2
+            halves = (box(min_x, min_y, max_x, middle), box(min_x, middle, max_x, max_y))
+        pieces = [part for half in halves for part in _polygon_parts(polygon.intersection(half))]
+        if len(pieces) < 2 or len(pending) + len(chunks) + len(pieces) > MAX_QUERY_CHUNKS:
+            raise ValueError(
+                "No se pudo dividir esta geometría en consultas pequeñas. "
+                "Prueba varios croquis separados para evitar un resultado incompleto."
+            )
+        pending.extend((part, depth + 1) for part in pieces)
+    return sorted(chunks, key=lambda part: (part.centroid.y, part.centroid.x))
+
+
+def _chunk_query_text(polygon) -> str:
+    # A rotated search rectangle covers the complete chunk while keeping the
+    # Overpass poly filter short, even for KMLs with thousands of vertices.
+    footprint = polygon.minimum_rotated_rectangle.buffer(0.0002, join_style=2)
+    return " ".join(f"{latitude:.7f} {longitude:.7f}" for longitude, latitude in list(footprint.exterior.coords)[:-1])
+
+
+def _fetch_query_elements(query: str, notify: Callable[[str], None]) -> list[dict]:
     payload = urllib.parse.urlencode({"data": query}).encode("utf-8")
     overpass_cache = cache_dir("overpass")
     cache_path = overpass_cache / f"{hashlib.sha256(query.encode('utf-8')).hexdigest()}.json"
@@ -249,8 +297,11 @@ def fetch_osm_features(selection_points, progress: Callable[[str], None] | None 
         try:
             notify("Cargando geometría desde la caché local…")
             raw = json.loads(cache_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict) or not isinstance(raw.get("elements"), list) or raw.get("remark"):
+                raise ValueError("La respuesta guardada está incompleta o contiene un error del servidor.")
         except Exception:
             cache_path.unlink(missing_ok=True)
+            raw = None
     errors = []
     if raw is None:
         for index, endpoint in enumerate(OVERPASS_ENDPOINTS, 1):
@@ -266,22 +317,76 @@ def fetch_osm_features(selection_points, progress: Callable[[str], None] | None 
             try:
                 with urllib.request.urlopen(request, timeout=65) as response:
                     raw = json.loads(response.read().decode("utf-8"))
+                if not isinstance(raw, dict) or not isinstance(raw.get("elements"), list):
+                    raise ValueError("El servidor devolvió una respuesta sin elementos OSM válidos.")
+                if raw.get("remark"):
+                    raise RuntimeError(f"OpenStreetMap devolvió una respuesta incompleta: {raw['remark']}")
                 cache_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
                 break
             except Exception as exc:
+                raw = None
                 errors.append(f"{endpoint}: {exc}")
         if raw is None:
             raise RuntimeError("No se pudo consultar la geometría de OpenStreetMap. " + " | ".join(errors))
+    if not isinstance(raw, dict) or not isinstance(raw.get("elements"), list):
+        raise RuntimeError("La caché de OpenStreetMap no contiene una respuesta válida.")
+    return raw["elements"]
 
-    notify("Recortando y clasificando la geometría…")
+
+def _element_detail_score(element: dict) -> int:
+    return len(element.get("geometry") or []) + sum(len(member.get("geometry") or []) for member in element.get("members") or [])
+
+
+def fetch_osm_features(selection_points, progress: Callable[[str], None] | None = None) -> list[OSMFeature]:
+    notify = progress or (lambda _message: None)
+    if len(selection_points) < 3:
+        raise ValueError("Dibuja al menos tres vértices para delimitar el área de vectorización.")
+    area_km2 = selection_area_km2(selection_points)
+    if area_km2 <= 0:
+        raise ValueError("El polígono de selección no tiene una superficie válida.")
+    if area_km2 > MAX_SELECTION_KM2:
+        raise ValueError(f"El área seleccionada es de {area_km2:.1f} km². Usa un área menor a {MAX_SELECTION_KM2:g} km².")
+    try:
+        from shapely.geometry import Polygon
+    except ImportError as exc:
+        raise RuntimeError("Falta Shapely, necesario para recortar la geometría vectorial.") from exc
+
     selection = Polygon([(point.longitude, point.latitude) for point in selection_points])
     if not selection.is_valid:
         selection = selection.buffer(0)
     if selection.is_empty:
         raise ValueError("El polígono de selección se cruza consigo mismo o no es válido.")
 
+    if area_km2 <= SINGLE_QUERY_KM2:
+        polygon_text = " ".join(f"{point.latitude:.7f} {point.longitude:.7f}" for point in selection_points)
+        queries = [_query(polygon_text)]
+    else:
+        chunks = _query_chunks(selection)
+        notify(f"Área grande · preparando {len(chunks)} bloques de consulta…")
+        queries = [_query(_chunk_query_text(chunk)) for chunk in chunks]
+
+    unique_elements: dict[tuple[str, object], dict] = {}
+    for chunk_index, query in enumerate(queries, 1):
+        prefix = f"Bloque {chunk_index} de {len(queries)} · " if len(queries) > 1 else ""
+        try:
+            elements = _fetch_query_elements(query, lambda message: notify(prefix + message))
+        except Exception as exc:
+            if len(queries) > 1:
+                raise RuntimeError(
+                    f"Falló el bloque {chunk_index} de {len(queries)}; no se usará un croquis incompleto. {exc}"
+                ) from exc
+            raise
+        for element_index, element in enumerate(elements):
+            key = (str(element.get("type", "")), element.get("id", f"sin-id/{chunk_index}/{element_index}"))
+            previous = unique_elements.get(key)
+            if previous is None or _element_detail_score(element) > _element_detail_score(previous):
+                unique_elements[key] = element
+        if len(queries) > 1:
+            notify(f"Bloque {chunk_index} de {len(queries)} listo · {len(unique_elements):,} elementos únicos")
+
+    notify("Recortando y clasificando la geometría…")
     features: list[OSMFeature] = []
-    elements = raw.get("elements", [])
+    elements = list(unique_elements.values())
     for index, element in enumerate(elements):
         if index and index % 500 == 0:
             notify(f"Procesando detalle OSM · {index:,} de {len(elements):,} elementos…")
