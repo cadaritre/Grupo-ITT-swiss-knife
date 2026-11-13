@@ -87,19 +87,25 @@ def volcar_personales(raiz: Path, salida: Path) -> None:
         shutil.rmtree(temporal, ignore_errors=True)
 
 
+def _mezclar(a: dict, b: dict) -> dict:
+    r = {k: (dict(v) if isinstance(v, dict) else v) for k, v in a.items()}
+    for k, v in b.items():
+        r[k] = _mezclar(r[k], v) if isinstance(v, dict) and isinstance(r.get(k), dict) else v
+    return r
+
+
 def _con_personales(valores: dict, personales: dict) -> dict:
     """Los datos personales de fábrica del escritorio, como ajustes de perfil, bajo los ajustes del caso."""
     base = {"branding": {"legacy_signer": personales["firmante_antiguo"], **{k: dict(v) for k, v in personales["perfiles"].items()}}}
-    def mezclar(a: dict, b: dict) -> dict:
-        r = {k: (dict(v) if isinstance(v, dict) else v) for k, v in a.items()}
-        for k, v in b.items():
-            r[k] = mezclar(r[k], v) if isinstance(v, dict) and isinstance(r.get(k), dict) else v
-        return r
-    return mezclar(base, valores)
+    return _mezclar(base, valores)
+
+
+PERFILES = ("grupo_itt", "tresvizo")
 
 
 class LadoEscritorio:
     nombre = "escritorio"
+    perfil = "grupo_itt"
 
     def __init__(self, raiz: Path, fuentes: Path | None):
         sys.path.insert(0, str(raiz))
@@ -135,7 +141,7 @@ class LadoEscritorio:
 
     @contextlib.contextmanager
     def ajustes(self, valores: dict):
-        valores = _con_personales(valores, self.personales)
+        valores = _con_personales(_mezclar({"branding": {"profile": self.perfil}}, valores), self.personales)
         ajustes = self._storage.SETTINGS
         previos = {clave: ajustes.get(clave) for clave in valores}
         ajustes.update(_aplanar(valores))
@@ -150,6 +156,7 @@ class LadoEscritorio:
 
 class LadoWeb:
     nombre = "web"
+    perfil = "grupo_itt"
 
     def __init__(self, raiz: Path, temporal: Path):
         sys.path.insert(0, str(raiz))
@@ -161,7 +168,7 @@ class LadoWeb:
         return importlib.import_module(f"{self.paquete}.{nombre}")
 
     def ajustes(self, valores: dict):
-        return self._almacen.ajustes_activos(_con_personales(valores, self.personales))
+        return self._almacen.ajustes_activos(_con_personales(_mezclar({"branding": {"profile": self.perfil}}, valores), self.personales))
 
     def logo(self) -> Path:
         return self.mod("branding").active_profile().logo_path
@@ -219,18 +226,21 @@ def main(argumentos: list[str] | None = None) -> int:
         marca.ITT_LOGO, marca.TRESVIZO_LOGO = entradas["logo_grupo_itt.png"], entradas["logo_tresvizo.png"]
         args.salida.mkdir(parents=True, exist_ok=True)
         resultados = {}
-        for nombre, funcion in casos.CASOS.items():
-            if args.caso and nombre not in args.caso:
-                continue
-            carpeta = args.salida / nombre
-            carpeta.mkdir(parents=True, exist_ok=True)
-            contexto = casos.Contexto(lado=args.lado, mod=lado.mod, entradas=entradas, salida=carpeta, ajustes=lado.ajustes, logo=lado.logo, personales=personales)
-            try:
-                with lado.ajustes({}):               # perfil de fábrica del escritorio como base de todos los casos
-                    artefactos = funcion(contexto)
-                resultados[nombre] = {"artefactos": _escribir(carpeta, artefactos), "error": None}
-            except Exception as exc:                     # el error también es un resultado que debe coincidir
-                resultados[nombre] = {"artefactos": [], "error": [type(exc).__name__, str(exc)], "traza": traceback.format_exc()}
+        for perfil in PERFILES:                       # el escritorio y la web se comparan con cada identidad activa (Grupo ITT y TresVizo)
+            lado.perfil = perfil
+            for nombre, funcion in casos.CASOS.items():
+                if args.caso and nombre not in args.caso:
+                    continue
+                clave = f"{perfil}/{nombre}"
+                carpeta = args.salida / perfil / nombre
+                carpeta.mkdir(parents=True, exist_ok=True)
+                contexto = casos.Contexto(lado=args.lado, mod=lado.mod, entradas=entradas, salida=carpeta, ajustes=lado.ajustes, logo=lado.logo, personales=personales, perfil=perfil)
+                try:
+                    with lado.ajustes({}):               # perfil activo de la corrida como base de todos los casos
+                        artefactos = funcion(contexto)
+                    resultados[clave] = {"artefactos": _escribir(carpeta, artefactos), "error": None}
+                except Exception as exc:                     # el error también es un resultado que debe coincidir
+                    resultados[clave] = {"artefactos": [], "error": [type(exc).__name__, str(exc)], "traza": traceback.format_exc()}
         (args.salida / "resultados.json").write_text(json.dumps(resultados, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
         versiones = {}
         for paquete in ("reportlab", "PIL", "ezdxf", "numpy", "shapely", "pyproj", "spellchecker", "wordfreq"):

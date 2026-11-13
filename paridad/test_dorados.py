@@ -32,7 +32,7 @@ def dorados(tmp_path_factory):
     return {"web": web, "windows": trabajo / "zip" / "escritorio", "manifiesto": json.loads((trabajo / "zip" / "manifiesto.json").read_text(encoding="utf-8"))}
 
 
-@pytest.mark.parametrize("caso", sorted(casos.CASOS))
+@pytest.mark.parametrize("caso", casos.claves())
 def test_caso_igual_al_dorado_de_windows(dorados, caso):
     resultados = ejecutor.comparar_caso(caso, dorados["web"], dorados["windows"], tolerante=True)
     malos = [f"{n}: {r.motivo}" for n, r in resultados if not r.ok]

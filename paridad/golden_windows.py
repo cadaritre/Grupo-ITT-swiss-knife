@@ -1,7 +1,9 @@
 """Archivos dorados del escritorio en Windows (control final de paridad).
 
 Lo corre el propietario UNA VEZ en una PC con Windows. Genera, con el escritorio real (fuentes de Windows, su propia
-versión de ReportLab), las salidas de los casos de paridad, para compararlas después con las de la web.
+versión de ReportLab), las salidas de los casos de paridad, para compararlas después con las de la web. Cada caso se
+genera con las DOS identidades corporativas (Grupo ITT y TresVizo), como si el panel administrativo del escritorio
+cambiara de perfil.
 
 Qué hacer:
   1. Abre la carpeta del escritorio (la rama `main` de Grupo-ITT-swiss-knife, la que ya usas) y copia dentro la
@@ -118,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
                 zf.write(p, p.relative_to(trabajo).as_posix())
     shutil.rmtree(trabajo, ignore_errors=True)
     print(f"\nListo: {zip_ruta}")
-    print(f"Casos: {len(resultados)}; con error: {sum(1 for r in resultados.values() if r['error'])}; Arial instalada: {manifiesto['arial_instalada']}")
+    print(f"Casos (con las dos identidades): {len(resultados)}; con error: {sum(1 for r in resultados.values() if r['error'])}; Arial instalada: {manifiesto['arial_instalada']}")
     return 0
 
 

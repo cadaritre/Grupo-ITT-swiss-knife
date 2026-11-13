@@ -25,6 +25,7 @@ from unittest import mock
 CASOS: dict[str, Callable[["Contexto"], dict[str, Any]]] = {}
 
 SEMILLA = 20261113
+PERFILES = ("grupo_itt", "tresvizo")      # cada caso corre con cada identidad corporativa activa, en el escritorio y en la web
 
 
 def caso(nombre: str):
@@ -44,6 +45,7 @@ class Contexto:
     ajustes: Callable[[dict], Any]              # administrador de contexto: activa ajustes (perfil, textos, paleta)
     logo: Callable[[], Path | None]             # logo del perfil activo
     fotos: list[Path] = field(default_factory=list)
+    perfil: str = "grupo_itt"                         # identidad corporativa activa en esta corrida
     personales: dict = field(default_factory=dict)   # datos personales/bancarios del escritorio (no viven en el repositorio)
 
 
@@ -385,8 +387,9 @@ def _fotos(c: Contexto, con_gps_solo: bool = False):
 
 def _opciones(c: Contexto, nombre: str, **extra):
     gen = c.mod("pdf_generator")
+    empresa = c.mod("branding").active_profile()           # como el escritorio: encabezado, sitio y pie del perfil activo
     base = dict(title="Reporte fotográfico de avance de obra", report_date=date(2026, 11, 13), photos=_fotos(c), output=c.salida / nombre,
-                logo=c.logo(), company="INGENIERÍA TÉCNICA Y TOPOGRÁFICA", website="www.grupoitt.com", include_map=False,
+                logo=c.logo(), company=empresa.document_heading, website=empresa.website_label, footer=empresa.document_footer, include_map=False,
                 **c.personales["reporte"])
     base.update(extra)
     return gen.ReportOptions(**base)
@@ -647,3 +650,8 @@ def _(c: Contexto):
         documentos[0].replace(problemas[0].token_index, "x")
         salida[idioma]["resultado"] = documentos[0].result()
     return salida
+
+
+def claves() -> list[str]:
+    """«perfil/caso» de todo lo que se compara."""
+    return sorted(f"{perfil}/{nombre}" for perfil in PERFILES for nombre in CASOS)

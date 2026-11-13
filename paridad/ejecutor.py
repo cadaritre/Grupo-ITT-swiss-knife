@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.path.insert(0, str(AQUI))
         import casos
         malos = 0
-        for caso in sorted(casos.CASOS):
+        for caso in casos.claves():
             for artefacto, resultado in comparar_caso(caso, corrida.web, corrida.escritorio, args.tolerante):
                 marca = "ok " if resultado.ok else "MAL"
                 malos += 0 if resultado.ok else 1
