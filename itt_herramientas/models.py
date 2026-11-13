@@ -71,6 +71,37 @@ class PerfilActivo(models.Model):
     actualizado = models.DateTimeField(default=timezone.now)
 
 
+class Conversion(models.Model):
+    """Un archivo del convertidor DXF ↔ KML/KMZ: su origen, lo que se leyó de él y la última salida generada."""
+
+    class Estado(models.TextChoices):
+        SUBIDO = "subido", "Subido"
+        ANALIZANDO = "analizando", "Analizando"
+        LISTO = "listo", "Listo"
+        ERROR = "error", "Con error"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cuenta_id = models.BigIntegerField(db_index=True)
+    nombre = models.CharField(max_length=150)                       # nombre original del archivo
+    formato = models.CharField(max_length=3)                        # dxf | kml | kmz
+    bytes = models.BigIntegerField()
+    ruta_origen = models.CharField(max_length=300)                  # relativa a TV_HERRAMIENTAS_ARCHIVOS
+    estado = models.CharField(max_length=12, choices=Estado.choices, default=Estado.SUBIDO)
+    zona = models.PositiveSmallIntegerField(default=13)
+    hemisferio = models.CharField(max_length=1, default="N")
+    resumen = models.JSONField(default=dict, blank=True)             # capas, geometrías, límites, avisos, diagnóstico
+    error = models.TextField(blank=True)
+    vista_ruta = models.CharField(max_length=300, blank=True)        # GeoJSON de la vista previa
+    opciones = models.JSONField(default=dict, blank=True)            # la última conversión pedida
+    salida_ruta = models.CharField(max_length=300, blank=True)
+    salida_formato = models.CharField(max_length=3, blank=True)
+    tarea_id = models.UUIDField(null=True, blank=True)
+    creada = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-creada"]
+
+
 class Preferencias(models.Model):
     """Preferencias recordadas de una cuenta (zona UTM, mapa base, opciones de reportes, croquis, ...)."""
 

@@ -18,6 +18,7 @@ class HerramientasConfig(AppConfig):
         # El dominio no lee variables de entorno ni crea carpetas al importarse: se configura aquí, con los ajustes del contrato.
         almacenamiento.configurar_cache(ajustes.valor("TV_MAPAS_CACHE"))
         almacenamiento.configurar_agente(ajustes.valor("TV_MAPAS_AGENTE"))
+        from .convertidor import destinos as destinos_convertidor  # noqa: F401  (registra «herramientas.convertidor_entrada»)
         from .offline import destinos  # noqa: F401  (registra el destino de subida «herramientas.captura»)
 
         post_migrate.connect(perfiles.sembrar_perfiles, sender=self, dispatch_uid="herramientas.sembrar_perfiles")

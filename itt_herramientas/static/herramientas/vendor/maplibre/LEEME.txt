@@ -1,0 +1,1 @@
+MapLibre GL JS 5.24.1 (BSD-3-Clause), compilación CSP: maplibre-gl-csp.js + maplibre-gl-csp-worker.js (sin Workers de blob:, por la CSP del portal).

@@ -1,0 +1,15 @@
+{% extends "herramientas/base_comun.html" %}
+{% load static tv %}
+{% block titulo_pagina %}Convertidor DXF ↔ KML/KMZ{% endblock %}
+{% block encabezado %}<h1>Convertidor DXF ↔ KML/KMZ</h1>{% endblock %}
+{% block cuerpo %}
+<p>Convierte un DXF a KML o KMZ para Google Earth, o un KML/KMZ a DXF para AutoCAD. Hasta {{ limite_mb }} MB y {{ limite_entidades|stringformat:"d" }} entidades; si tu archivo es más grande, ábrelo en <strong>Herramientas Grupo ITT (módulo local)</strong>.</p>
+<div id="itt-subida-convertidor" data-banco="{% url 'herramientas:convertidor_banco' '00000000-0000-0000-0000-000000000000' %}">
+{% subida destino="herramientas.convertidor_entrada" accept=".dxf,.kml,.kmz" etiqueta="Elige un DXF, KML o KMZ" max_bytes=limite_bytes %}
+</div>
+<p id="itt-convertidor-error" class="itt-aviso" role="alert" hidden></p>
+<h2>Recientes</h2>
+{% if recientes %}<ul class="itt-lista">{% for c in recientes %}<li class="itt-captura"><div><strong><a href="{% url 'herramientas:convertidor_banco' c.pk %}">{{ c.nombre }}</a></strong><br><span class="tv-tenue">{{ c.get_estado_display }} · {{ c.creada|date:"d/m/Y H:i" }}</span></div></li>{% endfor %}</ul>
+{% else %}<p class="tv-tenue">Todavía no has convertido archivos. Se conservan 7 días.</p>{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{% static 'herramientas/convertidor/inicio.js' %}"></script>{% endblock %}

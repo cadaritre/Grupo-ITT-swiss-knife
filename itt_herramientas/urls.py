@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import views
+from .convertidor import vistas as convertidor
 
 app_name = "herramientas"
 
@@ -15,6 +16,13 @@ urlpatterns = [
     path("perfil-activo/", views.perfil_activo, name="perfil_activo"),
     path("perfil.css", views.perfil_css, name="perfil_css"),
     path("perfil/logo/", views.perfil_logo, name="perfil_logo"),
+    path("convertidor/", convertidor.inicio, name="convertidor"),
+    path("convertidor/<uuid:pk>/", convertidor.banco, name="convertidor_banco"),
+    path("convertidor/<uuid:pk>/analizar/", convertidor.analizar, name="convertidor_analizar"),
+    path("convertidor/<uuid:pk>/convertir/", convertidor.convertir, name="convertidor_convertir"),
+    path("convertidor/<uuid:pk>/vista.geojson", convertidor.vista, name="convertidor_vista"),
+    path("convertidor/<uuid:pk>/descargar/", convertidor.descargar, name="convertidor_descargar"),
+    path("convertidor/<uuid:pk>/borrar/", convertidor.borrar, name="convertidor_borrar"),
     path("preferencias/", views.preferencias_, name="preferencias"),
     path("diccionario/", views.diccionario, name="diccionario"),
     path("perfiles/", views.perfiles_, name="perfiles"),

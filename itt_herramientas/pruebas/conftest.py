@@ -81,3 +81,34 @@ def personales_escritorio(tmp_path_factory):
                                       capture_output=True, text=True, env=ejecutor._entorno())
     assert proceso.returncode == 0, proceso.stderr
     return json.loads(destino.read_text(encoding="utf-8"))
+
+
+def subir_tus(cliente, datos: bytes, destino: str, nombre: str, **meta):
+    """Sube `datos` con el protocolo tus como lo hace el navegador. Devuelve (respuesta final, ruta de la subida)."""
+    import base64
+    import hashlib
+    from urllib.parse import urlparse
+
+    cabeza = {"HTTP_TUS_RESUMABLE": "1.0.0"}
+    campos = {"destino": destino, "name": nombre, "sha256": hashlib.sha256(datos).hexdigest(), **meta}
+    codificado = ",".join(f"{k} {base64.b64encode(str(v).encode()).decode()}" for k, v in campos.items())
+    r = cliente.post("/subidas/", HTTP_UPLOAD_LENGTH=str(len(datos)), HTTP_UPLOAD_METADATA=codificado, **cabeza)
+    if r.status_code != 201:
+        return r, None
+    ruta = urlparse(r["Location"]).path
+    return cliente.generic("PATCH", ruta, datos, content_type="application/offset+octet-stream", HTTP_UPLOAD_OFFSET="0", **cabeza), ruta
+
+
+@pytest.fixture
+def convertidora(crear_usuario, roles):
+    u = crear_usuario("conv")
+    roles.conceder(u, "herramientas", "convertidor")
+    return u
+
+
+@pytest.fixture(scope="session")
+def entradas_geo(tmp_path_factory):
+    """Archivos de entrada deterministas del convertidor (los mismos de la paridad con el escritorio)."""
+    from paridad import casos
+
+    return casos.generar_entradas(tmp_path_factory.mktemp("entradas_geo"))
