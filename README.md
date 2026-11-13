@@ -1,7 +1,7 @@
 # Herramientas Grupo ITT (rama `web`)
 
 App Django instalable `itt_herramientas` (paquete `itt-herramientas-web`) para el Portal TresVizo
-(`app.tresvizo.com/herramientas/`). Esta rama lleva solo las herramientas ligeras; el escritorio completo (Tk,
+(`tools.tresvizo.com`). Esta rama lleva solo las herramientas ligeras; el escritorio completo (Tk,
 PPK de dron, nubes de puntos, MSI) sigue en `main` y será el módulo local.
 
 ## Estructura

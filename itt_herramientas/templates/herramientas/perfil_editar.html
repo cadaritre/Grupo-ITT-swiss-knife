@@ -1,0 +1,12 @@
+{% extends "herramientas/base_comun.html" %}
+{% load tv %}
+{% block titulo_pagina %}Perfil {{ perfil.nombre }}{% endblock %}
+{% block encabezado %}<h1>Perfil: {{ perfil.nombre }}</h1>{% endblock %}
+{% block contenido %}
+{% include "herramientas/_perfil_nav.html" %}
+<form method="post" enctype="multipart/form-data" class="tv-formulario">{% csrf_token %}
+  {% for campo in formulario %}{% campo campo %}{% endfor %}
+  <p>Imágenes cargadas: logo {{ imagenes.logo|yesno:"sí,no" }}, firma {{ imagenes.firma|yesno:"sí,no" }}, cédula {{ imagenes.cedula|yesno:"sí,no" }}.</p>
+  <button type="submit" class="tv-boton">Guardar</button>
+</form>
+{% endblock %}

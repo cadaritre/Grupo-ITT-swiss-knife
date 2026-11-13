@@ -1,0 +1,11 @@
+{% extends "herramientas/base_comun.html" %}
+{% load tv %}
+{% block titulo_pagina %}Preferencias{% endblock %}
+{% block encabezado %}<h1>Preferencias</h1>{% endblock %}
+{% block contenido %}
+<form method="post" class="tv-formulario" action="">{% csrf_token %}
+  {% if formulario.non_field_errors %}{% alerta tipo="error" %}{{ formulario.non_field_errors }}{% endalerta %}{% endif %}
+  {% for campo in formulario %}{% campo campo %}{% endfor %}
+  <button type="submit" class="tv-boton">Guardar</button>
+</form>
+{% endblock %}

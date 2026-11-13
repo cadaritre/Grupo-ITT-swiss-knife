@@ -4,12 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "itt-herramientas-web"
-version = "0.1.0"
+version = "0.2.0"
 description = "Herramientas Grupo ITT: cotizaciones, reportes fotográficos, croquis, convertidor y triangulación como app Django para el Portal TresVizo"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "LicenseRef-Propietaria"
 dependencies = [
+    "tvplataforma>=1,<2",
+    "Django>=5.2,<5.3",
     "Pillow>=12.2,<14",
     "reportlab>=4.4,<6",
     "ezdxf>=1.4,<2",
@@ -23,11 +25,16 @@ dependencies = [
 [project.optional-dependencies]
 pruebas = [
     "pytest>=8.4,<10",
+    "pytest-django>=4.9",
 ]
 paridad = [
     # Rasterizar las páginas de los PDF para comparar, cuando los bytes no pueden coincidir.
     "PyMuPDF>=1.26,<3",
 ]
+
+# Desarrollo local: el contrato se toma de la ruta hermana (editable). En producción, del tag de Git del armazón.
+[tool.uv.sources]
+tvplataforma = { path = "../TresVizo-Portal/plataforma", editable = true }
 
 [tool.setuptools.packages.find]
 include = ["itt_herramientas*"]
@@ -36,12 +43,16 @@ include = ["itt_herramientas*"]
 itt_herramientas = [
     "dominio/fuentes/*",
     "dominio/activos/*",
+    "templates/**/*",
+    "static/**/*",
 ]
 
 [tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "itt_herramientas.pruebas.ajustes"
 testpaths = ["itt_herramientas/pruebas", "paridad"]
 python_files = ["test_*.py"]
 addopts = "-q"
+pythonpath = ["."]
 markers = [
     "paridad: compara contra la rama main del escritorio (corre con `pytest paridad`)",
 ]

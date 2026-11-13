@@ -1,0 +1,14 @@
+{% extends "herramientas/base_comun.html" %}
+{% load tv %}
+{% block titulo_pagina %}Textos de {{ perfil.nombre }}{% endblock %}
+{% block encabezado %}<h1>Textos: {{ perfil.nombre }}</h1>{% endblock %}
+{% block contenido %}
+{% include "herramientas/_perfil_nav.html" %}
+<p>Deja un campo vacío para usar el texto original.</p>
+<form method="post" class="tv-formulario">{% csrf_token %}
+  {% if formulario.non_field_errors %}{% alerta tipo="error" %}{{ formulario.non_field_errors }}{% endalerta %}{% endif %}
+  {% for titulo, campos in grupos %}<fieldset><legend>{{ titulo }}</legend>{% for c in campos %}{% campo c %}{% endfor %}</fieldset>{% endfor %}
+  <button type="submit" class="tv-boton">Guardar</button>
+  <button type="submit" name="restaurar" value="1" class="tv-boton tv-boton--secundario">Restaurar originales</button>
+</form>
+{% endblock %}

@@ -1,0 +1,7 @@
+{% extends "herramientas/base_comun.html" %}
+{% load tv %}
+{% block titulo_pagina %}Perfiles{% endblock %}
+{% block encabezado %}<h1>Perfiles corporativos</h1>{% endblock %}
+{% block contenido %}
+{% for p in perfiles %}{% url 'herramientas:perfil' p.clave as u %}{% tarjeta titulo=p.nombre enlace=u %}{{ p.encabezado }} · {{ p.sitio_web }}{% endtarjeta %}{% endfor %}
+{% endblock %}

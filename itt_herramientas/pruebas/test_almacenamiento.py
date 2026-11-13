@@ -66,7 +66,7 @@ def test_cache_dir_se_crea_al_pedirla_y_respeta_la_raiz(tmp_path):
 
 
 def test_agente_de_usuario_configurable():
-    alm.configurar_agente("TresVizo-Herramientas/1.0 (+https://app.tresvizo.com)")
+    alm.configurar_agente("TresVizo-Herramientas/1.0 (+https://tools.tresvizo.com)")
     try:
         assert alm.agente_usuario("x").startswith("TresVizo-Herramientas")
     finally:

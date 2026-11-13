@@ -1,0 +1,24 @@
+{% extends "herramientas/base_comun.html" %}
+{% load tv %}
+{% block titulo_pagina %}Diccionario{% endblock %}
+{% block encabezado %}<h1>Diccionario</h1>{% endblock %}
+{% block contenido %}
+{% tarjeta titulo="Mi diccionario personal" %}
+<form method="post" class="tv-formulario">{% csrf_token %}<input type="hidden" name="accion" value="agregar">
+  <label for="palabra">Palabra</label><input id="palabra" name="palabra" maxlength="60" required autocomplete="off">
+  <label for="idioma">Idioma</label><select id="idioma" name="idioma"><option value="es">Español</option><option value="en">Inglés</option></select>
+  <button type="submit" class="tv-boton">Agregar</button></form>
+{% for idioma, lista in palabras.items %}<h3>{% if idioma == "es" %}Español{% else %}Inglés{% endif %}</h3>
+  {% if lista %}<ul>{% for p in lista %}<li>{{ p }}
+    <form method="post" class="tv-formulario">{% csrf_token %}<input type="hidden" name="accion" value="quitar"><input type="hidden" name="palabra" value="{{ p }}"><input type="hidden" name="idioma" value="{{ idioma }}"><button type="submit" class="tv-boton tv-boton--secundario">Quitar</button></form></li>{% endfor %}</ul>
+  {% else %}<p>Aún no hay palabras.</p>{% endif %}{% endfor %}
+{% endtarjeta %}
+{% if es_admin %}{% tarjeta titulo="Diccionario técnico (todas las cuentas)" %}
+<form method="post" class="tv-formulario">{% csrf_token %}<input type="hidden" name="accion" value="agregar_termino">
+  <label for="termino">Término</label><input id="termino" name="palabra" maxlength="60" required autocomplete="off">
+  <label for="idioma_t">Idioma</label><select id="idioma_t" name="idioma">{% for v, n in idiomas %}<option value="{{ v }}"{% if v == "ambos" %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+  <button type="submit" class="tv-boton">Agregar</button></form>
+<ul>{% for t in terminos %}<li>{{ t.palabra }} ({{ t.get_idioma_display }})
+  <form method="post" class="tv-formulario">{% csrf_token %}<input type="hidden" name="accion" value="quitar_termino"><input type="hidden" name="id" value="{{ t.id }}"><button type="submit" class="tv-boton tv-boton--secundario">Quitar</button></form></li>{% empty %}<li>Sin términos propios.</li>{% endfor %}</ul>
+{% endtarjeta %}{% endif %}
+{% endblock %}
