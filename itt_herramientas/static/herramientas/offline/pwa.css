@@ -1,0 +1,31 @@
+/* Estilos de la PWA de Herramientas. Solo tokens de tvplataforma; sin estilos en línea (CSP). */
+.itt-pendientes { position: fixed; inset: auto 0 0 0; z-index: 40; display: flex; gap: var(--tv-espacio-3, 12px); align-items: center; justify-content: space-between;
+  padding: var(--tv-espacio-2, 8px) var(--tv-espacio-4, 16px) calc(var(--tv-espacio-2, 8px) + env(safe-area-inset-bottom)); background: var(--tv-superficie); border-top: 1px solid var(--tv-borde);
+  color: var(--tv-texto); min-height: var(--tv-tactil-min, 44px); }
+.itt-pendientes[data-estado="pendiente"], .itt-pendientes[data-estado="pausada"] { background: var(--tv-seleccion); }
+.itt-pendientes[data-estado="error"] { background: var(--tv-secundario); outline: 2px solid var(--tv-foco); }
+.itt-pendientes a { min-height: var(--tv-tactil-min, 44px); display: inline-flex; align-items: center; }
+body { padding-bottom: calc(var(--tv-tactil-min, 44px) + 16px + env(safe-area-inset-bottom)); }
+.itt-aviso { padding: var(--tv-espacio-3, 12px) var(--tv-espacio-4, 16px); border: 1px solid var(--tv-borde); border-radius: var(--tv-radio, 8px); margin: var(--tv-espacio-3, 12px) 0; background: var(--tv-superficie); }
+.itt-aviso[hidden], .itt-pendientes[hidden] { display: none; }
+.itt-actualizar { position: fixed; inset: 0 0 auto 0; z-index: 50; display: flex; gap: 12px; align-items: center; justify-content: center; padding: 8px 16px; background: var(--tv-primario); color: var(--tv-fondo); }
+.itt-actualizar[hidden] { display: none; }
+.itt-actualizar button { min-height: var(--tv-tactil-min, 44px); }
+.itt-acciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--tv-espacio-3, 12px); margin: var(--tv-espacio-4, 16px) 0; }
+.itt-acciones .tv-boton, .itt-acciones label.tv-boton { min-height: var(--tv-tactil-min, 44px); display: inline-flex; justify-content: center; align-items: center; cursor: pointer; text-align: center; }
+.itt-ocultar-entrada { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.itt-lista { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--tv-espacio-3, 12px); }
+.itt-captura { display: grid; grid-template-columns: 64px 1fr; gap: var(--tv-espacio-3, 12px); padding: var(--tv-espacio-3, 12px); border: 1px solid var(--tv-borde); border-radius: var(--tv-radio, 8px); background: var(--tv-superficie); }
+.itt-captura img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; }
+.itt-captura[data-estado="error"] { border-color: var(--tv-foco); }
+.itt-captura input[type="text"] { width: 100%; min-height: var(--tv-tactil-min, 44px); }
+.itt-captura progress { width: 100%; }
+.itt-captura button { min-height: var(--tv-tactil-min, 44px); }
+.itt-pasos { padding-left: 1.2em; }
+.itt-pasos li { margin: var(--tv-espacio-2, 8px) 0; }
+.itt-marca { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-3, 12px); align-items: center; padding: var(--tv-espacio-3, 12px) 0; border-bottom: 2px solid var(--tv-primario); margin-bottom: var(--tv-espacio-4, 16px); }
+.itt-marca__logo { height: 36px; width: auto; max-width: 140px; object-fit: contain; }
+.itt-marca__texto { display: flex; flex-direction: column; flex: 1 1 160px; min-width: 0; }
+.itt-marca__texto strong { color: var(--tv-primario); }
+.itt-marca__cambio { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); align-items: center; }
+.itt-marca__cambio button { min-height: var(--tv-tactil-min, 44px); }

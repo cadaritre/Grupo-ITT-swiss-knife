@@ -1,0 +1,20 @@
+{% load static %}<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>{% block titulo %}Herramientas{% endblock %} · TresVizo</title>
+<link rel="icon" href="{% static 'tvplataforma/img/logo.svg' %}" type="image/svg+xml">
+<link rel="stylesheet" href="{% static 'tvplataforma/tokens.css' %}">
+<link rel="stylesheet" href="{% static 'tvplataforma/base.css' %}">
+<link rel="stylesheet" href="{% static 'tvplataforma/componentes.css' %}">
+{% include "herramientas/pwa/_cabeza.html" %}
+</head>
+<body>
+<header class="tv-cabecera"><div class="tv-cabecera__fila"><span class="tv-marca"><img src="{% static 'tvplataforma/img/logo.svg' %}" alt="" width="28" height="28"><span>TresVizo</span></span><span class="tv-cabecera__modulo">Herramientas</span></div></header>
+<main id="contenido" class="tv-principal">{% block contenido %}{% endblock %}</main>
+{% include "herramientas/pwa/_cola.html" %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

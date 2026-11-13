@@ -1,0 +1,13 @@
+{% load static %}<div id="itt-actualizar" class="itt-actualizar" role="status" hidden><span>Hay una versión nueva</span> · <button type="button" class="tv-boton">Actualizar</button></div>
+<div id="itt-pendientes" class="itt-pendientes" role="status" aria-live="polite" data-total="0" data-estado="limpio">
+  <span data-itt="texto">Sin pendientes</span>
+  <a href="{% url 'herramientas:capturar' %}">Ver capturas</a>
+</div>
+<p id="itt-almacenamiento" class="itt-aviso" role="alert" hidden></p>
+<script src="{% static 'herramientas/offline/cola.js' %}"></script>
+<script src="{% static 'herramientas/offline/tus.js' %}"></script>
+<script src="{% static 'herramientas/offline/subidor.js' %}"></script>
+<script src="{% static 'herramientas/offline/exif.js' %}"></script>
+<script src="{% static 'herramientas/offline/reducir.js' %}"></script>
+<script src="{% static 'herramientas/offline/compartir.js' %}"></script>
+<script src="{% static 'herramientas/offline/ui.js' %}"></script>

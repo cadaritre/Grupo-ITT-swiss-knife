@@ -1,0 +1,26 @@
+{% extends "herramientas/pwa/_pagina.html" %}
+{% load static %}
+{% block titulo %}Capturar{% endblock %}
+{% block contenido %}
+<h1>Capturar fotos</h1>
+<p id="itt-referencia" class="tv-tenue"></p>
+<p id="itt-red" role="status" data-estado="en_linea">En línea</p>
+<div id="itt-instalar-tip" class="itt-aviso" hidden>
+  <strong>Instala la app para no perder fotos.</strong> En una pestaña del navegador el sistema puede borrar lo guardado si no la usas. 
+  <a href="{% url 'herramientas:instalar' %}">Cómo instalarla</a>
+  <button type="button" id="itt-cerrar-tip" class="tv-boton tv-boton--secundario">Entendido</button>
+</div>
+<p id="itt-mensaje" class="itt-aviso" role="alert" data-tipo="" ></p>
+<div class="itt-acciones">
+  <label class="tv-boton">Tomar foto<input id="itt-camara" class="itt-ocultar-entrada" type="file" accept="image/*" capture="environment"></label>
+  <label class="tv-boton tv-boton--secundario">Elegir de la galería<input id="itt-galeria" class="itt-ocultar-entrada" type="file" accept="image/*" multiple></label>
+  <button type="button" id="itt-subir-ahora" class="tv-boton tv-boton--secundario">Subir ahora</button>
+  <button type="button" id="itt-ubicacion" class="tv-boton tv-boton--secundario">Activar ubicación</button>
+</div>
+<p id="itt-geo" class="tv-tenue">Ubicación: sin activar</p>
+<div class="tv-campo"><label for="itt-nota">Nota para las siguientes fotos (opcional)</label><input id="itt-nota" type="text" maxlength="1000" autocomplete="off"></div>
+<h2>Capturas en este teléfono</h2>
+<p id="itt-vacio" class="tv-tenue">Aún no hay capturas pendientes.</p>
+<ul id="itt-lista" class="itt-lista"></ul>
+{% endblock %}
+{% block scripts %}<script src="{% static 'herramientas/offline/captura.js' %}"></script>{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "herramientas/pwa/_pagina.html" %}
+{% block titulo %}Instalar la app{% endblock %}
+{% block contenido %}
+<h1>Instalar Herramientas en el teléfono</h1>
+<p>Instalada, la app abre sin barra del navegador, funciona sin señal y el sistema <strong>no borra</strong> tus fotos pendientes por falta de uso. Es la forma recomendada de capturar en campo.</p>
+<section class="tv-tarjeta" id="guia-iphone"><h2 class="tv-tarjeta__titulo">iPhone (Safari)</h2>
+<ol class="itt-pasos">
+  <li>Abre <strong>tools.tresvizo.com</strong> en <strong>Safari</strong> (no en otro navegador ni desde dentro de WhatsApp o correo).</li>
+  <li>Toca el botón <strong>Compartir</strong> (el cuadrado con la flecha hacia arriba).</li>
+  <li>Elige <strong>Agregar a inicio</strong> y confirma con <strong>Agregar</strong>.</li>
+  <li>Abre la app desde el ícono nuevo de tu pantalla de inicio e inicia sesión ahí.</li>
+</ol>
+<p class="tv-tenue">Importante en iPhone: lo que capturas en Safari y lo que capturas en la app instalada se guardan por separado. Captura siempre desde la app instalada. iPhone no sube fotos con la app cerrada: deja la app abierta unos segundos con señal hasta que el contador diga «Sin pendientes».</p></section>
+<section class="tv-tarjeta" id="guia-android"><h2 class="tv-tarjeta__titulo">Android (Chrome)</h2>
+<ol class="itt-pasos">
+  <li>Abre <strong>tools.tresvizo.com</strong> en <strong>Chrome</strong>.</li>
+  <li>Toca el menú <strong>⋮</strong> y elige <strong>Instalar app</strong> (o <strong>Agregar a la pantalla principal</strong>).</li>
+  <li>Confirma con <strong>Instalar</strong>. Abre la app desde el ícono nuevo.</li>
+</ol>
+<p class="tv-tenue">Android puede terminar de subir las fotos aunque cierres la app, en cuanto vuelva la señal.</p></section>
+<section class="tv-tarjeta"><h2 class="tv-tarjeta__titulo">Tu estado</h2>
+  <p id="itt-estado-instalacion">Revisando…</p>
+  <button type="button" id="itt-instalar-boton" class="tv-boton" hidden>Instalar ahora</button>
+</section>
+{% endblock %}
+{% block scripts %}{% load static %}<script src="{% static 'herramientas/offline/instalar.js' %}"></script>{% endblock %}
