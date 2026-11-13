@@ -112,8 +112,13 @@ def comparar_caso(caso: str, web: Path, escritorio: Path, tolerante: bool = Fals
     if rw["artefactos"] != re_["artefactos"]:
         salida.append(("<artefactos>", C.Resultado(C.DISTINTO, f"web={rw['artefactos']} escritorio={re_['artefactos']}")))
         return salida
+    geometrica = caso.split("/", 1)[-1].startswith("convertidor_")        # el convertidor mejoró a propósito: se compara la geometría, no los bytes
     for nombre in rw["artefactos"]:
-        salida.append((nombre, C.comparar(web / caso / nombre, escritorio / caso / nombre, tolerante)))
+        a, b = web / caso / nombre, escritorio / caso / nombre
+        if geometrica and a.suffix.lower() in {".kml", ".kmz", ".dxf"}:
+            salida.append((nombre, C.comparar_geometria(a, b)))
+        else:
+            salida.append((nombre, C.comparar(a, b, tolerante)))
     return salida
 
 

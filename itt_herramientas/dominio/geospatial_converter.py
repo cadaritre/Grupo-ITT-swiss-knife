@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Callable
 from xml.etree import ElementTree as ET
 
+from . import geometria
 from .branding import active_profile
+from .geometria import Punto
 
 
 Coord = tuple[float, float, float]
@@ -139,50 +141,94 @@ def _clean_layer(value: str) -> str:
     return clean[:255] or "0"
 
 
-def _flatten_entity(entity, tolerance: float) -> tuple[str, list[list[Coord]]] | None:
+def _recto(entity) -> bool:
+    """¿La entidad vive en el plano XY del mundo (extrusión 0,0,1)? Si no, sus coordenadas están en un sistema de objeto (OCS)."""
+    extrusion = entity.dxf.get("extrusion", (0, 0, 1)) if hasattr(entity, "dxf") else (0, 0, 1)
+    return abs(extrusion[0]) < 1e-12 and abs(extrusion[1]) < 1e-12 and extrusion[2] > 0
+
+
+def _aplanar_con_ezdxf(entity, tolerance: float) -> list[Punto]:
+    """Respaldo para entidades en OCS, elipses y splines: aproximación adaptativa de ezdxf (error de cuerda ≈ `tolerance`)."""
+    from ezdxf.path import make_path
+
+    return [(*_coord(v), False) for v in make_path(entity).flattening(distance=tolerance, segments=1)]
+
+
+def _vertices_con_bulge(entity) -> tuple[list[tuple[float, float, float, float]], bool]:
+    """Vértices `(x, y, z, bulge)` de una polilínea 2D/3D y si es cerrada."""
+    if entity.dxftype() == "LWPOLYLINE":
+        elevation = float(getattr(entity.dxf, "elevation", 0.0) or 0.0)
+        vertices = [(float(x), float(y), elevation, float(b or 0.0)) for x, y, _s, _e, b in entity.get_points("xyseb")]
+        return vertices, bool(entity.closed)
+    vertices = []
+    for vertex in entity.vertices:
+        x, y, z = _coord(vertex.dxf.location)
+        vertices.append((x, y, z, float(getattr(vertex.dxf, "bulge", 0.0) or 0.0)))
+    return vertices, bool(entity.is_closed)
+
+
+def _flatten_entity(entity, tolerance: float) -> tuple[str, list[list[Punto]]] | None:
+    """Geometría de una entidad en metros, con puntos `(x, y, z, original)`. Las curvas se aproximan por error de cuerda
+    (`tolerance`, en metros); las rectas no se tocan. Ver `geometria.py`."""
     kind = entity.dxftype()
     if kind == "POINT":
-        return "Point", [[_coord(entity.dxf.location)]]
+        return "Point", [[(*_coord(entity.dxf.location), True)]]
     if kind == "LINE":
-        return "LineString", [[_coord(entity.dxf.start), _coord(entity.dxf.end)]]
+        return "LineString", [[(*_coord(entity.dxf.start), True), (*_coord(entity.dxf.end), True)]]
     if kind in {"LWPOLYLINE", "POLYLINE"}:
-        try:
-            from ezdxf.path import make_path
-
-            points = [_coord(vertex) for vertex in make_path(entity).flattening(distance=tolerance, segments=8)]
-        except Exception:
-            if kind == "LWPOLYLINE":
-                elevation = float(getattr(entity.dxf, "elevation", 0.0) or 0.0)
-                points = [(float(x), float(y), elevation) for x, y, *_ in entity.get_points("xy")]
-            else:
-                points = [_coord(vertex.dxf.location) for vertex in entity.vertices]
+        if kind == "POLYLINE" and (entity.is_polygon_mesh or entity.is_poly_face_mesh):
+            points = [(*_coord(v.dxf.location), True) for v in entity.vertices]
+            return "LineString", [geometria.limpiar(points)]
+        if not _recto(entity):
+            points = _aplanar_con_ezdxf(entity, tolerance)
+        else:
+            vertices, closed_flag = _vertices_con_bulge(entity)
+            points = []
+            total = len(vertices)
+            for i, (x, y, z, bulge) in enumerate(vertices):
+                points.append((x, y, z, True))
+                if bulge and (i < total - 1 or closed_flag):
+                    nx, ny, nz, _ = vertices[(i + 1) % total]
+                    points.extend(geometria.interiores_de_bulge((x, y, z), (nx, ny, nz), bulge, tolerance))
+            if closed_flag and points:
+                points.append(points[0])
+            elif not vertices:
+                return None
+        points = geometria.limpiar(points)
         closed = bool(getattr(entity, "closed", False) or getattr(entity, "is_closed", False))
-        if closed and points and points[0] != points[-1]:
+        if closed and points and points[0][:3] != points[-1][:3]:
             points.append(points[0])
         return ("Polygon" if closed and len(points) >= 4 else "LineString"), [points]
+    if kind in {"CIRCLE", "ARC"} and _recto(entity):
+        cx, cy, cz = _coord(entity.dxf.center)
+        radius = float(entity.dxf.radius)
+        if radius <= 0:
+            return None
+        if kind == "CIRCLE":
+            return "Polygon", [geometria.limpiar(geometria.puntos_de_circulo(cx, cy, cz, radius, tolerance))]
+        points = geometria.limpiar(geometria.puntos_de_arco_dxf(cx, cy, cz, radius, float(entity.dxf.start_angle), float(entity.dxf.end_angle), tolerance))
+        return "LineString", [points]
     if kind in {"CIRCLE", "ARC", "ELLIPSE", "SPLINE"}:
         try:
-            from ezdxf.path import make_path
-
-            points = [_coord(vertex) for vertex in make_path(entity).flattening(distance=tolerance, segments=12)]
+            points = geometria.limpiar(_aplanar_con_ezdxf(entity, tolerance))
         except Exception:
             return None
         closed = kind in {"CIRCLE"} or bool(getattr(entity, "closed", False))
-        if closed and points and points[0] != points[-1]:
+        if closed and points and points[0][:3] != points[-1][:3]:
             points.append(points[0])
         return ("Polygon" if closed else "LineString"), [points]
     if kind in {"3DFACE", "SOLID", "TRACE"}:
-        points = [_coord(getattr(entity.dxf, f"vtx{index}")) for index in range(4)]
-        while len(points) > 3 and points[-1] == points[-2]:
+        points = [(*_coord(getattr(entity.dxf, f"vtx{index}")), True) for index in range(4)]
+        while len(points) > 3 and points[-1][:3] == points[-2][:3]:
             points.pop()
-        if points and points[0] != points[-1]:
+        if points and points[0][:3] != points[-1][:3]:
             points.append(points[0])
         return "Polygon", [points]
     if kind in {"TEXT", "MTEXT"}:
         location = getattr(entity.dxf, "insert", None)
         if location is None:
             return None
-        return "Point", [[_coord(location)]]
+        return "Point", [[(*_coord(location), True)]]
     return None
 
 
@@ -202,19 +248,23 @@ def read_dxf(
     path: str | Path,
     zone: int = 13,
     hemisphere: str = "N",
-    curve_tolerance: float = 0.5,
+    curve_tolerance: float = geometria.TOLERANCIA_POR_OMISION,
     progress: ProgressCallback | None = None,
 ) -> GeoDataset:
+    """Lee un DXF y lo pasa a WGS84. `curve_tolerance` es el error máximo de cuerda, en metros, al aproximar arcos, círculos,
+    elipses, splines y bulges (1 cm por omisión); las rectas conservan solo sus vértices."""
     try:
         import ezdxf
     except ImportError as exc:
         raise RuntimeError("Falta ezdxf, necesario para leer archivos DXF.") from exc
+    tolerance = geometria.tolerancia_valida(curve_tolerance)
 
     source = Path(path)
     _notify_progress(progress, 0.03, "Abriendo estructura del DXF…")
     document = ezdxf.readfile(source)
     coordinate_samples = _dxf_coordinate_samples(document)
     to_wgs84, _ = _transformers(zone, hemisphere)
+    to_geografica = to_wgs84.transform
     features: list[GeoFeature] = []
     projected_xy: list[tuple[float, float]] = []
     skipped = Counter()
@@ -228,7 +278,7 @@ def read_dxf(
             except Exception:
                 skipped[kind] += 1
             return
-        flattened = _flatten_entity(entity, max(0.01, curve_tolerance))
+        flattened = _flatten_entity(entity, tolerance)
         if not flattened:
             if kind not in {"HATCH", "IMAGE", "WIPEOUT", "VIEWPORT", "DIMENSION", "LEADER", "MLEADER"}:
                 skipped[kind] += 1
@@ -236,13 +286,14 @@ def read_dxf(
         geometry_type, raw_parts = flattened
         parts: list[list[Coord]] = []
         for raw_part in raw_parts:
+            # Una recta solo gana vértices si la reproyección la dobla más que la tolerancia (a escala de levantamiento, nunca).
+            dense = geometria.densificar_para_reproyectar(raw_part, to_geografica, tolerance)
             part: list[Coord] = []
-            for x, y, z in raw_part:
-                easting, northing = x, y
-                longitude, latitude = to_wgs84.transform(easting, northing)
+            for x, y, z, _original in dense:
+                longitude, latitude = to_wgs84.transform(x, y)
                 if not (math.isfinite(longitude) and math.isfinite(latitude)):
                     continue
-                projected_xy.append((easting, northing))
+                projected_xy.append((x, y))
                 part.append((longitude, latitude, z))
             if part:
                 parts.append(part)
@@ -447,11 +498,18 @@ def _kml_color(layer: str, alpha: int = 255) -> str:
     return f"{alpha:02x}{blue:02x}{green:02x}{red:02x}"
 
 
+def _decimales(valor: float, cifras: int) -> str:
+    """`valor` con hasta `cifras` decimales y sin ceros sobrantes («-106.0691», «1420», «0»)."""
+    texto = f"{valor:.{cifras}f}".rstrip("0").rstrip(".")
+    return "0" if texto in {"", "-0"} else texto
+
+
 def _coordinates_text(points: list[Coord], ground_clamped: bool = False) -> str:
-    return " ".join(
-        f"{longitude:.9f},{latitude:.9f},{0.0 if ground_clamped else altitude:.3f}"
-        for longitude, latitude, altitude in points
-    )
+    """Coordenadas de KML: longitud y latitud con 8 decimales de grado (≈ 1.1 mm) y la altura con milímetros, sin ceros
+    sobrantes. Pegado al relieve (`clampToGround`) Google Earth ignora la altura, así que no se escribe."""
+    if ground_clamped:
+        return " ".join(f"{_decimales(longitude, 8)},{_decimales(latitude, 8)}" for longitude, latitude, _altitude in points)
+    return " ".join(f"{_decimales(longitude, 8)},{_decimales(latitude, 8)},{_decimales(altitude, 3)}" for longitude, latitude, altitude in points)
 
 
 def write_kml(
@@ -581,7 +639,10 @@ def write_dxf(
         document.layers.new("ETIQUETAS_KML", dxfattribs={"color": 7})
 
     def projected(points: list[Coord]) -> list[Coord]:
-        return [(float(to_utm.transform(lon, lat)[0]), float(to_utm.transform(lon, lat)[1]), float(alt)) for lon, lat, alt in points]
+        """A UTM en metros con la precisión de la fuente (KML trae ~0.1 mm): 4 decimales, no los 17 dígitos del doble."""
+        xs, ys = to_utm.transform([p[0] for p in points], [p[1] for p in points])
+        redondeados = [(round(float(x), 4), round(float(y), 4), round(float(p[2]), 3)) for x, y, p in zip(xs, ys, points)]
+        return [q for i, q in enumerate(redondeados) if i == 0 or q != redondeados[i - 1]]
 
     total_features = len(selected.features)
     for feature_index, feature in enumerate(selected.features):

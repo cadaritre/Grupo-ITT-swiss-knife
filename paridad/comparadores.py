@@ -227,3 +227,150 @@ def comparar(a: Path, b: Path, tolerante: bool = False) -> Resultado:
     if ext == ".json":
         return comparar_json(a, b)
     return comparar_texto(a, b)
+
+
+# -- Paridad GEOMÉTRICA del convertidor ---------------------------------------------------------------------------
+#
+# La web aproxima las curvas por error de cuerda (1 cm) y no densifica rectas; el escritorio las aproximaba con ~12 segmentos por
+# tramo. Los bytes ya no coinciden a propósito. Lo que debe coincidir es la estructura (capas, nombres, atributos, estilos, número
+# de elementos) y la geometría: las rectas vértice por vértice y las curvas dentro de una tolerancia.
+
+# El escritorio aproximaba splines y elipses con hasta 0.5 m de error (su parámetro `curve_tolerance`); la web, con 1 cm, medido contra
+# la curva verdadera en pruebas/test_geometria.py. Entre las dos salidas puede haber, pues, hasta 0.5 m + 1 cm.
+TOLERANCIA_CURVAS_M = 0.52
+TOLERANCIA_VERTICE_GRADOS = 1.5e-8  # redondeo de la web a 8 decimales + 9 del escritorio (≈ 1.7 mm)
+
+
+def _kml_texto(ruta: Path) -> bytes:
+    if ruta.suffix.lower() == ".kmz":
+        with zipfile.ZipFile(ruta) as zf:
+            return zf.read("doc.kml")
+    return ruta.read_bytes()
+
+
+def _ns(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _lista(texto: str) -> list[tuple[float, float, float]]:
+    puntos = []
+    for trio in texto.split():
+        v = [float(x) for x in trio.split(",")]
+        puntos.append((v[0], v[1], v[2] if len(v) > 2 else 0.0))
+    return puntos
+
+
+def _sin_repetidos(puntos):
+    salida = []
+    for p in puntos:
+        if not salida or p[:2] != salida[-1][:2]:
+            salida.append(p)
+    return salida
+
+
+def _metros(a, b) -> float:
+    import math
+    return math.hypot((a[0] - b[0]) * 111_320.0 * math.cos(math.radians(a[1])), (a[1] - b[1]) * 110_540.0)
+
+
+def hausdorff_m(a, b) -> float:
+    """Distancia de Hausdorff (en metros, aproximada) entre dos polilíneas lon/lat: la mayor distancia de un vértice de una a la otra."""
+    from shapely.geometry import LineString, Point
+
+    def una_a_otra(p, q):
+        linea = LineString([(x, y) for x, y, *_ in q]) if len(q) > 1 else Point(q[0][0], q[0][1])
+        mayor = 0.0
+        for x, y, *_ in p:
+            cerca = linea.interpolate(linea.project(Point(x, y))) if len(q) > 1 else linea
+            mayor = max(mayor, _metros((x, y), (cerca.x, cerca.y)))
+        return mayor
+
+    return max(una_a_otra(a, b), una_a_otra(b, a))
+
+
+def comparar_geometria_kml(web: Path, esc: Path) -> Resultado:
+    ra, rb = ET.fromstring(_kml_texto(web)), ET.fromstring(_kml_texto(esc))
+    ns = {"k": "http://www.opengis.net/kml/2.2"}
+
+    def estructura(raiz):
+        doc = raiz.find("k:Document", ns)
+        estilos = [ET.canonicalize(ET.tostring(e)) for e in doc.findall("k:Style", ns)]
+        return (doc.findtext("k:name", namespaces=ns), estilos, [(c.findtext("k:name", namespaces=ns), len(c.findall("k:Placemark", ns))) for c in doc.findall("k:Folder", ns)])
+    if estructura(ra) != estructura(rb):
+        return Resultado(DISTINTO, "documento, estilos o carpetas distintos")
+    pa, pb = ra.findall(".//k:Placemark", ns), rb.findall(".//k:Placemark", ns)
+    if len(pa) != len(pb):
+        return Resultado(DISTINTO, f"{len(pa)} vs {len(pb)} placemarks")
+    peor = 0.0
+    for n, (x, y) in enumerate(zip(pa, pb), 1):
+        for campo in ("k:name", "k:styleUrl"):
+            if x.findtext(campo, namespaces=ns) != y.findtext(campo, namespaces=ns):
+                return Resultado(DISTINTO, f"placemark {n}: {campo} distinto")
+        datos = lambda p: [(d.get("name"), d.findtext("k:value", namespaces=ns)) for d in p.findall("k:ExtendedData/k:Data", ns)]
+        if datos(x) != datos(y):
+            return Resultado(DISTINTO, f"placemark {n}: atributos distintos {datos(x)} vs {datos(y)}")
+        gx = next(g for g in x if _ns(g.tag) in {"Point", "LineString", "Polygon"})
+        gy = next(g for g in y if _ns(g.tag) in {"Point", "LineString", "Polygon"})
+        if _ns(gx.tag) != _ns(gy.tag):
+            return Resultado(DISTINTO, f"placemark {n}: {_ns(gx.tag)} vs {_ns(gy.tag)}")
+        anillos_x = [_sin_repetidos(_lista(c.text)) for c in gx.iter("{http://www.opengis.net/kml/2.2}coordinates")]
+        anillos_y = [_sin_repetidos(_lista(c.text)) for c in gy.iter("{http://www.opengis.net/kml/2.2}coordinates")]
+        if len(anillos_x) != len(anillos_y):
+            return Resultado(DISTINTO, f"placemark {n}: {len(anillos_x)} vs {len(anillos_y)} anillos")
+        for ax, ay in zip(anillos_x, anillos_y):
+            if len(ax) == len(ay):          # misma cantidad de vértices: tienen que ser los mismos (rectas, puntos)
+                if any(abs(p[0] - q[0]) > TOLERANCIA_VERTICE_GRADOS or abs(p[1] - q[1]) > TOLERANCIA_VERTICE_GRADOS for p, q in zip(ax, ay)):
+                    return Resultado(DISTINTO, f"placemark {n}: los vértices no coinciden")
+            else:                           # distinta cantidad: solo se admite en curvas, y dentro de la tolerancia
+                d = hausdorff_m(ax, ay)
+                peor = max(peor, d)
+                if d > TOLERANCIA_CURVAS_M:
+                    return Resultado(DISTINTO, f"placemark {n}: la geometría se separa {d:.3f} m (máximo {TOLERANCIA_CURVAS_M} m)")
+    return Resultado(EXACTO if peor == 0 else TOLERANTE, f"geometría equivalente (desviación máxima de curvas {peor * 100:.1f} cm)" if peor else "")
+
+
+def comparar_geometria_dxf(web: Path, esc: Path) -> Resultado:
+    import ezdxf
+
+    da, db = ezdxf.readfile(web), ezdxf.readfile(esc)
+    ea, eb = list(da.modelspace()), list(db.modelspace())
+    claves = lambda es: [(e.dxftype(), e.dxf.layer) for e in es]
+    if claves(ea) != claves(eb):
+        return Resultado(DISTINTO, "entidades o capas distintas")
+    if sorted(l.dxf.name for l in da.layers) != sorted(l.dxf.name for l in db.layers):
+        return Resultado(DISTINTO, "capas distintas")
+
+    def vertices(e):
+        t = e.dxftype()
+        if t == "LWPOLYLINE":
+            return [(p[0], p[1], 0.0) for p in e.get_points("xy")]
+        if t == "POLYLINE":
+            return [tuple(v.dxf.location) for v in e.vertices]
+        if t == "POINT":
+            return [tuple(e.dxf.location)]
+        if t == "TEXT":
+            return [tuple(e.dxf.insert)]
+        if t == "HATCH":
+            return [(v[0], v[1], 0.0) for c in e.paths for v in getattr(c, "vertices", [])]
+        return None
+    for n, (x, y) in enumerate(zip(ea, eb), 1):
+        if x.dxftype() == "TEXT" and x.dxf.text != y.dxf.text:
+            return Resultado(DISTINTO, f"entidad {n}: texto distinto")
+        vx, vy = vertices(x), vertices(y)
+        if vx is None:
+            continue
+        vx, vy = _sin_repetidos(vx), _sin_repetidos(vy)
+        if len(vx) != len(vy):
+            return Resultado(DISTINTO, f"entidad {n} ({x.dxftype()}): {len(vx)} vs {len(vy)} vértices")
+        if any(abs(p[0] - q[0]) > 2e-4 or abs(p[1] - q[1]) > 2e-4 or abs(p[2] - q[2]) > 2e-3 for p, q in zip(vx, vy)):
+            return Resultado(DISTINTO, f"entidad {n} ({x.dxftype()}): los vértices no coinciden")
+    return Resultado(TOLERANTE, "geometría equivalente (la web escribe 4 decimales, 0.1 mm)")
+
+
+def comparar_geometria(web: Path, esc: Path) -> Resultado:
+    sufijo = web.suffix.lower()
+    if sufijo in {".kml", ".kmz"}:
+        return comparar_geometria_kml(web, esc)
+    if sufijo == ".dxf":
+        return comparar_geometria_dxf(web, esc)
+    raise ValueError(sufijo)

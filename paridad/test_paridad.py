@@ -19,7 +19,8 @@ def test_caso_igual_al_escritorio(corrida, caso):
     assert resultados, f"el caso {caso} no produjo nada"
     malos = [f"{nombre}: {r.motivo}" for nombre, r in resultados if not r.ok]
     assert not malos, "\n".join(malos)
-    inexactos = [nombre for nombre, r in resultados if r.nivel != "exacto"]
+    # El convertidor ya no es idéntico byte a byte (aproxima las curvas por error de cuerda): su paridad es geométrica.
+    inexactos = [nombre for nombre, r in resultados if r.nivel == "distinto" or (r.nivel != "exacto" and not caso.split("/", 1)[-1].startswith("convertidor_"))]
     assert not inexactos, f"se esperaba igualdad exacta en: {inexactos}"
 
 
@@ -42,7 +43,8 @@ def test_cobertura_de_casos_del_dominio_movido():
     """Cada módulo de lógica movido a `dominio` aparece en al menos un caso (se detecta por su nombre)."""
     fuente = (ejecutor.AQUI / "casos.py").read_text(encoding="utf-8")
     assert len(casos.claves()) == 2 * len(casos.CASOS)
-    sin_caso = {"almacenamiento": "no existe en el escritorio con esa forma (ver test_almacenamiento)", "fuentes": "nuevo en la web"}
+    sin_caso = {"almacenamiento": "no existe en el escritorio con esa forma (ver test_almacenamiento)", "fuentes": "nuevo en la web",
+                "geometria": "nuevo en la web: se prueba en pruebas/test_geometria.py y paridad/test_convertidor_medidas.py (escritorio contra web)"}
     for archivo in sorted((ejecutor.RAIZ / "itt_herramientas" / "dominio").glob("*.py")):
         nombre = archivo.stem
         if nombre == "__init__" or nombre in sin_caso:

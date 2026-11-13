@@ -119,6 +119,14 @@ def generar_entradas(destino: Path) -> dict[str, Path]:
     msp.add_arc((base_x + 20, base_y + 10), 9, 15, 200, dxfattribs={"layer": "CURVAS"})
     msp.add_point((base_x + 5, base_y + 5, 1421.5), dxfattribs={"layer": "VERTICES"})
     msp.add_text("PUNTO A", dxfattribs={"layer": "VERTICES", "insert": (base_x + 6, base_y + 6), "height": 2})
+    msp.add_lwpolyline([(base_x + 50, base_y + 5, 0, 0, 0.5), (base_x + 60, base_y + 5, 0, 0, 0), (base_x + 60, base_y + 15, 0, 0, -0.3)], format="xyseb", dxfattribs={"layer": "CURVAS"})
+    msp.add_ellipse((base_x + 20, base_y + 45), major_axis=(8, 0, 0), ratio=0.5, dxfattribs={"layer": "TANQUES"})
+    msp.add_spline(fit_points=[(base_x + 2 + i * 6, base_y + 20 + math.sin(i) * 4) for i in range(8)], dxfattribs={"layer": "CURVAS"})
+    bloque = doc.blocks.new("ARBOL")
+    bloque.add_circle((0, 0), 0.6)
+    bloque.add_line((-0.6, 0), (0.6, 0))
+    for k in range(3):
+        msp.add_blockref("ARBOL", (base_x + 70 + k * 3, base_y + 10), dxfattribs={"layer": "VERTICES"})
     poli3d = msp.add_polyline3d([(base_x, base_y, 1420.0), (base_x + 30, base_y + 20, 1423.0), (base_x + 60, base_y + 35, 1424.5)], dxfattribs={"layer": "CURVAS"})
     poli3d.dxf.layer = "CURVAS"
     msp.add_lwpolyline([(base_x + 10, base_y + 40), (base_x + 25, base_y + 52), (base_x + 40, base_y + 40)], dxfattribs={"layer": "BORDE ABIERTO"})
@@ -545,9 +553,10 @@ def _(c: Contexto):
 
 
 def _resumen_dataset(ds) -> dict:
-    return {"capas": ds.layer_counts(), "geometrias": ds.geometry_counts(), "limites": ds.bounds(),
-            "entidades": [{"nombre": f.name, "capa": f.layer, "tipo": f.geometry_type, "partes": [[(round(x, 6), round(y, 6), round(z, 3)) for (x, y, z) in part] for part in f.parts]}
-                          for f in ds.features] if hasattr(ds, "features") and ds.features and True else None}
+    """Resumen ESTRUCTURAL: capas, tipos y nombres. Los vértices no se comparan aquí (la web aproxima las curvas con otra tolerancia):
+    de eso se encarga la comparación geométrica de los archivos de salida (`comparadores.comparar_geometria`)."""
+    return {"capas": ds.layer_counts(), "geometrias": ds.geometry_counts(), "advertencias": list(ds.warnings),
+            "entidades": [[f.name, f.layer, f.geometry_type, f.properties.get("dxf_type", ""), len(f.parts)] for f in ds.features]}
 
 
 @caso("convertidor_dxf_a_kml_kmz")
