@@ -19,7 +19,9 @@ from ..dominio.almacenamiento import Ajustes, ajustes_activos
 from ..dominio.pdf_generator import ReportOptions
 from ..dominio.quotation_i18n import LABELS
 from ..dominio.quotation_models import QuoteData
-from ..models import AccesoPerfil, Perfil
+from django.utils import timezone
+
+from ..models import Perfil, PerfilActivo
 
 #: campo de `Perfil` -> campo del perfil del dominio (`branding.PROFILE_DEFAULTS`)
 CAMPOS = {
@@ -192,37 +194,39 @@ def verificar_paleta(paleta: dict) -> list[str]:
     return avisos
 
 
-# -- Quién puede usar qué perfil ------------------------------------------------------------------------------------
+# -- Perfil activo de cada cuenta ---------------------------------------------------------------------------------
+
+PERFIL_POR_OMISION = "grupo_itt"
+
+
+class SinPermiso(PermissionError):
+    pass
+
 
 def es_admin(usuario) -> bool:
     return permisos.tiene_rol(usuario, "herramientas", "admin")
 
 
-def perfiles_de(usuario) -> list[Perfil]:
-    """Perfiles que la cuenta puede usar: los concedidos; el propietario y los administradores, todos."""
-    if es_admin(usuario):
-        return list(Perfil.objects.all())
-    ids = AccesoPerfil.objects.filter(cuenta_id=usuario.pk).values_list("perfil_id", flat=True)
-    return list(Perfil.objects.filter(pk__in=ids))
+def puede_cambiar(usuario) -> bool:
+    """¿Tiene el permiso «Cambiar perfil corporativo»? Solo el propietario lo concede (consola del portal)."""
+    return permisos.tiene_rol(usuario, "herramientas", "cambiar_perfil")
 
 
-def perfil_predeterminado(usuario) -> Perfil | None:
-    disponibles = perfiles_de(usuario)
-    marcados = set(AccesoPerfil.objects.filter(cuenta_id=usuario.pk, predeterminado=True).values_list("perfil_id", flat=True))
-    for p in disponibles:
-        if p.pk in marcados:
-            return p
-    return disponibles[0] if disponibles else None
+def perfil_activo(usuario) -> Perfil:
+    """Perfil con el que trabaja la cuenta. Sin el permiso, siempre Grupo ITT (aunque haya un renglón viejo)."""
+    if puede_cambiar(usuario):
+        fila = PerfilActivo.objects.select_related("perfil").filter(cuenta_id=usuario.pk).first()
+        if fila is not None:
+            return fila.perfil
+    return Perfil.objects.get(clave=PERFIL_POR_OMISION)
 
 
-def perfil_para(usuario, clave: str | None) -> Perfil:
-    """El perfil que `usuario` pidió, o su predeterminado. `PerfilInvalido` si no puede usarlo."""
-    if clave is None:
-        perfil = perfil_predeterminado(usuario)
-        if perfil is None:
-            raise PerfilInvalido("Tu cuenta aún no tiene un perfil corporativo asignado. Pídeselo al propietario.")
-        return perfil
-    for perfil in perfiles_de(usuario):
-        if perfil.clave == clave:
-            return perfil
-    raise PerfilInvalido("No tienes permiso para usar ese perfil.")
+def cambiar_perfil(usuario, clave: str) -> Perfil:
+    """Deja `clave` como perfil activo de ESTA cuenta. `SinPermiso` si no tiene el permiso; `PerfilInvalido` si no existe."""
+    if not puede_cambiar(usuario):
+        raise SinPermiso("No tienes permiso para cambiar el perfil corporativo.")
+    perfil = Perfil.objects.filter(clave=clave).first()
+    if perfil is None:
+        raise PerfilInvalido("Perfil desconocido.")
+    PerfilActivo.objects.update_or_create(cuenta_id=usuario.pk, defaults={"perfil": perfil, "actualizado": timezone.now()})
+    return perfil

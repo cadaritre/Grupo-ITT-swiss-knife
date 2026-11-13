@@ -9,7 +9,7 @@ from PIL import Image
 from itt_herramientas.comun import perfiles
 from itt_herramientas.dominio import branding
 from itt_herramientas.dominio.almacenamiento import SETTINGS, ajustes_activos
-from itt_herramientas.models import AccesoPerfil, Perfil
+from itt_herramientas.models import Perfil, PerfilActivo
 
 pytestmark = pytest.mark.django_db
 
@@ -122,20 +122,32 @@ def test_paleta_y_contraste():
         perfiles.verificar_paleta({"fondo": "#FFFFFF"})
 
 
-def test_perfiles_que_puede_usar_cada_cuenta(usuaria, administradora, propietario, crear_usuario):
-    itt, tv = Perfil.objects.get(clave="grupo_itt"), Perfil.objects.get(clave="tresvizo")
-    assert perfiles.perfiles_de(usuaria) == []
-    with pytest.raises(perfiles.PerfilInvalido, match="aún no tiene"):
-        perfiles.perfil_para(usuaria, None)
-    AccesoPerfil.objects.create(cuenta_id=usuaria.pk, perfil=tv)
-    AccesoPerfil.objects.create(cuenta_id=usuaria.pk, perfil=itt, predeterminado=True)
-    assert {p.clave for p in perfiles.perfiles_de(usuaria)} == {"grupo_itt", "tresvizo"}
-    assert perfiles.perfil_para(usuaria, None).clave == "grupo_itt"
-    assert perfiles.perfil_para(usuaria, "tresvizo").clave == "tresvizo"
-    AccesoPerfil.objects.filter(cuenta_id=usuaria.pk, perfil=tv).delete()
-    with pytest.raises(perfiles.PerfilInvalido, match="permiso"):
-        perfiles.perfil_para(usuaria, "tresvizo")
-    assert len(perfiles.perfiles_de(administradora)) == 2 and len(perfiles.perfiles_de(propietario)) == 2
+def test_sin_el_permiso_siempre_es_grupo_itt(usuaria, administradora):
+    assert perfiles.perfil_activo(usuaria).clave == "grupo_itt" and perfiles.perfil_activo(administradora).clave == "grupo_itt"
+    assert not perfiles.puede_cambiar(usuaria) and not perfiles.puede_cambiar(administradora)       # administrar perfiles no es cambiar de perfil
+    with pytest.raises(perfiles.SinPermiso):
+        perfiles.cambiar_perfil(usuaria, "tresvizo")
+    PerfilActivo.objects.create(cuenta_id=usuaria.pk, perfil=Perfil.objects.get(clave="tresvizo"))   # un renglón viejo no cuenta sin el permiso
+    assert perfiles.perfil_activo(usuaria).clave == "grupo_itt"
+
+
+def test_con_el_permiso_se_cambia_y_se_recuerda_por_cuenta(usuaria, crear_usuario, roles, propietario):
+    roles.conceder(usuaria, "herramientas", "cambiar_perfil")
+    otra = crear_usuario("beto")
+    roles.conceder(otra, "herramientas", "cambiar_perfil")
+    assert perfiles.perfil_activo(usuaria).clave == "grupo_itt"
+    assert perfiles.cambiar_perfil(usuaria, "tresvizo").clave == "tresvizo"
+    assert perfiles.perfil_activo(usuaria).clave == "tresvizo"
+    assert perfiles.perfil_activo(otra).clave == "grupo_itt"                       # no afecta a nadie más
+    perfiles.cambiar_perfil(otra, "grupo_itt")
+    perfiles.cambiar_perfil(usuaria, "grupo_itt")
+    assert perfiles.perfil_activo(usuaria).clave == "grupo_itt" and PerfilActivo.objects.filter(cuenta_id=usuaria.pk).count() == 1
+    with pytest.raises(perfiles.PerfilInvalido):
+        perfiles.cambiar_perfil(usuaria, "inventado")
+    assert perfiles.puede_cambiar(propietario)                                      # el propietario lo tiene siempre (superadministrador)
+    roles.revocar(usuaria, "herramientas", "cambiar_perfil")
+    perfiles.PerfilActivo.objects.update_or_create(cuenta_id=usuaria.pk, defaults={"perfil": Perfil.objects.get(clave="tresvizo")})
+    assert perfiles.perfil_activo(usuaria).clave == "grupo_itt"                    # al quitarle el permiso vuelve a Grupo ITT
 
 
 def test_el_perfil_suministra_los_valores_de_fabrica_del_escritorio(personales_escritorio):

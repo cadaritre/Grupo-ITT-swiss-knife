@@ -27,6 +27,10 @@ pruebas = [
     "pytest>=8.4,<10",
     "pytest-django>=4.9",
 ]
+navegador = [
+    # luego: python -m playwright install chromium webkit
+    "playwright>=1.50,<2",
+]
 paridad = [
     # Rasterizar las páginas de los PDF para comparar, cuando los bytes no pueden coincidir.
     "PyMuPDF>=1.26,<3",
@@ -49,10 +53,11 @@ itt_herramientas = [
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "itt_herramientas.pruebas.ajustes"
-testpaths = ["itt_herramientas/pruebas", "paridad"]
+testpaths = ["itt_herramientas/pruebas", "itt_herramientas/pruebas_navegador", "paridad"]
 python_files = ["test_*.py"]
 addopts = "-q"
 pythonpath = ["."]
 markers = [
+    "navegador: corre en un navegador móvil con Playwright (bajo el candado de la máquina compartida)",
     "paridad: compara contra la rama main del escritorio (corre con `pytest paridad`)",
 ]

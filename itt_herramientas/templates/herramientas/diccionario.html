@@ -2,7 +2,7 @@
 {% load tv %}
 {% block titulo_pagina %}Diccionario{% endblock %}
 {% block encabezado %}<h1>Diccionario</h1>{% endblock %}
-{% block contenido %}
+{% block cuerpo %}
 {% tarjeta titulo="Mi diccionario personal" %}
 <form method="post" class="tv-formulario">{% csrf_token %}<input type="hidden" name="accion" value="agregar">
   <label for="palabra">Palabra</label><input id="palabra" name="palabra" maxlength="60" required autocomplete="off">

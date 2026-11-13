@@ -2,7 +2,7 @@
 {% load tv %}
 {% block titulo_pagina %}Perfil {{ perfil.nombre }}{% endblock %}
 {% block encabezado %}<h1>Perfil: {{ perfil.nombre }}</h1>{% endblock %}
-{% block contenido %}
+{% block cuerpo %}
 {% include "herramientas/_perfil_nav.html" %}
 <form method="post" enctype="multipart/form-data" class="tv-formulario">{% csrf_token %}
   {% for campo in formulario %}{% campo campo %}{% endfor %}

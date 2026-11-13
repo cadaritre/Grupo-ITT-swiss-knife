@@ -1,0 +1,17 @@
+{% if visible %}
+<div class="itt-marca" data-perfil="{{ perfil.clave }}">
+  <img class="itt-marca__logo" src="{% url 'herramientas:perfil_logo' %}" alt="Logo de {{ nombre }}" height="36">
+  <div class="itt-marca__texto">
+    <strong data-itt="perfil-nombre">{{ app }}</strong>
+    {% if sitio %}<a href="{{ sitio }}" rel="noopener" target="_blank">{{ sitio_etiqueta }}</a>{% endif %}
+  </div>
+  {% if puede_cambiar %}
+  <form method="post" action="{% url 'herramientas:perfil_activo' %}" class="itt-marca__cambio" aria-label="Perfil corporativo">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+    <input type="hidden" name="siguiente" value="{{ request.get_full_path }}">
+    {% for clave, etiqueta in opciones %}<button type="submit" name="perfil" value="{{ clave }}" class="tv-boton{% if clave != perfil.clave %} tv-boton--secundario{% endif %}"{% if clave == perfil.clave %} aria-pressed="true" disabled{% else %} aria-pressed="false"{% endif %}>{{ etiqueta }}</button>{% endfor %}
+    <span class="tv-tenue" data-itt="perfil-activo">Perfil activo: {{ perfil.nombre }}</span>
+  </form>
+  {% endif %}
+</div>
+{% endif %}

@@ -2,7 +2,7 @@
 {% load tv %}
 {% block titulo_pagina %}Textos de {{ perfil.nombre }}{% endblock %}
 {% block encabezado %}<h1>Textos: {{ perfil.nombre }}</h1>{% endblock %}
-{% block contenido %}
+{% block cuerpo %}
 {% include "herramientas/_perfil_nav.html" %}
 <p>Deja un campo vacío para usar el texto original.</p>
 <form method="post" class="tv-formulario">{% csrf_token %}

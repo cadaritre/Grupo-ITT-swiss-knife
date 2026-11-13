@@ -13,13 +13,14 @@ from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_POST
-from tvplataforma import cuentas
+from tvplataforma import permisos
 from tvplataforma.permisos import requiere_rol
 
 from .comun import diccionarios, importacion, perfiles, preferencias
+from .dominio import branding
 from .comun.formularios import PaletaForm, PerfilForm, PreferenciasForm, TextosForm
 from .modulo import ROLES_DE_HERRAMIENTAS
-from .models import AccesoPerfil, Perfil, TerminoTecnico
+from .models import Perfil, TerminoTecnico
 
 usuario_de_herramientas = requiere_rol("herramientas", *ROLES_DE_HERRAMIENTAS, "admin")
 solo_admin = requiere_rol("herramientas", "admin")
@@ -32,7 +33,7 @@ def _es_admin(request) -> bool:
 
 @usuario_de_herramientas
 def inicio(request):
-    return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "perfiles": perfiles.perfiles_de(request.user)})
+    return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "puede_cambiar": perfiles.puede_cambiar(request.user)})
 
 
 @usuario_de_herramientas
@@ -153,28 +154,6 @@ def perfil_paleta(request, clave):
         "contrastes": [(nombre.capitalize(), perfiles.contraste(actual[t], actual[f]), minimo) for t, f, nombre, minimo in perfiles.UMBRALES]})
 
 
-@solo_admin
-@require_http_methods(["GET", "POST"])
-def perfil_accesos(request, clave):
-    perfil = _perfil(clave)
-    candidatas = {}
-    for rol in (*ROLES_DE_HERRAMIENTAS, "admin"):
-        for persona in cuentas.con_rol("herramientas", rol):
-            candidatas[persona.id] = persona
-    actuales = {a.cuenta_id: a for a in AccesoPerfil.objects.filter(perfil=perfil)}
-    if request.method == "POST":
-        elegidas = {i for i in candidatas if request.POST.get(f"acceso_{i}")}
-        predeterminadas = {i for i in elegidas if request.POST.get(f"pred_{i}")}
-        AccesoPerfil.objects.filter(perfil=perfil).exclude(cuenta_id__in=elegidas).delete()
-        for i in elegidas:
-            AccesoPerfil.objects.update_or_create(cuenta_id=i, perfil=perfil, defaults={"predeterminado": i in predeterminadas})
-        messages.success(request, "Accesos guardados.")
-        return redirect("herramientas:perfil_accesos", clave=clave)
-    filas = [{"persona": p, "acceso": p.id in actuales, "predeterminado": bool(actuales.get(p.id) and actuales[p.id].predeterminado)}
-             for p in sorted(candidatas.values(), key=lambda p: p.nombre.lower())]
-    return render(request, "herramientas/perfil_accesos.html", {"perfil": perfil, "filas": filas})
-
-
 # -- Importación de la configuración del escritorio -----------------------------------------------------------
 
 def _carpeta_importaciones() -> Path:
@@ -243,3 +222,137 @@ def importar_confirmar(request, token):
     return render(request, "herramientas/importar_confirmar.html", {
         "elementos": elementos, "token": token, "es_admin": admin, "perfiles": Perfil.objects.all(),
         "activo": paquete.ajustes.get("branding", {}).get("profile", "grupo_itt") if isinstance(paquete.ajustes.get("branding"), dict) else "grupo_itt"})
+
+
+# -- PWA: manifiesto, service worker, captura, guía de instalación ---------------------------------------------------
+
+def manifiesto(request):
+    """Manifiesto de la PWA: `scope` y `start_url` son la raíz del host (arquitectura §18.2).
+
+    `?p=tresvizo` lo personaliza con la identidad (nombre e íconos); las páginas con sesión enlazan el de su perfil activo.
+    Sin sesión (es público) cualquiera puede pedir cualquiera de los dos: solo contiene marca, nunca datos de cuenta.
+    """
+    from django.http import JsonResponse
+    from django.templatetags.static import static
+
+    from .dominio import branding
+
+    clave = request.GET.get("p") if request.GET.get("p") in ("grupo_itt", "tresvizo") else perfiles.PERFIL_POR_OMISION
+    nombre = branding.profile_defaults(clave)["name"]
+    datos = {
+        "id": "/", "name": f"Herramientas {nombre}", "short_name": "Herramientas", "description": f"Reportes, cotizaciones y herramientas de campo de {nombre}.",
+        "start_url": "/", "scope": "/", "display": "standalone", "orientation": "any", "lang": "es-MX",
+        "background_color": "#FFFFFF", "theme_color": "#07356F",
+        "icons": [
+            {"src": static(f"herramientas/img/icono-{clave}-192.png"), "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": static(f"herramientas/img/icono-{clave}-512.png"), "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": static(f"herramientas/img/icono-maskable-{clave}-512.png"), "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+    }
+    respuesta = JsonResponse(datos, content_type="application/manifest+json")
+    respuesta["Cache-Control"] = "no-cache"
+    return respuesta
+
+
+def service_worker(request):
+    from django.http import HttpResponse
+
+    from .offline import sw
+
+    respuesta = HttpResponse(sw.contenido(), content_type="text/javascript; charset=utf-8")
+    respuesta["Service-Worker-Allowed"] = "/"
+    respuesta["Cache-Control"] = "no-cache, max-age=0"
+    return respuesta
+
+
+def capturar(request):
+    """Página de captura: HTML idéntico para todas las cuentas (sin datos personales), así el service worker puede
+    guardarla y abrirla sin conexión. Los datos de la cuenta llegan por /sesion/."""
+    respuesta = render(request, "herramientas/pwa/capturar.html")
+    respuesta["Cache-Control"] = "no-cache"
+    return respuesta
+
+
+def instalar(request):
+    respuesta = render(request, "herramientas/pwa/instalar.html")
+    respuesta["Cache-Control"] = "no-cache"
+    return respuesta
+
+
+def sesion(request):
+    """Quién está con sesión y su token CSRF, para que la cola (y el service worker) puedan subir. 401 si no hay sesión."""
+    from django.http import HttpResponse, JsonResponse
+    from django.middleware.csrf import get_token
+
+    u = request.user
+    if not (u.is_authenticated and u.is_active) or not any(permisos.tiene_rol(u, "herramientas", r) for r in (*ROLES_DE_HERRAMIENTAS, "admin")):
+        return HttpResponse(status=401)
+    respuesta = JsonResponse({"cuenta": u.pk, "nombre": u.get_full_name() or u.get_username(), "csrf": get_token(request)})
+    respuesta["Cache-Control"] = "no-store"
+    return respuesta
+
+
+@requiere_rol("herramientas", "reportes", "cotizaciones", "admin")
+def capturas(request):
+    """Fotos ya recibidas de la cuenta (para pantallas que las listan)."""
+    from django.http import JsonResponse
+
+    from .models import Captura
+
+    consulta = Captura.objects.filter(cuenta_id=request.user.pk)
+    if request.GET.get("referencia"):
+        consulta = consulta.filter(referencia=request.GET["referencia"])
+    campos = ("id", "sha256", "nombre", "referencia", "orden", "tomada", "lat", "lon", "precision", "sin_ubicacion", "nota", "bytes", "ancho", "alto")
+    return JsonResponse({"capturas": list(consulta.values(*campos)[:500])})
+
+
+# -- Perfil corporativo activo ----------------------------------------------------------------------------------------
+
+@usuario_de_herramientas
+@require_POST
+def perfil_activo(request):
+    """Cambia el perfil activo de LA CUENTA que lo pide. 403 si no tiene el permiso «Cambiar perfil corporativo»."""
+    from django.core.exceptions import PermissionDenied
+    from django.http import HttpResponseRedirect
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    try:
+        perfiles.cambiar_perfil(request.user, request.POST.get("perfil", ""))
+    except perfiles.SinPermiso:
+        raise PermissionDenied from None
+    except perfiles.PerfilInvalido as exc:
+        return HttpResponseBadRequest(str(exc))
+    destino = request.POST.get("siguiente", "")
+    if not url_has_allowed_host_and_scheme(destino, allowed_hosts={request.get_host()}, require_https=request.is_secure()) or not destino.startswith("/"):
+        destino = reverse("herramientas:inicio")
+    return HttpResponseRedirect(destino)
+
+
+@usuario_de_herramientas
+def perfil_css(request):
+    """Tokens de color del perfil activo (CSP: hoja externa, nunca estilos en línea). Vacía si el perfil usa la paleta de fábrica."""
+    from django.http import HttpResponse
+
+    paleta = perfiles.perfil_activo(request.user).paleta or {}
+    reglas = []
+    for clave, token in (("primary", "--tv-primario"), ("accent", "--tv-acento")):
+        valor = str(paleta.get(clave, ""))
+        if len(valor) == 7 and valor.startswith("#"):
+            reglas.append(f"  {token}: {valor};")
+    cuerpo = ":root {\n" + "\n".join(reglas) + "\n}\n" if reglas else "/* paleta de fábrica */\n"
+    respuesta = HttpResponse(cuerpo, content_type="text/css; charset=utf-8")
+    respuesta["Cache-Control"] = "private, no-cache"
+    return respuesta
+
+
+@usuario_de_herramientas
+def perfil_logo(request):
+    """Logo del perfil activo (el propio del perfil o el de fábrica). Solo el logo: la firma y la cédula nunca salen por aquí."""
+    from django.http import FileResponse
+
+    perfil = perfiles.perfil_activo(request.user)
+    with perfiles.activar(perfil):
+        ruta = branding.active_profile().logo_path
+    respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if str(ruta).lower().endswith(".png") else "image/jpeg")
+    respuesta["Cache-Control"] = "private, no-cache"
+    return respuesta

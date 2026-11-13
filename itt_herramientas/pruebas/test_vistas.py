@@ -10,7 +10,7 @@ from PIL import Image
 
 from itt_herramientas.comun import diccionarios, perfiles
 from itt_herramientas.dominio.almacenamiento import DEFAULT_SETTINGS
-from itt_herramientas.models import AccesoPerfil, MachoteCuenta, Perfil, TerminoTecnico
+from itt_herramientas.models import MachoteCuenta, Perfil, PerfilActivo, TerminoTecnico
 
 from .conftest import url
 
@@ -39,11 +39,11 @@ def test_inicio_avisa_si_no_hay_perfil(cliente_de, usuaria):
 def test_paginas_de_administracion_son_solo_para_admin(cliente_de, usuaria, administradora):
     c = cliente_de(usuaria)
     for nombre, kw in (("perfiles", {}), ("perfil", {"clave": "tresvizo"}), ("perfil_textos", {"clave": "tresvizo"}),
-                       ("perfil_paleta", {"clave": "tresvizo"}), ("perfil_accesos", {"clave": "tresvizo"})):
+                       ("perfil_paleta", {"clave": "tresvizo"})):
         assert c.get(url(nombre, **kw)).status_code == 403, nombre
     c = cliente_de(administradora)
     for nombre, kw in (("perfiles", {}), ("perfil", {"clave": "tresvizo"}), ("perfil_textos", {"clave": "tresvizo"}),
-                       ("perfil_paleta", {"clave": "tresvizo"}), ("perfil_accesos", {"clave": "tresvizo"})):
+                       ("perfil_paleta", {"clave": "tresvizo"})):
         assert c.get(url(nombre, **kw)).status_code == 200, nombre
     assert c.get(url("perfil", clave="otro")).status_code == 404
 
@@ -122,17 +122,6 @@ def test_textos_y_paleta_del_perfil(cliente_de, administradora):
     assert c.post(url("perfil_paleta", clave="grupo_itt"), {**base, "primary": "rojo"}).status_code == 200
     c.post(url("perfil_paleta", clave="grupo_itt"), {"restaurar": "1"})
     assert Perfil.objects.get(clave="grupo_itt").paleta == {}
-
-
-def test_accesos_a_perfiles(cliente_de, administradora, usuaria):
-    c = cliente_de(administradora)
-    pagina = c.get(url("perfil_accesos", clave="tresvizo")).content.decode()
-    assert "ana" in pagina or usuaria.get_username() in pagina
-    c.post(url("perfil_accesos", clave="tresvizo"), {f"acceso_{usuaria.pk}": "on", f"pred_{usuaria.pk}": "on", "acceso_99999": "on"})
-    acc = AccesoPerfil.objects.get()
-    assert (acc.cuenta_id, acc.perfil.clave, acc.predeterminado) == (usuaria.pk, "tresvizo", True)       # cuentas que no son candidatas se ignoran
-    c.post(url("perfil_accesos", clave="tresvizo"), {})
-    assert not AccesoPerfil.objects.exists()
 
 
 def zip_simple() -> bytes:

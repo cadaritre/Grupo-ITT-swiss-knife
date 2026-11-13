@@ -2,7 +2,7 @@
 {% load tv %}
 {% block titulo_pagina %}Confirmar importación{% endblock %}
 {% block encabezado %}<h1>Qué se importará</h1>{% endblock %}
-{% block contenido %}
+{% block cuerpo %}
 {% if not elementos %}{% alerta tipo="aviso" %}No hay nada que puedas importar de este ZIP.{% endalerta %}{% endif %}
 <form method="post" class="tv-formulario">{% csrf_token %}
   {% for e in elementos %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" id="e_{{ e.clave }}" name="elemento_{{ e.clave }}" checked><label for="e_{{ e.clave }}">{{ e.titulo }} ({{ e.cantidad }})</label><div class="tv-campo__ayuda">{{ e.detalle }}</div></div>{% endfor %}

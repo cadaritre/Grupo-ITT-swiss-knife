@@ -1,4 +1,4 @@
-"""Datos comunes de Herramientas: perfiles corporativos, accesos, preferencias, diccionarios y machotes.
+"""Datos comunes de Herramientas: perfiles corporativos y perfil activo, preferencias, diccionarios y machotes.
 
 Las personas se guardan por `cuenta_id` (entero, sin clave foránea): las cuentas son del armazón.
 """
@@ -59,15 +59,16 @@ class Perfil(models.Model):
         return self.nombre
 
 
-class AccesoPerfil(models.Model):
-    """Perfil que una cuenta puede usar. Sin renglones, la cuenta no tiene perfil (lo concede el propietario)."""
+class PerfilActivo(models.Model):
+    """Perfil corporativo que una cuenta con el permiso «Cambiar perfil corporativo» dejó activo.
 
-    cuenta_id = models.BigIntegerField(db_index=True)
-    perfil = models.ForeignKey(Perfil, on_delete=models.CASCADE, related_name="accesos")
-    predeterminado = models.BooleanField(default=False)
+    Sin renglón, o sin el permiso, la cuenta trabaja siempre con Grupo ITT (como el escritorio por omisión). Solo afecta a la
+    propia cuenta: sus documentos y su pantalla, nunca los de otras personas.
+    """
 
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["cuenta_id", "perfil"], name="herramientas_acceso_unico")]
+    cuenta_id = models.BigIntegerField(unique=True)
+    perfil = models.ForeignKey(Perfil, on_delete=models.CASCADE, related_name="+")
+    actualizado = models.DateTimeField(default=timezone.now)
 
 
 class Preferencias(models.Model):
@@ -117,3 +118,33 @@ class MachoteCuenta(models.Model):
             models.UniqueConstraint(fields=["cuenta_id", "nombre"], name="herramientas_machote_nombre"),
         ]
         ordering = ["nombre"]
+
+
+class Captura(models.Model):
+    """Foto de campo recibida de la cola sin conexión del teléfono (reportes y cotizaciones la usarán).
+
+    El `sha256` calculado en el teléfono es la identidad: reenviar la misma foto (por ejemplo, si se perdió la respuesta
+    del servidor) devuelve la misma fila y nunca duplica.
+    """
+
+    cuenta_id = models.BigIntegerField(db_index=True)
+    sha256 = models.CharField(max_length=64)
+    ruta = models.CharField(max_length=300)
+    bytes = models.BigIntegerField()
+    ancho = models.PositiveIntegerField(default=0)
+    alto = models.PositiveIntegerField(default=0)
+    nombre = models.CharField(max_length=150, blank=True)
+    referencia = models.CharField(max_length=100, blank=True, db_index=True)   # p. ej. el borrador de reporte al que pertenece
+    orden = models.IntegerField(default=0)
+    tomada = models.CharField(max_length=32, blank=True)                       # hora de la captura (EXIF o reloj del teléfono)
+    lat = models.FloatField(null=True, blank=True)
+    lon = models.FloatField(null=True, blank=True)
+    precision = models.FloatField(null=True, blank=True)
+    sin_ubicacion = models.BooleanField(default=False)
+    nota = models.CharField(max_length=1000, blank=True)
+    origen = models.CharField(max_length=10, blank=True)                       # camara | galeria
+    recibida = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["cuenta_id", "sha256"], name="herramientas_captura_sha")]
+        ordering = ["referencia", "orden", "id"]

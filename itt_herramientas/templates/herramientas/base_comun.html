@@ -1,4 +1,7 @@
 {% extends "tvplataforma/base.html" %}
-{% load tv %}
+{% load tv herramientas %}
 {% block titulo %}{% block titulo_pagina %}Herramientas{% endblock %} · Herramientas{% endblock %}
 {% block acciones %}{% block acciones_pagina %}{% endblock %}{% endblock %}
+{% block cabeza %}{% include "herramientas/pwa/_cabeza.html" %}{% endblock %}
+{% block contenido %}{% marca_perfil %}{% block cuerpo %}{% endblock %}{% endblock %}
+{% block pie %}{% include "herramientas/pwa/_cola.html" %}{% endblock %}
