@@ -53,7 +53,7 @@ def _terrain_tile(x: int, y: int, zoom: int) -> np.ndarray:
     if payload is None:
         request = urllib.request.Request(
             TERRAIN_URL.format(z=zoom, x=x, y=y),
-            headers={"User-Agent": agente_usuario("GrupoITT-Herramientas/1.2 (+https://www.grupoitt.com)")},
+            headers={"User-Agent": agente_usuario("ITTHerramientas/1.0")},
         )
         with urllib.request.urlopen(request, timeout=15) as response:
             payload = response.read()

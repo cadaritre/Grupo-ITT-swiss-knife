@@ -44,6 +44,7 @@ class Contexto:
     ajustes: Callable[[dict], Any]              # administrador de contexto: activa ajustes (perfil, textos, paleta)
     logo: Callable[[], Path | None]             # logo del perfil activo
     fotos: list[Path] = field(default_factory=list)
+    personales: dict = field(default_factory=dict)   # datos personales/bancarios del escritorio (no viven en el repositorio)
 
 
 def a_json(valor: Any) -> Any:
@@ -212,7 +213,7 @@ def _cotizacion(c: Contexto, idioma: str, *, iva: bool = True, con_imagen: bool 
         contact="Arq. María Fernanda López", email="mflopez@example.com", phone="614 555 0123",
         location="Av. Universidad 1500, Chihuahua, Chih.", project_title="Levantamiento y modelado de nave industrial",
         currency="MXN", include_vat=iva, vat_rate=16.0, advance_percent=50.0, validity_days=15,
-        language=idioma, spelling_checked=True,
+        language=idioma, spelling_checked=True, **c.personales["cotizacion"],
     )
     if not vacia:
         q.items = [
@@ -274,7 +275,7 @@ def _(c: Contexto):
     with c.ajustes({"branding": {"profile": "tresvizo"}, "documents": {"quote_palette": PALETAS["verde"]}}):
         pdf = c.mod("quotation_pdf")
         q = _cotizacion(c, "es", iva=False)
-        q.prepared_by = "ING. CARLOS RIVERA ABAID"            # el perfil TresVizo lo sustituye por su firmante
+        q.prepared_by = c.personales["firmante_antiguo"]            # el perfil TresVizo lo sustituye por su firmante
         return {"cotizacion.pdf": _pdf(c, "cotizacion.pdf", pdf.generate_quote_pdf, q, logo=c.logo())}
 
 
@@ -350,7 +351,7 @@ def _(c: Contexto):
             salida[nombre] = {
                 "perfil": perfil,
                 "firmante_nueva": marca.signer_for_new_quote(),
-                "firmante_normalizado": [marca.normalize_quote_signer(v) for v in ("", "ING. CARLOS RIVERA ABAID", "Otra persona")],
+                "firmante_normalizado": [marca.normalize_quote_signer(v) for v in ("", c.personales["firmante_antiguo"], "Otra persona")],
                 "textos_reporte": textos.report_texts(),
                 "meses": list(textos.report_months()),
                 "etiquetas_es": i18n.labels("es"), "etiquetas_en": i18n.labels("en"),
@@ -385,7 +386,8 @@ def _fotos(c: Contexto, con_gps_solo: bool = False):
 def _opciones(c: Contexto, nombre: str, **extra):
     gen = c.mod("pdf_generator")
     base = dict(title="Reporte fotográfico de avance de obra", report_date=date(2026, 11, 13), photos=_fotos(c), output=c.salida / nombre,
-                logo=c.logo(), company="INGENIERÍA TÉCNICA Y TOPOGRÁFICA", website="www.grupoitt.com", include_map=False)
+                logo=c.logo(), company="INGENIERÍA TÉCNICA Y TOPOGRÁFICA", website="www.grupoitt.com", include_map=False,
+                **c.personales["reporte"])
     base.update(extra)
     return gen.ReportOptions(**base)
 
@@ -407,8 +409,7 @@ def _(c: Contexto):
 def _(c: Contexto):
     gen = c.mod("pdf_generator")
     opciones = _opciones(c, "reporte.pdf", include_map=True, include_credentials=True, signature=c.entradas["firma.png"],
-                         license_card=c.entradas["cedula.jpg"], signer="ING. CARLOS RIVERA ABAID", professional_license="1444177",
-                         title="Reporte con croquis, cédula y firma")
+                         license_card=c.entradas["cedula.jpg"],                          title="Reporte con croquis, cédula y firma")
     with sin_teselas(c):
         return {"reporte.pdf": gen.generate_report(opciones)}
 

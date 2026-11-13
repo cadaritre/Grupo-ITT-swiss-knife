@@ -38,8 +38,8 @@ class ReportOptions:
     include_credentials: bool = False
     signature: Path | None = None
     license_card: Path | None = None
-    signer: str = "ING. CARLOS RIVERA ABAID"
-    professional_license: str = "1444177"
+    signer: str = ""                    # los pone el perfil corporativo (`comun.perfiles.opciones_reporte`)
+    professional_license: str = ""
 
 
 def _fit_text(canvas, text: str, max_width: float, size: float, font="Helvetica-Bold") -> float:

@@ -58,6 +58,46 @@ def _aplanar(valores: dict, prefijo: str = "") -> dict:
     return plano
 
 
+PERSONALES = ("phone", "address", "email", "signer")
+
+
+def volcar_personales(raiz: Path, salida: Path) -> None:
+    """Lee del escritorio sus datos personales y bancarios de fábrica y los deja en un JSON de las entradas.
+
+    Es lo que el perfil corporativo de la web debe suministrar en los casos de paridad. Nunca se guardan en el repositorio:
+    se leen del código de `main` en cada corrida.
+    """
+    temporal = Path(tempfile.mkdtemp(prefix="paridad_personales_"))
+    try:
+        _aislar_escritorio(temporal)
+        sys.path.insert(0, str(raiz))
+        _importar_sin_api_de_windows("photo_report_app.app_storage")
+        marca = importlib.import_module("photo_report_app.branding")
+        modelos = importlib.import_module("photo_report_app.quotation_models")
+        generador = importlib.import_module("photo_report_app.pdf_generator")
+        cot = modelos.QuoteData()
+        opciones = generador.ReportOptions.__dataclass_fields__
+        salida.write_text(json.dumps({
+            "perfiles": {k: {c: v[c] for c in PERSONALES} for k, v in marca.PROFILE_DEFAULTS.items()},
+            "cotizacion": {c: getattr(cot, c) for c in ("bank", "clabe", "account", "prepared_by")},
+            "reporte": {c: opciones[c].default for c in ("signer", "professional_license")},
+            "firmante_antiguo": marca.LEGACY_ITT_SIGNER,
+        }, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
+    finally:
+        shutil.rmtree(temporal, ignore_errors=True)
+
+
+def _con_personales(valores: dict, personales: dict) -> dict:
+    """Los datos personales de fábrica del escritorio, como ajustes de perfil, bajo los ajustes del caso."""
+    base = {"branding": {"legacy_signer": personales["firmante_antiguo"], **{k: dict(v) for k, v in personales["perfiles"].items()}}}
+    def mezclar(a: dict, b: dict) -> dict:
+        r = {k: (dict(v) if isinstance(v, dict) else v) for k, v in a.items()}
+        for k, v in b.items():
+            r[k] = mezclar(r[k], v) if isinstance(v, dict) and isinstance(r.get(k), dict) else v
+        return r
+    return mezclar(base, valores)
+
+
 class LadoEscritorio:
     nombre = "escritorio"
 
@@ -95,6 +135,7 @@ class LadoEscritorio:
 
     @contextlib.contextmanager
     def ajustes(self, valores: dict):
+        valores = _con_personales(valores, self.personales)
         ajustes = self._storage.SETTINGS
         previos = {clave: ajustes.get(clave) for clave in valores}
         ajustes.update(_aplanar(valores))
@@ -120,7 +161,7 @@ class LadoWeb:
         return importlib.import_module(f"{self.paquete}.{nombre}")
 
     def ajustes(self, valores: dict):
-        return self._almacen.ajustes_activos(valores)
+        return self._almacen.ajustes_activos(_con_personales(valores, self.personales))
 
     def logo(self) -> Path:
         return self.mod("branding").active_profile().logo_path
@@ -142,6 +183,10 @@ def _escribir(salida: Path, artefactos: dict) -> list[str]:
 
 
 def main(argumentos: list[str] | None = None) -> int:
+    if argumentos is None and "--volcar-personales" in sys.argv:
+        i = sys.argv.index("--volcar-personales")
+        volcar_personales(Path(sys.argv[i + 1]), Path(sys.argv[i + 2]))
+        return 0
     ap = argparse.ArgumentParser()
     ap.add_argument("--lado", choices=("escritorio", "web"), required=True)
     ap.add_argument("--raiz", type=Path, required=True)
@@ -168,6 +213,8 @@ def main(argumentos: list[str] | None = None) -> int:
         entradas = {p.name: p for p in args.entradas.iterdir() if p.is_file()}
         # ReportLab nombra las imágenes de un PDF con un resumen de la RUTA del archivo: para que los bytes puedan
         # coincidir, los dos lados leen los logos desde la misma ruta (las entradas comunes).
+        personales = json.loads((args.entradas / "personales.json").read_text(encoding="utf-8"))
+        lado.personales = personales
         marca = lado.mod("branding")
         marca.ITT_LOGO, marca.TRESVIZO_LOGO = entradas["logo_grupo_itt.png"], entradas["logo_tresvizo.png"]
         args.salida.mkdir(parents=True, exist_ok=True)
@@ -177,9 +224,10 @@ def main(argumentos: list[str] | None = None) -> int:
                 continue
             carpeta = args.salida / nombre
             carpeta.mkdir(parents=True, exist_ok=True)
-            contexto = casos.Contexto(lado=args.lado, mod=lado.mod, entradas=entradas, salida=carpeta, ajustes=lado.ajustes, logo=lado.logo)
+            contexto = casos.Contexto(lado=args.lado, mod=lado.mod, entradas=entradas, salida=carpeta, ajustes=lado.ajustes, logo=lado.logo, personales=personales)
             try:
-                artefactos = funcion(contexto)
+                with lado.ajustes({}):               # perfil de fábrica del escritorio como base de todos los casos
+                    artefactos = funcion(contexto)
                 resultados[nombre] = {"artefactos": _escribir(carpeta, artefactos), "error": None}
             except Exception as exc:                     # el error también es un resultado que debe coincidir
                 resultados[nombre] = {"artefactos": [], "error": [type(exc).__name__, str(exc)], "traza": traceback.format_exc()}

@@ -46,10 +46,10 @@ STANDARD_UNITS = {
     "Lote": "Lot", "Punto": "Point", "Día": "Day", "Sitio": "Site", "Campaña": "Campaign",
 }
 
-STANDARD_SIGNERS = {
-    "ING. EDGAR TREVIZO": "ENG. EDGAR TREVIZO",
-    "ING. CARLOS RIVERA ABAID": "ENG. CARLOS RIVERA ABAID",
-}
+def _traducir_firmante(valor: str, al_ingles: bool) -> str:
+    """«ING. NOMBRE» <-> «ENG. NOMBRE» (el escritorio lo hacía con una lista fija de nombres)."""
+    origen, destino = ("ING. ", "ENG. ") if al_ingles else ("ENG. ", "ING. ")
+    return destino + valor[len(origen):] if valor.upper().startswith(origen) and valor == valor.upper() else valor
 
 
 def labels(language: str) -> dict[str, str]:
@@ -74,9 +74,7 @@ def translate_standard_quote_values(quote, target_language: str) -> None:
         if current == pair[source_index]:
             setattr(quote, attribute, pair[target_index])
     unit_map = STANDARD_UNITS if target == "en" else {value: key for key, value in STANDARD_UNITS.items()}
-    signer_map = STANDARD_SIGNERS if target == "en" else {value: key for key, value in STANDARD_SIGNERS.items()}
-    if quote.prepared_by in signer_map:
-        quote.prepared_by = signer_map[quote.prepared_by]
+    quote.prepared_by = _traducir_firmante(quote.prepared_by, target == "en")
     for item in quote.items:
         if item.unit in unit_map:
             item.unit = unit_map[item.unit]

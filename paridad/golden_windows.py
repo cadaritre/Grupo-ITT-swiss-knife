@@ -11,8 +11,9 @@ Qué hacer:
 
          python paridad\\golden_windows.py
 
-  3. Entrega el archivo `golden_windows_AAAAMMDD.zip` que aparece en la carpeta `paridad` (no contiene datos tuyos:
-     solo las salidas de las entradas de prueba).
+  3. Entrega el archivo `golden_windows_AAAAMMDD.zip` que aparece en la carpeta `paridad`. OJO: contiene los PDF
+     con los datos de fábrica del escritorio (firmante, datos bancarios), así que el repositorio es público y el .zip
+     NO se sube a Git (`paridad/dorados/*.zip` está en .gitignore): se queda en la máquina donde se corren las pruebas.
 
 No abre ventanas, no usa internet y no toca tu carpeta `Documentos`: la carpeta de datos del escritorio se redirige a
 un directorio temporal que se borra al terminar.
@@ -72,6 +73,12 @@ def main(argv: list[str] | None = None) -> int:
         shutil.rmtree(trabajo)
     entradas = trabajo / "entradas"
     casos.generar_entradas(entradas)
+    entorno_volcado = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
+    volcado = subprocess.run([sys.executable, "-s", str(AQUI / "trabajador.py"), "--volcar-personales", str(escritorio), str(entradas / "personales.json")],
+                             capture_output=True, text=True, env=entorno_volcado)
+    if volcado.returncode != 0:
+        sys.stderr.write(volcado.stderr)
+        return 1
     shutil.copyfile(escritorio / "assets" / "logo.png", entradas / "logo_grupo_itt.png")
     shutil.copyfile(escritorio / "assets" / "logo_tresvizo.png", entradas / "logo_tresvizo.png")
 

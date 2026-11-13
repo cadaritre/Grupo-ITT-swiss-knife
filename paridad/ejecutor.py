@@ -54,6 +54,10 @@ def preparar_entradas(raiz_escritorio: Path, destino: Path) -> Path:
         casos.generar_entradas(destino)
     finally:
         sys.path.remove(str(AQUI))
+    volcado = subprocess.run([sys.executable, "-s", str(AQUI / "trabajador.py"), "--volcar-personales", str(raiz_escritorio), str(destino / "personales.json")],
+                             capture_output=True, text=True, env=_entorno())
+    if volcado.returncode != 0:
+        raise ParidadError(f"No pude leer los datos de fábrica del escritorio:\n{volcado.stderr[-2000:]}")
     shutil.copyfile(raiz_escritorio / "assets" / "logo.png", destino / "logo_grupo_itt.png")
     shutil.copyfile(raiz_escritorio / "assets" / "logo_tresvizo.png", destino / "logo_tresvizo.png")
     return destino

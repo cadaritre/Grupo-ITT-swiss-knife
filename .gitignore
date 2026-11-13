@@ -60,3 +60,6 @@ Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
+
+# Archivos dorados de Windows: llevan datos de fábrica del escritorio (el repositorio es público)
+paridad/dorados/*.zip

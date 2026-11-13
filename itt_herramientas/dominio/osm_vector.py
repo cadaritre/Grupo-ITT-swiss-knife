@@ -310,7 +310,7 @@ def _fetch_query_elements(query: str, notify: Callable[[str], None]) -> list[dic
                 endpoint,
                 data=payload,
                 headers={
-                    "User-Agent": agente_usuario("GrupoITT-Herramientas/1.1 (+https://www.grupoitt.com)"),
+                    "User-Agent": agente_usuario("ITTHerramientas/1.0"),
                     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
                 },
             )

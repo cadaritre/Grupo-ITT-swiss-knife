@@ -11,10 +11,9 @@ ITT_LOGO = ACTIVOS / "logo.png"
 TRESVIZO_LOGO = ACTIVOS / "logo_tresvizo.png"
 # La firma y la cédula profesional son datos personales del firmante: no viajan en el paquete. Se suben al
 # perfil corporativo y se pasan a los generadores de PDF como rutas (ver `pdf_generator.ReportOptions`).
-REPORT_SIGNER = "ING. CARLOS RIVERA ABAID"
-REPORT_PROFESSIONAL_LICENSE = "1444177"
-LEGACY_ITT_SIGNER = "ING. CARLOS RIVERA ABAID"
 
+# Solo rótulos de marca. Teléfono, domicilio, correo y firmante son datos del perfil corporativo de la cuenta
+# (base de datos, `itt_herramientas.models.Perfil`), no del código: llegan con `ajustes_activos(...)`.
 PROFILE_DEFAULTS = {
     "grupo_itt": {
         "name": "Grupo ITT",
@@ -23,12 +22,12 @@ PROFILE_DEFAULTS = {
         "description": "Ingeniería técnica y topografía",
         "description_en": "Technical engineering and surveying",
         "website": "https://www.grupoitt.com/",
-        "phone": "(614) 413 19 89",
+        "phone": "",
         "phone_label": "Tel.",
         "phone_label_en": "Phone",
-        "address": "J. Domínguez de Mendoza #1704, Col. San Felipe, Chihuahua, Chih.",
-        "email": "crivera@grupoitt.com",
-        "signer": LEGACY_ITT_SIGNER,
+        "address": "",
+        "email": "",
+        "signer": "",
         "document_footer": "Grupo ITT | Ingeniería y Topografía",
         "document_footer_en": "Grupo ITT | Engineering and Surveying",
     },
@@ -39,12 +38,12 @@ PROFILE_DEFAULTS = {
         "description": "Servicios de ingeniería, topografía de precisión, escaneo 3D, fotogrametría y avalúos",
         "description_en": "Engineering services, precision surveying, 3D scanning, photogrammetry and valuations",
         "website": "https://www.tresvizo.com/",
-        "phone": "614 100 2069",
+        "phone": "",
         "phone_label": "Tel.",
         "phone_label_en": "Phone",
         "address": "",
         "email": "",
-        "signer": "ING. EDGAR TREVIZO",
+        "signer": "",
         "document_footer": "TresVizo | Ingeniería y Topografía",
         "document_footer_en": "TresVizo | Engineering and Surveying",
     },
@@ -151,6 +150,7 @@ def normalize_quote_signer(value: str) -> str:
     """Replace only the old built-in signer when the alternate profile is active."""
     profile = active_profile()
     clean = (value or "").strip()
-    if profile.key == "tresvizo" and (not clean or clean.upper() == LEGACY_ITT_SIGNER):
+    legacy = str(SETTINGS.get("branding.legacy_signer", "") or "").strip().upper()
+    if profile.key == "tresvizo" and (not clean or (legacy and clean.upper() == legacy)):
         return profile.signer
     return clean or profile.signer

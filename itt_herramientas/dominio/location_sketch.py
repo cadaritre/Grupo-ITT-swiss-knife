@@ -282,7 +282,7 @@ def _tile(x: int, y: int, zoom: int, layer: str) -> Image.Image:
             target.unlink(missing_ok=True)
     request = urllib.request.Request(
         template.format(z=zoom, x=x, y=y, s=("a", "b", "c")[(x + y) % 3]),
-        headers={"User-Agent": agente_usuario("GrupoITT-Herramientas/1.0 (www.grupoitt.com)")},
+        headers={"User-Agent": agente_usuario("ITTHerramientas/1.0")},
     )
     with urllib.request.urlopen(request, timeout=5) as response:
         payload = response.read()

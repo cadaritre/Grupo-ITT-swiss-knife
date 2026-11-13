@@ -7,7 +7,7 @@ from difflib import get_close_matches
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from spellchecker import SpellChecker
 
@@ -90,12 +90,14 @@ class BilingualSpellService:
         language: str = "es",
         directorio: str | Path | None = None,
         palabras_personales: dict[str, list[str]] | None = None,
+        terminos_tecnicos: "Iterable[str]" = (),
     ):
         """Corrector bilingüe.
 
         `directorio`: carpeta donde se guarda `diccionario_personal.json` (como el escritorio). Sin carpeta, el
         diccionario personal vive en memoria y la capa de almacenamiento lo lee con `palabras_personales_json()`
-        y lo entrega de nuevo en `palabras_personales` (diccionario por cuenta en la web).
+        y lo entrega de nuevo en `palabras_personales` (diccionario por cuenta en la web). `terminos_tecnicos`
+        suma términos al diccionario técnico incluido (el global que mantiene el administrador).
         """
         from wordfreq import zipf_frequency
 
@@ -107,7 +109,7 @@ class BilingualSpellService:
         self.checker = SpellChecker(language=self.language, distance=1)
         self.technical_terms = COMMON_TECHNICAL_TERMS | (
             SPANISH_TECHNICAL_TERMS if self.language == "es" else ENGLISH_TECHNICAL_TERMS
-        )
+        ) | {str(t).strip().casefold() for t in terminos_tecnicos if str(t).strip()}
         self.custom_by_language = self._load_personal_words(palabras_personales)
         self.custom_words = self.custom_by_language[self.language]
         if self.personal_path is not None and not self.personal_path.exists():

@@ -44,10 +44,11 @@ class QuoteData:
     validity_days: int = 15
     delivery_time: str = "Por confirmar de acuerdo con el alcance."
     payment_terms: str = "Transferencia electrónica / Cheque / Efectivo"
-    bank: str = "HSBC"
-    clabe: str = "021150040136974533"
-    account: str = "4013697453"
-    prepared_by: str = "ING. CARLOS RIVERA ABAID"
+    # Datos bancarios y firmante: los pone el perfil corporativo (`comun.perfiles.nueva_cotizacion`), no el código.
+    bank: str = ""
+    clabe: str = ""
+    account: str = ""
+    prepared_by: str = ""
     language: str = "es"
     spelling_checked: bool = False
     items: list[QuoteItem] = field(default_factory=list)

@@ -57,11 +57,12 @@ DEFAULT_SETTINGS = {
     },
     "branding": {
         "profile": "grupo_itt",
+        # Firmante que el escritorio traía de fábrica en las cotizaciones viejas; si una cotización lo conserva y el
+        # perfil activo es otro, se sustituye. Lo fija el perfil de la cuenta (no hay valor en el código).
+        "legacy_signer": "",
         "tresvizo": {
             "name": "TresVizo",
             "website": "https://www.tresvizo.com/",
-            "phone": "614 100 2069",
-            "signer": "ING. EDGAR TREVIZO",
             "custom_logo": "",
         },
     },

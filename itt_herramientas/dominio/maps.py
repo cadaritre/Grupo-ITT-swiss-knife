@@ -33,7 +33,7 @@ def _zoom(points: list[tuple[float, float]], width: int, height: int) -> int:
 
 
 def _tile(x: int, y: int, zoom: int) -> Image.Image:
-    request = urllib.request.Request(OSM_URL.format(z=zoom, x=x, y=y), headers={"User-Agent": agente_usuario("ReporteFotografico/1.0")})
+    request = urllib.request.Request(OSM_URL.format(z=zoom, x=x, y=y), headers={"User-Agent": agente_usuario("ITTHerramientas/1.0")})
     with urllib.request.urlopen(request, timeout=8) as response:
         return Image.open(BytesIO(response.read())).convert("RGB")
 
