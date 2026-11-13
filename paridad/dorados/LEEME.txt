@@ -1,0 +1,2 @@
+Aquí se deja el archivo golden_windows_AAAAMMDD.zip que genera el propietario en Windows con
+paridad/golden_windows.py. Mientras no exista, paridad/test_dorados.py se omite.
