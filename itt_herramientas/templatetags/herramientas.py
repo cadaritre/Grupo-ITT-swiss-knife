@@ -105,3 +105,32 @@ def nav_ajustes(context):
     if usuario is not None and perfiles.es_admin(usuario):
         entradas.append(("perfiles", "Perfiles", "building-2", ("perfiles", "perfil", "perfil_textos", "perfil_paleta")))
     return {"entradas": [{"url": reverse(f"herramientas:{u}"), "etiqueta": e, "icono": i, "actual": actual in paginas} for u, e, i, paginas in entradas]}
+
+
+@register.filter
+def dinero(valor) -> str:
+    """$1,234.56 (es-MX). Vacío si no hay importe."""
+    if valor is None or valor == "":
+        return ""
+    try:
+        return f"${float(valor):,.2f}"
+    except (TypeError, ValueError):
+        return ""
+
+
+@register.simple_tag(takes_context=True)
+def con_parametros(context, **cambios) -> str:
+    """La URL actual con algunos parámetros cambiados (vacío = se quita). Conserva los filtros al paginar."""
+    from django.http import QueryDict
+
+    peticion = context.get("request")
+    q = QueryDict(mutable=True)
+    for k, v in (peticion.GET.lists() if peticion else []):
+        q.setlist(k, [x for x in v if x])
+    for k, v in cambios.items():
+        if v in (None, ""):
+            q.pop(k, None)
+        else:
+            q[k] = str(v)
+    texto = q.urlencode()
+    return f"?{texto}" if texto else "?"

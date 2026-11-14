@@ -7,6 +7,7 @@ from .croquis import vistas as croquis
 from .drive import vistas as drive
 from .triangulacion import vistas as triangulacion
 from .reportes import vistas as reportes
+from .supervision import vistas as supervision
 
 app_name = "herramientas"
 
@@ -88,6 +89,14 @@ urlpatterns = [
     path("drive/reintentar/", drive.reintentar, name="drive_reintentar"),
     path("drive/descartar/<uuid:pk>/", drive.descartar, name="drive_descartar"),
     path("drive/desconectar/", drive.desconectar, name="drive_desconectar"),
+    path("supervision/", supervision.lista, name="supervision"),
+    path("supervision/cotizaciones/<uuid:pk>/", supervision.cotizacion, name="supervision_cotizacion"),
+    path("supervision/cotizaciones/<uuid:pk>/pdf/", supervision.cotizacion_pdf, name="supervision_cotizacion_pdf"),
+    path("supervision/cotizaciones/<uuid:pk>/foto/<str:sha256>/", supervision.cotizacion_foto, name="supervision_cotizacion_foto"),
+    path("supervision/reportes/<uuid:pk>/", supervision.reporte, name="supervision_reporte"),
+    path("supervision/reportes/<uuid:pk>/pdf/", supervision.reporte_pdf, name="supervision_reporte_pdf"),
+    path("supervision/reportes/<uuid:pk>/descargar/", supervision.reporte_descargar, name="supervision_reporte_descargar"),
+    path("supervision/reportes/<uuid:pk>/foto/<str:sha256>/", supervision.reporte_foto, name="supervision_reporte_foto"),
     path("preferencias/", views.preferencias_, name="preferencias"),
     path("diccionario/", views.diccionario, name="diccionario"),
     path("perfiles/", views.perfiles_, name="perfiles"),

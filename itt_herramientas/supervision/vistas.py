@@ -1,0 +1,166 @@
+"""«Documentos de todas las cuentas»: lista, consulta de solo lectura y PDF. Rol `supervision` (o el propietario).
+
+Todas las vistas son de lectura (GET). La única POST pide el PDF de un reporte cuyo último PDF no corresponde a su versión
+actual: se genera aparte para quien supervisa y el reporte no cambia.
+"""
+from __future__ import annotations
+
+import re
+
+from django.core.paginator import Paginator
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
+from django.utils.http import content_disposition_header
+from django.views.decorators.http import require_GET, require_POST
+from tvplataforma.permisos import requiere_rol
+
+from ..comun import capturas
+from ..cotizaciones import servicio as cot
+from ..models import Cotizacion, Perfil, Reporte
+from ..reportes import servicio as rep
+from ..tareas import generar_reporte_supervision
+from . import servicio
+
+supervisor = requiere_rol("herramientas", "supervision")
+_SHA = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _privado(respuesta):
+    respuesta["Cache-Control"] = "private, no-store"
+    return respuesta
+
+
+def _autor(doc) -> dict:
+    return {"nombre": doc.autor_nombre, "correo": doc.autor_correo, "creada": doc.creada, "actualizada": doc.actualizada,
+            "eliminada": not servicio.cuenta_existe(doc.cuenta_id)}
+
+
+@supervisor
+@require_GET
+def lista(request):
+    request.tv_seccion = "supervision"
+    filtros = servicio.Filtros.de(request.GET)
+    pagina = Paginator(servicio.consulta(filtros), servicio.POR_PAGINA).get_page(request.GET.get("pagina"))
+    hay_documentos = filtros.activos or Cotizacion.objects.exists() or Reporte.objects.exists()
+    return _privado(render(request, "herramientas/supervision/lista.html", {
+        "filtros": filtros, "pagina": pagina, "filas": servicio.filas(pagina.object_list), "autores": servicio.autores(),
+        "parametros": filtros.como_parametros(), "hay_documentos": hay_documentos}))
+
+
+def _cotizacion(pk) -> tuple[Cotizacion, object]:
+    c = get_object_or_404(Cotizacion, pk=pk)
+    try:
+        q = cot.validar(c.datos)
+    except cot.CotizacionInvalida:
+        q = None
+    return c, q
+
+
+@supervisor
+@require_GET
+def cotizacion(request, pk):
+    request.tv_seccion = "supervision"
+    c, q = _cotizacion(pk)
+    imagenes = []
+    if q is not None:
+        for i in q.images:
+            m = re.match(r"^captura:([0-9a-f]{64})$", i.path)
+            imagenes.append({"pie": i.caption, "url": reverse("herramientas:supervision_cotizacion_foto", kwargs={"pk": c.pk, "sha256": m.group(1)}) if m else ""})
+    return _privado(render(request, "herramientas/supervision/cotizacion.html", {"c": c, "q": q, "autor": _autor(c), "imagenes": imagenes}))
+
+
+@supervisor
+@require_GET
+def cotizacion_pdf(request, pk):
+    c, q = _cotizacion(pk)
+    if q is None:
+        raise Http404
+    perfil = Perfil.objects.filter(clave=c.perfil).first() or Perfil.objects.get(clave="grupo_itt")
+    contenido, nombre, pendientes = cot.pdf_de(c.cuenta_id, perfil, c.datos)
+    respuesta = HttpResponse(contenido, content_type="application/pdf")
+    respuesta["Content-Disposition"] = content_disposition_header(request.GET.get("descargar") == "1", nombre)
+    respuesta["X-Imagenes-Pendientes"] = str(len(pendientes))
+    return _privado(respuesta)
+
+
+@supervisor
+@require_GET
+def cotizacion_foto(request, pk, sha256):
+    c, q = _cotizacion(pk)
+    if q is None or not _SHA.match(sha256) or f"captura:{sha256}" not in {i.path for i in q.images}:
+        raise Http404
+    return _foto(request, c.cuenta_id, sha256)
+
+
+def _foto(request, cuenta_id: int, sha256: str):
+    ruta = capturas.ruta(cuenta_id, sha256) if request.GET.get("original") == "1" else capturas.miniatura(cuenta_id, sha256)
+    if ruta is None:
+        raise Http404
+    respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if ruta.suffix == ".png" else "image/jpeg")
+    respuesta["Cache-Control"] = "private, max-age=86400"
+    return respuesta
+
+
+def _pdf_listo(r: Reporte):
+    """Ruta del PDF de la versión actual, si ya existe: el que generó la cuenta autora o la copia de supervisión."""
+    if r.salida_ruta and r.salida_revision == r.revision and (capturas.raiz() / r.salida_ruta).is_file():
+        return capturas.raiz() / r.salida_ruta
+    copia = rep.ruta_copia(r)
+    return copia if copia.is_file() else None
+
+
+@supervisor
+@require_GET
+def reporte(request, pk):
+    request.tv_seccion = "supervision"
+    r = get_object_or_404(Reporte, pk=pk)
+    try:
+        datos = rep.validar(r.datos)
+    except rep.ReporteInvalido:
+        datos = {"titulo": r.titulo, "fecha": "", "fotos": [], "con_croquis": False, "con_credenciales": False}
+    fotos = [{**f, "url": reverse("herramientas:supervision_reporte_foto", kwargs={"pk": r.pk, "sha256": f["sha256"]})} for f in datos["fotos"]]
+    return _privado(render(request, "herramientas/supervision/reporte.html", {
+        "r": r, "datos": datos, "fotos": fotos, "autor": _autor(r), "pdf_listo": _pdf_listo(r) is not None,
+        "url_tarea": reverse("tvplataforma:tarea", kwargs={"tarea_id": "00000000-0000-0000-0000-000000000000"})}))
+
+
+@supervisor
+@require_POST
+def reporte_pdf(request, pk):
+    """El PDF de la versión actual: listo → su URL; si no, se genera (202 con la tarea). 409/422 si aún no se puede."""
+    r = get_object_or_404(Reporte, pk=pk)
+    descarga = reverse("herramientas:supervision_reporte_descargar", kwargs={"pk": r.pk}) + f"?revision={r.revision}"
+    if _pdf_listo(r) is not None:
+        return _privado(JsonResponse({"url": descarga}))
+    try:
+        rep.verificar_listo(r)
+    except rep.FotosPendientes:
+        return _privado(JsonResponse({"error": "Faltan fotos por subir de este reporte. Inténtalo cuando su autor tenga señal."}, status=409))
+    except rep.ReporteInvalido as exc:
+        return _privado(JsonResponse({"error": str(exc)}, status=422))
+    tarea = generar_reporte_supervision.encolar(str(r.pk), usuario=request.user)
+    if tarea.ha_terminado and _pdf_listo(r) is not None:                    # modo síncrono (pruebas): ya está
+        return _privado(JsonResponse({"url": descarga, "tarea": str(tarea.pk)}))
+    return _privado(JsonResponse({"tarea": str(tarea.pk)}, status=202))
+
+
+@supervisor
+@require_GET
+def reporte_descargar(request, pk):
+    r = get_object_or_404(Reporte, pk=pk)
+    ruta = _pdf_listo(r)
+    if ruta is None or request.GET.get("revision", str(r.revision)) != str(r.revision):
+        raise Http404
+    respuesta = FileResponse(open(ruta, "rb"), content_type="application/pdf")
+    respuesta["Content-Disposition"] = content_disposition_header(request.GET.get("ver") != "1", rep.nombre_pdf(r.titulo or "Reporte"))
+    return _privado(respuesta)
+
+
+@supervisor
+@require_GET
+def reporte_foto(request, pk, sha256):
+    r = get_object_or_404(Reporte, pk=pk)
+    if not _SHA.match(sha256) or sha256 not in {f.get("sha256") for f in (r.datos or {}).get("fotos", []) if isinstance(f, dict)}:
+        raise Http404
+    return _foto(request, r.cuenta_id, sha256)

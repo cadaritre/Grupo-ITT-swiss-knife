@@ -141,7 +141,8 @@
         h("a", { class: "cot-tarjeta__enlace", href: `#/c/${b.id}` },
           h("span", { class: "cot-tarjeta__folio" }, folio),
           h("strong", { class: "cot-tarjeta__titulo" }, b.datos.project_title || "Sin título"),
-          h("span", { class: "cot-tarjeta__cliente" }, b.datos.client_name || "Sin cliente")),
+          h("span", { class: "cot-tarjeta__cliente" }, b.datos.client_name || "Sin cliente"),
+          h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor))),
         h("div", { class: "cot-tarjeta__pie" },
           h("span", { class: "cot-tarjeta__total" }, dinero(t.total), h("small", {}, ` ${b.datos.currency || ""}`)),
           estado,
@@ -189,6 +190,7 @@
     if (reg.aviso) {
       aviso.append(reg.aviso, " ", h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: async () => { reg.aviso = ""; aviso.hidden = true; await guardarYa(); } }, "Entendido"));
     }
+    ITT.ui.autoria($("cot-autor"), reg, ctx && ctx.autor);
     titulo(); avisosRecomendados(); indicadorOrtografia(); pintarConceptos(); pintarImagenes(); recalcular(); estadoGuardado();
     $("mas-editable").setAttribute("download", nombreEditable());
   }

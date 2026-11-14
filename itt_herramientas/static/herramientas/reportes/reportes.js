@@ -96,7 +96,8 @@
         h("a", { class: "cot-tarjeta__enlace", href: `#/r/${b.id}` },
           h("span", { class: "cot-tarjeta__folio" }, String(d.fecha || "").split("-").reverse().join("/")),
           h("strong", { class: "cot-tarjeta__titulo" }, d.titulo || "Sin nombre"),
-          h("span", { class: "cot-tarjeta__cliente" }, `${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`)),
+          h("span", { class: "cot-tarjeta__cliente" }, `${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`),
+          h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor))),
         h("div", { class: "cot-tarjeta__pie" },
           por || b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono(enLinea() ? "cloud-upload" : "cloud-off"), h("span", {}, por ? `${por} foto${por === 1 ? "" : "s"} por subir` : "Sin subir"))
             : h("span", { class: "itt-estado" }, icono("cloud-check"), h("span", {}, "Guardado")),
@@ -134,6 +135,7 @@
     $("r-credenciales").checked = !!d.con_credenciales;
     $("r-credenciales-caja").hidden = !(ctx && ctx.credenciales);
     $("rep-titulo-editor").textContent = d.titulo || "Reporte";
+    ITT.ui.autoria($("rep-autor"), reg, ctx && ctx.autor);
     $("rep-paso-datos").open = !d.fotos.length;                       // con fotos, lo primero es seguir capturando
     const aviso = $("rep-aviso-doc");
     limpiar(aviso);

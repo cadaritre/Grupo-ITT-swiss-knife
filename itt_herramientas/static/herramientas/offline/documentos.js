@@ -90,6 +90,7 @@
     function aRegistro(fila, datos, cuenta, previo) {
       return Object.assign({ tipo, miniaturas: {}, aviso: "", creada: Date.parse(fila.actualizada) || Date.now() }, previo || {}, {
         id: previo ? previo.id : fila.id, cuenta, servidor_id: fila.id, revision_base: fila.revision, datos, sucio: false, borrada: false,
+        autor: fila.autor || (previo && previo.autor) || null,
         actualizada: previo ? previo.actualizada : Date.parse(fila.actualizada) || Date.now(),
       });
     }
@@ -102,7 +103,11 @@
       const vigentes = new Set(filas.map((c) => c.id));
       for (const fila of filas) {
         const local = porServidor.get(fila.id);
-        if (local && (local.sucio || local.revision_base >= fila.revision)) continue;
+        if (local && (local.sucio || local.revision_base >= fila.revision)) {
+          // Ya está al día (o con cambios propios): solo se completa quién lo hizo, que el servidor fija al crearlo.
+          if (fila.autor && JSON.stringify(local.autor || null) !== JSON.stringify(fila.autor)) await cola().actualizarBorrador(local.id, (x) => Object.assign(x, { autor: fila.autor }));
+          continue;
+        }
         const detalle = await pedir(url("detalle", fila.id));
         await cola().guardarBorrador(aRegistro(fila, detalle.datos, cuenta, local));
       }
@@ -129,7 +134,7 @@
         const servidorCopia = await pedir(url("detalle", r.servidor_id));
         const actual = await cola().borrador(b.id);
         const cambioDespues = actual && actual.actualizada !== enviado;
-        const copia = { id: r.servidor_id, tipo, cuenta, servidor_id: r.servidor_id, revision_base: r.revision, datos: cambioDespues ? actual.datos : servidorCopia.datos,
+        const copia = { id: r.servidor_id, tipo, cuenta, servidor_id: r.servidor_id, revision_base: r.revision, datos: cambioDespues ? actual.datos : servidorCopia.datos, autor: servidorCopia.autor || r.autor || null,
           sucio: !!cambioDespues, borrada: false, creada: Date.now(), actualizada: Date.now(), miniaturas: actual ? actual.miniaturas : {},
           aviso: config.avisoCopia || "Se guardó como copia porque este documento cambió en otro dispositivo mientras lo editabas aquí." };
         await cola().guardarBorrador(copia);
@@ -139,6 +144,7 @@
       }
       await cola().actualizarBorrador(b.id, (x) => {
         x.servidor_id = r.servidor_id; x.revision_base = r.revision; x.error = "";
+        if (r.autor) x.autor = r.autor;
         if (x.actualizada === enviado) x.sucio = false;       // si se editó mientras se subía, sigue pendiente
         return x;
       });

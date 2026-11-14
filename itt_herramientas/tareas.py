@@ -184,3 +184,18 @@ def enviar_a_drive(cuenta_id):
 
     r = servicio.procesar(cuenta_id)
     return {"mensaje": f"{r['enviados']} enviados, {r['pendientes']} pendientes."}
+
+
+@tarea("herramientas")
+def generar_reporte_supervision(reporte_id):
+    """PDF de un reporte para quien supervisa (no toca el reporte ni su último PDF)."""
+    from django.urls import reverse
+    from tvplataforma.middleware import urlconf_de
+
+    from .models import Reporte
+    from .reportes import servicio
+
+    r = Reporte.objects.get(pk=reporte_id)
+    servicio.generar_copia(r)
+    url = reverse("herramientas:supervision_reporte_descargar", args=[r.pk], urlconf=urlconf_de("herramientas")) + f"?revision={r.revision}"
+    return {"mensaje": "PDF listo.", "url": url, "etiqueta": "Descargar PDF"}

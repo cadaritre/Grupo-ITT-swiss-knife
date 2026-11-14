@@ -43,7 +43,8 @@ def _es_admin(request) -> bool:
 def inicio(request):
     herramientas = [(titulo, descripcion, reverse(nombre), f"herramientas/img/herramientas/{rol}.png") for rol, titulo, descripcion, nombre in HERRAMIENTAS_DE_INICIO
                     if permisos.tiene_rol(request.user, "herramientas", rol) or permisos.tiene_rol(request.user, "herramientas", "admin")]
-    return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "puede_cambiar": perfiles.puede_cambiar(request.user), "herramientas": herramientas, "mostrar_banda": "si", "mostrar_marca": True})
+    return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "puede_cambiar": perfiles.puede_cambiar(request.user), "herramientas": herramientas, "mostrar_banda": "si", "mostrar_marca": True,
+                                                    "supervision": permisos.tiene_rol(request.user, "herramientas", "supervision")})
 
 
 @usuario_de_herramientas

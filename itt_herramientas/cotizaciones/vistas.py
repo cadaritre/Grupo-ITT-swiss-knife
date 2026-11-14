@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import diccionarios, perfiles
+from ..comun import autoria, diccionarios, perfiles
 from ..models import Cotizacion, MachoteCuenta
 from . import servicio
 
@@ -77,7 +77,7 @@ def contexto(request):
     for clave in ("items", "images"):
         base.pop(clave, None)
     return _privado(JsonResponse({
-        "cuenta": request.user.pk, "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
+        "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
         "base": base, "folio": servicio.siguiente_folio(request.user.pk),
         "plantillas": servicio.plantillas_integradas(),
         "machotes": [servicio.fila_machote(m) for m in MachoteCuenta.objects.filter(cuenta_id=request.user.pk).order_by("nombre")],

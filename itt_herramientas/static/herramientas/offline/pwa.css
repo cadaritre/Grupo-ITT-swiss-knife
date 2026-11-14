@@ -236,3 +236,11 @@ body { padding-bottom: calc(var(--itt-banda) + env(safe-area-inset-bottom)); }
 .itt-estructura .tv-icono { width: 1rem; height: 1rem; color: var(--tv-tenue); vertical-align: -.15em; }
 .itt-drive-cuenta { display: flex; align-items: center; gap: var(--tv-espacio-2, 8px); }
 .itt-drive-cuenta > .tv-icono { color: var(--tv-estado-exito-texto); }
+
+/* Autoría de un documento (quién lo hizo y cuándo): una línea discreta bajo el título. */
+.itt-autoria { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-1, 4px) var(--tv-espacio-3, 12px); margin: calc(-1 * var(--tv-espacio-2, 8px)) 0 var(--tv-espacio-4, 16px); font-size: var(--tv-texto-sm, .875rem); color: var(--tv-tenue); }
+.itt-autoria > .tv-icono { width: 1rem; height: 1rem; flex: none; }
+.itt-autoria strong { color: var(--tv-texto); font-weight: 600; }
+.itt-autoria__correo { overflow-wrap: anywhere; }
+.itt-autoria[hidden] { display: none; }
+.cot-tarjeta__autor { display: block; margin-top: 2px; font-size: var(--tv-texto-xs, .75rem); color: var(--tv-tenue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

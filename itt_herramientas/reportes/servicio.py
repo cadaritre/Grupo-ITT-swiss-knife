@@ -13,7 +13,7 @@ from pathlib import Path
 from django.utils import timezone
 from tvplataforma.tareas import cancelada, progreso
 
-from ..comun import capturas, perfiles, sincronizacion
+from ..comun import autoria, capturas, perfiles, sincronizacion
 from ..dominio import document_texts, pdf_generator
 from ..dominio.metadata import PhotoInfo
 from ..models import Captura, Perfil, Reporte
@@ -111,7 +111,7 @@ def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, r
 def resumen_fila(r: Reporte) -> dict:
     return {"id": str(r.id), "id_cliente": str(r.id_cliente) if r.id_cliente else None, "revision": r.revision, "titulo": r.titulo, "fotos": r.fotos,
             "actualizada": r.actualizada.isoformat(), "copia": r.copia_de_id is not None, "perfil": r.perfil,
-            "pdf": bool(r.salida_ruta), "pdf_al_dia": bool(r.salida_ruta) and r.salida_revision == r.revision}
+            "pdf": bool(r.salida_ruta), "pdf_al_dia": bool(r.salida_ruta) and r.salida_revision == r.revision, "autor": autoria.fila(r)}
 
 
 def titulo_por_omision(perfil: Perfil) -> str:
@@ -148,15 +148,9 @@ def verificar_listo(r: Reporte) -> None:
     _fotos_de(r.cuenta_id, datos)
 
 
-def generar(r: Reporte) -> Path:
-    """Genera el PDF del reporte (se llama desde la tarea). Guarda el archivo y lo deja ligado al reporte."""
-    datos = validar(r.datos)
-    verificar_listo(r)
+def _producir(r: Reporte, datos: dict, temporal: Path) -> None:
+    """Escribe el PDF del reporte en `temporal` (mismo documento que el escritorio, con el perfil guardado en el reporte)."""
     perfil = Perfil.objects.get(clave=r.perfil)
-    revision = r.revision
-    carpeta = capturas.raiz() / "reportes" / str(r.cuenta_id)
-    carpeta.mkdir(parents=True, exist_ok=True)
-    temporal = carpeta / f"{r.id}.tmp.pdf"
     opciones = perfiles.opciones_reporte(
         perfil, datos["titulo"], date.fromisoformat(datos["fecha"]), _fotos_de(r.cuenta_id, datos), temporal,
         incluir_credenciales=datos["con_credenciales"], include_map=datos["con_croquis"])
@@ -169,6 +163,17 @@ def generar(r: Reporte) -> Path:
 
     with perfiles.activar(perfil):
         pdf_generator.generate_report(opciones, avance)
+
+
+def generar(r: Reporte) -> Path:
+    """Genera el PDF del reporte (se llama desde la tarea). Guarda el archivo y lo deja ligado al reporte."""
+    datos = validar(r.datos)
+    verificar_listo(r)
+    revision = r.revision
+    carpeta = capturas.raiz() / "reportes" / str(r.cuenta_id)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    temporal = carpeta / f"{r.id}.tmp.pdf"
+    _producir(r, datos, temporal)
     destino = carpeta / f"{r.id}.pdf"
     temporal.replace(destino)
     Reporte.objects.filter(pk=r.pk).update(salida_ruta=destino.relative_to(capturas.raiz()).as_posix(), salida_nombre=nombre_pdf(datos["titulo"]),
@@ -177,4 +182,28 @@ def generar(r: Reporte) -> Path:
     from ..drive import servicio as drive
 
     drive.encolar(r.cuenta_id, "reportes", nombre_pdf(datos["titulo"]), origen=destino, clave=drive.clave_de("reporte", r.pk, revision, r.perfil))           # a Drive si la persona lo conectó (no falla el reporte si no)
+    return destino
+
+
+def ruta_copia(r: Reporte) -> Path:
+    """PDF de supervisión de esta revisión del reporte: aparte del de la cuenta autora, que nunca se toca."""
+    return capturas.raiz() / "supervision" / "reportes" / f"{r.id}-r{r.revision}-{r.perfil}.pdf"
+
+
+def generar_copia(r: Reporte) -> Path:
+    """PDF de la revisión actual para quien supervisa: no cambia el reporte, su último PDF ni lo que va a su Google Drive."""
+    datos = validar(r.datos)
+    verificar_listo(r)
+    destino = ruta_copia(r)
+    if destino.is_file():
+        progreso(1.0, "Listo")
+        return destino
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    temporal = destino.with_suffix(".tmp.pdf")
+    _producir(r, datos, temporal)
+    temporal.replace(destino)
+    for vieja in destino.parent.glob(f"{r.id}-r*.pdf"):                       # solo se guarda la de la revisión más reciente
+        if vieja != destino and not vieja.name.endswith(".tmp.pdf"):
+            vieja.unlink(missing_ok=True)
+    progreso(1.0, "Listo")
     return destino

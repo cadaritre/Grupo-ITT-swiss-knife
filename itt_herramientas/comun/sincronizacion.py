@@ -11,6 +11,8 @@ from collections.abc import Callable
 
 from django.db import transaction
 
+from . import autoria
+
 
 def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, nuevos: dict, *,
                 aplicar: Callable, aplicar_copia: Callable, error: type[Exception]) -> dict:
@@ -28,10 +30,10 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
                 nuevo = modelo(cuenta_id=usuario.pk, id_cliente=id_cliente)
                 aplicar(nuevo)
                 nuevo.save()
-                return {"resultado": "creada", "servidor_id": str(nuevo.id), "revision": nuevo.revision, "folio": getattr(nuevo, "folio", "")}
+                return {"resultado": "creada", "servidor_id": str(nuevo.id), "revision": nuevo.revision, "folio": getattr(nuevo, "folio", ""), "autor": autoria.fila(nuevo)}
             if revision_base is None:                                     # reintento tras perder la respuesta de la creación
                 revision_base = 1
-        resumen = lambda obj, **extra: {"servidor_id": str(obj.id), "revision": obj.revision, "folio": getattr(obj, "folio", ""), **extra}  # noqa: E731
+        resumen = lambda obj, **extra: {"servidor_id": str(obj.id), "revision": obj.revision, "folio": getattr(obj, "folio", ""), "autor": autoria.fila(obj), **extra}  # noqa: E731
         if actual.datos == nuevos:
             return {"resultado": "sin_cambios", **resumen(actual)}
         if revision_base == actual.revision:

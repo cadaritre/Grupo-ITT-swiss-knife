@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from tvplataforma.models import Tarea
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import capturas, perfiles
+from ..comun import autoria, capturas, perfiles
 from ..models import Reporte
 from ..tareas import generar_reporte
 from . import servicio
@@ -73,7 +73,7 @@ def _error(exc, estado=422):
 def contexto(request):
     perfil = perfiles.perfil_activo(request.user)
     return _privado(JsonResponse({
-        "cuenta": request.user.pk, "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
+        "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
         "titulo": servicio.titulo_por_omision(perfil), "max_fotos": servicio.MAX_FOTOS,
         "credenciales": bool(perfil.firmante_reporte or perfil.cedula_profesional),
     }))

@@ -20,7 +20,7 @@ from pathlib import Path
 from django.utils import timezone
 from tvplataforma.tareas import cancelada, progreso
 
-from ..comun import capturas, errores, perfiles, sincronizacion
+from ..comun import autoria, capturas, errores, perfiles, sincronizacion
 from ..dominio import branding, geospatial_converter as gc, location_sketch as ls, osm_vector, terrain_contours
 from ..models import Croquis, Perfil
 
@@ -129,7 +129,7 @@ def resumen_fila(c: Croquis) -> dict:
     return {"id": str(c.id), "id_cliente": str(c.id_cliente) if c.id_cliente else None, "revision": c.revision, "titulo": c.titulo, "actualizada": c.actualizada.isoformat(),
             "copia": c.copia_de_id is not None, "perfil": c.perfil, "vectores": estado_vectores(c), "resumen": c.vectores_resumen,
             "vectorizado": c.vectorizado.isoformat() if c.vectorizado else None, "area_km2": round(area_km2(c.datos), 3),
-            "pdf_al_dia": bool(c.salida_ruta) and c.salida_fuente == _huella_salida(c)}
+            "pdf_al_dia": bool(c.salida_ruta) and c.salida_fuente == _huella_salida(c), "autor": autoria.fila(c)}
 
 
 def _huella_salida(c: Croquis) -> str:

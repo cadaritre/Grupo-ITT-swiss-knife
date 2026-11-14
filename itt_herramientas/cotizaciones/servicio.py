@@ -18,7 +18,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from tvplataforma import ajustes
 
-from ..comun import capturas, diccionarios, errores, perfiles, sincronizacion
+from ..comun import autoria, capturas, diccionarios, errores, perfiles, sincronizacion
 from ..dominio import quotation_models as qm
 from ..dominio import quotation_pdf
 from ..dominio.quotation_i18n import STANDARD_UNITS
@@ -138,7 +138,7 @@ def siguiente_folio(cuenta_id: int, hoy: date | None = None) -> str:
 def resumen_fila(c: Cotizacion) -> dict:
     return {"id": str(c.id), "id_cliente": str(c.id_cliente) if c.id_cliente else None, "revision": c.revision, "folio": c.folio, "cliente": c.cliente,
             "proyecto": c.proyecto, "moneda": c.moneda, "total": float(c.total), "actualizada": c.actualizada.isoformat(), "copia": c.copia_de_id is not None,
-            "perfil": c.perfil}
+            "perfil": c.perfil, "autor": autoria.fila(c)}
 
 
 def _aplicar(c: Cotizacion, q: qm.QuoteData, perfil: str) -> None:
@@ -192,8 +192,8 @@ def nombre_pdf(q: qm.QuoteData) -> str:
     return f"COTIZACION {_limpiar(q.quote_number, 'SIN FOLIO')} - {_limpiar(q.project_title, 'SERVICIOS')}.pdf"
 
 
-def _resolver_imagenes(usuario, q: qm.QuoteData) -> list[str]:
-    """Cambia «captura:<sha>» por la ruta de la foto de ESTA cuenta; devuelve las que aún no llegan al servidor."""
+def _resolver_imagenes(cuenta_id: int, q: qm.QuoteData) -> list[str]:
+    """Cambia «captura:<sha>» por la ruta de la foto de la cuenta dueña; devuelve las que aún no llegan al servidor."""
     pendientes = []
     raiz = Path(ajustes.valor("TV_HERRAMIENTAS_ARCHIVOS"))
     resueltas = []
@@ -201,7 +201,7 @@ def _resolver_imagenes(usuario, q: qm.QuoteData) -> list[str]:
         m = _CAPTURA.match(imagen.path)
         if not m:
             continue
-        captura = Captura.objects.filter(cuenta_id=usuario.pk, sha256=m.group(1)).first()
+        captura = Captura.objects.filter(cuenta_id=cuenta_id, sha256=m.group(1)).first()
         if captura is None or not (raiz / captura.ruta).is_file():
             pendientes.append(imagen.caption or m.group(1)[:8])
             continue
@@ -212,12 +212,16 @@ def _resolver_imagenes(usuario, q: qm.QuoteData) -> list[str]:
 
 def generar_pdf(usuario, datos: dict) -> tuple[bytes, str, list[str]]:
     """PDF de la cotización con la identidad del perfil activo de la cuenta. Devuelve (bytes, nombre, imágenes pendientes de subir)."""
+    return pdf_de(usuario.pk, perfiles.perfil_activo(usuario), datos)
+
+
+def pdf_de(cuenta_id: int, perfil, datos: dict) -> tuple[bytes, str, list[str]]:
+    """El mismo PDF para cualquier cuenta y perfil (supervisión: el de la cuenta autora con el perfil del documento)."""
     from ..dominio import branding
 
     q = validar(datos)
     nombre = nombre_pdf(q)
-    pendientes = _resolver_imagenes(usuario, q)
-    perfil = perfiles.perfil_activo(usuario)
+    pendientes = _resolver_imagenes(cuenta_id, q)
     with perfiles.activar(perfil):
         logo = branding.active_profile().logo_path
         with tempfile.TemporaryDirectory() as carpeta:

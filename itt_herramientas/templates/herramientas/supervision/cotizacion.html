@@ -1,0 +1,61 @@
+{% extends "herramientas/base_comun.html" %}
+{% load static tv herramientas %}
+{% block titulo_pagina %}Cotización{% endblock %}
+{% block titulo_h1 %}{% include "herramientas/supervision/_volver.html" with actual="Cotización" %}<h1>{% if c.folio %}{{ c.folio }} · {% endif %}{{ c.proyecto|default:"Cotización" }}</h1>{% endblock %}
+{% block acciones_pagina %}{% if q %}<a class="tv-boton itt-accion-principal" href="{% url 'herramientas:supervision_cotizacion_pdf' c.pk %}?descargar=1" data-sup-descargar>{% icono "download" %}<span>Descargar PDF</span></a>{% endif %}{% endblock %}
+{% block cuerpo %}
+<div class="sup sup-detalle">
+{% include "herramientas/supervision/_autoria.html" %}
+<p class="tv-insignia tv-insignia--neutra sup-solo-lectura">{% icono "eye" %}Solo lectura</p>
+{% if not q %}{% alerta "aviso" %}Esta cotización no se puede mostrar: sus datos están incompletos.{% endalerta %}{% else %}
+<section class="tv-tarjeta sup-bloque" aria-labelledby="sup-cliente">
+  <h2 id="sup-cliente">{% icono "building-2" %}<span>Cliente y proyecto</span></h2>
+  <dl class="sup-datos">
+    <div><dt>Cliente</dt><dd>{{ q.client_name|default:"—" }}</dd></div>
+    <div><dt>Contacto</dt><dd>{{ q.contact|default:"—" }}</dd></div>
+    <div><dt>Correo</dt><dd>{{ q.email|default:"—" }}</dd></div>
+    <div><dt>Teléfono</dt><dd>{{ q.phone|default:"—" }}</dd></div>
+    <div><dt>Localización</dt><dd>{{ q.location|default:"—" }}</dd></div>
+    <div><dt>Fecha</dt><dd>{{ q.quote_date|default:"—" }}</dd></div>
+  </dl>
+</section>
+<section class="tv-tarjeta sup-bloque" aria-labelledby="sup-conceptos">
+  <h2 id="sup-conceptos">{% icono "list" %}<span>Conceptos</span></h2>
+  {% if q.items %}<div class="tv-tabla-envoltura sup-tabla-plana"><table class="tv-tabla">
+    <thead><tr><th scope="col">Concepto</th><th scope="col">Unidad</th><th scope="col" class="tv-num">Cantidad</th><th scope="col" class="tv-num">Precio unitario</th><th scope="col" class="tv-num">Importe</th></tr></thead>
+    <tbody>{% for i in q.items %}<tr>
+      <td data-etiqueta="Concepto"><strong>{{ i.title }}</strong>{% if i.description %}<p class="sup-texto tv-tenue">{{ i.description|linebreaksbr }}</p>{% endif %}{% if i.subitems %}<ul class="sup-alcances">{% for s in i.subitems %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}</td>
+      <td data-etiqueta="Unidad">{{ i.unit }}</td><td data-etiqueta="Cantidad" class="tv-num">{{ i.quantity|floatformat:"-3g" }}</td>
+      <td data-etiqueta="Precio unitario" class="tv-num">{{ i.unit_price|dinero }}</td><td data-etiqueta="Importe" class="tv-num">{{ i.amount|dinero }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <dl class="sup-totales">
+    <div><dt>Subtotal</dt><dd>{{ q.subtotal|dinero }}</dd></div>
+    {% if q.include_vat %}<div><dt>IVA ({{ q.vat_rate|floatformat:"-2" }} %)</dt><dd>{{ q.vat|dinero }}</dd></div>{% endif %}
+    <div class="sup-totales__total"><dt>Total</dt><dd>{{ q.total|dinero }} <small>{{ q.currency }}</small></dd></div>
+  </dl>
+  {% else %}{% vacio titulo="Sin conceptos." icono="list" %}{% endvacio %}{% endif %}
+</section>
+<section class="tv-tarjeta sup-bloque" aria-labelledby="sup-condiciones">
+  <h2 id="sup-condiciones">{% icono "receipt" %}<span>Condiciones y pago</span></h2>
+  <dl class="sup-datos">
+    <div><dt>Anticipo</dt><dd>{{ q.advance_percent|floatformat:"-2" }} %</dd></div>
+    <div><dt>Vigencia</dt><dd>{{ q.validity_days }} días</dd></div>
+    <div><dt>Tiempo de entrega</dt><dd>{{ q.delivery_time|default:"—" }}</dd></div>
+    <div><dt>Forma de pago</dt><dd>{{ q.payment_terms|default:"—" }}</dd></div>
+    <div><dt>Elaboró</dt><dd>{{ q.prepared_by|default:"—" }}</dd></div>
+  </dl>
+  {% if q.notes %}<p class="sup-texto">{{ q.notes|linebreaksbr }}</p>{% endif %}
+</section>
+<section class="tv-tarjeta sup-bloque" aria-labelledby="sup-imagenes">
+  <h2 id="sup-imagenes">{% icono "images" %}<span>Imágenes de referencia</span></h2>
+  {% if imagenes %}<ul class="sup-fotos">{% for i in imagenes %}<li>{% if i.url %}<a href="{{ i.url }}?original=1" target="_blank" rel="noopener"><img src="{{ i.url }}" alt="{{ i.pie|default:'Imagen de referencia' }}" loading="lazy" width="240" height="180"></a>{% else %}<span class="sup-fotos__falta">{% icono "image-off" %}<span>No está en la nube</span></span>{% endif %}{% if i.pie %}<p>{{ i.pie }}</p>{% endif %}</li>{% endfor %}</ul>
+  {% else %}{% vacio titulo="Sin imágenes." icono="images" %}{% endvacio %}{% endif %}
+</section>
+{% endif %}
+<p id="sup-mensaje" class="itt-aviso" role="alert" hidden></p>
+</div>
+{% endblock %}
+{% block scripts %}
+<link rel="stylesheet" href="{% static 'herramientas/supervision/supervision.css' %}">
+<script src="{% static 'herramientas/supervision/supervision.js' %}" id="sup-script"></script>
+{% endblock %}

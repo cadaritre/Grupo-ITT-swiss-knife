@@ -1,0 +1,37 @@
+{% extends "herramientas/base_comun.html" %}
+{% load static tv herramientas %}
+{% block titulo_pagina %}Reporte fotográfico{% endblock %}
+{% block titulo_h1 %}{% include "herramientas/supervision/_volver.html" with actual="Reporte" %}<h1>{{ r.titulo|default:"Reporte fotográfico" }}</h1>{% endblock %}
+{% block acciones_pagina %}<button type="button" class="tv-boton itt-accion-principal" data-sup-reporte-pdf="{% url 'herramientas:supervision_reporte_pdf' r.pk %}"{% if not datos.fotos %} disabled{% endif %}>{% icono "download" %}<span>Descargar PDF</span></button>{% endblock %}
+{% block cuerpo %}
+<div class="sup sup-detalle">
+{% include "herramientas/supervision/_autoria.html" %}
+<p class="tv-insignia tv-insignia--neutra sup-solo-lectura">{% icono "eye" %}Solo lectura</p>
+<p id="sup-progreso" class="itt-estado sup-progreso" role="status" hidden></p>
+<section class="tv-tarjeta sup-bloque" aria-labelledby="sup-datos">
+  <h2 id="sup-datos">{% icono "file-text" %}<span>Datos del reporte</span></h2>
+  <dl class="sup-datos">
+    <div><dt>Fecha</dt><dd>{% if datos.fecha %}{{ datos.fecha|slice:"8:10" }}/{{ datos.fecha|slice:"5:7" }}/{{ datos.fecha|slice:":4" }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Fotos</dt><dd>{{ fotos|length }}</dd></div>
+    <div><dt>Portada</dt><dd>{% if datos.con_croquis %}Croquis de ubicación{% else %}Primera foto{% endif %}</dd></div>
+    <div><dt>Cédula y firma</dt><dd>{% if datos.con_credenciales %}Sí{% else %}No{% endif %}</dd></div>
+    <div><dt>PDF</dt><dd>{% if pdf_listo %}<span class="tv-insignia tv-insignia--exito">{% icono "circle-check" %}Al día</span>{% else %}<span class="tv-insignia tv-insignia--aviso">{% icono "clock" %}Se genera al descargar</span>{% endif %}</dd></div>
+  </dl>
+</section>
+<section class="tv-tarjeta sup-bloque" aria-labelledby="sup-fotos">
+  <h2 id="sup-fotos">{% icono "images" %}<span>Fotos</span></h2>
+  {% if fotos %}<ol class="sup-fotos">{% for f in fotos %}<li>
+    <a href="{{ f.url }}?original=1" target="_blank" rel="noopener"><img src="{{ f.url }}" alt="Foto {{ forloop.counter }}{% if f.nota %}: {{ f.nota }}{% endif %}" loading="lazy" width="240" height="180"></a>
+    <p class="sup-fotos__pie"><strong>{{ forloop.counter }}</strong>{% if f.nota %} {{ f.nota }}{% endif %}</p>
+    <p class="sup-fotos__meta tv-tenue">{% if f.tomada %}{% icono "clock" %}{{ f.tomada|slice:"8:10" }}/{{ f.tomada|slice:"5:7" }}/{{ f.tomada|slice:":4" }} {{ f.tomada|slice:"11:16" }}{% endif %}{% if f.lat is not None %} {% icono "map-pin" %}{{ f.lat|floatformat:5 }}, {{ f.lon|floatformat:5 }}{% else %} Sin ubicación{% endif %}</p>
+  </li>{% endfor %}</ol>
+  {% else %}{% vacio titulo="Sin fotos." icono="camera" %}{% endvacio %}{% endif %}
+</section>
+<p id="sup-mensaje" class="itt-aviso" role="alert" hidden></p>
+</div>
+{% csrf_token %}
+{% endblock %}
+{% block scripts %}
+<link rel="stylesheet" href="{% static 'herramientas/supervision/supervision.css' %}">
+<script src="{% static 'herramientas/supervision/supervision.js' %}" data-url-tarea="{{ url_tarea }}" id="sup-script"></script>
+{% endblock %}

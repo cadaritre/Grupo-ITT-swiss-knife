@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from tvplataforma.models import Tarea
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import capturas, perfiles
+from ..comun import autoria, capturas, perfiles
 from ..dominio import location_sketch as ls
 from ..dominio.osm_vector import CATEGORY_LABELS
 from ..models import Croquis
@@ -83,7 +83,7 @@ def contexto(request):
     perfil = perfiles.perfil_activo(request.user)
     base = ls.SketchData()
     return _privado(JsonResponse({
-        "cuenta": request.user.pk, "perfil": perfil.clave, "perfil_nombre": perfil.nombre, "limite_km2": servicio.LIMITE_KM2, "max_vertices": servicio.MAX_VERTICES,
+        "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre, "limite_km2": servicio.LIMITE_KM2, "max_vertices": servicio.MAX_VERTICES,
         "capas_mapa": [{"nombre": n, "capa": "osm" if n == ls.DEFAULT_MAP_LAYER else "topo" if n.startswith("Topográfico") else None, "atribucion": c["attribution"], "zoom_max": c["max_zoom"]}
                        for n, c in ls.MAP_LAYERS.items()],
         "categorias": CATEGORY_LABELS, "contornos": list(servicio.CONTORNOS), "base": {"title": base.title, "map_layer": base.map_layer, "contour_interval": base.contour_interval,

@@ -42,10 +42,15 @@ def _urls_estaticas(html: str) -> set[str]:
 
 def test_cada_url_estatica_de_las_paginas_existe_con_huella(produccion, cliente_de, crear_usuario, roles, entradas_geo):
     u = crear_usuario("todo")
-    roles.conceder(u, "herramientas", "cotizaciones", "reportes", "croquis", "convertidor")
+    roles.conceder(u, "herramientas", "cotizaciones", "reportes", "croquis", "convertidor", "supervision")
     c = cliente_de(u)
     conversion = listo(c, entradas_geo["convertidor.dxf"])
-    paginas = {n: c.get(url(n)).content.decode() for n in ("cotizaciones", "reportes", "croquis", "capturar", "instalar", "inicio")}
+    paginas = {n: c.get(url(n)).content.decode() for n in ("cotizaciones", "reportes", "croquis", "capturar", "instalar", "inicio", "supervision")}
+    from itt_herramientas.reportes import servicio as rep
+
+    reporte = rep.sincronizar(u, __import__("uuid").uuid4(), None, None, {"titulo": "Visita", "fotos": []}, "grupo_itt")["servidor_id"]
+    paginas["supervision_reporte"] = c.get(url("supervision_reporte", pk=reporte)).content.decode()
+    assert "supervision/supervision." in paginas["supervision"] and "supervision/supervision." in paginas["supervision_reporte"]
     paginas["convertidor_banco"] = c.get(url("convertidor_banco", pk=conversion.pk)).content.decode()
     vistos = set()
     for nombre, html in paginas.items():

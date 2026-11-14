@@ -84,5 +84,33 @@
   const fechaAIso = (es) => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(es || "").trim()); return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : ""; };
   const fechaAEs = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "")); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
 
-  ITT.ui = { h, limpiar, mensaje, confirmar, fechaAIso, fechaAEs, icono, boton };
+  /** Fecha corta en es-MX («14 nov 2026»). */
+  function fechaCorta(valor) {
+    const d = typeof valor === "number" ? new Date(valor) : new Date(String(valor || ""));
+    return isNaN(d) ? "" : d.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }).replace(/\./g, "");
+  }
+  /** Quién hizo el documento: lo que fijó el servidor al crearlo o, si aún no se sube, la cuenta de este teléfono. */
+  function autorDe(reg, propio) {
+    if (reg && reg.autor) return { nombre: reg.autor.nombre || "", correo: reg.autor.correo || "", creada: reg.autor.creada };
+    if (propio) return { nombre: propio.nombre || "", correo: propio.correo || "", creada: reg ? reg.creada : Date.now() };
+    return null;
+  }
+  /** Pinta la línea de autoría (nombre, correo y fecha de creación) en `nodo`; la oculta si no se sabe. */
+  function autoria(nodo, reg, propio) {
+    if (!nodo) return;
+    limpiar(nodo);
+    const a = autorDe(reg, propio);
+    nodo.hidden = !a;
+    if (!a) return;
+    nodo.append(icono("user-round"), h("span", {}, h("strong", {}, a.nombre || a.correo || "Cuenta eliminada"), a.correo && a.nombre ? " " : null,
+      a.correo && a.nombre ? h("span", { class: "itt-autoria__correo" }, a.correo) : null),
+      h("span", { class: "itt-autoria__fecha" }, `Creado ${fechaCorta(a.creada)}`));
+  }
+  /** Texto corto de autoría para una tarjeta de la lista: «Ana López · 14 nov 2026». */
+  function autoriaCorta(reg, propio) {
+    const a = autorDe(reg, propio);
+    return a ? [a.nombre || a.correo, fechaCorta(a.creada)].filter(Boolean).join(" · ") : "";
+  }
+
+  ITT.ui = { h, limpiar, mensaje, confirmar, fechaAIso, fechaAEs, fechaCorta, icono, boton, autoria, autoriaCorta };
 })(typeof self !== "undefined" ? self : this);

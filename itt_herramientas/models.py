@@ -12,6 +12,27 @@ from django.utils import timezone
 CLAVES_PERFIL = (("grupo_itt", "Grupo ITT"), ("tresvizo", "TresVizo"))
 
 
+class ConAutor(models.Model):
+    """Quién hizo el documento: foto de la cuenta que lo creó (nombre y correo), tomada en el servidor al crearlo.
+
+    Nunca la escribe la persona ni la cambia una sincronización: se llena una sola vez, cuando el renglón se guarda por
+    primera vez, con la cuenta de `cuenta_id`. Queda aunque la cuenta cambie de nombre o se elimine.
+    """
+
+    autor_nombre = models.CharField(max_length=150, blank=True, default="", editable=False)
+    autor_correo = models.CharField(max_length=254, blank=True, default="", editable=False)
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not (self.autor_nombre or self.autor_correo):
+            from .comun import autoria
+
+            self.autor_nombre, self.autor_correo = autoria.de_cuenta(self.cuenta_id)
+        super().save(*args, **kwargs)
+
+
 class Perfil(models.Model):
     """Perfil corporativo (herramientas-web.md §3). Hay uno por clave del dominio: `grupo_itt` y `tresvizo`.
 
@@ -182,7 +203,7 @@ class Captura(models.Model):
         ordering = ["referencia", "orden", "id"]
 
 
-class Cotizacion(models.Model):
+class Cotizacion(ConAutor):
     """Una cotización de la cuenta. `datos` es el JSON de `QuoteData` del escritorio (mismo esquema, compatible en los dos sentidos).
 
     `revision` sube con cada guardado. El teléfono guarda borradores sin conexión con la revisión en que se basaron: si al
@@ -209,7 +230,7 @@ class Cotizacion(models.Model):
         ordering = ["-actualizada"]
 
 
-class Reporte(models.Model):
+class Reporte(ConAutor):
     """Reporte fotográfico de una cuenta (herramientas-web.md §4.2). Se arma en el teléfono y se sincroniza como borrador.
 
     `datos` = {titulo, fecha, con_croquis, con_credenciales, fotos: [{sha256, nota, tomada, lat, lon, precision, sin_ubicacion,
@@ -238,7 +259,7 @@ class Reporte(models.Model):
         ordering = ["-actualizada"]
 
 
-class Croquis(models.Model):
+class Croquis(ConAutor):
     """Croquis de ubicación de una cuenta (herramientas-web.md §4.3), con autoguardado en el servidor.
 
     `datos` es el `SketchData` del escritorio SIN `features` (los vectores pesan megas y los produce el servidor): van en un
