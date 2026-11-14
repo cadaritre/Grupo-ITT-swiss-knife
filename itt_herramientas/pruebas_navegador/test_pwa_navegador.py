@@ -515,3 +515,24 @@ def test_diseno_para_telefono_sin_desplazamiento_horizontal_y_objetivos_tactiles
                 assert caja["height"] >= 43.5, (selector, caja)
     finally:
         ctx.close()
+
+
+def test_primera_apertura_sin_conexion_sale_con_estilos(motor, tmp_path, servidor, sesion_de, usuaria):
+    """UX-ITT-02: recién instalado el service worker (sin haber vuelto a abrir la página), perder la señal no deja la página en texto plano."""
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria))
+    try:
+        pagina = abrir(ctx, servidor)
+        pagina.evaluate("navigator.serviceWorker.ready.then(() => true)")
+        # La precarga ya guardó lo compartido, aunque ninguna página controlada lo haya pedido todavía.
+        guardadas = pagina.evaluate("caches.keys().then(async (ks) => { const c = await caches.open(ks.find((k) => k.startsWith('itt-herramientas-'))); return (await c.keys()).map((r) => new URL(r.url).pathname); })")
+        for archivo in ("tokens.css", "base.css", "componentes.css", "img/marca.png"):
+            assert f"/static/tvplataforma/{archivo}" in guardadas, archivo
+        ctx.set_offline(True)
+        pagina.goto(servidor.url + "/cotizaciones/")
+        pagina.wait_for_selector("#cot", timeout=TIEMPO)
+        hojas = pagina.evaluate("[...document.querySelectorAll('link[rel=stylesheet]')].filter((l) => !l.href.endsWith('/perfil.css')).map((l) => [new URL(l.href).pathname, !!l.sheet && l.sheet.cssRules.length > 0])")
+        assert hojas and all(ok for _, ok in hojas), hojas
+        assert pagina.evaluate("getComputedStyle(document.querySelector('.tv-cabecera')).display") != "inline"     # el encabezado lleva su estilo
+        assert pagina.evaluate("document.querySelector('.tv-marca img').complete && document.querySelector('.tv-marca img').naturalWidth > 0")
+    finally:
+        ctx.close()

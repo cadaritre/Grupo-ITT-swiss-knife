@@ -56,6 +56,30 @@ def test_service_worker_en_la_raiz_con_alcance_total(client):
         assert (sw.ESTATICOS / activo).is_file(), activo
 
 
+def test_el_service_worker_precarga_todo_lo_estatico_que_cargan_las_paginas_sin_conexion(cliente_de, propietario):
+    """UX-ITT-02: la primera apertura sin señal sale con estilos. Todo `/static/` que traen las páginas de campo está en la precarga."""
+    import re
+
+    precarga = set(json.loads(re.search(r"const ACTIVOS = (\[.*?\]);", sw.contenido()).group(1)))
+    assert {"/static/tvplataforma/tokens.css", "/static/tvplataforma/base.css", "/static/tvplataforma/componentes.css", "/static/tvplataforma/img/marca.png"} <= precarga
+    cl = cliente_de(propietario)
+    for nombre in ("capturar", "instalar", "cotizaciones", "reportes", "croquis"):
+        html = cl.get(url(nombre)).content.decode()
+        for recurso in re.findall(r"""(?:href|src)="(/static/[^"?#]+)""", html):
+            assert recurso in precarga, f"{nombre}: {recurso} no se precarga"
+
+
+def test_la_version_del_service_worker_cambia_si_cambia_el_sistema_de_diseno(monkeypatch, tmp_path):
+    antes = sw.version()
+    sw.version.cache_clear()
+    copia = tmp_path / "base.css"
+    copia.write_text(sw.ruta_plataforma("base.css").read_text() + "\n/* cambio */")
+    original = sw.ruta_plataforma
+    monkeypatch.setattr(sw, "ruta_plataforma", lambda r: copia if r == "base.css" else original(r))
+    assert sw.version() != antes
+    sw.version.cache_clear()
+
+
 def test_la_version_del_service_worker_cambia_con_la_interfaz(monkeypatch, tmp_path):
     antes = sw.version()
     sw.version.cache_clear()
