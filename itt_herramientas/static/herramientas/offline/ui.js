@@ -10,7 +10,6 @@
   const ITT = (global.ITT = global.ITT || {});
   const ES_PAGINA = typeof document !== "undefined";
   if (!ES_PAGINA) return;
-  const BASE = document.currentScript ? new URL("./", document.currentScript.src).href : "/static/herramientas/offline/";
   const $ = (id) => document.getElementById(id);
   const estado = { resumen: { total: 0, en_cola: 0, subiendo: 0, error: 0, bytes: 0, items: [] }, pausada: "", subiendo: false, version: 0 };
   ITT.estado = estado;
@@ -188,7 +187,6 @@
 
   ITT.subirAhora = subir;
   ITT.refrescarCola = refrescar;
-  ITT.rutaOffline = BASE;
   document.addEventListener("DOMContentLoaded", async () => {
     await refrescar();
     registrarSW();

@@ -4,7 +4,10 @@
 (function (global) {
   "use strict";
   const ITT = (global.ITT = global.ITT || {});
-  const BASE = global.document && document.currentScript ? new URL("./", document.currentScript.src).href : "";
+  // Las URL del worker y de exif.js vienen de la plantilla ({% static %}): en producción llevan huella (y son las que guarda el service worker).
+  const SCRIPT = global.document && document.currentScript;
+  const URL_WORKER = SCRIPT && SCRIPT.dataset.worker;
+  const URL_EXIF = SCRIPT && SCRIPT.dataset.exif;
   const LADO = 2400;
   const CALIDAD = 0.85;
 
@@ -15,10 +18,11 @@
 
   function enWorker(archivo, lado, calidad) {
     return new Promise((resolver, rechazar) => {
-      const w = new Worker(new URL("reducir.worker.js", BASE || location.href));
+      if (!URL_WORKER) { rechazar(new Error("falta la URL del worker")); return; }
+      const w = new Worker(URL_WORKER);
       w.onmessage = (e) => { w.terminate(); e.data.ok ? resolver(e.data) : rechazar(new Error(e.data.error)); };
       w.onerror = (e) => { w.terminate(); rechazar(new Error(e.message || "falló el worker")); };
-      w.postMessage({ archivo, lado, calidad });
+      w.postMessage({ archivo, lado, calidad, exif: new URL(URL_EXIF, location.href).href });
     });
   }
 

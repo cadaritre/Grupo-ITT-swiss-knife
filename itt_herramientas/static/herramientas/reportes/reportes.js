@@ -307,7 +307,7 @@
     if (!enLinea()) { $("u-mapa-info").textContent = "Sin conexión: escribe las coordenadas. El mapa necesita señal."; return; }
     try {
       const lib = await cargarMapLibre();
-      lib.setWorkerUrl(raiz.dataset.maplibre.replace("maplibre-gl-csp.js", "maplibre-gl-csp-worker.js"));
+      lib.setWorkerUrl(raiz.dataset.maplibreWorker);                       // de la plantilla: en producción el nombre lleva huella
       const centro = f.lat != null ? [f.lon, f.lat] : posicion ? [posicion.lon, posicion.lat] : (reg.datos.fotos.find((x) => x.lat != null) ? [reg.datos.fotos.find((x) => x.lat != null).lon, reg.datos.fotos.find((x) => x.lat != null).lat] : [-106.07, 28.63]);
       if (mapa) { mapa.remove(); mapa = null; }
       mapa = new lib.Map({ container: "u-mapa", attributionControl: false, center: centro, zoom: f.lat != null || posicion ? 17 : 12,
@@ -320,7 +320,8 @@
       mapa.on("click", (e) => ponerPunto(e.lngLat.lat, e.lngLat.lng, false));
       document.documentElement.dataset.mapaListo = "1";
     } catch (e) {
-      $("u-mapa-info").textContent = "El mapa no está disponible en este navegador o sin señal. Escribe las coordenadas.";
+      console.error("Mapa para ubicar la foto:", e);
+      $("u-mapa-info").textContent = "No se pudo cargar el mapa. Escribe las coordenadas.";
     }
   }
   function guardarUbicacion() {

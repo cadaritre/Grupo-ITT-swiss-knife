@@ -3,7 +3,7 @@
 {% block titulo %}Reportes fotográficos{% endblock %}
 {% block contenido %}
 {# HTML idéntico para todas las cuentas: así el service worker lo guarda y se abre sin conexión. Los datos llegan de IndexedDB y de la API. #}
-<div id="rep" class="cot rep" data-pdfjs="{% static 'herramientas/vendor/pdfjs/pdf.min.mjs' %}" data-pdfjs-worker="{% static 'herramientas/vendor/pdfjs/pdf.worker.min.mjs' %}" data-maplibre="{% static 'herramientas/vendor/maplibre/maplibre-gl-csp.js' %}" data-maplibre-css="{% static 'herramientas/vendor/maplibre/maplibre-gl.css' %}"{% for nombre, ruta in urls.items %} data-url-{{ nombre }}="{{ ruta }}"{% endfor %}>
+<div id="rep" class="cot rep" data-pdfjs="{% static 'herramientas/vendor/pdfjs/pdf.min.mjs' %}" data-pdfjs-worker="{% static 'herramientas/vendor/pdfjs/pdf.worker.min.mjs' %}" data-maplibre="{% static 'herramientas/vendor/maplibre/maplibre-gl-csp.js' %}" data-maplibre-worker="{% static 'herramientas/vendor/maplibre/maplibre-gl-csp-worker.js' %}" data-maplibre-css="{% static 'herramientas/vendor/maplibre/maplibre-gl.css' %}"{% for nombre, ruta in urls.items %} data-url-{{ nombre }}="{{ ruta }}"{% endfor %}>
   <p id="rep-red" class="tv-tenue cot-red" role="status"></p>
   <p id="rep-mensaje" class="itt-aviso" role="alert" hidden></p>
 

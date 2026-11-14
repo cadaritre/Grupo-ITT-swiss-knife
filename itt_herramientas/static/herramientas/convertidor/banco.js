@@ -53,16 +53,22 @@
   }
   uno("#itt-ajustar").addEventListener("click", ajustar);
 
+  /** ¿Puede este navegador dibujar con WebGL? Solo entonces un fallo del mapa es «del navegador». */
+  function hayWebGL() {
+    try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch (_) { return false; }
+  }
   function iniciar() {
     try {
-      maplibregl.setWorkerUrl(uno("script[src*='maplibre-gl-csp.js']").src.replace("maplibre-gl-csp.js", "maplibre-gl-csp-worker.js"));
+      // La URL del worker viene de la plantilla ({% static %}): en producción los nombres llevan huella y no se pueden deducir aquí.
+      maplibregl.setWorkerUrl(uno("script[data-itt-maplibre-worker]").dataset.ittMaplibreWorker);
       mapa = new maplibregl.Map({
         container: "itt-mapa", attributionControl: false, dragRotate: false, pitchWithRotate: false,
         style: { version: 8, sources: {}, layers: [{ id: "fondo", type: "background", paint: { "background-color": "#E7EDF1" } }] },
         center: limites ? [(limites[0] + limites[2]) / 2, (limites[1] + limites[3]) / 2] : [-106.07, 28.63], zoom: 12,
       });
     } catch (e) {
-      info.textContent = "Tu navegador no puede dibujar la vista previa del mapa. La conversión funciona igual.";
+      console.error("Vista previa del convertidor:", e);
+      info.textContent = hayWebGL() ? "No se pudo cargar la vista previa. La conversión funciona igual." : "Este navegador no puede dibujar la vista previa. La conversión funciona igual.";
       return;
     }
     mapa.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
@@ -90,7 +96,7 @@
         info.textContent = "No se pudo cargar la vista previa.";
       }
     });
-    mapa.on("error", () => { if (!document.documentElement.dataset.mapaListo) info.textContent = "La vista previa no está disponible en este navegador. La conversión funciona igual."; });
+    mapa.on("error", (e) => { console.error("Vista previa del convertidor:", e && e.error); if (!document.documentElement.dataset.mapaListo) info.textContent = "No se pudo cargar la vista previa. La conversión funciona igual."; });
   }
   iniciar();
 })();

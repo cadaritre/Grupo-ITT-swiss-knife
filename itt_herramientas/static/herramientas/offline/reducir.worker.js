@@ -1,7 +1,7 @@
 /* Worker: lee el EXIF, reduce la foto (lado mayor 2400 px, JPEG 0.85, orientación aplicada) y calcula su sha256.
- * Mensaje de entrada: {archivo: File|Blob, lado, calidad}. Salida: {blob, ancho, alto, sha256, exif}.
+ * Mensaje de entrada: {archivo: File|Blob, lado, calidad, exif: URL de exif.js}. Salida: {blob, ancho, alto, sha256, exif}.
+ * La URL de exif.js llega en el mensaje (la página la toma de {% static %}): en producción lleva huella y no se puede adivinar.
  */
-importScripts("exif.js");
 
 async function sha256(blob) {
   const h = new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer()));
@@ -9,8 +9,9 @@ async function sha256(blob) {
 }
 
 self.onmessage = async (evento) => {
-  const { archivo, lado, calidad } = evento.data;
+  const { archivo, lado, calidad, exif: urlExif } = evento.data;
   try {
+    if (!self.ITT || !self.ITT.exif) importScripts(urlExif);
     const exif = self.ITT.exif.leer(await archivo.slice(0, 256 * 1024).arrayBuffer());
     const bitmap = await createImageBitmap(archivo, { imageOrientation: "from-image" });
     const escala = Math.min(1, lado / Math.max(bitmap.width, bitmap.height));
