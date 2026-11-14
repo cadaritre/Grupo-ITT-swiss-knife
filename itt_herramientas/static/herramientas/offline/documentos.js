@@ -25,7 +25,16 @@
   async function pedir(ruta, opciones) {
     const o = Object.assign({ metodo: "GET" }, opciones);
     const cabeceras = { Accept: "application/json" };
-    if (o.metodo !== "GET") cabeceras["X-CSRFToken"] = await cola().ajuste("csrf", "");
+    if (o.metodo !== "GET") {
+      let csrf = await cola().ajuste("csrf", "");
+      if (!csrf && navigator.onLine) {                          // primera petición antes de que ui.js termine de pedir la sesión: se pide aquí
+        try {
+          const s = await fetch("/sesion/", { credentials: "same-origin", cache: "no-store", redirect: "manual", headers: { Accept: "application/json" } });
+          if (s.ok) { const d = await s.json(); csrf = d.csrf; await cola().guardarAjuste("csrf", d.csrf); await cola().guardarAjuste("cuenta", d.cuenta); }
+        } catch (_) { /* sin red: la petición fallará con su propio mensaje */ }
+      }
+      cabeceras["X-CSRFToken"] = csrf;
+    }
     let cuerpo;
     if (o.json !== undefined) { cabeceras["Content-Type"] = "application/json"; cuerpo = JSON.stringify(o.json); }
     else if (o.formulario) cuerpo = o.formulario;
