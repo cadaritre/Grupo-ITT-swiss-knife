@@ -1,8 +1,8 @@
 /* Service worker de Herramientas — versión __VERSION__ (cambia con cada archivo de la interfaz).
  *
  * Qué hace:
- *  - guarda en caché la interfaz con versión (JS, CSS, íconos) y las dos páginas sin datos de cuenta
- *    (/capturar/ y /instalar/) para trabajar sin conexión;
+ *  - guarda en caché la interfaz con versión (JS, CSS, íconos) y las páginas sin datos de cuenta
+ *    (/capturar/, /instalar/ y /cotizaciones/) para trabajar sin conexión;
  *  - NUNCA guarda páginas con datos de una cuenta, respuestas de /sesion/ ni /subidas/;
  *  - sin red, cualquier navegación abre /capturar/ (así la app instalada arranca en modo avión);
  *  - no se activa solo a mitad de una captura: espera a que la persona toque «Actualizar»;
@@ -11,7 +11,7 @@
 "use strict";
 const VERSION = "__VERSION__";
 const CACHE = "itt-herramientas-" + VERSION;
-const PAGINAS = ["/capturar/", "/instalar/"];
+const PAGINAS = ["/capturar/", "/instalar/", "/cotizaciones/"];
 const ACTIVOS = __ACTIVOS__;
 
 importScripts(...__SCRIPTS_SW__);

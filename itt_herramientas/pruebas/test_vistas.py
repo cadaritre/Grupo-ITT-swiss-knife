@@ -30,9 +30,11 @@ def test_sin_sesion_redirige_y_sin_rol_es_404(client, crear_usuario):
     assert client.get(url("inicio")).status_code == 404
 
 
-def test_inicio_avisa_si_no_hay_perfil(cliente_de, usuaria):
+def test_inicio_lista_las_herramientas_del_rol(cliente_de, usuaria):
     r = cliente_de(usuaria).get(url("inicio"))
-    assert r.status_code == 200 and "aún no tiene un perfil" in r.content.decode()
+    cuerpo = r.content.decode()
+    assert r.status_code == 200 and url("cotizaciones") in cuerpo and "Cotizaciones" in cuerpo
+    assert url("convertidor") not in cuerpo                      # la cuenta de prueba solo tiene el rol de cotizaciones
     assert url("perfiles") not in r.content.decode()                       # el atajo de administración no se muestra
 
 

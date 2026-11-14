@@ -1,0 +1,225 @@
+{% extends "herramientas/pwa/_pagina.html" %}
+{% load static %}
+{% block titulo %}Cotizaciones{% endblock %}
+{% block contenido %}
+{# HTML idéntico para todas las cuentas: así el service worker lo guarda y se abre sin conexión. Los datos llegan de IndexedDB y de la API. #}
+<div id="cot" class="cot" data-pdfjs="{% static 'herramientas/vendor/pdfjs/pdf.min.mjs' %}" data-pdfjs-worker="{% static 'herramientas/vendor/pdfjs/pdf.worker.min.mjs' %}"{% for nombre, ruta in urls.items %} data-url-{{ nombre }}="{{ ruta }}"{% endfor %}>
+  <p id="cot-red" class="tv-tenue cot-red" role="status"></p>
+  <p id="cot-mensaje" class="itt-aviso" role="alert" hidden></p>
+
+  <section id="cot-vista-lista" aria-labelledby="cot-titulo-lista">
+    <div class="cot-encabezado">
+      <h1 id="cot-titulo-lista">Cotizaciones</h1>
+      <a href="#/machotes" class="tv-boton tv-boton--secundario">Machotes</a>
+    </div>
+    <div class="itt-acciones">
+      <button type="button" id="cot-nueva" class="tv-boton">Nueva cotización</button>
+      <label class="tv-boton tv-boton--secundario">Importar editable<input id="cot-importar" class="itt-ocultar-entrada" type="file" accept="application/json,.json"></label>
+    </div>
+    <div class="tv-campo"><label for="cot-buscar">Buscar</label><input id="cot-buscar" type="search" autocomplete="off" placeholder="Folio, cliente o proyecto"></div>
+    <p id="cot-lista-vacia" class="tv-tenue" hidden>Aún no hay cotizaciones. Crea la primera con «Nueva cotización».</p>
+    <ul id="cot-lista" class="cot-lista"></ul>
+  </section>
+
+  <section id="cot-vista-editor" aria-labelledby="cot-titulo-editor" hidden>
+    <div class="cot-encabezado">
+      <a href="#/" class="tv-boton tv-boton--secundario" id="cot-volver">‹ Cotizaciones</a>
+      <span id="cot-estado-guardado" class="tv-tenue" role="status"></span>
+    </div>
+    <h1 id="cot-titulo-editor" class="cot-titulo-doc">Cotización</h1>
+    <p id="cot-aviso-doc" class="tv-alerta tv-alerta--aviso" hidden></p>
+    <div class="cot-barra-estado">
+      <button type="button" id="cot-ortografia-estado" class="cot-insignia">Ortografía pendiente</button>
+      <span id="cot-recomendados" class="cot-insignia"></span>
+    </div>
+    <div class="cot-cuerpo">
+      <div class="cot-formulario">
+        <details class="cot-paso" id="paso-datos" open>
+          <summary>Cliente y proyecto <span class="cot-resumen-paso" id="resumen-datos"></span></summary>
+          <div class="cot-paso__cuerpo">
+            <div class="tv-campo"><label for="f-idioma">Idioma de la cotización</label>
+              <select id="f-idioma"><option value="es">Español</option><option value="en">English</option></select></div>
+            <div class="tv-campo" data-campo="quote_number"><label for="f-quote_number">Folio de cotización</label><input id="f-quote_number" data-dato="quote_number" type="text" maxlength="60" autocomplete="off"></div>
+            <div class="tv-campo"><label for="f-quote_date">Fecha (dd/mm/aaaa)</label><input id="f-quote_date" data-dato="quote_date" type="text" inputmode="numeric" maxlength="10" autocomplete="off"></div>
+            <div class="tv-campo" data-campo="client_name"><label for="f-client_name">Nombre / Empresa</label><input id="f-client_name" data-dato="client_name" type="text" maxlength="400" autocomplete="organization"></div>
+            <div class="tv-campo" data-campo="contact"><label for="f-contact">Contacto</label><input id="f-contact" data-dato="contact" type="text" maxlength="400" autocomplete="name"></div>
+            <div class="tv-campo" data-campo="email"><label for="f-email">Correo</label><input id="f-email" data-dato="email" type="email" maxlength="400" autocomplete="email" inputmode="email"></div>
+            <div class="tv-campo" data-campo="phone"><label for="f-phone">Teléfono</label><input id="f-phone" data-dato="phone" type="tel" maxlength="400" autocomplete="tel"></div>
+            <div class="tv-campo" data-campo="location"><label for="f-location">Localización</label><input id="f-location" data-dato="location" type="text" maxlength="400" autocomplete="off"></div>
+            <div class="tv-campo" data-campo="project_title"><label for="f-project_title">Título del proyecto</label><input id="f-project_title" data-dato="project_title" type="text" maxlength="400" autocomplete="off"></div>
+          </div>
+        </details>
+
+        <details class="cot-paso" id="paso-conceptos" open>
+          <summary>Conceptos <span class="cot-resumen-paso" id="resumen-conceptos"></span></summary>
+          <div class="cot-paso__cuerpo">
+            <div class="itt-acciones">
+              <button type="button" id="cot-agregar" class="tv-boton">Agregar concepto</button>
+              <button type="button" id="cot-desde-machote" class="tv-boton tv-boton--secundario">Desde un machote</button>
+            </div>
+            <p id="cot-sin-conceptos" class="tv-tenue">Aún no hay conceptos.</p>
+            <ol id="cot-conceptos" class="cot-conceptos"></ol>
+          </div>
+        </details>
+
+        <details class="cot-paso" id="paso-condiciones">
+          <summary>Condiciones y pago <span class="cot-resumen-paso" id="resumen-condiciones"></span></summary>
+          <div class="cot-paso__cuerpo">
+            <div class="tv-campo"><label for="f-currency">Moneda</label><input id="f-currency" data-dato="currency" type="text" maxlength="3" autocapitalize="characters" autocomplete="off"></div>
+            <div class="tv-campo tv-campo--casilla"><input id="f-include_vat" data-dato="include_vat" type="checkbox"><label for="f-include_vat">Incluir IVA</label></div>
+            <div class="tv-campo"><label for="f-vat_rate">IVA (%)</label><input id="f-vat_rate" data-dato="vat_rate" data-numero="1" type="text" inputmode="decimal" autocomplete="off"></div>
+            <div class="tv-campo"><label for="f-advance_percent">Anticipo (%)</label><input id="f-advance_percent" data-dato="advance_percent" data-numero="1" type="text" inputmode="decimal" autocomplete="off"></div>
+            <div class="tv-campo"><label for="f-validity_days">Vigencia (días)</label><input id="f-validity_days" data-dato="validity_days" data-numero="1" type="text" inputmode="numeric" autocomplete="off"></div>
+            <div class="tv-campo"><label for="f-delivery_time">Tiempo de entrega</label><textarea id="f-delivery_time" data-dato="delivery_time" rows="2" maxlength="400"></textarea></div>
+            <div class="tv-campo"><label for="f-payment_terms">Forma de pago</label><textarea id="f-payment_terms" data-dato="payment_terms" rows="2" maxlength="400"></textarea></div>
+            <div class="tv-campo"><label for="f-notes">Notas</label><textarea id="f-notes" data-dato="notes" rows="4" maxlength="6000"></textarea></div>
+            <div class="tv-campo"><label for="f-prepared_by">Elaboró</label><input id="f-prepared_by" data-dato="prepared_by" type="text" maxlength="400" autocomplete="off"></div>
+          </div>
+        </details>
+
+        <details class="cot-paso" id="paso-imagenes">
+          <summary>Imágenes de referencia <span class="cot-resumen-paso" id="resumen-imagenes"></span></summary>
+          <div class="cot-paso__cuerpo">
+            <div class="itt-acciones">
+              <label class="tv-boton">Tomar foto<input id="cot-foto-camara" class="itt-ocultar-entrada" type="file" accept="image/*" capture="environment"></label>
+              <label class="tv-boton tv-boton--secundario">Elegir de la galería<input id="cot-foto-galeria" class="itt-ocultar-entrada" type="file" accept="image/*" multiple></label>
+            </div>
+            <p id="cot-sin-imagenes" class="tv-tenue">Sin imágenes. Las fotos se guardan en el teléfono y se suben solas cuando hay señal.</p>
+            <ul id="cot-imagenes" class="cot-imagenes"></ul>
+          </div>
+        </details>
+      </div>
+
+      <aside class="cot-lateral" aria-label="Vista previa">
+        <div class="tv-tarjeta">
+          <h2>Vista previa</h2>
+          <p class="tv-tenue" id="cot-vp-estado">La vista previa se genera en el servidor con el mismo motor que el PDF final.</p>
+          <div id="cot-vp-paginas" class="cot-vp-paginas"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="cot-barra" id="cot-barra" role="region" aria-label="Totales y acciones">
+      <dl class="cot-totales">
+        <div><dt>Subtotal</dt><dd id="cot-subtotal">$ 0.00</dd></div>
+        <div id="cot-fila-iva"><dt>IVA</dt><dd id="cot-iva">$ 0.00</dd></div>
+        <div class="cot-total"><dt>Total</dt><dd id="cot-total">$ 0.00</dd></div>
+      </dl>
+      <div class="cot-barra__acciones">
+        <button type="button" id="cot-ortografia" class="tv-boton tv-boton--secundario">Ortografía</button>
+        <button type="button" id="cot-mas" class="tv-boton tv-boton--secundario" aria-haspopup="dialog">Más</button>
+        <button type="button" id="cot-pdf" class="tv-boton">PDF</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="cot-vista-machotes" aria-labelledby="cot-titulo-machotes" hidden>
+    <div class="cot-encabezado"><a href="#/" class="tv-boton tv-boton--secundario">‹ Cotizaciones</a></div>
+    <h1 id="cot-titulo-machotes">Machotes de conceptos</h1>
+    <p class="tv-tenue">Conceptos que reutilizas en tus cotizaciones. Son tuyos: no los ve nadie más.</p>
+    <div class="itt-acciones">
+      <a id="cot-machotes-exportar" class="tv-boton tv-boton--secundario" href="#/machotes">Exportar mis machotes</a>
+      <label class="tv-boton tv-boton--secundario">Importar machotes<input id="cot-machotes-importar" class="itt-ocultar-entrada" type="file" accept="application/json,.json"></label>
+    </div>
+    <ul id="cot-machotes-lista" class="cot-lista"></ul>
+    <p id="cot-machotes-vacio" class="tv-tenue" hidden>Aún no tienes machotes personalizados. Guarda uno desde cualquier concepto.</p>
+  </section>
+</div>
+
+<dialog id="dlg-concepto" class="tv-hoja" aria-labelledby="dlg-concepto-titulo">
+  <form method="dialog" class="tv-hoja__cuerpo" id="form-concepto">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-concepto-titulo">Concepto</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <div class="tv-campo"><label for="c-title">Título</label><input id="c-title" type="text" maxlength="400" autocomplete="off"></div>
+    <div class="tv-campo"><label for="c-description">Descripción</label><textarea id="c-description" rows="4" maxlength="6000"></textarea></div>
+    <div class="tv-campo"><label for="c-subitems">Alcances (uno por renglón)</label><textarea id="c-subitems" rows="5"></textarea><p class="tv-campo__ayuda" id="c-subitems-cuenta">0 alcances</p></div>
+    <div class="cot-fila-numeros">
+      <div class="tv-campo"><label for="c-unit">Unidad</label><input id="c-unit" type="text" list="unidades" maxlength="40" autocomplete="off"><datalist id="unidades"></datalist></div>
+      <div class="tv-campo"><label for="c-quantity">Cantidad</label><input id="c-quantity" type="text" inputmode="decimal" autocomplete="off"></div>
+      <div class="tv-campo"><label for="c-unit_price">Precio unitario</label><input id="c-unit_price" type="text" inputmode="decimal" autocomplete="off"></div>
+    </div>
+    <p class="cot-importe">Importe: <strong id="c-importe">$ 0.00</strong></p>
+    <p id="c-error" class="tv-campo__error" role="alert" hidden></p>
+    <div class="tv-formulario__acciones">
+      <button type="button" id="c-machote" class="tv-boton tv-boton--secundario">Guardar como machote</button>
+      <button type="button" id="c-quitar" class="tv-boton tv-boton--peligro">Quitar concepto</button>
+      <button type="submit" class="tv-boton">Listo</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-plantillas" class="tv-hoja" aria-labelledby="dlg-plantillas-titulo">
+  <div class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-plantillas-titulo">Insertar desde un machote</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <div class="tv-campo"><label for="p-buscar">Buscar</label><input id="p-buscar" type="search" autocomplete="off"></div>
+    <div id="p-lista" class="cot-plantillas"></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-ortografia" class="tv-hoja" aria-labelledby="dlg-ortografia-titulo">
+  <div class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-ortografia-titulo">Revisar ortografía</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <p id="o-progreso" class="tv-tenue" role="status"></p>
+    <p id="o-campo" class="tv-tenue"></p>
+    <p id="o-contexto" class="cot-contexto"></p>
+    <div class="tv-campo"><label for="o-reemplazo">Reemplazar «<span id="o-palabra"></span>» por</label><input id="o-reemplazo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+    <div id="o-sugerencias" class="cot-sugerencias" role="group" aria-label="Sugerencias"></div>
+    <div class="tv-formulario__acciones cot-acciones-ortografia">
+      <button type="button" id="o-cambiar" class="tv-boton">Cambiar</button>
+      <button type="button" id="o-cambiar-todas" class="tv-boton tv-boton--secundario">Cambiar todas</button>
+      <button type="button" id="o-ignorar" class="tv-boton tv-boton--secundario">Ignorar</button>
+      <button type="button" id="o-ignorar-todas" class="tv-boton tv-boton--secundario">Ignorar todas</button>
+      <button type="button" id="o-agregar" class="tv-boton tv-boton--secundario">Agregar al diccionario</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlg-pdf" class="tv-hoja cot-hoja-pdf" aria-labelledby="dlg-pdf-titulo">
+  <div class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-pdf-titulo">PDF de la cotización</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <p id="pdf-estado" class="tv-tenue" role="status"></p>
+    <p id="pdf-advertencias" class="tv-alerta tv-alerta--aviso" hidden></p>
+    <div id="pdf-paginas" class="cot-vp-paginas"></div>
+    <div class="tv-formulario__acciones">
+      <button type="button" id="pdf-compartir" class="tv-boton" disabled>Compartir</button>
+      <button type="button" id="pdf-descargar" class="tv-boton tv-boton--secundario" disabled>Descargar</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlg-mas" class="tv-hoja" aria-labelledby="dlg-mas-titulo">
+  <div class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-mas-titulo">Más acciones</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <div class="tv-pila">
+      <button type="button" id="mas-vista-previa" class="tv-boton tv-boton--secundario">Actualizar vista previa</button>
+      <button type="button" id="mas-duplicar" class="tv-boton tv-boton--secundario">Duplicar cotización</button>
+      <a id="mas-editable" class="tv-boton tv-boton--secundario" href="#/">Descargar editable (.json)</a>
+      <button type="button" id="mas-borrar" class="tv-boton tv-boton--peligro">Eliminar cotización</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlg-confirmar" class="tv-hoja" aria-labelledby="dlg-confirmar-titulo">
+  <form method="dialog" class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-confirmar-titulo">Confirmar</h2></div>
+    <p id="confirmar-texto"></p>
+    <div class="tv-campo" id="confirmar-campo" hidden><label for="confirmar-entrada" id="confirmar-etiqueta">Nombre</label><input id="confirmar-entrada" type="text" maxlength="160" autocomplete="off"></div>
+    <div class="tv-formulario__acciones">
+      <button type="button" class="tv-boton tv-boton--secundario" id="confirmar-no">Cancelar</button>
+      <button type="submit" value="si" class="tv-boton" id="confirmar-si">Aceptar</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<link rel="stylesheet" href="{% static 'herramientas/cotizaciones/cotizaciones.css' %}">
+<script src="{% static 'herramientas/cotizaciones/totales.js' %}"></script>
+<script src="{% static 'herramientas/cotizaciones/borradores.js' %}"></script>
+<script src="{% static 'herramientas/cotizaciones/ortografia.js' %}"></script>
+<script src="{% static 'herramientas/cotizaciones/editor.js' %}"></script>
+{% endblock %}

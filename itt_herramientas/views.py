@@ -25,6 +25,12 @@ from .models import Perfil, TerminoTecnico
 usuario_de_herramientas = requiere_rol("herramientas", *ROLES_DE_HERRAMIENTAS, "admin")
 solo_admin = requiere_rol("herramientas", "admin")
 TTL_IMPORTACION = 3600
+#: (rol, título, descripción, nombre de la URL) de las herramientas que se listan en el inicio según el rol de la cuenta
+HERRAMIENTAS_DE_INICIO = (
+    ("cotizaciones", "Cotizaciones", "Crea y edita cotizaciones, también sin señal. Genera el PDF y compártelo.", "herramientas:cotizaciones"),
+    ("convertidor", "Convertidor DXF ↔ KML/KMZ", "Convierte planos y polígonos entre DXF, KML y KMZ.", "herramientas:convertidor"),
+    ("reportes", "Capturar fotos", "Toma fotos en campo y súbelas cuando haya señal.", "herramientas:capturar"),
+)
 
 
 def _es_admin(request) -> bool:
@@ -33,7 +39,9 @@ def _es_admin(request) -> bool:
 
 @usuario_de_herramientas
 def inicio(request):
-    return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "puede_cambiar": perfiles.puede_cambiar(request.user)})
+    herramientas = [(titulo, descripcion, reverse(nombre)) for rol, titulo, descripcion, nombre in HERRAMIENTAS_DE_INICIO
+                    if permisos.tiene_rol(request.user, "herramientas", rol) or permisos.tiene_rol(request.user, "herramientas", "admin")]
+    return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "puede_cambiar": perfiles.puede_cambiar(request.user), "herramientas": herramientas})
 
 
 @usuario_de_herramientas

@@ -84,3 +84,32 @@ Sin teléfono real quedan sin verificar:
   su propio calendario). Las páginas públicas (`/capturar/`, `/instalar/`) no llevan identidad porque no se sabe quién las abre.
 - Paridad: los 22 casos corren con los dos perfiles activos en el escritorio (`main`) y en la web (44 comparaciones,
   `paridad/`), y `golden_windows.py` genera también el juego de TresVizo.
+
+## Cotizaciones (IT-5)
+
+`/cotizaciones/` es una página fija (igual para todas las cuentas) que el service worker guarda: abre sin conexión. Todo lo demás
+llega de IndexedDB y de la API JSON (`/cotizaciones/api/…`, con sesión y rol «Cotizaciones»).
+
+| Pieza | Dónde | Qué hace |
+| --- | --- | --- |
+| Datos locales | `cotizaciones/borradores.js`, almacén `borradores` de `itt-cola` (versión 2) | Cada cotización vive primero en el teléfono. «Sucia» = el servidor no tiene su última versión; cuenta en «N pendientes» y en el aviso antes de cerrar |
+| Sincronización | `ITT.sincronizadores` (`ui.js`) | Con cada disparador de subida: sube los borradores sucios y baja lo nuevo. Idempotente por `id_cliente` |
+| Conflicto | `servicio.sincronizar` | Si el servidor cambió desde la revisión en que se basó el teléfono, la versión del teléfono se guarda como **copia** («… (desde el teléfono)»); el original no se toca. Reenviar el mismo conflicto no duplica |
+| Totales | `cotizaciones/totales.js` | Misma aritmética que `QuoteData`: `round(x, 2)` con empate al par sobre el valor binario exacto y `sum` compensado de CPython. `pruebas/test_cotizaciones_totales.py` lo compara con Python con ~4000 cotizaciones al azar y los empates clásicos |
+| PDF | `POST /cotizaciones/api/pdf/` | El mismo `generate_quote_pdf` del escritorio con el perfil activo de la cuenta: `test_pdf_web_identico_byte_a_byte_al_del_dominio`. Vista previa con PDF.js (`static/herramientas/vendor/pdfjs`, 4.10.38 «legacy», Apache 2.0) porque los teléfonos no muestran PDF en línea |
+| Corrector | `POST /cotizaciones/api/ortografia/` | El mismo `BilingualSpellService` (es/en, términos técnicos, diccionario personal de la cuenta); diálogo paso a paso con cambiar / cambiar todas / ignorar / agregar |
+| Machotes | `/cotizaciones/api/machotes/…` | Los 14 de fábrica (es/en) y los de la cuenta, con exportar/importar en el esquema del escritorio y versión anterior al sobrescribir |
+| Fotos | cola de capturas | Se reducen en un Worker y viajan por la misma cola tus que las capturas (`captura:<sha256>` en la cotización). El PDF avisa de las que aún no llegan |
+
+Lo que necesita conexión (a propósito, y el editor lo dice): generar el PDF y su vista previa, la revisión ortográfica (el
+diccionario vive en el servidor), cambiar el idioma (traduce el texto de fábrica en el servidor), guardar/borrar machotes e
+importar un editable. Crear, editar, duplicar y borrar cotizaciones, agregar conceptos de cualquier machote ya descargado y tomar
+fotos de referencia funciona sin señal.
+
+Límites sin probar en teléfono real (se suman a los de arriba):
+
+- El service worker sincroniza **fotos** en segundo plano (Android), no **borradores**: un borrador se sube cuando la app se abre
+  con señal. La página lo muestra como «Sin sincronizar» y el contador lo cuenta.
+- Cotización hecha en la pestaña de Safari y en la app instalada: almacenamientos separados (ver punto 2).
+- La vista previa con PDF.js y su rendimiento en iPhone antiguos con cotizaciones de 15 conceptos y varias fotos.
+- Compartir el PDF con WhatsApp/Correo (punto 7).

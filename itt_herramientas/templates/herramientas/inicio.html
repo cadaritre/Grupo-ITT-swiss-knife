@@ -2,7 +2,7 @@
 {% load tv %}
 {% block encabezado %}<h1>Herramientas Grupo ITT</h1>{% endblock %}
 {% block cuerpo %}
-{% if not perfiles %}{% alerta tipo="aviso" %}Tu cuenta aún no tiene un perfil corporativo. Pídele al propietario que te asigne uno para generar documentos.{% endalerta %}{% endif %}
+{% for titulo, descripcion, enlace in herramientas %}{% tarjeta titulo=titulo enlace=enlace %}{{ descripcion }}{% endtarjeta %}{% endfor %}
 {% url 'herramientas:preferencias' as u_pref %}{% url 'herramientas:diccionario' as u_dic %}{% url 'herramientas:importar' as u_imp %}{% url 'herramientas:perfiles' as u_per %}
 {% tarjeta titulo="Preferencias" enlace=u_pref %}Zona UTM, mapa base y opciones que se recuerdan en tus herramientas.{% endtarjeta %}
 {% tarjeta titulo="Diccionario" enlace=u_dic %}Palabras que el corrector ortográfico debe aceptar.{% endtarjeta %}

@@ -68,7 +68,11 @@
     estado.subiendo = true;
     try {
       await sesion();
+      // Sincronizadores de documentos (cotizaciones...): se registran en ITT.sincronizadores y corren antes y después de las
+      // fotos. Un documento nunca espera a sus fotos (el PDF avisa de las que aún no llegan) y las fotos nunca esperan al documento.
+      for (const sincronizar of ITT.sincronizadores || []) { try { await sincronizar(); } catch (e) { /* se reintenta en el siguiente ciclo */ } }
       const resumen = await ITT.subidor.procesar({ alCambiar: () => refrescar() });
+      for (const sincronizar of ITT.sincronizadores || []) { try { await sincronizar(); } catch (e) { /* idem */ } }
       if (resumen && !resumen.omitido) estado.pausada = resumen.pausada || "";
       if (!estado.pausada && (await ITT.cola.ajuste("sesion_caducada", false))) estado.pausada = "sesion";
     } catch (e) { /* un fallo no detiene el siguiente intento */ }

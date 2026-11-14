@@ -7,7 +7,7 @@
   "use strict";
   const ITT = (global.ITT = global.ITT || {});
   const NOMBRE = "itt-cola";
-  const VERSION = 1;
+  const VERSION = 2;
   let abierta = null;
 
   function abrir() {
@@ -24,6 +24,8 @@
         // El Blob de la foto vive en su propio almacén y NO se vuelve a escribir: en WebKit, regrabar un registro con un Blob
         // invalida los Blob que ya se habían leído («The object can not be found here») y la subida fallaba al reintentar.
         if (!db.objectStoreNames.contains("blobs")) db.createObjectStore("blobs", { keyPath: "id" });
+        // Borradores de documentos (cotizaciones...): un registro por borrador, con su estado de sincronización.
+        if (!db.objectStoreNames.contains("borradores")) db.createObjectStore("borradores", { keyPath: "id" }).createIndex("cuenta", "cuenta");
         if (!db.objectStoreNames.contains("ajustes")) db.createObjectStore("ajustes", { keyPath: "clave" });
       };
       peticion.onsuccess = () => {
@@ -105,10 +107,40 @@
     async borrar(id) { await transaccion(["items", "blobs"], "readwrite", (items, blobs) => { items.delete(id); blobs.delete(id); }); avisar(); },
     async resumen() {
       const todos = await cola.listar();
-      const r = { total: todos.length, en_cola: 0, subiendo: 0, error: 0, bytes: 0, items: todos };
+      const r = { total: todos.length, en_cola: 0, subiendo: 0, error: 0, bytes: 0, items: todos, borradores: 0 };
       for (const i of todos) { r[i.estado] = (r[i.estado] || 0) + 1; r.bytes += i.bytes; }
+      // Un borrador cuenta como pendiente mientras el servidor no tenga su última versión.
+      const cuenta = await cola.ajuste("cuenta", null);
+      for (const b of await cola.borradores()) if (b.sucio && (b.cuenta == null || cuenta == null || b.cuenta === cuenta)) r.borradores += 1;
+      r.total += r.borradores;
       return r;
     },
+    /** Borradores (de la cuenta indicada, o todos). */
+    async borradores(cuenta) {
+      const todos = await transaccion(["borradores"], "readonly", (b) => pedir(b.getAll()));
+      return cuenta === undefined ? todos : todos.filter((b) => b.cuenta === cuenta);
+    },
+    async borrador(id) { return transaccion(["borradores"], "readonly", (b) => pedir(b.get(id))); },
+    /** Escribe el borrador completo en UNA transacción (sale de aquí hasta que se resuelve, ya guardado). */
+    async guardarBorrador(registro) {
+      await transaccion(["borradores"], "readwrite", (b) => { b.put(registro); });
+      avisar();
+      return registro;
+    },
+    /** Lee-modifica-escribe en la misma transacción (así dos escrituras seguidas no se pisan). */
+    async actualizarBorrador(id, cambiar) {
+      const nuevo = await transaccion(["borradores"], "readwrite", async (b) => {
+        const actual = await pedir(b.get(id));
+        if (!actual) return null;
+        const resultado = cambiar(actual);
+        if (resultado === null) { b.delete(id); return null; }
+        b.put(resultado || actual);
+        return resultado || actual;
+      });
+      avisar();
+      return nuevo;
+    },
+    async quitarBorrador(id) { await transaccion(["borradores"], "readwrite", (b) => { b.delete(id); }); avisar(); },
     async ajuste(clave, porOmision) {
       const fila = await transaccion(["ajustes"], "readonly", (a) => pedir(a.get(clave)));
       return fila ? fila.valor : porOmision;

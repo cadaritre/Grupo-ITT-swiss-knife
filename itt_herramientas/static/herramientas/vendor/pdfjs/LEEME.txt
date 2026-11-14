@@ -1,0 +1,3 @@
+PDF.js 4.10.38 (pdfjs-dist, compilación «legacy» para navegadores móviles antiguos), Mozilla, licencia Apache 2.0.
+Se usa para mostrar la vista previa de las cotizaciones dentro de la app: los navegadores de teléfono no muestran PDF en línea.
+Archivos sin modificar, obtenidos con «npm pack pdfjs-dist@4.10.38».
