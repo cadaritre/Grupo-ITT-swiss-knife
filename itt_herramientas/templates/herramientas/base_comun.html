@@ -1,7 +1,10 @@
 {% extends "tvplataforma/base.html" %}
-{% load tv herramientas %}
+{% load static tv herramientas %}
 {% block titulo %}{% block titulo_pagina %}Herramientas{% endblock %} · Herramientas{% endblock %}
 {% block acciones %}{% block acciones_pagina %}{% endblock %}{% endblock %}
+{% block favicon %}{% perfil_clave as clave %}<link rel="icon" href="{% static 'herramientas/img/favicon-'|add:clave|add:'-32.png' %}" type="image/png" sizes="32x32">
+<link rel="icon" href="{% static 'herramientas/img/icono-'|add:clave|add:'-192.png' %}" type="image/png" sizes="192x192">{% endblock %}
+{% block icono_modulo %}{% perfil_clave as clave %}{% if clave == 'grupo_itt' %}<img class="tv-modulo-icono" src="{% static 'herramientas/img/marca-grupo_itt.png' %}" alt="" width="28" height="28">{% endif %}{% endblock %}
 {% block cabeza %}{% include "herramientas/pwa/_cabeza.html" %}{% endblock %}
 {% block contenido %}{% marca_perfil %}{% block cuerpo %}{% endblock %}{% endblock %}
 {% block pie %}{% include "herramientas/pwa/_cola.html" %}{% endblock %}

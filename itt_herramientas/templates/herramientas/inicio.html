@@ -1,15 +1,15 @@
 {% extends "herramientas/base_comun.html" %}
-{% load tv %}
+{% load static tv %}
 {% block encabezado %}<h1>Herramientas Grupo ITT</h1>{% endblock %}
 {% block cuerpo %}
 <div class="itt-inicio">
 {% if herramientas %}<h2 class="itt-inicio__titulo">Herramientas</h2>
-<div class="tv-rejilla">{% for titulo, descripcion, enlace in herramientas %}{% tarjeta titulo=titulo enlace=enlace %}{{ descripcion }}{% endtarjeta %}{% endfor %}</div>{% endif %}
+<div class="tv-rejilla">{% for titulo, descripcion, enlace, icono in herramientas %}<a class="tv-tarjeta tv-tarjeta--enlace" href="{{ enlace }}"><div class="tv-tarjeta__cabecera"><img src="{% static icono %}" alt="" width="40" height="40"><h2 class="tv-tarjeta__titulo">{{ titulo }}</h2></div>{{ descripcion }}</a>{% endfor %}</div>{% endif %}
 <h2 class="itt-inicio__titulo">Ajustes</h2>
 <div class="tv-rejilla">
 {% url 'herramientas:preferencias' as u_pref %}{% url 'herramientas:diccionario' as u_dic %}{% url 'herramientas:importar' as u_imp %}{% url 'herramientas:perfiles' as u_per %}{% url 'herramientas:drive' as u_drive %}
 {% tarjeta titulo="Preferencias" enlace=u_pref %}Zona UTM, mapa base y opciones que se recuerdan en tus herramientas.{% endtarjeta %}
-{% tarjeta titulo="Google Drive" enlace=u_drive %}Conecta tu Drive para que reportes, cotizaciones y polígonos KML se guarden solos en GRUPO ITT REPORTES.{% endtarjeta %}
+<a class="tv-tarjeta tv-tarjeta--enlace" href="{{ u_drive }}"><div class="tv-tarjeta__cabecera"><img src="{% static 'herramientas/img/herramientas/drive.png' %}" alt="" width="40" height="40"><h2 class="tv-tarjeta__titulo">Google Drive</h2></div>Conecta tu Drive para que reportes, cotizaciones y polígonos KML se guarden solos en GRUPO ITT REPORTES.</a>
 {% tarjeta titulo="Diccionario" enlace=u_dic %}Palabras que el corrector ortográfico debe aceptar.{% endtarjeta %}
 {% tarjeta titulo="Importar configuración del escritorio" enlace=u_imp %}Trae a la web tus perfiles, textos, paleta, preferencias, diccionario y machotes.{% endtarjeta %}
 {% if es_admin %}{% tarjeta titulo="Perfiles corporativos" enlace=u_per %}Identidad, textos, paleta, firma y logo de Grupo ITT y TresVizo.{% endtarjeta %}{% endif %}

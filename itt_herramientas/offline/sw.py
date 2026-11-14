@@ -24,6 +24,7 @@ ACTIVOS = (
     "reportes/reportes.js", "reportes/reportes.css", "croquis/croquis.js", "croquis/croquis.css",
     "cotizaciones/totales.js", "cotizaciones/borradores.js", "cotizaciones/ortografia.js", "cotizaciones/editor.js", "cotizaciones/cotizaciones.css",
     "vendor/pdfjs/pdf.min.mjs", "vendor/pdfjs/pdf.worker.min.mjs",
+    "img/marca-grupo_itt.png",
     *(f"img/icono-{clave}-{tam}.png" for clave in ("grupo_itt", "tresvizo") for tam in (192, 512)),
     *(f"img/icono-maskable-{clave}-512.png" for clave in ("grupo_itt", "tresvizo")),
     *(f"img/apple-touch-icon-{clave}.png" for clave in ("grupo_itt", "tresvizo")),
