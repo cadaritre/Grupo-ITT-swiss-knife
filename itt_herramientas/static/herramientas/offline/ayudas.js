@@ -23,17 +23,24 @@
   }
   const limpiar = (n) => { while (n.firstChild) n.firstChild.remove(); };
 
+  /** Aviso flotante, pegado encima de la barra de acciones de abajo (donde se tocó), no al inicio de la página. Se retira solo. */
   function mensaje(id, texto, tipo) {
     const m = $(id);
     m.textContent = texto || "";
     m.hidden = !texto;
     m.dataset.tipo = tipo || "";
-    if (texto) m.scrollIntoView({ block: "nearest" });
+    m.classList.add("itt-aviso--flotante");
+    clearTimeout(m._retirar);
+    if (!texto) return;
+    const barra = [...document.querySelectorAll(".cot-barra, .cq-barra")].find((b) => b.offsetParent !== null && getComputedStyle(b).position !== "static");
+    const alto = barra ? Math.max(0, innerHeight - barra.getBoundingClientRect().top) : 0;
+    m.style.setProperty("--itt-flota", `${Math.round(alto + 8)}px`);
+    m._retirar = setTimeout(() => { m.hidden = true; }, tipo === "error" ? 12000 : 6000);
   }
 
-  /** Resuelve true/false, o el texto escrito si `opciones.entrada` es una cadena (aparece un campo de texto). */
+  /** Resuelve true/false, o el texto escrito si `opciones.entrada` es una cadena (aparece un campo de texto), o "alt" si se eligió `opciones.alternativa` (tercer botón). */
   function confirmar(texto, opciones) {
-    const o = Object.assign({ aceptar: "Aceptar", cancelar: "Cancelar", entrada: null, etiqueta: "Nombre", peligro: false, soloAviso: false }, opciones);
+    const o = Object.assign({ aceptar: "Aceptar", cancelar: "Cancelar", entrada: null, etiqueta: "Nombre", peligro: false, soloAviso: false, alternativa: "" }, opciones);
     const dlg = $("dlg-confirmar");
     $("confirmar-texto").textContent = texto;
     $("confirmar-campo").hidden = o.entrada === null;
@@ -44,12 +51,18 @@
     $("confirmar-no").textContent = o.cancelar;
     $("confirmar-no").hidden = o.soloAviso;
     $("confirmar-no").onclick = () => dlg.close("no");
+    const alt = $("confirmar-alt");
+    if (alt) { alt.hidden = !o.alternativa; alt.textContent = o.alternativa; alt.onclick = () => dlg.close("alt"); }
     return new Promise((resolver) => {
       dlg.returnValue = "no";
-      dlg.addEventListener("close", () => resolver(dlg.returnValue === "si" ? (o.entrada === null ? true : $("confirmar-entrada").value.trim()) : false), { once: true });
+      dlg.addEventListener("close", () => resolver(dlg.returnValue === "alt" ? "alt" : dlg.returnValue === "si" ? (o.entrada === null ? true : $("confirmar-entrada").value.trim()) : false), { once: true });
       dlg.showModal();
     });
   }
 
-  ITT.ui = { h, limpiar, mensaje, confirmar };
+  /** Las fechas de los documentos se guardan como dd/mm/aaaa (igual que el escritorio); la pantalla usa el selector de fecha del sistema, como los reportes. */
+  const fechaAIso = (es) => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(es || "").trim()); return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : ""; };
+  const fechaAEs = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "")); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
+
+  ITT.ui = { h, limpiar, mensaje, confirmar, fechaAIso, fechaAEs };
 })(typeof self !== "undefined" ? self : this);

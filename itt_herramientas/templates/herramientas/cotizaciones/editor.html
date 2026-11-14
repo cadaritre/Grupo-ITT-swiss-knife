@@ -40,7 +40,7 @@
             <div class="tv-campo"><label for="f-idioma">Idioma de la cotización</label>
               <select id="f-idioma"><option value="es">Español</option><option value="en">English</option></select></div>
             <div class="tv-campo" data-campo="quote_number"><label for="f-quote_number">Folio de cotización</label><input id="f-quote_number" data-dato="quote_number" type="text" maxlength="60" autocomplete="off"></div>
-            <div class="tv-campo"><label for="f-quote_date">Fecha (dd/mm/aaaa)</label><input id="f-quote_date" data-dato="quote_date" type="text" inputmode="numeric" maxlength="10" autocomplete="off"></div>
+            <div class="tv-campo"><label for="f-quote_date">Fecha</label><input id="f-quote_date" data-dato="quote_date" type="date"></div>
             <div class="tv-campo" data-campo="client_name"><label for="f-client_name">Nombre / Empresa</label><input id="f-client_name" data-dato="client_name" type="text" maxlength="400" autocomplete="organization"></div>
             <div class="tv-campo" data-campo="contact"><label for="f-contact">Contacto</label><input id="f-contact" data-dato="contact" type="text" maxlength="400" autocomplete="name"></div>
             <div class="tv-campo" data-campo="email"><label for="f-email">Correo</label><input id="f-email" data-dato="email" type="email" maxlength="400" autocomplete="email" inputmode="email"></div>
@@ -129,7 +129,7 @@
 <dialog id="dlg-concepto" class="tv-hoja" aria-labelledby="dlg-concepto-titulo">
   <form method="dialog" class="tv-hoja__cuerpo" id="form-concepto">
     <div class="tv-hoja__asa" aria-hidden="true"></div>
-    <div class="tv-hoja__cabecera"><h2 id="dlg-concepto-titulo">Concepto</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-concepto-titulo">Concepto</h2><button type="button" class="tv-boton tv-boton--secundario" id="c-cerrar" data-cerrar>Cerrar</button></div>
     <div class="tv-campo"><label for="c-title">Título</label><input id="c-title" type="text" maxlength="400" autocomplete="off"></div>
     <div class="tv-campo"><label for="c-description">Descripción</label><textarea id="c-description" rows="4" maxlength="6000"></textarea></div>
     <div class="tv-campo"><label for="c-subitems">Alcances (uno por renglón)</label><textarea id="c-subitems" rows="5"></textarea><p class="tv-campo__ayuda" id="c-subitems-cuenta">0 alcances</p></div>

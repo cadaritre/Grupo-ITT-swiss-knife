@@ -317,3 +317,41 @@ def test_pantallas_sin_desborde_y_contador(motor, tmp_path, servidor, sesion_de,
             assert caja and caja["height"] >= 43.5, selector
     finally:
         ctx.close()
+
+
+def test_hoja_de_concepto_fecha_unica_y_avisos_junto_a_la_barra(motor, tmp_path, servidor, sesion_de, usuaria):
+    """UX-ITT-16 (cancelar un concepto nuevo, sin «Quitar»), 17 («Actualizar vista previa» solo en pantallas anchas), 22 (fecha con el
+    selector del sistema) y 08 (los avisos salen pegados a la barra de abajo)."""
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria), viewport={"width": 360, "height": 780})
+    try:
+        pagina = abrir(ctx, servidor)
+        pagina.locator("#cot-nueva").click()
+        pagina.wait_for_selector("#cot-vista-editor:not([hidden])")
+        assert pagina.locator("#f-quote_date").get_attribute("type") == "date"
+        pagina.fill("#f-quote_date", "2026-11-14")
+        pagina.wait_for_timeout(700)
+        assert borradores(pagina)[0]["datos"]["quote_date"] == "14/11/2026"                # se guarda como dd/mm/aaaa, igual que el escritorio
+        antes = pagina.locator("#cot-conceptos .cot-concepto__abrir").count()
+        pagina.locator("#cot-agregar").click()
+        expect(pagina.locator("#dlg-concepto")).to_be_visible()
+        assert pagina.locator("#c-quitar").is_hidden() and pagina.locator("#c-cerrar").inner_text() == "Cancelar"
+        pagina.locator("#c-cerrar").click()
+        expect(pagina.locator("#dlg-concepto")).to_be_hidden()
+        assert pagina.locator("#cot-conceptos .cot-concepto__abrir").count() == antes      # no deja un concepto vacío
+        pagina.locator("#cot-agregar").click()
+        pagina.fill("#c-title", "Algo")                                                    # tocado: ya es un concepto de verdad
+        assert pagina.locator("#c-quitar").is_visible() and pagina.locator("#c-cerrar").inner_text() == "Cerrar"
+        pagina.locator("#c-cerrar").click()
+        assert pagina.locator("#cot-conceptos .cot-concepto__abrir").count() == antes + 1
+        pagina.locator("#cot-mas").click()
+        assert pagina.locator("#mas-vista-previa").is_hidden()
+        pagina.keyboard.press("Escape")
+        ctx.set_offline(True)
+        pagina.locator("#cot-pdf").click()                                                 # sin señal el PDF avisa
+        aviso = pagina.locator("#cot-mensaje")
+        expect(aviso).to_be_visible(timeout=TIEMPO)
+        barra = pagina.locator("#cot-barra").bounding_box()
+        caja = aviso.bounding_box()
+        assert caja["y"] + caja["height"] <= barra["y"] + 1 and barra["y"] - (caja["y"] + caja["height"]) < 40   # justo encima de la barra
+    finally:
+        ctx.close()

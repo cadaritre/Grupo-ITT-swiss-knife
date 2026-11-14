@@ -269,3 +269,33 @@ def test_mapa_a_pantalla_completa_en_el_telefono(motor, tmp_path, servidor, sesi
         sin_desborde(pagina)
     finally:
         ctx.close()
+
+
+def test_importar_un_csv_con_area_pregunta_reemplazar_o_agregar(motor, tmp_path, servidor, sesion_de, croquista):
+    """UX-ITT-10: ya no se mezclan dos áreas en silencio."""
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(croquista))
+    try:
+        pagina = abrir(ctx, servidor)
+        nuevo(pagina)
+        pagina.locator("#cq-paso-vertices summary").click()
+        csv = "Punto;Latitud;Longitud\nA;28,633;-106,07\nB;28.633;-106.067\nC;28.635;-106.067\n".encode()
+        otro = "Punto;Latitud;Longitud\nX;28,640;-106,07\nY;28.640;-106.067\n".encode()
+        entrada = lambda datos: pagina.set_input_files("#cq-importar", [{"name": "p.csv", "mimeType": "text/csv", "buffer": datos}])
+        entrada(csv)                                                       # sin área: se agrega sin preguntar
+        expect(pagina.locator("#cq-vertices > li")).to_have_count(3, timeout=TIEMPO)
+        assert not pagina.locator("#dlg-confirmar").is_visible()
+        entrada(otro)                                                      # con área: pregunta, y cancelar no cambia nada
+        expect(pagina.locator("#dlg-confirmar")).to_be_visible(timeout=TIEMPO)
+        expect(pagina.locator("#confirmar-texto")).to_contain_text("ya tiene 3 vértices")
+        pagina.locator("#confirmar-no").click()
+        expect(pagina.locator("#cq-vertices > li")).to_have_count(3)
+        entrada(otro)                                                      # agregar al final
+        expect(pagina.locator("#confirmar-alt")).to_be_visible(timeout=TIEMPO)
+        pagina.locator("#confirmar-alt").click()
+        expect(pagina.locator("#cq-vertices > li")).to_have_count(5, timeout=TIEMPO)
+        entrada(otro)                                                      # reemplazar
+        expect(pagina.locator("#dlg-confirmar")).to_be_visible(timeout=TIEMPO)
+        pagina.locator("#confirmar-si").click()
+        expect(pagina.locator("#cq-vertices > li")).to_have_count(2, timeout=TIEMPO)
+    finally:
+        ctx.close()

@@ -1,5 +1,5 @@
 /* Cotizaciones. Solo tokens de tvplataforma; sin estilos en línea (CSP). Primero teléfono, luego pantalla ancha. */
-.cot { --cot-alto-pendientes: calc(var(--tv-tactil-min, 44px) + var(--tv-espacio-4, 16px)); }
+.cot { --cot-alto-pendientes: var(--itt-banda, 0px); }          /* la banda de pendientes solo ocupa lugar cuando se enseña */
 .cot[hidden], .cot [hidden] { display: none !important; }
 .cot-red { margin: 0 0 var(--tv-espacio-2, 8px); font-size: .875rem; }
 .cot-red[data-estado="sin_conexion"] { color: var(--tv-estado-aviso-texto); font-weight: 600; }
@@ -86,21 +86,15 @@ button.cot-insignia { cursor: pointer; min-height: var(--tv-tactil-min, 44px); }
 .cot-tarjeta__pie .cot-insignia { margin-right: auto; }
 .cot-concepto { border-color: var(--tv-separador); }
 
-/* Hojas (diálogos): el botón de cerrar no se parte, los campos respiran y las acciones quedan parejas. */
-.tv-hoja__cabecera h2 { min-width: 0; font-size: 1.125rem; }
-.tv-hoja__cabecera .tv-boton { flex: none; white-space: nowrap; }
-.tv-hoja__cuerpo > .tv-campo, .tv-hoja__cuerpo > .cot-fila-numeros, .tv-hoja__cuerpo > .rep-mapa { margin-bottom: var(--tv-espacio-3, 12px); }
+/* Hojas: el sistema de diseño ya cuida cabecera, campos y acciones; aquí solo lo propio de estas pantallas. */
+.tv-hoja__cuerpo > .cot-fila-numeros, .tv-hoja__cuerpo > .rep-mapa { margin-bottom: var(--tv-espacio-3, 12px); }
 .tv-hoja__cuerpo input[type="text"], .tv-hoja__cuerpo input[type="search"], .tv-hoja__cuerpo textarea { width: 100%; box-sizing: border-box; }
-.tv-hoja__cuerpo .tv-formulario__acciones { margin-top: var(--tv-espacio-4, 16px); }
 .tv-hoja__cuerpo .tv-boton { min-height: var(--tv-tactil-min, 44px); }
 .cot-fila-numeros { grid-template-columns: 1fr 1fr; align-items: end; }
 .cot-fila-numeros > :nth-child(3):last-child { grid-column: 1 / -1; }
 .cot-importe { margin: 0; text-align: right; font-size: 1.0625rem; }
 @media (min-width: 480px) { .cot-fila-numeros { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); } .cot-fila-numeros > :nth-child(3):last-child { grid-column: auto; } }
 @media (max-width: 599px) {
-  .tv-hoja__cuerpo .tv-formulario__acciones { display: grid; grid-template-columns: 1fr 1fr; }
-  .tv-hoja__cuerpo .tv-formulario__acciones > .tv-boton { padding: var(--tv-espacio-1, 4px) var(--tv-espacio-2, 8px); text-align: center; line-height: 1.2; }
-  .tv-hoja__cuerpo .tv-formulario__acciones > :last-child:nth-child(odd) { grid-column: 1 / -1; }
   #dlg-salida .tv-formulario__acciones > .tv-boton { grid-column: auto; }
 }
 /* Vista del PDF: Compartir y Descargar siempre a la mano, sin recorrer todas las páginas. */
@@ -132,3 +126,6 @@ button.cot-insignia { cursor: pointer; min-height: var(--tv-tactil-min, 44px); }
   .cot-barra__acciones { grid-template-columns: repeat(3, auto); }
   .cot-barra__acciones .tv-boton { padding: 0 var(--tv-espacio-4, 16px); }
 }
+
+/* «Actualizar vista previa» solo existe donde hay vista previa lateral (≥ 1000 px); en el teléfono el PDF se abre con el botón PDF. */
+@media (max-width: 999px) { #mas-vista-previa { display: none; } }

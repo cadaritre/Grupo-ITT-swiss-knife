@@ -34,8 +34,10 @@
   function estadoGuardado() {
     const e = $("rep-estado-guardado");
     if (!reg) { e.textContent = ""; return; }
-    e.textContent = reg.sucio ? (enLinea() ? "Guardado en este teléfono · subiendo…" : "Guardado en este teléfono · se sube con señal") : "Sincronizado";
-    e.dataset.estado = reg.sucio ? "pendiente" : "sincronizado";
+    // Un solo estado por documento, contado igual que la banda de pendientes: el reporte mismo (si tiene cambios) y cada foto que no ha llegado.
+    const n = (reg.sucio ? 1 : 0) + (reg.porSubir || 0);
+    e.textContent = n ? `${n === 1 ? "1 pendiente" : `${n} pendientes`} · ${enLinea() ? "subiendo…" : "se suben con señal"}` : "Todo en el servidor";
+    e.dataset.estado = n ? "pendiente" : "sincronizado";
   }
   function programarGuardado() {
     reg.sucio = true;
@@ -138,6 +140,7 @@
     if (!reg) return;
     const n = reg.datos.fotos.length;
     const por = await pendientesDe(reg.id);
+    if (reg.porSubir !== por) { reg.porSubir = por; estadoGuardado(); }
     const sin = reg.datos.fotos.filter((f) => f.lat == null).length;
     const c = $("rep-contador");
     c.textContent = `${n} de ${MAX_FOTOS()}`;

@@ -268,7 +268,7 @@
   // -- Pantalla del croquis -------------------------------------------------------------------------------------------------------------------
   function pintarCampos() {
     const d = reg.datos;
-    for (const e of raiz.querySelectorAll("[data-dato]")) e.value = d[e.dataset.dato] ?? "";
+    for (const e of raiz.querySelectorAll("[data-dato]")) e.value = e.type === "date" ? ITT.ui.fechaAIso(d[e.dataset.dato]) : (d[e.dataset.dato] ?? "");
     $("cq-titulo-editor").textContent = d.title || "Croquis";
     const aviso = $("cq-aviso-doc");
     limpiar(aviso);
@@ -369,7 +369,7 @@
   function alEscribir(e) {
     const k = e.target.dataset.dato;
     if (!k || !reg) return;
-    reg.datos[k] = e.target.value;
+    reg.datos[k] = e.target.type === "date" ? ITT.ui.fechaAEs(e.target.value) : e.target.value;
     if (k === "title") $("cq-titulo-editor").textContent = e.target.value || "Croquis";
     if (k === "map_layer") { aplicarCapaBase(); pintarAcciones(); }
     if (k === "map_layer" || k === "contour_interval") pintarAcciones();
@@ -387,9 +387,21 @@
         reg.datos.points = r.puntos;
         mensaje(r.poligonos > 1 ? `Polígono importado: de ${r.poligonos} polígonos se tomó el mayor.` : "Polígono importado.", "info");
       } else {
-        const faltan = ctx.max_vertices - reg.datos.points.length;
-        reg.datos.points = reg.datos.points.concat(r.puntos.slice(0, Math.max(0, faltan)));
-        mensaje(`${Math.min(r.puntos.length, faltan)} puntos importados.`, "info");
+        const hay = reg.datos.points.length;
+        let decision = "alt";                                          // sin área dibujada no hay nada que preguntar: se agregan
+        if (hay) {
+          // Importar no debe mezclar en silencio dos áreas (el resultado suele ser un polígono cruzado): se pregunta.
+          decision = await confirmar(`El croquis ya tiene ${hay} vértice${hay === 1 ? "" : "s"} y el archivo trae ${r.puntos.length}. ¿Los reemplazas o los agregas al final?`, { aceptar: "Reemplazar", alternativa: "Agregar al final", cancelar: "Cancelar" });
+          if (!decision) return;
+        }
+        if (decision === true) {
+          reg.datos.points = r.puntos.slice(0, ctx.max_vertices);
+          mensaje(`Vértices reemplazados: ${Math.min(r.puntos.length, ctx.max_vertices)} importados.`, "info");
+        } else {
+          const faltan = ctx.max_vertices - hay;
+          reg.datos.points = reg.datos.points.concat(r.puntos.slice(0, Math.max(0, faltan)));
+          mensaje(`${Math.min(r.puntos.length, faltan)} puntos agregados al final.`, "info");
+        }
       }
       pintarTablaVertices(); aDibujo(); cambioDeArea(); ajustar();
       $("cq-paso-vertices").open = true;
@@ -410,7 +422,7 @@
     throw { mensaje: "No se pudo subir el croquis al servidor. Revisa la señal e inténtalo de nuevo." };
   }
 
-  async function correrTrabajo(titulo, iniciar, alTerminar) {
+  async function correrTrabajo(titulo, iniciar, alTerminar, tituloFinal) {
     const dlg = $("dlg-salida");
     $("dlg-salida-titulo").textContent = titulo;
     const e = $("salida-estado"), barra = $("salida-progreso"), err = $("salida-error"), res = $("salida-resumen");
@@ -439,9 +451,11 @@
       if (!fin) throw { mensaje: "El trabajo tarda más de lo normal. Vuelve a abrir el croquis en unos minutos." };
       if (fin.estado !== "completada") throw { mensaje: fin.estado === "cancelada" ? "Se canceló el trabajo." : (fin.error || "El trabajo falló.") };
       barra.hidden = true; $("salida-cancelar").hidden = true;
+      $("dlg-salida-titulo").textContent = tituloFinal || titulo;               // el título deja de decir «en curso» cuando ya terminó
       await alTerminar(fin);
     } catch (x) {
       barra.hidden = true; $("salida-cancelar").hidden = true;
+      $("dlg-salida-titulo").textContent = "No se pudo completar";
       err.hidden = false;
       err.textContent = x.mensaje || `No se pudo completar: ${x.message || x}`;
     }
@@ -461,7 +475,7 @@
       $("salida-resumen").textContent = r.total ? `Se obtuvieron ${r.total} elementos recortados al polígono. ${partes}.${sinEdificios}` : "OpenStreetMap no devolvió geometría dentro del área seleccionada.";
       $("salida-estado").textContent = "Listo";
       ajustar();
-    });
+    }, "Mapa vectorizado");
   }
 
   async function exportar(formato) {
@@ -483,7 +497,7 @@
         $("salida-resumen").hidden = false;
         $("salida-resumen").textContent = "DXF R2010 en metros, proyectado a WGS84 / UTM.";
       }
-    });
+    }, formato === "pdf" ? "PDF del croquis" : "DXF del croquis");
   }
   async function compartirSalida() {
     if (!salida) return;

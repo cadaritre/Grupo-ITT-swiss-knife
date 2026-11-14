@@ -16,6 +16,7 @@
   let reg = null;                 // registro abierto en el editor
   let temporizador = null;        // guardado diferido
   let conceptoAbierto = -1;
+  let conceptoSinEditar = false;                     // concepto recién agregado y todavía sin tocar: «Cancelar» lo descarta
   let pdfActual = null;           // {blob, nombre}
   let vistaPrevia = null;
 
@@ -167,6 +168,7 @@
     for (const e of raiz.querySelectorAll("[data-dato]")) {
       const k = e.dataset.dato;
       if (e.type === "checkbox") e.checked = d[k] !== false;
+      else if (e.type === "date") e.value = ITT.ui.fechaAIso(d[k]);
       else e.value = e.dataset.numero ? fmtNum(Number(d[k] ?? 0)) : (d[k] ?? "");
     }
     $("f-idioma").value = d.language || "es";
@@ -193,7 +195,8 @@
       e.target.setAttribute("aria-invalid", bueno ? "false" : "true");
       if (!bueno) return;
       d[k] = k === "validity_days" ? Math.round(n) : n;
-    } else if (k === "currency") d[k] = e.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+    } else if (e.target.type === "date") d[k] = ITT.ui.fechaAEs(e.target.value);
+    else if (k === "currency") d[k] = e.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
     else d[k] = e.target.value;
     if (CAMPOS_TEXTO.includes(k) || k === "prepared_by") ortografiaSucia();
     titulo(); avisosRecomendados(); recalcular(); programarGuardado();
@@ -229,8 +232,11 @@
   function cambioEnConceptos() { ortografiaSucia(); pintarConceptos(); recalcular(); programarGuardado(); programarVistaPrevia(); }
 
   // Diálogo de concepto: se aplica al escribir («Aplicado automático», como en el escritorio).
-  function abrirConcepto(i) {
+  function abrirConcepto(i, esNuevo = false) {
     conceptoAbierto = i;
+    conceptoSinEditar = esNuevo;
+    $("c-quitar").hidden = esNuevo;                    // un concepto nuevo no tiene qué quitar: se cancela
+    $("c-cerrar").textContent = esNuevo ? "Cancelar" : "Cerrar";
     const it = reg.datos.items[i];
     $("dlg-concepto-titulo").textContent = `Concepto ${i + 1}`;
     $("c-title").value = it.title; $("c-description").value = it.description; $("c-subitems").value = it.subitems.join("\n");
@@ -247,6 +253,7 @@
   }
   function aplicarConcepto() {
     if (conceptoAbierto < 0 || !reg) return;
+    if (conceptoSinEditar) { conceptoSinEditar = false; $("c-quitar").hidden = false; $("c-cerrar").textContent = "Cerrar"; }
     const it = reg.datos.items[conceptoAbierto];
     const q = numero($("c-quantity").value), p = numero($("c-unit_price").value);
     const err = $("c-error");
@@ -567,7 +574,7 @@
     $("cot-buscar").addEventListener("input", pintarLista);
     $("cot-importar").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importarEditable(f); });
     $("cot-machotes-importar").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importarMachotes(f); });
-    $("cot-agregar").addEventListener("click", () => { const i = conceptoNuevo(); abrirConcepto(i); });
+    $("cot-agregar").addEventListener("click", () => { const i = conceptoNuevo(); abrirConcepto(i, true); });
     $("cot-desde-machote").addEventListener("click", abrirPlantillas);
     $("p-buscar").addEventListener("input", pintarPlantillas);
     for (const id of ["c-title", "c-description", "c-subitems", "c-unit", "c-quantity", "c-unit_price"]) $(id).addEventListener("input", aplicarConcepto);
@@ -593,6 +600,9 @@
       $("dlg-mas").close();
     });
     $("mas-borrar").addEventListener("click", async () => { $("dlg-mas").close(); const b = reg; if (await confirmarBorrado(b)) { await ITT.cot.borrar(b.id); reg = null; ITT.subirAhora(); location.hash = "#/"; } });
+    $("c-cerrar").addEventListener("click", () => {                  // «Cancelar» en un concepto nuevo sin tocar: no deja un «Nuevo concepto» vacío en la cotización
+      if (conceptoSinEditar && conceptoAbierto >= 0) { reg.datos.items.splice(conceptoAbierto, 1); conceptoSinEditar = false; cambioEnConceptos(); }
+    });
     for (const b of document.querySelectorAll("[data-cerrar]")) b.addEventListener("click", () => b.closest("dialog").close());
     addEventListener("hashchange", ruta);
     const red = () => { $("cot-red").textContent = enLinea() ? "En línea" : "Sin conexión: puedes seguir editando; todo queda en este teléfono."; $("cot-red").dataset.estado = enLinea() ? "en_linea" : "sin_conexion"; estadoGuardado(); };
