@@ -213,7 +213,13 @@ def machote_restaurar(request, pk):
 @usuario_de_cotizaciones
 @require_GET
 def machotes_exportar(request):
-    cuerpo = json.dumps(servicio.exportar_machotes(request.user), ensure_ascii=False, indent=2)
+    ids = None
+    if request.GET.getlist("id"):
+        try:
+            ids = [uuid.UUID(v) for v in request.GET.getlist("id")[:500]]
+        except ValueError:
+            return _error(servicio.CotizacionInvalida("El machote no es válido."), 422)
+    cuerpo = json.dumps(servicio.exportar_machotes(request.user, ids), ensure_ascii=False, indent=2)
     respuesta = HttpResponse(cuerpo, content_type="application/json; charset=utf-8")
     respuesta["Content-Disposition"] = 'attachment; filename="machotes_cotizacion.json"'
     return _privado(respuesta)

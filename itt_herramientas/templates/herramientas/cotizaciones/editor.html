@@ -1,75 +1,82 @@
 {% extends "herramientas/pwa/_pagina.html" %}
-{% load static %}
+{% load static tv %}
 {% block titulo %}Cotizaciones{% endblock %}
 {% block contenido %}
 {# HTML idéntico para todas las cuentas: así el service worker lo guarda y se abre sin conexión. Los datos llegan de IndexedDB y de la API. #}
 <div id="cot" class="cot" data-pdfjs="{% static 'herramientas/vendor/pdfjs/pdf.min.mjs' %}" data-pdfjs-worker="{% static 'herramientas/vendor/pdfjs/pdf.worker.min.mjs' %}"{% for nombre, ruta in urls.items %} data-url-{{ nombre }}="{{ ruta }}"{% endfor %}>
-  <p id="cot-red" class="tv-tenue cot-red" role="status"></p>
+  <p id="cot-red" class="cot-red" role="status" hidden></p>
   <p id="cot-mensaje" class="itt-aviso" role="alert" hidden></p>
 
   <section id="cot-vista-lista" aria-labelledby="cot-titulo-lista">
-    <div class="cot-encabezado">
-      <h1 id="cot-titulo-lista">Cotizaciones</h1>
-      <a href="#/machotes" class="tv-boton tv-boton--secundario">Machotes</a>
-    </div>
-    <div class="itt-acciones">
-      <button type="button" id="cot-nueva" class="tv-boton">Nueva cotización</button>
-      <label class="tv-boton tv-boton--secundario">Importar editable<input id="cot-importar" class="itt-ocultar-entrada" type="file" accept="application/json,.json"></label>
-    </div>
-    <div class="tv-campo"><label for="cot-buscar">Buscar</label><input id="cot-buscar" type="search" autocomplete="off" placeholder="Folio, cliente o proyecto"></div>
-    <p id="cot-lista-vacia" class="tv-tenue" hidden>Aún no hay cotizaciones. Crea la primera con «Nueva cotización».</p>
+    <header class="tv-encabezado">
+      <div class="tv-encabezado__titulos"><h1 id="cot-titulo-lista">Cotizaciones</h1></div>
+      <div class="tv-acciones cot-acciones-lista">
+        <a href="#/machotes" class="tv-boton tv-boton--secundario" id="cot-ir-machotes">{% icono "library-big" %}<span>Machotes</span></a>
+        <label class="tv-boton tv-boton--secundario">{% icono "upload" %}<span>Importar</span><input id="cot-importar" class="itt-ocultar-entrada" type="file" accept="application/json,.json"></label>
+        <button type="button" id="cot-nueva" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nueva cotización</span></button>
+      </div>
+    </header>
+    <div class="cot-buscador" id="cot-buscador">{% icono "search" %}<label for="cot-buscar" class="tv-solo-lectores">Buscar cotizaciones</label><input id="cot-buscar" type="search" autocomplete="off" placeholder="Buscar por folio, cliente o proyecto"></div>
+    <div id="cot-lista-vacia" class="itt-vacio" hidden>{% icono "file-text" %}<p>Aún no tienes cotizaciones</p><button type="button" class="tv-boton" id="cot-nueva-vacia">{% icono "plus" %}<span>Nueva cotización</span></button></div>
+    <p id="cot-sin-resultados" class="tv-tenue cot-sin-resultados" hidden>Sin resultados.</p>
     <ul id="cot-lista" class="cot-lista"></ul>
   </section>
 
   <section id="cot-vista-editor" aria-labelledby="cot-titulo-editor" hidden>
-    <div class="cot-encabezado">
-      <a href="#/" class="tv-boton tv-boton--secundario" id="cot-volver">‹ Cotizaciones</a>
-      <span id="cot-estado-guardado" class="tv-tenue" role="status"></span>
+    <div class="cot-barra-sup">
+      <a href="#/" class="tv-boton tv-boton--secundario itt-boton-plano cot-volver" id="cot-volver">{% icono "arrow-left" %}<span>Cotizaciones</span></a>
+      <span id="cot-estado-guardado" class="itt-estado" role="status"></span>
     </div>
     <h1 id="cot-titulo-editor" class="cot-titulo-doc">Cotización</h1>
     <p id="cot-aviso-doc" class="tv-alerta tv-alerta--aviso" hidden></p>
     <div class="cot-barra-estado">
-      <button type="button" id="cot-ortografia-estado" class="cot-insignia">Ortografía pendiente</button>
+      <button type="button" id="cot-ortografia-estado" class="cot-insignia" data-estado="pendiente">Ortografía pendiente</button>
       <span id="cot-recomendados" class="cot-insignia"></span>
     </div>
     <div class="cot-cuerpo">
       <div class="cot-formulario">
         <details class="cot-paso" id="paso-datos" open>
-          <summary>Cliente y proyecto <span class="cot-resumen-paso" id="resumen-datos"></span></summary>
+          <summary>{% icono "building-2" %}<span>Cliente y proyecto</span><span class="cot-resumen-paso" id="resumen-datos"></span></summary>
           <div class="cot-paso__cuerpo">
-            <div class="tv-campo"><label for="f-idioma">Idioma de la cotización</label>
-              <select id="f-idioma"><option value="es">Español</option><option value="en">English</option></select></div>
-            <div class="tv-campo" data-campo="quote_number"><label for="f-quote_number">Folio de cotización</label><input id="f-quote_number" data-dato="quote_number" type="text" maxlength="60" autocomplete="off"></div>
-            <div class="tv-campo"><label for="f-quote_date">Fecha</label><input id="f-quote_date" data-dato="quote_date" type="date"></div>
+            <div class="cot-rejilla">
+              <div class="tv-campo"><label for="f-idioma">Idioma</label>
+                <select id="f-idioma"><option value="es">Español</option><option value="en">English</option></select></div>
+              <div class="tv-campo" data-campo="quote_number"><label for="f-quote_number">Folio</label><input id="f-quote_number" data-dato="quote_number" type="text" maxlength="60" autocomplete="off"></div>
+              <div class="tv-campo"><label for="f-quote_date">Fecha</label><input id="f-quote_date" data-dato="quote_date" type="date"></div>
+            </div>
             <div class="tv-campo" data-campo="client_name"><label for="f-client_name">Nombre / Empresa</label><input id="f-client_name" data-dato="client_name" type="text" maxlength="400" autocomplete="organization"></div>
-            <div class="tv-campo" data-campo="contact"><label for="f-contact">Contacto</label><input id="f-contact" data-dato="contact" type="text" maxlength="400" autocomplete="name"></div>
-            <div class="tv-campo" data-campo="email"><label for="f-email">Correo</label><input id="f-email" data-dato="email" type="email" maxlength="400" autocomplete="email" inputmode="email"></div>
-            <div class="tv-campo" data-campo="phone"><label for="f-phone">Teléfono</label><input id="f-phone" data-dato="phone" type="tel" maxlength="400" autocomplete="tel"></div>
+            <div class="cot-rejilla">
+              <div class="tv-campo" data-campo="contact"><label for="f-contact">Contacto</label><input id="f-contact" data-dato="contact" type="text" maxlength="400" autocomplete="name"></div>
+              <div class="tv-campo" data-campo="email"><label for="f-email">Correo</label><input id="f-email" data-dato="email" type="email" maxlength="400" autocomplete="email" inputmode="email"></div>
+              <div class="tv-campo" data-campo="phone"><label for="f-phone">Teléfono</label><input id="f-phone" data-dato="phone" type="tel" maxlength="400" autocomplete="tel"></div>
+            </div>
             <div class="tv-campo" data-campo="location"><label for="f-location">Localización</label><input id="f-location" data-dato="location" type="text" maxlength="400" autocomplete="off"></div>
             <div class="tv-campo" data-campo="project_title"><label for="f-project_title">Título del proyecto</label><input id="f-project_title" data-dato="project_title" type="text" maxlength="400" autocomplete="off"></div>
           </div>
         </details>
 
         <details class="cot-paso" id="paso-conceptos" open>
-          <summary>Conceptos <span class="cot-resumen-paso" id="resumen-conceptos"></span></summary>
+          <summary>{% icono "list" %}<span>Conceptos</span><span class="cot-resumen-paso" id="resumen-conceptos"></span></summary>
           <div class="cot-paso__cuerpo">
-            <div class="itt-acciones">
-              <button type="button" id="cot-agregar" class="tv-boton">Agregar concepto</button>
-              <button type="button" id="cot-desde-machote" class="tv-boton tv-boton--secundario">Desde un machote</button>
-            </div>
-            <p id="cot-sin-conceptos" class="tv-tenue">Aún no hay conceptos.</p>
+            <p id="cot-sin-conceptos" class="tv-tenue cot-sin-conceptos">Sin conceptos. Agrega uno o inserta un machote.</p>
             <ol id="cot-conceptos" class="cot-conceptos"></ol>
+            <div class="cot-acciones-conceptos">
+              <button type="button" id="cot-agregar" class="tv-boton">{% icono "plus" %}<span>Agregar concepto</span></button>
+              <button type="button" id="cot-desde-machote" class="tv-boton tv-boton--secundario" aria-haspopup="dialog">{% icono "library-big" %}<span>Insertar machote</span></button>
+            </div>
           </div>
         </details>
 
         <details class="cot-paso" id="paso-condiciones">
-          <summary>Condiciones y pago <span class="cot-resumen-paso" id="resumen-condiciones"></span></summary>
+          <summary>{% icono "receipt" %}<span>Condiciones y pago</span><span class="cot-resumen-paso" id="resumen-condiciones"></span></summary>
           <div class="cot-paso__cuerpo">
-            <div class="tv-campo"><label for="f-currency">Moneda</label><input id="f-currency" data-dato="currency" type="text" maxlength="3" autocapitalize="characters" autocomplete="off"></div>
+            <div class="cot-rejilla">
+              <div class="tv-campo"><label for="f-currency">Moneda</label><input id="f-currency" data-dato="currency" type="text" maxlength="3" autocapitalize="characters" autocomplete="off"></div>
+              <div class="tv-campo"><label for="f-vat_rate">IVA (%)</label><input id="f-vat_rate" data-dato="vat_rate" data-numero="1" type="text" inputmode="decimal" autocomplete="off"></div>
+              <div class="tv-campo"><label for="f-advance_percent">Anticipo (%)</label><input id="f-advance_percent" data-dato="advance_percent" data-numero="1" type="text" inputmode="decimal" autocomplete="off"></div>
+              <div class="tv-campo"><label for="f-validity_days">Vigencia (días)</label><input id="f-validity_days" data-dato="validity_days" data-numero="1" type="text" inputmode="numeric" autocomplete="off"></div>
+            </div>
             <div class="tv-campo tv-campo--casilla"><input id="f-include_vat" data-dato="include_vat" type="checkbox"><label for="f-include_vat">Incluir IVA</label></div>
-            <div class="tv-campo"><label for="f-vat_rate">IVA (%)</label><input id="f-vat_rate" data-dato="vat_rate" data-numero="1" type="text" inputmode="decimal" autocomplete="off"></div>
-            <div class="tv-campo"><label for="f-advance_percent">Anticipo (%)</label><input id="f-advance_percent" data-dato="advance_percent" data-numero="1" type="text" inputmode="decimal" autocomplete="off"></div>
-            <div class="tv-campo"><label for="f-validity_days">Vigencia (días)</label><input id="f-validity_days" data-dato="validity_days" data-numero="1" type="text" inputmode="numeric" autocomplete="off"></div>
             <div class="tv-campo"><label for="f-delivery_time">Tiempo de entrega</label><textarea id="f-delivery_time" data-dato="delivery_time" rows="2" maxlength="400"></textarea></div>
             <div class="tv-campo"><label for="f-payment_terms">Forma de pago</label><textarea id="f-payment_terms" data-dato="payment_terms" rows="2" maxlength="400"></textarea></div>
             <div class="tv-campo"><label for="f-notes">Notas</label><textarea id="f-notes" data-dato="notes" rows="4" maxlength="6000"></textarea></div>
@@ -78,22 +85,22 @@
         </details>
 
         <details class="cot-paso" id="paso-imagenes">
-          <summary>Imágenes de referencia <span class="cot-resumen-paso" id="resumen-imagenes"></span></summary>
+          <summary>{% icono "images" %}<span>Imágenes de referencia</span><span class="cot-resumen-paso" id="resumen-imagenes"></span></summary>
           <div class="cot-paso__cuerpo">
-            <div class="itt-acciones">
-              <label class="tv-boton">Tomar foto<input id="cot-foto-camara" class="itt-ocultar-entrada" type="file" accept="image/*" capture="environment"></label>
-              <label class="tv-boton tv-boton--secundario">Elegir de la galería<input id="cot-foto-galeria" class="itt-ocultar-entrada" type="file" accept="image/*" multiple></label>
-            </div>
-            <p id="cot-sin-imagenes" class="tv-tenue">Sin imágenes. Las fotos se guardan en el teléfono y se suben solas cuando hay señal.</p>
+            <p id="cot-sin-imagenes" class="tv-tenue">Sin imágenes.</p>
             <ul id="cot-imagenes" class="cot-imagenes"></ul>
+            <div class="cot-acciones-conceptos">
+              <label class="tv-boton">{% icono "camera" %}<span>Tomar foto</span><input id="cot-foto-camara" class="itt-ocultar-entrada" type="file" accept="image/*" capture="environment"></label>
+              <label class="tv-boton tv-boton--secundario">{% icono "images" %}<span>Elegir de la galería</span><input id="cot-foto-galeria" class="itt-ocultar-entrada" type="file" accept="image/*" multiple></label>
+            </div>
           </div>
         </details>
       </div>
 
-      <aside class="cot-lateral" aria-label="Vista previa">
-        <div class="tv-tarjeta">
-          <h2>Vista previa</h2>
-          <p class="tv-tenue" id="cot-vp-estado">La vista previa se genera en el servidor con el mismo motor que el PDF final.</p>
+      <aside class="cot-lateral" aria-labelledby="cot-vp-titulo">
+        <div class="cot-vp">
+          <div class="cot-vp__cabecera"><h2 id="cot-vp-titulo">Vista previa</h2><span class="itt-estado" id="cot-vp-estado" role="status"></span>
+            <button type="button" id="cot-vp-actualizar" class="tv-boton tv-boton--secundario itt-boton-plano itt-boton-icono" aria-label="Actualizar vista previa" title="Actualizar vista previa">{% icono "refresh-cw" %}</button></div>
           <div id="cot-vp-paginas" class="cot-vp-paginas"></div>
         </div>
       </aside>
@@ -106,23 +113,35 @@
         <div class="cot-total"><dt>Total</dt><dd id="cot-total">$ 0.00</dd></div>
       </dl>
       <div class="cot-barra__acciones">
-        <button type="button" id="cot-ortografia" class="tv-boton tv-boton--secundario">Ortografía</button>
-        <button type="button" id="cot-mas" class="tv-boton tv-boton--secundario" aria-haspopup="dialog">Más</button>
-        <button type="button" id="cot-pdf" class="tv-boton">PDF</button>
+        <button type="button" id="cot-ortografia" class="tv-boton tv-boton--secundario">{% icono "spell-check" %}<span>Ortografía</span></button>
+        <button type="button" id="cot-mas" class="tv-boton tv-boton--secundario itt-boton-icono" aria-haspopup="dialog" aria-label="Más acciones" title="Más acciones">{% icono "ellipsis" %}</button>
+        <button type="button" id="cot-pdf" class="tv-boton">{% icono "file-text" %}<span>Generar PDF</span></button>
       </div>
     </div>
   </section>
 
   <section id="cot-vista-machotes" aria-labelledby="cot-titulo-machotes" hidden>
-    <div class="cot-encabezado"><a href="#/" class="tv-boton tv-boton--secundario">‹ Cotizaciones</a></div>
-    <h1 id="cot-titulo-machotes">Machotes de conceptos</h1>
-    <p class="tv-tenue">Conceptos que reutilizas en tus cotizaciones. Son tuyos: no los ve nadie más.</p>
-    <div class="itt-acciones">
-      <a id="cot-machotes-exportar" class="tv-boton tv-boton--secundario" href="#/machotes">Exportar mis machotes</a>
-      <label class="tv-boton tv-boton--secundario">Importar machotes<input id="cot-machotes-importar" class="itt-ocultar-entrada" type="file" accept="application/json,.json"></label>
+    <div class="cot-barra-sup"><a href="#/" class="tv-boton tv-boton--secundario itt-boton-plano cot-volver">{% icono "arrow-left" %}<span>Cotizaciones</span></a></div>
+    <header class="tv-encabezado">
+      <div class="tv-encabezado__titulos"><h1 id="cot-titulo-machotes">Machotes</h1><p class="tv-subtitulo">Conceptos listos para insertar en tus cotizaciones.</p></div>
+      <div class="tv-acciones cot-acciones-lista">
+        <label class="tv-boton tv-boton--secundario">{% icono "upload" %}<span>Importar</span><input id="cot-machotes-importar" class="itt-ocultar-entrada" type="file" accept="application/json,.json"></label>
+        <a id="cot-machotes-exportar" class="tv-boton tv-boton--secundario" href="#/machotes" download="machotes_cotizacion.json">{% icono "download" %}<span>Exportar</span></a>
+        <button type="button" id="cot-machote-nuevo" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nuevo machote</span></button>
+      </div>
+    </header>
+    <div class="cot-segmento" role="group" aria-label="Qué machotes ver">
+      <button type="button" class="cot-segmento__boton" data-coleccion="propios" aria-pressed="true">{% icono "star" %}<span>Mis machotes</span><span class="cot-segmento__cuenta" id="m-cuenta-propios"></span></button>
+      <button type="button" class="cot-segmento__boton" data-coleccion="catalogo" aria-pressed="false">{% icono "book-open" %}<span>Catálogo</span></button>
     </div>
-    <ul id="cot-machotes-lista" class="cot-lista"></ul>
-    <p id="cot-machotes-vacio" class="tv-tenue" hidden>Aún no tienes machotes personalizados. Guarda uno desde cualquier concepto.</p>
+    <div class="cot-filtros-machotes">
+      <div class="cot-buscador">{% icono "search" %}<label for="m-buscar" class="tv-solo-lectores">Buscar machotes</label><input id="m-buscar" type="search" autocomplete="off" placeholder="Buscar machote"></div>
+      <div class="tv-campo cot-idioma-catalogo" id="m-idioma-caja" hidden><label for="m-idioma" class="tv-solo-lectores">Idioma del catálogo</label><select id="m-idioma"><option value="es">Español</option><option value="en">English</option></select></div>
+    </div>
+    <ul id="cot-machotes-lista" class="cot-filas"></ul>
+    <div id="cot-machotes-vacio" class="itt-vacio" hidden>{% icono "bookmark-plus" %}<p>Aún no tienes machotes propios</p><span>Guárdalos desde un concepto o personaliza uno del catálogo.</span></div>
+    <ul id="cot-catalogo-lista" class="cot-filas" hidden></ul>
+    <p id="cot-machotes-sin-resultados" class="tv-tenue cot-sin-resultados" hidden>Sin resultados.</p>
   </section>
 </div>
 
@@ -131,30 +150,61 @@
     <div class="tv-hoja__asa" aria-hidden="true"></div>
     <div class="tv-hoja__cabecera"><h2 id="dlg-concepto-titulo">Concepto</h2><button type="button" class="tv-boton tv-boton--secundario" id="c-cerrar" data-cerrar>Cerrar</button></div>
     <div class="tv-campo"><label for="c-title">Título</label><input id="c-title" type="text" maxlength="400" autocomplete="off"></div>
-    <div class="tv-campo"><label for="c-description">Descripción</label><textarea id="c-description" rows="4" maxlength="6000"></textarea></div>
-    <div class="tv-campo"><label for="c-subitems">Alcances (uno por renglón)</label><textarea id="c-subitems" rows="5"></textarea><p class="tv-campo__ayuda" id="c-subitems-cuenta">0 alcances</p></div>
+    <div class="tv-campo"><label for="c-description">Descripción</label><textarea id="c-description" rows="3" maxlength="6000"></textarea></div>
+    <div class="tv-campo"><label for="c-subitems">Alcances <span class="tv-tenue" id="c-subitems-cuenta">0</span></label><textarea id="c-subitems" rows="4" aria-describedby="c-subitems-ayuda"></textarea><p class="tv-campo__ayuda" id="c-subitems-ayuda">Uno por renglón.</p></div>
     <div class="cot-fila-numeros">
       <div class="tv-campo"><label for="c-unit">Unidad</label><input id="c-unit" type="text" list="unidades" maxlength="40" autocomplete="off"><datalist id="unidades"></datalist></div>
       <div class="tv-campo"><label for="c-quantity">Cantidad</label><input id="c-quantity" type="text" inputmode="decimal" autocomplete="off"></div>
       <div class="tv-campo"><label for="c-unit_price">Precio unitario</label><input id="c-unit_price" type="text" inputmode="decimal" autocomplete="off"></div>
     </div>
-    <p class="cot-importe">Importe: <strong id="c-importe">$ 0.00</strong></p>
+    <p class="cot-importe">Importe <strong id="c-importe">$ 0.00</strong></p>
     <p id="c-error" class="tv-campo__error" role="alert" hidden></p>
+    <div class="cot-machote-acciones" role="group" aria-label="Machote">
+      <button type="button" id="c-machote" class="tv-boton tv-boton--secundario">{% icono "bookmark-plus" %}<span>Guardar como machote</span></button>
+      <button type="button" id="c-reemplazar" class="tv-boton tv-boton--secundario" aria-haspopup="dialog">{% icono "replace" %}<span>Reemplazar con machote</span></button>
+    </div>
     <div class="tv-formulario__acciones">
-      <button type="button" id="c-machote" class="tv-boton tv-boton--secundario">Guardar como machote</button>
-      <button type="button" id="c-quitar" class="tv-boton tv-boton--peligro">Quitar concepto</button>
-      <button type="submit" class="tv-boton">Listo</button>
+      <button type="button" id="c-quitar" class="tv-boton tv-boton--peligro">{% icono "trash-2" %}<span>Quitar</span></button>
+      <button type="submit" class="tv-boton">{% icono "check" %}<span>Listo</span></button>
     </div>
   </form>
 </dialog>
 
-<dialog id="dlg-plantillas" class="tv-hoja" aria-labelledby="dlg-plantillas-titulo">
+<dialog id="dlg-plantillas" class="tv-hoja cot-hoja-alta" aria-labelledby="dlg-plantillas-titulo">
   <div class="tv-hoja__cuerpo">
     <div class="tv-hoja__asa" aria-hidden="true"></div>
-    <div class="tv-hoja__cabecera"><h2 id="dlg-plantillas-titulo">Insertar desde un machote</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
-    <div class="tv-campo"><label for="p-buscar">Buscar</label><input id="p-buscar" type="search" autocomplete="off"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-plantillas-titulo">Insertar machote</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <div class="cot-buscador">{% icono "search" %}<label for="p-buscar" class="tv-solo-lectores">Buscar machote</label><input id="p-buscar" type="search" autocomplete="off" placeholder="Buscar machote"></div>
     <div id="p-lista" class="cot-plantillas"></div>
+    <a href="#/machotes" class="tv-boton tv-boton--secundario itt-boton-plano cot-administrar" id="p-administrar">{% icono "settings" %}<span>Administrar machotes</span></a>
   </div>
+</dialog>
+
+<dialog id="dlg-machote" class="tv-hoja" aria-labelledby="dlg-machote-titulo">
+  <form method="dialog" class="tv-hoja__cuerpo" id="form-machote">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-machote-titulo">Machote</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cancelar</button></div>
+    <div class="cot-rejilla cot-rejilla--nombre">
+      <div class="tv-campo"><label for="m-nombre">Nombre del machote</label><input id="m-nombre" type="text" maxlength="160" autocomplete="off" required></div>
+      <div class="tv-campo"><label for="m-lengua">Idioma</label><select id="m-lengua"><option value="es">Español</option><option value="en">English</option></select></div>
+    </div>
+    <div class="tv-campo"><label for="m-title">Título del concepto</label><input id="m-title" type="text" maxlength="400" autocomplete="off"></div>
+    <div class="tv-campo"><label for="m-description">Descripción</label><textarea id="m-description" rows="3" maxlength="6000"></textarea></div>
+    <div class="tv-campo"><label for="m-subitems">Alcances</label><textarea id="m-subitems" rows="4" aria-describedby="m-subitems-ayuda"></textarea><p class="tv-campo__ayuda" id="m-subitems-ayuda">Uno por renglón.</p></div>
+    <div class="cot-fila-numeros">
+      <div class="tv-campo"><label for="m-unit">Unidad</label><input id="m-unit" type="text" list="unidades" maxlength="40" autocomplete="off"></div>
+      <div class="tv-campo"><label for="m-quantity">Cantidad</label><input id="m-quantity" type="text" inputmode="decimal" autocomplete="off"></div>
+      <div class="tv-campo"><label for="m-unit_price">Precio unitario</label><input id="m-unit_price" type="text" inputmode="decimal" autocomplete="off"></div>
+    </div>
+    <p id="m-error" class="tv-campo__error" role="alert" hidden></p>
+    <div class="cot-machote-acciones">
+      <button type="button" id="m-restaurar" class="tv-boton tv-boton--secundario" hidden>{% icono "history" %}<span>Restaurar versión anterior</span></button>
+      <button type="button" id="m-eliminar" class="tv-boton tv-boton--secundario cot-boton-peligro" hidden>{% icono "trash-2" %}<span>Eliminar</span></button>
+    </div>
+    <div class="tv-formulario__acciones">
+      <button type="submit" id="m-guardar" class="tv-boton" value="si">{% icono "check" %}<span>Guardar machote</span></button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="dlg-ortografia" class="tv-hoja" aria-labelledby="dlg-ortografia-titulo">
@@ -171,7 +221,7 @@
       <button type="button" id="o-cambiar-todas" class="tv-boton tv-boton--secundario">Cambiar todas</button>
       <button type="button" id="o-ignorar" class="tv-boton tv-boton--secundario">Ignorar</button>
       <button type="button" id="o-ignorar-todas" class="tv-boton tv-boton--secundario">Ignorar todas</button>
-      <button type="button" id="o-agregar" class="tv-boton tv-boton--secundario">Agregar al diccionario</button>
+      <button type="button" id="o-agregar" class="tv-boton tv-boton--secundario">{% icono "book-open" %}<span>Agregar al diccionario</span></button>
     </div>
   </div>
 </dialog>
@@ -184,8 +234,8 @@
     <p id="pdf-advertencias" class="tv-alerta tv-alerta--aviso" hidden></p>
     <div id="pdf-paginas" class="cot-vp-paginas"></div>
     <div class="tv-formulario__acciones">
-      <button type="button" id="pdf-compartir" class="tv-boton" disabled>Compartir</button>
-      <button type="button" id="pdf-descargar" class="tv-boton tv-boton--secundario" disabled>Descargar</button>
+      <button type="button" id="pdf-compartir" class="tv-boton" disabled>{% icono "share-2" %}<span>Compartir</span></button>
+      <button type="button" id="pdf-descargar" class="tv-boton tv-boton--secundario" disabled>{% icono "download" %}<span>Descargar</span></button>
     </div>
   </div>
 </dialog>
@@ -194,11 +244,12 @@
   <div class="tv-hoja__cuerpo">
     <div class="tv-hoja__asa" aria-hidden="true"></div>
     <div class="tv-hoja__cabecera"><h2 id="dlg-mas-titulo">Más acciones</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
-    <div class="tv-pila">
-      <button type="button" id="mas-vista-previa" class="tv-boton tv-boton--secundario">Actualizar vista previa</button>
-      <button type="button" id="mas-duplicar" class="tv-boton tv-boton--secundario">Duplicar cotización</button>
-      <a id="mas-editable" class="tv-boton tv-boton--secundario" href="#/">Descargar editable (.json)</a>
-      <button type="button" id="mas-borrar" class="tv-boton tv-boton--peligro">Eliminar cotización</button>
+    <div class="cot-menu-acciones">
+      <button type="button" id="mas-vista-previa" class="cot-menu-accion">{% icono "refresh-cw" %}<span>Actualizar vista previa</span></button>
+      <button type="button" id="mas-duplicar" class="cot-menu-accion">{% icono "copy" %}<span>Duplicar cotización</span></button>
+      <a id="mas-editable" class="cot-menu-accion" href="#/">{% icono "download" %}<span>Descargar editable (.json)</span></a>
+      <a href="#/machotes" class="cot-menu-accion" id="mas-machotes">{% icono "library-big" %}<span>Administrar machotes</span></a>
+      <button type="button" id="mas-borrar" class="cot-menu-accion cot-menu-accion--peligro">{% icono "trash-2" %}<span>Eliminar cotización</span></button>
     </div>
   </div>
 </dialog>

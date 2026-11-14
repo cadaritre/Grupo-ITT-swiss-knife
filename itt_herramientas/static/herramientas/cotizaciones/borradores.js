@@ -84,5 +84,5 @@
     return { sha256: r.sha256, miniatura: await miniatura(r.blob) };
   }
 
-  ITT.cot = { iniciar: docs.iniciar, pedir, url, contexto, listar, nuevo, guardar: docs.guardar, duplicar, borrar: docs.borrar, agregarFoto, sincronizar: docs.sincronizar, folioSiguiente, copiar, iguales, hoy, get urls() { return docs.urls; } };
+  ITT.cot = { iniciar: docs.iniciar, pedir, url, contexto, listar, nuevo, guardar: docs.guardar, duplicar, borrar: docs.borrar, agregarFoto, sincronizar: docs.sincronizar, localDe: docs.localDe, folioSiguiente, copiar, iguales, hoy, get urls() { return docs.urls; } };
 })(typeof self !== "undefined" ? self : this);

@@ -227,3 +227,19 @@ def test_pdf_web_identico_byte_a_byte_al_del_dominio(cliente_de, usuaria, clave,
         logo = branding.active_profile().logo_path
         quotation_pdf.generate_quote_pdf(q, tmp_path / "directo.pdf", logo=logo)
     assert web == (tmp_path / "directo.pdf").read_bytes()
+
+
+def test_machotes_renombrar_sin_perder_la_version_anterior_y_exportar_uno(cliente_de, usuaria):
+    """«Renombrar» y «Exportar solamente el seleccionado» del administrador de machotes del escritorio."""
+    c = cliente_de(usuaria)
+    a = post(c, "cotizaciones_machotes", {"nombre": "Deslinde", "idioma": "es", "concepto": concepto(1, 5)}).json()
+    b = post(c, "cotizaciones_machotes", {"nombre": "Survey", "idioma": "en", "concepto": concepto(2, 7)}).json()
+    renombrado = post(c, "cotizaciones_machotes", {"id": a["id"], "nombre": "Deslinde urbano", "idioma": "es", "concepto": a["concepto"]}).json()
+    assert renombrado["nombre"] == "Deslinde urbano" and renombrado["tiene_anterior"] is False          # renombrar no crea una «versión anterior»
+    actualizado = post(c, "cotizaciones_machotes", {"id": a["id"], "nombre": "Deslinde urbano", "idioma": "es", "concepto": concepto(1, 8)}).json()
+    assert actualizado["tiene_anterior"] is True                                                        # actualizar el concepto sí
+    uno = json.loads(c.get(url("cotizaciones_machotes_exportar") + f"?id={b['id']}").content)
+    assert [t["name"] for t in uno["templates"]] == ["Survey"] and uno["templates"][0]["language"] == "en"
+    todos = json.loads(c.get(url("cotizaciones_machotes_exportar")).content)
+    assert [t["name"] for t in todos["templates"]] == ["Deslinde urbano", "Survey"]
+    assert c.get(url("cotizaciones_machotes_exportar") + "?id=no-es-uuid").status_code == 422

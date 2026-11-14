@@ -296,19 +296,25 @@ def guardar_machote(usuario, nombre: str, idioma: str, concepto: dict, plantilla
         raise CotizacionInvalida(f"Ya existe un machote personalizado llamado «{limpio}».")
     if existente is None:
         return MachoteCuenta.objects.create(cuenta_id=usuario.pk, nombre=limpio, idioma=idioma, concepto=concepto)
-    existente.anterior = existente.concepto            # al sobrescribir se guarda la versión anterior
+    if concepto != existente.concepto:                 # al sobrescribir el concepto se guarda la versión anterior (renombrar no la toca)
+        existente.anterior = existente.concepto
     existente.nombre, existente.idioma, existente.concepto, existente.actualizado = limpio, idioma, concepto, timezone.now()
     existente.save()
     return existente
 
 
-def exportar_machotes(usuario) -> dict:
+def exportar_machotes(usuario, ids: list[uuid.UUID] | None = None) -> dict:
+    """La colección (esquema del escritorio); con `ids`, solo esos machotes («Exportar solamente el seleccionado» del escritorio)."""
     from ..dominio.quotation_templates import SCHEMA_VERSION, TEMPLATE_TOOL_ID
+
+    propios = MachoteCuenta.objects.filter(cuenta_id=usuario.pk)
+    if ids is not None:
+        propios = propios.filter(plantilla_id__in=ids)
 
     return {"tool": TEMPLATE_TOOL_ID, "schema_version": SCHEMA_VERSION, "exported_at": timezone.now().isoformat(timespec="seconds"),
             "templates": [{"id": str(m.plantilla_id), "name": m.nombre, "language": m.idioma, "item": m.concepto,
                            "created_at": m.creado.isoformat(timespec="seconds"), "updated_at": m.actualizado.isoformat(timespec="seconds")}
-                          for m in MachoteCuenta.objects.filter(cuenta_id=usuario.pk)]}
+                          for m in propios.order_by("nombre")]}
 
 
 def importar_machotes(usuario, datos: bytes) -> tuple[int, int]:

@@ -183,7 +183,7 @@ def test_conflicto_guarda_copia_y_no_pisa(motor, tmp_path, servidor, sesion_de, 
         # El teléfono edita partiendo de la revisión que bajó antes.
         pagina.fill("#f-client_name", "Cliente desde el teléfono")
         pagina.locator("#confirmar-si").wait_for(state="visible", timeout=TIEMPO * 2)
-        expect(pagina.locator("#confirmar-texto")).to_contain_text("se guardaron como una copia")
+        expect(pagina.locator("#confirmar-texto")).to_contain_text("a salvo en una copia nueva")
         pagina.locator("#confirmar-si").click()
         sin_pendientes(pagina)
         assert Cotizacion.objects.count() == 2
@@ -209,7 +209,7 @@ def test_ortografia_paso_a_paso_con_diccionario(motor, tmp_path, servidor, sesio
         pagina.fill("#f-project_title", "Levantamiento topografico xyzzyq")
         pagina.locator("#paso-condiciones summary").click()
         pagina.fill("#f-notes", "Se requiere anticipo xyzzyq para programar.")
-        assert pagina.locator("#cot-ortografia-estado").inner_text().startswith("⚠")
+        assert pagina.locator("#cot-ortografia-estado").get_attribute("data-estado") == "pendiente"
         pagina.locator("#cot-ortografia").click()
         expect(pagina.locator("#dlg-ortografia")).to_be_visible(timeout=TIEMPO)
         expect(pagina.locator("#o-palabra")).to_have_text("topografico")
@@ -219,10 +219,10 @@ def test_ortografia_paso_a_paso_con_diccionario(motor, tmp_path, servidor, sesio
         pagina.locator("#o-agregar").click()                           # al diccionario: ignora también la segunda aparición
         expect(pagina.locator("#dlg-ortografia")).to_be_hidden(timeout=TIEMPO)
         assert pagina.input_value("#f-project_title") == "Levantamiento topográfico xyzzyq"
-        assert pagina.locator("#cot-ortografia-estado").inner_text().startswith("✓")
+        assert pagina.locator("#cot-ortografia-estado").get_attribute("data-estado") == "listo"
         # Editar un texto vuelve a marcarla pendiente.
         pagina.fill("#f-notes", "Se requiere anticipo para programar los trabajos.")
-        assert pagina.locator("#cot-ortografia-estado").inner_text().startswith("⚠")
+        assert pagina.locator("#cot-ortografia-estado").get_attribute("data-estado") == "pendiente"
         pagina.wait_for_timeout(600)
         assert datos_de(pagina)["spelling_checked"] is False
     finally:
@@ -242,7 +242,7 @@ def test_pdf_con_vista_previa_y_compartir(motor, tmp_path, servidor, sesion_de, 
         expect(pagina.locator("#cot-mensaje")).to_contain_text("al menos un concepto")
         agregar_concepto(pagina, "Levantamiento", 2, 1500)
         pagina.locator("#cot-pdf").click()
-        expect(pagina.locator("#confirmar-texto")).to_contain_text("revisión ortográfica")     # ortografía pendiente
+        expect(pagina.locator("#confirmar-texto")).to_contain_text("revisar la ortografía")     # ortografía pendiente
         pagina.locator("#confirmar-si").click()
         expect(pagina.locator("#dlg-pdf")).to_be_visible()
         try:
@@ -353,5 +353,98 @@ def test_hoja_de_concepto_fecha_unica_y_avisos_junto_a_la_barra(motor, tmp_path,
         barra = pagina.locator("#cot-barra").bounding_box()
         caja = aviso.bounding_box()
         assert caja["y"] + caja["height"] <= barra["y"] + 1 and barra["y"] - (caja["y"] + caja["height"]) < 40   # justo encima de la barra
+    finally:
+        ctx.close()
+
+
+def test_machotes_como_en_el_escritorio(motor, tmp_path, servidor, sesion_de, usuaria):
+    """Machotes con paridad de escritorio: guardar el concepto actual, insertar (también sin red, desde la caché), reemplazar el concepto
+    abierto, y en «Machotes»: editar y renombrar, restaurar la versión anterior, personalizar uno del catálogo, exportar uno, importar y eliminar."""
+    from itt_herramientas.models import MachoteCuenta
+
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria), viewport={"width": 360, "height": 780}, accept_downloads=True)
+    try:
+        pagina = abrir(ctx, servidor)
+        pagina.locator("#cot-nueva").click()
+        pagina.wait_for_selector("#cot-vista-editor:not([hidden])")
+        # Guardar el concepto actual como machote.
+        agregar_concepto(pagina, "Deslinde de predio rústico", 2, 8500)
+        pagina.locator("#cot-conceptos .cot-concepto__abrir").first.click()
+        pagina.locator("#c-machote").click()
+        expect(pagina.locator("#confirmar-entrada")).to_have_value("Deslinde de predio rústico")
+        pagina.fill("#confirmar-entrada", "Deslinde rústico")
+        pagina.locator("#confirmar-si").click()
+        expect(pagina.locator("#cot-mensaje")).to_contain_text("Deslinde rústico")
+        assert MachoteCuenta.objects.get(cuenta_id=usuaria.pk).concepto["unit_price"] == 8500
+        pagina.locator("#c-cerrar").click()
+        # Insertar sin conexión: el selector usa los machotes guardados en el teléfono.
+        ctx.set_offline(True)
+        pagina.locator("#cot-desde-machote").click()
+        expect(pagina.locator("#p-lista .cot-grupo").first).to_contain_text("Mis machotes")
+        pagina.fill("#p-buscar", "rústico")
+        expect(pagina.locator("#p-lista .cot-plantilla")).to_have_count(1)
+        pagina.locator("#p-lista .cot-plantilla").first.click()
+        expect(pagina.locator("#cot-conceptos > li")).to_have_count(2)
+        # Catálogo de fábrica en el idioma de la cotización.
+        pagina.locator("#cot-desde-machote").click()
+        pagina.fill("#p-buscar", "Levantamiento topográfico")
+        pagina.locator("#p-lista .cot-plantilla").first.click()
+        expect(pagina.locator("#cot-conceptos > li")).to_have_count(3)
+        assert "Levantamiento topográfico" in pagina.locator("#cot-conceptos > li").nth(2).inner_text()
+        # Reemplazar el concepto abierto con un machote («Cargar para editar» del escritorio).
+        pagina.locator("#cot-conceptos .cot-concepto__abrir").first.click()
+        pagina.locator("#c-reemplazar").click()
+        pagina.fill("#p-buscar", "Vuelo con dron")
+        pagina.locator("#p-lista .cot-plantilla").first.click()
+        pagina.locator("#confirmar-si").click()
+        expect(pagina.locator("#c-title")).not_to_have_value("Deslinde de predio rústico")
+        assert "dron" in pagina.locator("#c-title").input_value().lower()
+        pagina.locator("#dlg-concepto button[type=submit]").click()
+        expect(pagina.locator("#cot-conceptos > li")).to_have_count(3)
+        ctx.set_offline(False)
+
+        # Pantalla de machotes.
+        pagina.goto(servidor.url + "/cotizaciones/#/machotes")
+        pagina.wait_for_selector("#cot-vista-machotes:not([hidden])")
+        sin_desborde(pagina)
+        expect(pagina.locator("#cot-machotes-lista > li")).to_have_count(1)
+        # Editar: precio nuevo y otro nombre (se guarda la versión anterior y se puede restaurar).
+        pagina.locator("#cot-machotes-lista .cot-fila__principal").first.click()
+        pagina.fill("#m-nombre", "Deslinde rústico 2026")
+        pagina.fill("#m-unit_price", "9900")
+        pagina.locator("#m-guardar").click()
+        expect(pagina.locator("#dlg-machote")).to_be_hidden()
+        expect(pagina.locator("#cot-machotes-lista")).to_contain_text("Deslinde rústico 2026")
+        m = MachoteCuenta.objects.get(cuenta_id=usuaria.pk)
+        assert m.nombre == "Deslinde rústico 2026" and m.concepto["unit_price"] == 9900 and m.anterior["unit_price"] == 8500
+        pagina.locator("#cot-machotes-lista .cot-fila__principal").first.click()
+        pagina.locator("#m-restaurar").click()
+        pagina.locator("#confirmar-si").click()
+        expect(pagina.locator("#dlg-machote")).to_be_hidden()
+        m.refresh_from_db()
+        assert m.concepto["unit_price"] == 8500
+        # Personalizar uno del catálogo en inglés.
+        pagina.locator("[data-coleccion=catalogo]").click()
+        pagina.select_option("#m-idioma", "en")
+        pagina.locator("#cot-catalogo-lista .tv-boton").first.click()
+        assert pagina.locator("#m-lengua").input_value() == "en"
+        pagina.fill("#m-nombre", "Survey (custom)")
+        pagina.locator("#m-guardar").click()
+        expect(pagina.locator("#cot-machotes-lista > li")).to_have_count(2)
+        # Exportar solo uno.
+        fila = pagina.locator("#cot-machotes-lista > li", has_text="Survey (custom)")
+        with pagina.expect_download() as d:
+            fila.locator("a[download]").click()
+        exportado = json.loads(open(d.value.path(), encoding="utf-8").read())
+        assert [t["name"] for t in exportado["templates"]] == ["Survey (custom)"]
+        # Importar (el nombre repetido se renombra, como el escritorio) y eliminar.
+        pagina.set_input_files("#cot-machotes-importar", [{"name": "m.json", "mimeType": "application/json", "buffer": json.dumps(exportado).encode()}])
+        expect(pagina.locator("#cot-machotes-lista > li")).to_have_count(3)
+        fila = pagina.locator("#cot-machotes-lista > li", has_text="(importado 2)")
+        fila.locator("button[aria-label^='Eliminar']").click()
+        expect(pagina.locator("#confirmar-texto")).to_contain_text("(importado 2)")
+        pagina.locator("#confirmar-si").click()
+        expect(pagina.locator("#cot-machotes-lista > li")).to_have_count(2)
+        assert MachoteCuenta.objects.filter(cuenta_id=usuaria.pk).count() == 2
     finally:
         ctx.close()

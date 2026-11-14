@@ -21,7 +21,7 @@
   let vistaPrevia = null;
 
   // -- Utilidades -----------------------------------------------------------------------------------------------------------
-  const { h, limpiar, confirmar } = ITT.ui;
+  const { h, limpiar, confirmar, icono, boton } = ITT.ui;
   const url = (nombre, id) => ITT.cot.url(nombre, id);
   const enLinea = () => navigator.onLine;
 
@@ -41,8 +41,10 @@
   // -- Estado de guardado -------------------------------------------------------------------------------------------------------
   function estadoGuardado() {
     const e = $("cot-estado-guardado");
-    if (!reg) { e.textContent = ""; return; }
-    e.textContent = reg.sucio ? (enLinea() ? "Guardado en este teléfono · subiendo…" : "Guardado en este teléfono · se sube con señal") : "Sincronizado";
+    limpiar(e);
+    if (!reg) return;
+    const [ico, texto] = reg.sucio ? (enLinea() ? ["cloud-upload", "Guardando…"] : ["cloud-off", "Guardado en este teléfono"]) : ["cloud-check", "Guardado"];
+    e.append(icono(ico), h("span", {}, texto));
     e.dataset.estado = reg.sucio ? "pendiente" : "sincronizado";
   }
 
@@ -95,19 +97,22 @@
       const etiqueta = caja.querySelector("label");
       let marca = etiqueta.querySelector(".cot-marca");
       if (!marca) { marca = h("span", { class: "cot-marca" }); etiqueta.append(marca); }
-      marca.textContent = pendiente ? (campo === "email" || campo === "phone" ? " · ⚠ correo o teléfono" : " · ⚠ recomendado") : "";
+      marca.textContent = pendiente ? (campo === "email" || campo === "phone" ? "Correo o teléfono" : "Recomendado") : "";
+      marca.hidden = !pendiente;
     }
     const n = [falta.quote_number, falta.client_name, falta.contact, sinContacto, falta.location, falta.project_title].filter(Boolean).length;
     const s = $("cot-recomendados");
-    s.textContent = n ? `⚠ ${n} datos recomendados pendientes` : "✓ Datos recomendados completos";
+    limpiar(s);
+    s.append(icono(n ? "triangle-alert" : "circle-check"), h("span", {}, n ? `Faltan ${n} dato${n === 1 ? "" : "s"} recomendado${n === 1 ? "" : "s"}` : "Datos completos"));
     s.dataset.estado = n ? "pendiente" : "listo";
-    $("resumen-datos").textContent = n ? `⚠ ${n}` : "";
+    $("resumen-datos").textContent = n ? `Faltan ${n}` : [reg.datos.client_name].filter(Boolean).join("");
   }
 
   function indicadorOrtografia() {
     const b = $("cot-ortografia-estado");
     const ok = !!reg.datos.spelling_checked;
-    b.textContent = ok ? "✓ Ortografía revisada" : "⚠ Ortografía pendiente";
+    limpiar(b);
+    b.append(icono(ok ? "circle-check" : "spell-check"), h("span", {}, ok ? "Ortografía revisada" : "Revisar ortografía"));
     b.dataset.estado = ok ? "listo" : "pendiente";
   }
   function ortografiaSucia() { if (reg.datos.spelling_checked) { reg.datos.spelling_checked = false; indicadorOrtografia(); } }
@@ -121,28 +126,34 @@
   async function pintarLista() {
     const lista = $("cot-lista");
     const filtro = $("cot-buscar").value.trim().toLowerCase();
-    const todos = await ITT.cot.listar();
+    const todos = (await ITT.cot.listar()).sort((a, b) => String(b.actualizada || b.creada || "").localeCompare(String(a.actualizada || a.creada || "")));
     const visibles = todos.filter((b) => !filtro || [b.datos.quote_number, b.datos.client_name, b.datos.project_title].join(" ").toLowerCase().includes(filtro));
     limpiar(lista);
     $("cot-lista-vacia").hidden = todos.length > 0;
+    $("cot-buscador").hidden = todos.length === 0;
+    $("cot-sin-resultados").hidden = !(todos.length && !visibles.length);
     for (const b of visibles) {
       const t = T.totales(b.datos);
-      const estado = b.error ? "Rechazada por el servidor" : b.sucio ? "Sin sincronizar" : "Sincronizada";
+      const folio = b.datos.quote_number || "Sin folio";
+      const estado = b.error ? h("span", { class: "itt-estado", "data-estado": "error" }, icono("triangle-alert"), h("span", {}, "No se pudo subir"))
+        : b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("cloud-off"), h("span", {}, "Sin subir")) : null;
       lista.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "" },
         h("a", { class: "cot-tarjeta__enlace", href: `#/c/${b.id}` },
-          h("strong", {}, b.datos.quote_number || "Sin folio", " · ", b.datos.project_title || "Sin título"),
-          h("span", { class: "tv-tenue" }, b.datos.client_name || "Sin cliente"),
-          h("span", { class: "cot-tarjeta__total" }, `${dinero(t.total)} ${b.datos.currency || ""}`)),
+          h("span", { class: "cot-tarjeta__folio" }, folio),
+          h("strong", { class: "cot-tarjeta__titulo" }, b.datos.project_title || "Sin título"),
+          h("span", { class: "cot-tarjeta__cliente" }, b.datos.client_name || "Sin cliente")),
         h("div", { class: "cot-tarjeta__pie" },
-          h("span", { class: "cot-insignia", "data-estado": b.sucio ? "pendiente" : "listo" }, estado),
-          b.aviso ? h("span", { class: "cot-insignia", "data-estado": "pendiente" }, "Copia por conflicto") : null,
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => duplicarDesde(b), "aria-label": `Duplicar ${b.datos.quote_number || ""}` }, "Duplicar"),
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => borrarRegistro(b), "aria-label": `Eliminar ${b.datos.quote_number || ""}` }, "Eliminar"))));
+          h("span", { class: "cot-tarjeta__total" }, dinero(t.total), h("small", {}, ` ${b.datos.currency || ""}`)),
+          estado,
+          b.aviso ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia por conflicto")) : null,
+          h("span", { class: "cot-tarjeta__espacio" }),
+          boton({ onclick: () => duplicarDesde(b), etiqueta: `Duplicar ${folio}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "copy"),
+          boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${folio}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
     }
   }
 
   async function nueva() {
-    if (!ctx) return mensaje("Abre esta pantalla una vez con conexión para preparar las cotizaciones sin señal.", "error");
+    if (!ctx) return mensaje("Sin conexión. Abre Cotizaciones una vez con señal para poder trabajar sin ella.", "error");
     const r = await ITT.cot.nuevo(ctx);
     location.hash = `#/c/${r.id}`;
   }
@@ -150,13 +161,12 @@
     if (!ctx) return;
     const r = await ITT.cot.duplicar(ctx, b);
     await ITT.refrescarCola();
-    mensaje(`Se creó la copia ${r.datos.quote_number}.`, "info");
+    mensaje(`Copia creada: ${r.datos.quote_number}.`, "info");
     await pintarLista();
     ITT.subirAhora();
   }
   async function borrarRegistro(b) {
-    const msg = b.sucio || !b.servidor_id ? "Esta cotización tiene cambios que quizá no estén en el servidor. Si la eliminas, se pierde. ¿Eliminarla?" : "¿Eliminar esta cotización? No se puede deshacer.";
-    if (!(await confirmar(msg, { aceptar: "Eliminar", peligro: true }))) return;
+    if (!(await confirmarBorrado(b))) return;
     await ITT.cot.borrar(b.id);
     await pintarLista();
     ITT.subirAhora();
@@ -212,14 +222,15 @@
     const t = T.totales(reg.datos);
     items.forEach((it, i) => {
       lista.append(h("li", { class: "cot-concepto", "data-i": String(i) },
-        h("button", { type: "button", class: "cot-concepto__abrir", onclick: () => abrirConcepto(i), "aria-label": `Editar concepto ${i + 1}` },
-          h("strong", {}, it.title || "Sin título"),
-          h("span", { class: "tv-tenue" }, `${fmtNum(it.quantity)} ${it.unit || ""} × ${dinero(it.unit_price)}`),
-          h("span", { class: "cot-concepto__importe" }, dinero(t.importes[i])),
-          it.subitems.length ? h("span", { class: "tv-tenue" }, `${it.subitems.length} alcance${it.subitems.length === 1 ? "" : "s"}`) : null),
+        h("button", { type: "button", class: "cot-concepto__abrir", onclick: () => abrirConcepto(i), "aria-label": `Editar concepto ${i + 1}: ${it.title || "Sin título"}` },
+          h("span", { class: "cot-concepto__num" }, String(i + 1)),
+          h("span", { class: "cot-concepto__texto" },
+            h("strong", {}, it.title || "Sin título"),
+            h("span", { class: "tv-tenue" }, `${fmtNum(it.quantity)} ${it.unit || ""} × ${dinero(it.unit_price)}`, it.subitems.length ? ` · ${it.subitems.length} alcance${it.subitems.length === 1 ? "" : "s"}` : "")),
+          h("span", { class: "cot-concepto__importe" }, dinero(t.importes[i]))),
         h("div", { class: "cot-concepto__mover" },
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => mover(i, -1), disabled: i === 0, "aria-label": "Subir concepto" }, "↑"),
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => mover(i, 1), disabled: i === items.length - 1, "aria-label": "Bajar concepto" }, "↓"))));
+          boton({ onclick: () => mover(i, -1), disabled: i === 0, etiqueta: "Subir concepto", class: "tv-boton tv-boton--secundario itt-boton-plano" }, "chevron-up"),
+          boton({ onclick: () => mover(i, 1), disabled: i === items.length - 1, etiqueta: "Bajar concepto", class: "tv-boton tv-boton--secundario itt-boton-plano" }, "chevron-down"))));
     });
   }
   function mover(i, delta) {
@@ -245,7 +256,7 @@
     contarAlcances(); importeConcepto();
     $("dlg-concepto").showModal();
   }
-  function contarAlcances() { const n = lineas($("c-subitems").value).length; $("c-subitems-cuenta").textContent = `${n} alcance${n === 1 ? "" : "s"}`; }
+  function contarAlcances() { const n = lineas($("c-subitems").value).length; $("c-subitems-cuenta").textContent = n ? `· ${n}` : ""; }
   const lineas = (texto) => texto.split("\n").map((l) => l.replace(/^\s*(?:[•\-–—]|\d+[.)])\s*/, "").trim()).filter(Boolean);
   function importeConcepto() {
     const q = numero($("c-quantity").value), p = numero($("c-unit_price").value);
@@ -268,7 +279,7 @@
     contarAlcances(); importeConcepto(); cambioEnConceptos();
   }
   async function quitarConcepto() {
-    if (!(await confirmar("¿Quitar este concepto de la cotización?", { aceptar: "Quitar", peligro: true }))) return;
+    if (!(await confirmar(`¿Quitar «${reg.datos.items[conceptoAbierto].title || `Concepto ${conceptoAbierto + 1}`}» de la cotización?`, { aceptar: "Quitar concepto", peligro: true }))) return;
     reg.datos.items.splice(conceptoAbierto, 1);
     conceptoAbierto = -1;
     $("dlg-concepto").close();
@@ -281,58 +292,95 @@
     cambioEnConceptos();
     return reg.datos.items.length - 1;
   }
+  // -- Machotes ---------------------------------------------------------------------------------------------------------------------
+  // Paridad con el escritorio: catálogo de fábrica (ES/EN) y machotes propios; insertar, reemplazar el concepto abierto («Cargar para
+  // editar»), guardar el concepto como machote, y administrar (editar, renombrar, restaurar, eliminar, importar, exportar todo o uno).
+  const SIN_RED_MACHOTES = "Sin conexión. Guardar o cambiar machotes necesita señal.";
+  const propios = () => (ctx && ctx.machotes) || [];
+  const catalogo = (idioma) => Object.entries(((ctx && ctx.plantillas) || {})[idioma] || {}).map(([nombre, concepto]) => ({ nombre, concepto }));
+  const idiomaCorto = (i) => (i === "en" ? "EN" : "ES");
+
   async function guardarComoMachote() {
     const it = reg.datos.items[conceptoAbierto];
-    if (!enLinea()) return mensaje("Guardar un machote necesita conexión: los machotes viven en tu cuenta.", "error");
-    const nombre = await confirmar("Escribe un nombre para el machote.", { entrada: it.title.slice(0, 160), etiqueta: "Nombre del machote", aceptar: "Guardar" });
+    if (!enLinea()) return mensaje(SIN_RED_MACHOTES, "error");
+    const nombre = await confirmar("Ponle un nombre para encontrarlo después.", { entrada: (it.title || "").slice(0, 160), etiqueta: "Nombre del machote", aceptar: "Guardar machote" });
     if (!nombre) return;
-    const concepto = ITT.cot.copiar(it);
+    await enviarMachote({ nombre, idioma: reg.datos.language, concepto: ITT.cot.copiar(it) });
+  }
+  /** Guarda en la cuenta; si el nombre ya existe, pregunta si se reemplaza (como el escritorio) y conserva la versión anterior. */
+  async function enviarMachote(cuerpo) {
     try {
-      const m = await ITT.cot.pedir(urls.machotes, { metodo: "POST", json: { nombre, idioma: reg.datos.language, concepto } });
+      const m = await ITT.cot.pedir(urls.machotes, { metodo: "POST", json: cuerpo });
       await recargarContexto();
       mensaje(`Machote «${m.nombre}» guardado.`, "info");
+      return m;
     } catch (e) {
       if (e.clase === "rechazo" && /Ya existe/.test(e.mensaje || "")) {
-        const previo = (ctx.machotes || []).find((x) => x.nombre.toLowerCase() === nombre.toLowerCase());
-        if (previo && (await confirmar(`Ya existe un machote llamado «${previo.nombre}». ¿Sobrescribirlo? Se conserva la versión anterior para poder restaurarla.`, { aceptar: "Sobrescribir" }))) {
-          try { await ITT.cot.pedir(urls.machotes, { metodo: "POST", json: { id: previo.id, nombre: previo.nombre, idioma: reg.datos.language, concepto } }); await recargarContexto(); mensaje(`Machote «${previo.nombre}» actualizado.`, "info"); }
-          catch (e2) { mensaje(e2.mensaje, "error"); }
+        const previo = propios().find((x) => x.nombre.toLowerCase() === cuerpo.nombre.trim().toLowerCase());
+        if (previo && (await confirmar(`Ya tienes un machote llamado «${previo.nombre}». ¿Reemplazarlo con este concepto? Podrás restaurar la versión anterior.`, { aceptar: "Reemplazar" }))) {
+          try { const m = await ITT.cot.pedir(urls.machotes, { metodo: "POST", json: Object.assign({}, cuerpo, { id: previo.id, nombre: previo.nombre }) }); await recargarContexto(); mensaje(`Machote «${m.nombre}» actualizado.`, "info"); return m; }
+          catch (e2) { mensaje(e2.mensaje || "No se pudo guardar el machote. Inténtalo de nuevo.", "error"); }
         }
-      } else mensaje(e.mensaje || "No se pudo guardar el machote.", "error");
+      } else mensaje(e.clase === "red" ? SIN_RED_MACHOTES : e.mensaje || "No se pudo guardar el machote. Inténtalo de nuevo.", "error");
     }
+    return null;
   }
   async function recargarContexto() { try { ctx = await ITT.cot.contexto(); } catch (_) { /* se queda el anterior */ } }
 
-  // Machotes: insertar
-  function abrirPlantillas() {
+  // Selector: «insertar» agrega un concepto; «reemplazar» cambia el concepto abierto (el «Cargar para editar» del escritorio).
+  let modoSelector = "insertar";
+  function abrirPlantillas(modo) {
+    modoSelector = modo === "reemplazar" ? "reemplazar" : "insertar";
+    $("dlg-plantillas-titulo").textContent = modoSelector === "reemplazar" ? "Reemplazar con machote" : "Insertar machote";
     $("p-buscar").value = "";
     pintarPlantillas();
     $("dlg-plantillas").showModal();
+    if (matchMedia("(pointer: fine)").matches) $("p-buscar").focus();
+  }
+  function filaPlantilla(nombre, concepto, extra, alElegir) {
+    const precio = Number(concepto.unit_price || 0);
+    return h("li", {}, h("button", { type: "button", class: "cot-plantilla", onclick: alElegir },
+      h("span", { class: "cot-plantilla__texto" },
+        h("strong", {}, nombre, extra ? h("span", { class: "cot-etiqueta" }, extra) : null),
+        concepto.title && concepto.title !== nombre ? h("span", { class: "tv-tenue" }, concepto.title) : null),
+      h("span", { class: "cot-plantilla__precio" }, precio ? dinero(precio) : "", h("small", {}, concepto.unit ? ` / ${concepto.unit}` : "")),
+      icono(modoSelector === "reemplazar" ? "replace" : "plus")));
   }
   function pintarPlantillas() {
     const filtro = $("p-buscar").value.trim().toLowerCase();
     const idioma = reg.datos.language;
     const caja = $("p-lista");
     limpiar(caja);
-    const grupo = (titulo, filas) => {
+    if (!ctx) { caja.append(h("div", { class: "itt-vacio" }, icono("cloud-off"), h("p", {}, "Conéctate una vez para descargar los machotes."))); return; }
+    const coincide = (n, c) => !filtro || `${n} ${c.title} ${c.description}`.toLowerCase().includes(filtro);
+    const grupo = (titulo, ico, filas) => {
       if (!filas.length) return;
-      caja.append(h("h3", {}, titulo));
-      const ul = h("ul", { class: "cot-lista" });
-      for (const f of filas) ul.append(h("li", {}, h("button", { type: "button", class: "tv-boton tv-boton--secundario cot-plantilla", onclick: () => insertarPlantilla(f.concepto) },
-        h("strong", {}, f.nombre), h("span", { class: "tv-tenue" }, f.concepto.title))));
-      caja.append(ul);
+      caja.append(h("h3", { class: "cot-grupo" }, icono(ico), h("span", {}, titulo), h("span", { class: "cot-grupo__cuenta" }, String(filas.length))));
+      caja.append(h("ul", { class: "cot-plantillas__lista" }, filas));
     };
-    const coincide = (n, c) => !filtro || `${n} ${c.title}`.toLowerCase().includes(filtro);
-    grupo("Mis machotes", (ctx.machotes || []).filter((m) => m.idioma === idioma && coincide(m.nombre, m.concepto)).map((m) => ({ nombre: m.nombre, concepto: m.concepto })));
-    grupo("Machotes de fábrica", Object.entries((ctx.plantillas || {})[idioma] || {}).filter(([n, c]) => coincide(n, c)).map(([nombre, concepto]) => ({ nombre, concepto })));
-    if (!caja.children.length) caja.append(h("p", { class: "tv-tenue" }, "Sin resultados."));
+    const mios = propios().filter((m) => coincide(m.nombre, m.concepto)).sort((a, b) => (a.idioma === idioma ? 0 : 1) - (b.idioma === idioma ? 0 : 1) || a.nombre.localeCompare(b.nombre, "es"));
+    grupo("Mis machotes", "star", mios.map((m) => filaPlantilla(m.nombre, m.concepto, m.idioma !== idioma ? idiomaCorto(m.idioma) : "", () => elegirPlantilla(m.nombre, m.concepto))));
+    grupo(idioma === "en" ? "Catálogo · English" : "Catálogo", "book-open", catalogo(idioma).filter((f) => coincide(f.nombre, f.concepto)).map((f) => filaPlantilla(f.nombre, f.concepto, "", () => elegirPlantilla(f.nombre, f.concepto))));
+    if (!caja.children.length) caja.append(h("p", { class: "tv-tenue cot-sin-resultados" }, "Sin resultados."));
   }
-  function insertarPlantilla(concepto) {
+  async function elegirPlantilla(nombre, concepto) {
+    if (modoSelector === "reemplazar" && conceptoAbierto >= 0) {
+      const actual = reg.datos.items[conceptoAbierto];
+      if (!(await confirmar(`¿Reemplazar «${actual.title || `Concepto ${conceptoAbierto + 1}`}» con el machote «${nombre}»?`, { aceptar: "Reemplazar" }))) return;
+      $("dlg-plantillas").close();
+      reg.datos.items[conceptoAbierto] = Object.assign({ title: "", description: "", subitems: [], unit: "Lote", quantity: 1, unit_price: 0 }, ITT.cot.copiar(concepto));
+      conceptoSinEditar = false;
+      abrirConcepto(conceptoAbierto);
+      cambioEnConceptos();
+      mensaje(`Concepto reemplazado con «${nombre}».`, "info");
+      return;
+    }
     $("dlg-plantillas").close();
-    if (reg.datos.items.length >= (ctx.limites ? ctx.limites.conceptos : 200)) return mensaje("Se alcanzó el máximo de conceptos por cotización.", "error");
-    const i = conceptoNuevo(concepto);
-    mensaje(`Se agregó «${reg.datos.items[i].title}».`, "info");
-    $("cot-conceptos").lastElementChild.scrollIntoView({ block: "nearest" });
+    if (reg.datos.items.length >= (ctx.limites ? ctx.limites.conceptos : 200)) return mensaje("Llegaste al máximo de conceptos por cotización.", "error");
+    conceptoNuevo(concepto);
+    mensaje(`Se agregó «${nombre}».`, "info");
+    const ultimo = $("cot-conceptos").lastElementChild;
+    if (ultimo) { ultimo.scrollIntoView({ block: "nearest" }); ultimo.classList.add("cot-concepto--nuevo"); setTimeout(() => ultimo.classList.remove("cot-concepto--nuevo"), 1200); }
   }
 
   // Imágenes
@@ -364,7 +412,7 @@
         reg.miniaturas = Object.assign({}, reg.miniaturas, { [sha256]: miniatura });
         reg.datos.images.push({ path: `captura:${sha256}`, caption: "" });
       } catch (e) {
-        mensaje(`No se pudo guardar «${archivo.name || "foto"}»: ${e.message || e}`, "error");
+        mensaje(`No se pudo agregar «${archivo.name || "la foto"}». Prueba con otra imagen.`, "error");
       }
     }
     pintarImagenes(); recalcular(); ortografiaSucia(); await guardarYa();
@@ -396,7 +444,7 @@
     else d[id] = valor;
   }
   async function revisarOrtografia() {
-    if (!enLinea()) return mensaje("La revisión ortográfica necesita conexión: el diccionario está en el servidor. La cotización queda marcada como pendiente de revisar.", "error");
+    if (!enLinea()) return mensaje("Sin conexión. Revisa la ortografía cuando vuelva la señal.", "error");
     await guardarYa();
     try {
       const r = await ITT.ortografia.revisar({ idioma: reg.datos.language, campos: camposOrtografia(), aplicar: aplicarOrtografia });
@@ -404,7 +452,7 @@
       if (r.revisado) {
         reg.datos.spelling_checked = true;
         indicadorOrtografia();
-        mensaje(r.problemas ? "Revisión terminada." : "No se encontraron palabras desconocidas.", "info");
+        mensaje(r.problemas ? "Revisión terminada." : "Sin errores de ortografía.", "info");
       }
       programarGuardado();
       programarVistaPrevia();
@@ -414,7 +462,7 @@
   // Idioma
   async function cambiarIdioma(nuevo) {
     if (nuevo === reg.datos.language) return;
-    if (!enLinea()) { $("f-idioma").value = reg.datos.language; return mensaje("Cambiar el idioma traduce el texto de fábrica en el servidor y necesita conexión.", "error"); }
+    if (!enLinea()) { $("f-idioma").value = reg.datos.language; return mensaje("Sin conexión. Cambia el idioma cuando vuelva la señal.", "error"); }
     try {
       const r = await ITT.cot.pedir(urls.traducir, { metodo: "POST", json: { datos: reg.datos, idioma: nuevo } });
       reg.datos = r.datos;
@@ -440,11 +488,11 @@
 
   async function generarPdf() {
     const d = reg.datos;
-    if (!d.items.length) return mensaje("Agrega al menos un concepto antes de exportar.", "error");
-    if (!enLinea()) return mensaje("El PDF se genera en el servidor y necesita conexión. La cotización está guardada en este teléfono.", "error");
+    if (!d.items.length) return mensaje("Agrega al menos un concepto para generar el PDF.", "error");
+    if (!enLinea()) return mensaje("Sin conexión. Genera el PDF cuando vuelva la señal; tu cotización ya está guardada.", "error");
     if (!d.spelling_checked) {
       const nombre = d.language === "en" ? "inglés" : "español";
-      if (!(await confirmar(`Esta cotización no ha terminado su revisión ortográfica en ${nombre}. ¿Generar el PDF de todos modos?`, { aceptar: "Generar de todos modos", cancelar: "Revisar primero" }))) return;
+      if (!(await confirmar(`Falta revisar la ortografía (${nombre}). ¿Generar el PDF de todos modos?`, { aceptar: "Generar PDF", cancelar: "Revisar primero" }))) return;
     }
     await guardarYa();
     const dlg = $("dlg-pdf");
@@ -460,15 +508,15 @@
       if (r.pendientes) {
         const a = $("pdf-advertencias");
         a.hidden = false;
-        a.textContent = `${r.pendientes} imagen${r.pendientes === 1 ? "" : "es"} de referencia aún no ${r.pendientes === 1 ? "llegó" : "llegaron"} al servidor y no aparece${r.pendientes === 1 ? "" : "n"} en este PDF. Se suben solas con señal; genera el PDF de nuevo cuando termine.`;
+        a.textContent = `${r.pendientes} imagen${r.pendientes === 1 ? "" : "es"} aún se ${r.pendientes === 1 ? "está" : "están"} subiendo y no aparece${r.pendientes === 1 ? "" : "n"} en este PDF. Genéralo de nuevo en un momento.`;
         ITT.subirAhora && ITT.subirAhora();
       }
       $("pdf-compartir").disabled = false; $("pdf-descargar").disabled = false;
-      $("pdf-estado").textContent = r.drive ? `${r.nombre} · se envía a tu Drive` : r.nombre;
+      $("pdf-estado").textContent = r.drive ? `${r.nombre} · se guardará en tu Drive` : r.nombre;
       await dibujarPdf(r.blob, $("pdf-paginas"));
     } catch (e) {
-      $("pdf-estado").textContent = e.mensaje || `No se pudo mostrar el PDF: ${e.message || e}`;
-      if (pdfActual) $("pdf-estado").textContent = `${pdfActual.nombre} (no se pudo mostrar aquí; puedes compartirlo o descargarlo)`;
+      $("pdf-estado").textContent = e.mensaje || "No se pudo generar el PDF. Inténtalo de nuevo.";
+      if (pdfActual) $("pdf-estado").textContent = `${pdfActual.nombre} · no se puede mostrar aquí, pero puedes compartirlo o descargarlo.`;
     }
   }
   async function compartirPdf() {
@@ -487,51 +535,137 @@
   // Vista previa lateral (pantallas anchas): se actualiza sola, con retraso, solo con conexión.
   const ancha = () => matchMedia("(min-width: 1000px)").matches;
   function programarVistaPrevia() {
+    if (ancha() && reg && !reg.datos.items.length) {
+      const caja = $("cot-vp-paginas");
+      limpiar(caja);
+      caja.append(h("div", { class: "itt-vacio cot-vp-vacia" }, icono("file-text"), h("p", {}, "Agrega un concepto para ver el documento")));
+      limpiar($("cot-vp-estado"));
+      return;
+    }
     if (!ancha() || !enLinea() || !reg || !reg.datos.items.length) return;
     clearTimeout(vistaPrevia);
     vistaPrevia = setTimeout(actualizarVistaPrevia, 1500);
   }
   async function actualizarVistaPrevia() {
     if (!ancha() || !enLinea() || !reg) return;
-    $("cot-vp-estado").textContent = "Actualizando…";
-    try { const r = await pedirPdf(); await dibujarPdf(r.blob, $("cot-vp-paginas")); $("cot-vp-estado").textContent = r.pendientes ? `${r.pendientes} imagen(es) aún sin subir no aparecen.` : "Vista previa al día."; }
-    catch (e) { $("cot-vp-estado").textContent = e.mensaje || "No se pudo actualizar la vista previa."; }
+    const estado = $("cot-vp-estado");
+    const poner = (ico, texto, tipo) => { limpiar(estado); if (texto) estado.append(icono(ico), h("span", {}, texto)); estado.dataset.estado = tipo || ""; };
+    poner("refresh-cw", "Actualizando…", "cargando");
+    $("cot-vp-paginas").setAttribute("aria-busy", "true");
+    try { const r = await pedirPdf(); await dibujarPdf(r.blob, $("cot-vp-paginas")); poner("images", r.pendientes ? `${r.pendientes} imagen${r.pendientes === 1 ? "" : "es"} subiendo` : "", r.pendientes ? "pendiente" : ""); }
+    catch (e) { poner("triangle-alert", "No se pudo actualizar", "error"); }
+    finally { $("cot-vp-paginas").removeAttribute("aria-busy"); }
   }
 
-  // -- Machotes (pantalla) --------------------------------------------------------------------------------------------------------------
-  async function pintarMachotes() {
-    const ul = $("cot-machotes-lista");
-    limpiar(ul);
-    if (enLinea()) await recargarContexto();
-    const filas = (ctx && ctx.machotes) || [];
-    $("cot-machotes-vacio").hidden = filas.length > 0;
-    $("cot-machotes-exportar").setAttribute("href", urls["machotes-exportar"]);
-    $("cot-machotes-exportar").setAttribute("download", "machotes_cotizacion.json");
-    for (const m of filas) {
-      ul.append(h("li", { class: "cot-tarjeta", "data-id": m.id },
-        h("div", { class: "cot-tarjeta__enlace" }, h("strong", {}, m.nombre), h("span", { class: "tv-tenue" }, m.concepto.title), h("span", { class: "tv-tenue" }, m.idioma === "en" ? "English" : "Español")),
-        h("div", { class: "cot-tarjeta__pie" },
-          m.tiene_anterior ? h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => restaurarMachote(m) }, "Restaurar versión anterior") : null,
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => borrarMachote(m) }, "Eliminar"))));
+  // -- Machotes (pantalla «Administrar machotes») -------------------------------------------------------------------------------------
+  let coleccion = "propios";
+  let machoteEditado = null;          // {id?, tiene_anterior?} del machote abierto en la hoja; null = nuevo
+  const fechaCorta = (iso) => { try { return new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }); } catch (_) { return ""; } };
+
+  async function pintarMachotes(recargar = true) {
+    if (recargar && enLinea()) await recargarContexto();
+    const filtro = $("m-buscar").value.trim().toLowerCase();
+    const coincide = (n, c) => !filtro || `${n} ${c.title} ${c.description}`.toLowerCase().includes(filtro);
+    for (const b of document.querySelectorAll("[data-coleccion]")) b.setAttribute("aria-pressed", String(b.dataset.coleccion === coleccion));
+    $("m-cuenta-propios").textContent = propios().length ? String(propios().length) : "";
+    $("m-idioma-caja").hidden = coleccion !== "catalogo";
+    const exportar = $("cot-machotes-exportar");
+    exportar.setAttribute("href", urls["machotes-exportar"]);
+    exportar.hidden = !propios().length;
+    const ulP = $("cot-machotes-lista"), ulC = $("cot-catalogo-lista");
+    limpiar(ulP); limpiar(ulC);
+    ulP.hidden = coleccion !== "propios"; ulC.hidden = coleccion !== "catalogo";
+    let vistos = 0;
+    if (coleccion === "propios") {
+      $("cot-machotes-vacio").hidden = propios().length > 0;
+      for (const m of propios().filter((x) => coincide(x.nombre, x.concepto))) {
+        vistos++;
+        ulP.append(h("li", { class: "cot-fila", "data-id": m.id },
+          h("button", { type: "button", class: "cot-fila__principal", onclick: () => abrirMachote(m), "aria-label": `Editar el machote ${m.nombre}` },
+            h("strong", {}, m.nombre, h("span", { class: "cot-etiqueta" }, idiomaCorto(m.idioma))),
+            h("span", { class: "tv-tenue" }, m.concepto.title || ""),
+            h("span", { class: "cot-fila__meta" }, Number(m.concepto.unit_price) ? `${dinero(m.concepto.unit_price)} / ${m.concepto.unit || ""}` : m.concepto.unit || "", m.actualizado ? ` · ${fechaCorta(m.actualizado)}` : "")),
+          h("div", { class: "cot-fila__acciones" },
+            boton({ onclick: () => abrirMachote(m), etiqueta: `Editar ${m.nombre}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "pencil"),
+            h("a", { class: "tv-boton tv-boton--secundario itt-boton-plano itt-boton-icono", href: `${urls["machotes-exportar"]}?id=${encodeURIComponent(m.id)}`, download: `machote_${m.nombre.replace(/[^\w\- ]+/g, "").trim() || "cotizacion"}.json`, "aria-label": `Exportar ${m.nombre}`, title: `Exportar ${m.nombre}` }, icono("download")),
+            boton({ onclick: () => borrarMachote(m), etiqueta: `Eliminar ${m.nombre}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
+      }
+    } else {
+      $("cot-machotes-vacio").hidden = true;
+      const idioma = $("m-idioma").value;
+      for (const f of catalogo(idioma).filter((x) => coincide(x.nombre, x.concepto))) {
+        vistos++;
+        ulC.append(h("li", { class: "cot-fila" },
+          h("div", { class: "cot-fila__principal" }, h("strong", {}, f.nombre), h("span", { class: "tv-tenue" }, f.concepto.title || ""),
+            h("span", { class: "cot-fila__meta" }, `${f.concepto.subitems.length} alcance${f.concepto.subitems.length === 1 ? "" : "s"} · ${f.concepto.unit || ""}`)),
+          h("div", { class: "cot-fila__acciones" },
+            boton({ onclick: () => abrirMachote(null, { nombre: f.nombre, idioma, concepto: f.concepto }), class: "tv-boton tv-boton--secundario" }, "copy", "Personalizar"))));
+      }
     }
+    $("cot-machotes-sin-resultados").hidden = !(filtro && vistos === 0);
+  }
+
+  function abrirMachote(m, base) {
+    machoteEditado = m;
+    const datos = m ? { nombre: m.nombre, idioma: m.idioma, concepto: m.concepto } : base || { nombre: "", idioma: "es", concepto: { title: "", description: "", subitems: [], unit: "Lote", quantity: 1, unit_price: 0 } };
+    $("dlg-machote-titulo").textContent = m ? "Editar machote" : "Nuevo machote";
+    $("m-nombre").value = datos.nombre; $("m-lengua").value = datos.idioma || "es";
+    const c = datos.concepto;
+    $("m-title").value = c.title || ""; $("m-description").value = c.description || ""; $("m-subitems").value = (c.subitems || []).join("\n");
+    $("m-unit").value = c.unit || ""; $("m-quantity").value = fmtNum(Number(c.quantity ?? 1)); $("m-unit_price").value = fmtNum(Number(c.unit_price ?? 0));
+    $("m-restaurar").hidden = !(m && m.tiene_anterior);
+    $("m-eliminar").hidden = !m;
+    $("m-error").hidden = true;
+    $("dlg-machote").showModal();
+  }
+  async function guardarMachoteEditado(e) {
+    e.preventDefault();
+    const err = $("m-error");
+    const q = numero($("m-quantity").value), p = numero($("m-unit_price").value);
+    const problema = !$("m-nombre").value.trim() ? "Escribe un nombre para el machote." : !Number.isFinite(q) || q < 0 || q > 1e9 ? "La cantidad debe ser un número entre 0 y 1,000,000,000."
+      : !Number.isFinite(p) || p < 0 || p > 1e11 ? "El precio debe ser un número entre 0 y 100,000,000,000." : !enLinea() ? SIN_RED_MACHOTES : "";
+    err.hidden = !problema; err.textContent = problema;
+    if (problema) return;
+    const concepto = { title: $("m-title").value, description: $("m-description").value, subitems: lineas($("m-subitems").value), unit: $("m-unit").value.trim() || "Lote", quantity: q, unit_price: p };
+    const cuerpo = { nombre: $("m-nombre").value, idioma: $("m-lengua").value, concepto };
+    if (machoteEditado) cuerpo.id = machoteEditado.id;
+    $("m-guardar").disabled = true;
+    try {
+      const m = await ITT.cot.pedir(urls.machotes, { metodo: "POST", json: cuerpo });
+      $("dlg-machote").close();
+      await recargarContexto();
+      mensaje(`Machote «${m.nombre}» guardado.`, "info");
+      if (!machoteEditado) coleccion = "propios";
+      await pintarMachotes(false);
+    } catch (x) { err.hidden = false; err.textContent = x.clase === "red" ? SIN_RED_MACHOTES : x.mensaje || "No se pudo guardar. Inténtalo de nuevo."; }
+    finally { $("m-guardar").disabled = false; }
   }
   async function borrarMachote(m) {
-    if (!(await confirmar(`¿Eliminar el machote «${m.nombre}»? Las cotizaciones que ya lo usan no cambian.`, { aceptar: "Eliminar", peligro: true }))) return;
-    try { await ITT.cot.pedir(url("machote", m.id), { metodo: "DELETE" }); await pintarMachotes(); } catch (e) { mensaje(e.mensaje || "No se pudo eliminar.", "error"); }
+    if (!enLinea()) return mensaje(SIN_RED_MACHOTES, "error");
+    if (!(await confirmar(`¿Eliminar el machote «${m.nombre}»? Las cotizaciones que ya lo usan no cambian.`, { aceptar: "Eliminar machote", peligro: true }))) return false;
+    try { await ITT.cot.pedir(url("machote", m.id), { metodo: "DELETE" }); await pintarMachotes(); mensaje(`Se eliminó «${m.nombre}».`, "info"); return true; }
+    catch (e) { mensaje(e.mensaje || "No se pudo eliminar. Inténtalo de nuevo.", "error"); return false; }
   }
   async function restaurarMachote(m) {
-    try { await ITT.cot.pedir(url("machote-restaurar", m.id), { metodo: "POST", json: {} }); await pintarMachotes(); mensaje("Se restauró la versión anterior.", "info"); } catch (e) { mensaje(e.mensaje || "No se pudo restaurar.", "error"); }
+    if (!enLinea()) return mensaje(SIN_RED_MACHOTES, "error");
+    if (!(await confirmar(`¿Regresar «${m.nombre}» a su versión anterior?`, { aceptar: "Restaurar" }))) return;
+    try {
+      const r = await ITT.cot.pedir(url("machote-restaurar", m.id), { metodo: "POST", json: {} });
+      $("dlg-machote").close(); await pintarMachotes(); mensaje(`«${r.nombre}» volvió a su versión anterior.`, "info");
+    } catch (e) { mensaje(e.mensaje || "No se pudo restaurar. Inténtalo de nuevo.", "error"); }
   }
   async function importarMachotes(archivo) {
+    if (!enLinea()) return mensaje(SIN_RED_MACHOTES, "error");
     const f = new FormData(); f.append("archivo", archivo);
     try {
       const r = await ITT.cot.pedir(urls["machotes-importar"], { metodo: "POST", formulario: f });
-      mensaje(`Se importaron ${r.agregados} machote${r.agregados === 1 ? "" : "s"}${r.renombrados ? ` (${r.renombrados} con nombre repetido se renombraron)` : ""}.`, "info");
+      coleccion = "propios";
+      mensaje(`Se importaron ${r.agregados} machote${r.agregados === 1 ? "" : "s"}${r.renombrados ? ` (${r.renombrados} con nombre repetido, renombrado${r.renombrados === 1 ? "" : "s"})` : ""}.`, "info");
       await pintarMachotes();
-    } catch (e) { mensaje(e.mensaje || "No se pudo importar.", "error"); }
+    } catch (e) { mensaje(e.mensaje || "No se pudo importar el archivo.", "error"); }
   }
   async function importarEditable(archivo) {
-    if (!enLinea()) return mensaje("Importar un editable necesita conexión.", "error");
+    if (!enLinea()) return mensaje("Sin conexión. Importa el archivo cuando vuelva la señal.", "error");
     const f = new FormData(); f.append("archivo", archivo);
     try {
       const r = await ITT.cot.pedir(urls.importar, { metodo: "POST", formulario: f });
@@ -545,12 +679,19 @@
   function mostrar(vista) {
     for (const v of ["lista", "editor", "machotes"]) $(`cot-vista-${v}`).hidden = v !== vista;
     raiz.dataset.vista = vista;
+    document.documentElement.dataset.ittVista = vista;
+    if (vista !== "editor") document.title = vista === "machotes" ? "Machotes · Cotizaciones" : "Cotizaciones";
   }
   async function ruta() {
     mensaje("");
     if (reg && temporizador) await guardarYa();
     const hash = location.hash || "#/";
     let m;
+    if ((m = /^#\/s\/([0-9a-f-]{36})$/.exec(hash))) {                  // desde la búsqueda: id del servidor
+      const local = await ITT.cot.localDe(m[1]);
+      history.replaceState(null, "", local ? `#/c/${local}` : "#/");
+      return ruta();
+    }
     if ((m = /^#\/c\/([0-9a-f-]{36})$/.exec(hash))) {
       const r = await ITT.cola.borrador(m[1]);
       if (!r || r.borrada) { location.hash = "#/"; return; }
@@ -562,6 +703,7 @@
       return;
     }
     reg = null;
+    if (hash === "#/nueva") { history.replaceState(null, "", "#/"); if (ctx) return nueva(); }
     if (hash === "#/machotes") { mostrar("machotes"); await pintarMachotes(); return; }
     mostrar("lista");
     await pintarLista();
@@ -575,7 +717,19 @@
     $("cot-importar").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importarEditable(f); });
     $("cot-machotes-importar").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importarMachotes(f); });
     $("cot-agregar").addEventListener("click", () => { const i = conceptoNuevo(); abrirConcepto(i, true); });
-    $("cot-desde-machote").addEventListener("click", abrirPlantillas);
+    $("cot-desde-machote").addEventListener("click", () => abrirPlantillas("insertar"));
+    $("c-reemplazar").addEventListener("click", () => abrirPlantillas("reemplazar"));
+    $("cot-nueva-vacia").addEventListener("click", nueva);
+    for (const id of ["p-administrar", "mas-machotes"]) $(id).addEventListener("click", () => { for (const d of document.querySelectorAll("dialog[open]")) d.close(); });
+    for (const b of document.querySelectorAll("[data-coleccion]")) b.addEventListener("click", () => { coleccion = b.dataset.coleccion; pintarMachotes(false); });
+    $("m-buscar").addEventListener("input", () => pintarMachotes(false));
+    $("m-idioma").addEventListener("change", () => pintarMachotes(false));
+    $("cot-machote-nuevo").addEventListener("click", () => abrirMachote(null));
+    $("form-machote").addEventListener("submit", guardarMachoteEditado);
+    $("m-eliminar").addEventListener("click", async () => { const m = machoteEditado; if (m && (await borrarMachote(m))) $("dlg-machote").close(); });
+    $("m-restaurar").addEventListener("click", () => machoteEditado && restaurarMachote(machoteEditado));
+    $("cot-vp-actualizar").addEventListener("click", () => actualizarVistaPrevia());
+    $("cot-machotes-exportar").addEventListener("click", (e) => { if (!enLinea()) { e.preventDefault(); mensaje("Sin conexión. Exporta cuando vuelva la señal.", "error"); } });
     $("p-buscar").addEventListener("input", pintarPlantillas);
     for (const id of ["c-title", "c-description", "c-subitems", "c-unit", "c-quantity", "c-unit_price"]) $(id).addEventListener("input", aplicarConcepto);
     $("c-quitar").addEventListener("click", quitarConcepto);
@@ -605,13 +759,20 @@
     });
     for (const b of document.querySelectorAll("[data-cerrar]")) b.addEventListener("click", () => b.closest("dialog").close());
     addEventListener("hashchange", ruta);
-    const red = () => { $("cot-red").textContent = enLinea() ? "En línea" : "Sin conexión: puedes seguir editando; todo queda en este teléfono."; $("cot-red").dataset.estado = enLinea() ? "en_linea" : "sin_conexion"; estadoGuardado(); };
+    const red = () => {
+      const e = $("cot-red");
+      limpiar(e);
+      if (!enLinea()) e.append(icono("cloud-off"), h("span", {}, "Sin conexión. Puedes seguir trabajando: todo se guarda en este teléfono."));
+      e.hidden = enLinea();
+      e.dataset.estado = enLinea() ? "en_linea" : "sin_conexion";
+      estadoGuardado();
+    };
     addEventListener("online", red); addEventListener("offline", red); red();
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "cotizacion") return;
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
-        await confirmar("Esta cotización cambió en otro dispositivo mientras la editabas aquí. Tus cambios NO se perdieron: se guardaron como una copia nueva. Te llevamos a la copia.", { aceptar: "Ver la copia", soloAviso: true });
+        await confirmar("Esta cotización cambió en otro dispositivo mientras la editabas. Tus cambios están a salvo en una copia nueva.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/c/${d.copia}`;
       } else if (d.tipo_evento === "sincronizado") {
         if (raiz.dataset.vista === "lista") pintarLista();
@@ -620,7 +781,8 @@
     });
   }
   function confirmarBorrado(b) {
-    return confirmar(b.sucio || !b.servidor_id ? "Esta cotización tiene cambios que quizá no estén en el servidor. Si la eliminas, se pierde. ¿Eliminarla?" : "¿Eliminar esta cotización? No se puede deshacer.", { aceptar: "Eliminar", peligro: true });
+    const nombre = [b.datos.quote_number, b.datos.project_title].filter(Boolean).join(" · ") || "esta cotización";
+    return confirmar(b.sucio || !b.servidor_id ? `¿Eliminar «${nombre}»? Tiene cambios que aún no se suben y se perderán.` : `¿Eliminar «${nombre}»? No se puede deshacer.`, { aceptar: "Eliminar cotización", peligro: true });
   }
 
   async function asegurarCuenta() {
@@ -635,7 +797,7 @@
     ITT.cot.iniciar(urls);
     enlazar();
     await asegurarCuenta();
-    try { ctx = await ITT.cot.contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Vuelve a iniciar sesión para preparar las cotizaciones." : "Abre esta pantalla una vez con conexión para preparar las cotizaciones sin señal.", "error"); }
+    try { ctx = await ITT.cot.contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Tu sesión terminó. Vuelve a iniciar sesión." : "Sin conexión. Abre Cotizaciones una vez con señal para poder trabajar sin ella.", "error"); }
     if (ctx) {
       const dl = $("unidades");
       for (const u of (ctx.unidades || {})[ctx.base && ctx.base.language === "en" ? "en" : "es"] || []) dl.append(h("option", { value: u }));
