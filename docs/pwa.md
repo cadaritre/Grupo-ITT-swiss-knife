@@ -182,3 +182,36 @@ que cumple <https://operations.osmfoundation.org/policies/tiles/>:
 - Overpass: las instancias salen de `TV_OVERPASS_URLS` (contrato), con caché por consulta de 24 h y el mismo agente.
 
 Pruebas: `pruebas/test_teselas.py`.
+
+## Triangulación, pendientes y escurrimiento (IT-9)
+
+No es una pantalla sin conexión (todo el cálculo está en el servidor): `/triangulacion/` sube un DXF con `tvplataforma` (tus, hasta **100 MB**, se
+rechaza antes de subir) y abre una mesa de trabajo como el convertidor. Los resultados viven en archivos `.npz` junto al DXF; en la base solo
+quedan los resúmenes y las opciones.
+
+| Paso | Qué hace |
+| --- | --- |
+| Leer | Cuenta POINT, INSERT, vértices de polilínea y 3DFACE, y las capas con triángulos (segundos) |
+| Superficie | **Puntos → TIN de Delaunay** (`create_tin_model`: entidades a usar, decimales de duplicados XY, arista máxima, área mínima) **o** los triángulos que ya trae el DXF (`extract_triangles`, por capas). Más de **200 000 puntos únicos** (tras deduplicar) o **400 000 triángulos** detiene el trabajo con el mensaje «…módulo local» |
+| Pendientes | Rangos editables (nombre, desde, hasta, color; continuos, desde 0 %, el último abierto) con áreas 2D/3D y porcentajes (`analyze_slopes`) |
+| Escurrimiento | Flechas de máxima bajada (`analyze_flow`): longitud base, tamaño de punta, densidad, pendiente mínima y rangos con factor de largo y grosor |
+| DXF | TIN (`3DFACE`), pendientes con tabla y escurrimiento con leyenda: `write_tin_dxf`, `write_slope_dxf`, `write_flow_dxf` sin cambios |
+| Visor | `<canvas>` con rueda, arrastre y pellizco; el servidor rasteriza **todos** los triángulos de la ventana en un PNG (los muy pequeños se pintan como un píxel, así no hay huecos) y manda aparte puntos o flechas decimados (≤ 2 500 / 6 000) |
+
+Intencional frente al escritorio: la web trabaja con **una superficie por archivo** (de puntos o de triángulos) y de ella salen las pendientes y el
+escurrimiento; el escritorio deja elegir una fuente distinta en cada pestaña. Cambiar la superficie borra los análisis (dejarían de corresponder).
+
+Paridad (`pruebas/test_triangulacion.py`): con el DXF de puntos de prueba, los triángulos y estadísticas, las áreas por rango y las flechas de la web son los del
+dominio, y los tres DXF exportados son equivalentes al normalizarlos (`comparar_dxf`). Una entrada de 200 001 puntos se rechaza con el mensaje
+correcto (prueba con el archivo real).
+
+**Memoria medida (no cumple el objetivo de 600 MB al máximo del contrato).** Pico de memoria por paso, en un proceso nuevo, con puntos aleatorios sobre una superficie ondulada:
+
+| Tamaño | Leer + TIN | DXF del TIN | DXF de pendientes | DXF de escurrimiento |
+| --- | --- | --- | --- | --- |
+| 50 000 puntos (≈100 000 triángulos) | 237 MB | 246 MB | 446 MB | 549 MB |
+| 200 000 puntos (≈400 000 triángulos) | 814 MB | 816 MB | 1 604 MB | 2 030 MB |
+
+La cola `herramientas` tiene tope de 768 MB: hasta unos 75 000 puntos todo cabe; al máximo de 200 000 puntos el TIN ya roza el tope y los DXF de pendientes y
+escurrimiento lo superan (el costo está en las entidades de `ezdxf`, y cambiar el escritor alteraría el DXF respecto del escritorio). Decisión pendiente del
+propietario: bajar `TV_HERRAMIENTAS_LIMITES["triangulacion"]` (p. ej. 75 000 puntos y 150 000 triángulos) o darle más memoria a esa cola.

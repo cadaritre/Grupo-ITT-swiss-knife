@@ -1,0 +1,23 @@
+/* Triangulación. Solo tokens de tvplataforma; sin estilos en línea (CSP). Primero teléfono (visor arriba, formularios apilados). */
+.tri { display: grid; gap: var(--tv-espacio-4, 16px); }
+.tri-resumen { font-variant-numeric: tabular-nums; }
+.tri-visor { display: grid; gap: var(--tv-espacio-2, 8px); min-width: 0; }
+.tri-modos, .tri-pestanas { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); }
+.tri-modos .tv-boton, .tri-pestanas .tv-boton { flex: 1 1 0; min-height: var(--tv-tactil-min, 44px); }
+.tri-modos .tv-boton[aria-pressed="true"], .tri-pestanas .tv-boton[aria-selected="true"] { background: var(--tv-boton); color: var(--tv-sobre-boton); }
+.tri-lienzo-caja { position: relative; height: min(62dvh, 560px); min-height: 300px; border-radius: var(--tv-radio, 8px); overflow: hidden; background: #132331; }
+.tri-lienzo { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.tri-mensaje { position: absolute; inset: auto 0 var(--tv-espacio-3, 12px) 0; margin: 0; text-align: center; color: #AEC0CB; pointer-events: none; }
+.tri-muestra { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; border: 1px solid var(--tv-borde); }
+.tri-leyenda { overflow-x: auto; }
+.tri-panel { display: grid; gap: var(--tv-espacio-3, 12px); align-content: start; min-width: 0; }
+.tri-form[hidden] { display: none; }
+.tri-fila { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--tv-espacio-3, 12px); }
+.tri-rangos { display: grid; gap: var(--tv-espacio-3, 12px); margin-bottom: var(--tv-espacio-3, 12px); }
+.tri-rango { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--tv-espacio-2, 8px); align-items: end; padding: var(--tv-espacio-3, 12px); border: 1px solid var(--tv-borde); border-radius: var(--tv-radio, 8px); background: var(--tv-superficie); }
+.tri-rango input { width: 100%; min-height: var(--tv-tactil-min, 44px); box-sizing: border-box; }
+.tri-rango input[type="color"] { padding: 2px; }
+.tri-capas { list-style: none; padding: 0; margin: 0; max-height: 220px; overflow: auto; }
+.tri-capas label { display: flex; gap: var(--tv-espacio-2, 8px); align-items: center; min-height: var(--tv-tactil-min, 44px); }
+.tri .tv-boton { min-height: var(--tv-tactil-min, 44px); }
+@media (min-width: 1000px) { .tri { grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); align-items: start; } .tri-visor { position: sticky; top: var(--tv-espacio-3, 12px); } .tri-lienzo-caja { height: min(72dvh, 720px); } }

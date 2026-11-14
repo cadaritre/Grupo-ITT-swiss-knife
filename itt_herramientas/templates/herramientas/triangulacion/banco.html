@@ -1,0 +1,129 @@
+{% extends "herramientas/base_comun.html" %}
+{% load static tv %}
+{% block titulo_pagina %}{{ t.nombre }}{% endblock %}
+{% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/triangulacion/triangulacion.css' %}">{% endblock %}
+{% block encabezado %}<h1>{{ t.nombre }}</h1>{% endblock %}
+{% block acciones_pagina %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:triangulacion' %}">Otro archivo</a>{% endblock %}
+{% block cuerpo %}
+{% if en_curso and tarea %}<section aria-label="Avance">{% progreso tarea %}</section>
+{% elif en_curso %}<p class="itt-aviso" role="status">Leyendo el archivo…</p>
+{% elif t.estado == "error" %}
+  {% alerta tipo="error" titulo="No se pudo leer el archivo" %}{{ t.error }}{% endalerta %}
+  <form method="post" action="{% url 'herramientas:triangulacion_borrar' t.pk %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">Quitar este archivo</button></form>
+{% elif lista %}
+{% if t.error %}{% alerta tipo="error" titulo="No se pudo completar el último cálculo" %}{{ t.error }}{% endalerta %}{% endif %}
+{% for aviso in resumen.avisos %}<p class="itt-aviso" role="status">⚠ {{ aviso }}</p>{% endfor %}
+<p class="tri-resumen">{{ resumen.puntos|stringformat:"d" }} POINT · {{ resumen.inserts|stringformat:"d" }} INSERT · {{ resumen.vertices_polilinea|stringformat:"d" }} vértices de polilínea · {{ resumen.caras_3d|stringformat:"d" }} 3DFACE</p>
+
+<div class="tri" id="tri" data-vista="{% url 'herramientas:triangulacion_vista' t.pk %}" data-vector="{% url 'herramientas:triangulacion_vector' t.pk %}"
+     data-limites="{{ limites_txt }}" data-modo="{{ modo_inicial }}" data-pendientes="{% if pen %}1{% endif %}" data-flujo="{% if flu %}1{% endif %}" data-superficie="{% if sup %}1{% endif %}">
+  <section class="tri-visor" aria-label="Vista previa">
+    <div class="tri-modos" role="group" aria-label="Qué ver">
+      <button type="button" class="tv-boton tv-boton--secundario" data-modo="tin" aria-pressed="false">Superficie</button>
+      <button type="button" class="tv-boton tv-boton--secundario" data-modo="pendientes" aria-pressed="false">Pendientes</button>
+      <button type="button" class="tv-boton tv-boton--secundario" data-modo="flujo" aria-pressed="false">Escurrimiento</button>
+      <button type="button" class="tv-boton tv-boton--secundario" data-itt="ajustar">Ajustar</button>
+    </div>
+    <div class="tri-lienzo-caja"><canvas id="tri-lienzo" class="tri-lienzo" aria-label="Superficie: arrastra para mover, pellizca o usa la rueda para acercar"></canvas><p id="tri-mensaje" class="tri-mensaje" role="status"></p></div>
+    <p id="tri-info" class="tv-tenue" role="status">{% if sup %}{{ sup.puntos|stringformat:"d" }} puntos · {{ sup.triangulos|stringformat:"d" }} triángulos · elevación {{ sup.z.0|floatformat:3 }} a {{ sup.z.1|floatformat:3 }} m{% else %}Calcula la superficie para ver el resultado.{% endif %}</p>
+    <div id="tri-leyenda-pendientes" class="tri-leyenda" hidden>
+      <table class="tv-tabla"><thead><tr><th>Rango</th><th>Triángulos</th><th>Área 2D (m²)</th><th>%</th></tr></thead><tbody>
+      {% for r in pen.rangos %}<tr><td><span class="tri-muestra" data-color="{{ r.color_hex }}"></span> {{ r.name }} · {{ r.etiqueta }}</td><td>{{ r.count|stringformat:"d" }}</td><td>{{ r.area_2d|floatformat:2 }}</td><td>{{ r.porcentaje|floatformat:1 }}</td></tr>{% endfor %}
+      </tbody></table>
+    </div>
+    <div id="tri-leyenda-flujo" class="tri-leyenda" hidden>
+      <table class="tv-tabla"><thead><tr><th>Rango</th><th>Flechas</th></tr></thead><tbody>
+      {% for r in flu.rangos %}<tr><td><span class="tri-muestra" data-color="{{ r.color_hex }}"></span> {{ r.name }} · {{ r.etiqueta }} · x{{ r.length_factor|floatformat:"-2" }} · {{ r.lineweight_mm|floatformat:"-2" }} mm</td><td>{{ r.count|stringformat:"d" }}</td></tr>{% endfor %}
+      </tbody></table>
+      <p class="tv-tenue">{{ flu.flechas|stringformat:"d" }} flechas · longitud base {{ flu.longitud_base|floatformat:2 }} m · pendiente mínima {{ flu.pendiente_min|floatformat:"-2" }}%</p>
+    </div>
+  </section>
+
+  <section class="tri-panel" aria-label="Cálculo">
+    <div class="tri-pestanas" role="tablist">
+      <button type="button" role="tab" class="tv-boton tv-boton--secundario" data-pestana="superficie" aria-selected="true">1 · Superficie</button>
+      <button type="button" role="tab" class="tv-boton tv-boton--secundario" data-pestana="pendientes" aria-selected="false">2 · Pendientes</button>
+      <button type="button" role="tab" class="tv-boton tv-boton--secundario" data-pestana="escurrimiento" aria-selected="false">3 · Escurrimiento</button>
+    </div>
+
+    <form method="post" action="{% url 'herramientas:triangulacion_superficie' t.pk %}" class="tv-formulario tri-form" data-panel="superficie">{% csrf_token %}
+      <h2>Superficie</h2>
+      <div class="tv-campo"><label for="modo">Origen</label>
+        <select id="modo" name="modo" data-itt="modo-superficie"><option value="puntos"{% if opciones.modo != "capas" %} selected{% endif %}{% if not con_puntos %} disabled{% endif %}>Puntos → TIN de Delaunay</option><option value="capas"{% if opciones.modo == "capas" %} selected{% endif %}{% if not con_capas %} disabled{% endif %}>Triángulos que ya trae el DXF (3DFACE o polilíneas)</option></select></div>
+      <div data-modo-superficie="puntos">
+        <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="puntos" name="puntos"{% if opciones.puntos or not opciones %} checked{% endif %}><label for="puntos">Puntos (POINT)</label></div>
+        <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="inserts" name="inserts"{% if opciones.inserts or not opciones %} checked{% endif %}><label for="inserts">Bloques por punto de inserción (INSERT)</label></div>
+        <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="polilineas" name="polilineas"{% if opciones.polilineas %} checked{% endif %}><label for="polilineas">Vértices de polilíneas (usar con cuidado)</label></div>
+        <div class="tri-fila"><div class="tv-campo"><label for="arista_max">Arista máxima (m, opcional)</label><input id="arista_max" name="arista_max" type="text" inputmode="decimal" value="{% if opciones.arista_max %}{{ opciones.arista_max|stringformat:'s' }}{% endif %}"></div>
+          <div class="tv-campo"><label for="area_min">Área mínima (m²)</label><input id="area_min" name="area_min" type="text" inputmode="decimal" value="{% if opciones.area_min is not None %}{{ opciones.area_min|stringformat:'s' }}{% else %}0.000001{% endif %}"></div>
+          <div class="tv-campo"><label for="decimales_dup">Decimales para duplicados XY</label><input id="decimales_dup" name="decimales" type="text" inputmode="numeric" value="{{ opciones.decimales|default:6 }}"></div></div>
+        <p class="tv-tenue">La arista máxima elimina puentes largos en huecos o límites irregulares; déjala vacía para no filtrar. Si hay más de {{ limites.puntos|stringformat:"d" }} puntos únicos el trabajo se detiene y se ofrece el módulo local.</p>
+      </div>
+      <div data-modo-superficie="capas" hidden>
+        <h3>Capas con triángulos</h3>
+        <ul class="tri-capas">{% for c in resumen.capas %}<li><label><input type="checkbox" name="capa" value="{{ c.nombre }}"{% if c.nombre in capas_elegidas %} checked{% endif %}> {{ c.nombre }} <span class="tv-tenue">{{ c.entidades|stringformat:"d" }}</span></label></li>{% empty %}<li class="tv-tenue">El DXF no trae triángulos.</li>{% endfor %}</ul>
+        <p class="tv-tenue">Se admiten hasta {{ limites.triangulos|stringformat:"d" }} triángulos.</p>
+      </div>
+      <button class="tv-boton" type="submit">Calcular superficie</button>
+    </form>
+
+    <form method="post" action="{% url 'herramientas:triangulacion_pendientes' t.pk %}" class="tv-formulario tri-form" data-panel="pendientes" hidden>{% csrf_token %}
+      <h2>Pendientes por rangos</h2>
+      {% if not sup %}<p class="itt-aviso">Primero calcula la superficie.</p>{% endif %}
+      <p class="tv-tenue">Los rangos deben ser continuos, empezar en 0% y dejar «Hasta» vacío en el último.</p>
+      <div class="tri-rangos" data-rangos="pendientes">
+        {% for r in rangos_pendientes %}<div class="tri-rango">
+          <div class="tv-campo"><label>Nombre<input name="r_nombre" type="text" value="{{ r.name }}" maxlength="60"></label></div>
+          <div class="tv-campo"><label>Desde %<input name="r_desde" type="text" inputmode="decimal" value="{{ r.min_pct|floatformat:'-3u' }}"></label></div>
+          <div class="tv-campo"><label>Hasta %<input name="r_hasta" type="text" inputmode="decimal" value="{% if r.max_pct is not None %}{{ r.max_pct|floatformat:'-3u' }}{% endif %}"></label></div>
+          <div class="tv-campo"><label>Color<input name="r_color" type="color" value="{{ r.color_hex|lower }}"></label></div>
+          <button type="button" class="tv-boton tv-boton--secundario" data-itt="quitar-rango" aria-label="Quitar el rango {{ r.name }}">Quitar</button></div>{% endfor %}
+      </div>
+      <button type="button" class="tv-boton tv-boton--secundario" data-itt="agregar-rango" data-tipo="pendientes">Agregar rango</button>
+      <div class="tv-campo"><label for="decimales_pen">Decimales en la tabla del DXF</label><input id="decimales_pen" name="decimales" type="text" inputmode="numeric" value="{{ decimales }}"></div>
+      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>Calcular pendientes</button>
+    </form>
+
+    <form method="post" action="{% url 'herramientas:triangulacion_escurrimiento' t.pk %}" class="tv-formulario tri-form" data-panel="escurrimiento" hidden>{% csrf_token %}
+      <h2>Flechas de escurrimiento</h2>
+      {% if not sup %}<p class="itt-aviso">Primero calcula la superficie.</p>{% endif %}
+      <div class="tri-fila">
+        <div class="tv-campo"><label for="longitud_base">Longitud base (m, opcional)</label><input id="longitud_base" name="longitud_base" type="text" inputmode="decimal" value="{% if opciones_flujo.longitud_base and opciones_flujo.longitud_base != -1 %}{{ opciones_flujo.longitud_base|stringformat:'s' }}{% endif %}"></div>
+        <div class="tv-campo"><label for="punta">Tamaño de punta (%)</label><input id="punta" name="punta" type="text" inputmode="decimal" value="{{ opciones_flujo.punta|floatformat:'-2u' }}"></div>
+        <div class="tv-campo"><label for="densidad">Densidad (1 = todas)</label><input id="densidad" name="densidad" type="text" inputmode="numeric" value="{{ opciones_flujo.densidad }}"></div>
+        <div class="tv-campo"><label for="pendiente_min">Pendiente mínima (%)</label><input id="pendiente_min" name="pendiente_min" type="text" inputmode="decimal" value="{{ opciones_flujo.pendiente_min|floatformat:'-3u' }}"></div>
+      </div>
+      <div class="tri-rangos" data-rangos="flujo">
+        {% for r in rangos_flujo %}<div class="tri-rango">
+          <div class="tv-campo"><label>Nombre<input name="r_nombre" type="text" value="{{ r.name }}" maxlength="60"></label></div>
+          <div class="tv-campo"><label>Desde %<input name="r_desde" type="text" inputmode="decimal" value="{{ r.min_pct|floatformat:'-3u' }}"></label></div>
+          <div class="tv-campo"><label>Hasta %<input name="r_hasta" type="text" inputmode="decimal" value="{% if r.max_pct is not None %}{{ r.max_pct|floatformat:'-3u' }}{% endif %}"></label></div>
+          <div class="tv-campo"><label>Color<input name="r_color" type="color" value="{{ r.color_hex|lower }}"></label></div>
+          <div class="tv-campo"><label>Largo ×<input name="r_factor" type="text" inputmode="decimal" value="{{ r.length_factor|floatformat:'-3u' }}"></label></div>
+          <div class="tv-campo"><label>Grosor (mm)<input name="r_grosor" type="text" inputmode="decimal" value="{{ r.lineweight_mm|floatformat:'-3u' }}"></label></div>
+          <button type="button" class="tv-boton tv-boton--secundario" data-itt="quitar-rango" aria-label="Quitar el rango {{ r.name }}">Quitar</button></div>{% endfor %}
+      </div>
+      <button type="button" class="tv-boton tv-boton--secundario" data-itt="agregar-rango" data-tipo="flujo">Agregar rango</button>
+      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>Calcular escurrimiento</button>
+    </form>
+
+    <form method="post" action="{% url 'herramientas:triangulacion_exportar' t.pk %}" class="tv-formulario tri-exportar" id="tri-exportar">{% csrf_token %}
+      <h2>Exportar DXF</h2>
+      <div class="tv-campo"><label for="tipo">Qué exportar</label><select id="tipo" name="tipo">
+        <option value="tin"{% if sup.origen != "puntos" %} disabled{% endif %}>TIN (3DFACE)</option>
+        <option value="pendientes"{% if not pen %} disabled{% endif %}>Zonificación de pendientes con tabla</option>
+        <option value="escurrimiento"{% if not flu %} disabled{% endif %}>Escurrimientos con leyenda</option></select></div>
+      <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="conservar_puntos" name="conservar_puntos" checked><label for="conservar_puntos">Conservar los puntos de origen en el TIN</label></div>
+      <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="caras" name="caras" checked><label for="caras">Pendientes: caras 3D agrupadas por rango</label></div>
+      <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="referencia_tin" name="referencia_tin" checked><label for="referencia_tin">Escurrimiento: incluir el TIN de referencia</label></div>
+      <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="texto_pendiente" name="texto_pendiente"><label for="texto_pendiente">Escribir el texto de la pendiente en cada triángulo o flecha</label></div>
+      <input type="hidden" name="decimales" value="{{ decimales }}">
+      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>Generar DXF</button>
+      {% if t.salida_ruta %}<p class="tri-salida" id="tri-salida" data-url="{% url 'herramientas:triangulacion_descargar' t.pk %}" data-nombre="{{ t.salida_nombre }}">Último DXF: <a href="{% url 'herramientas:triangulacion_descargar' t.pk %}">{{ t.salida_nombre }}</a> <button type="button" class="tv-boton tv-boton--secundario" data-itt="compartir">Compartir</button></p>{% endif %}
+    </form>
+    <form method="post" action="{% url 'herramientas:triangulacion_borrar' t.pk %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--peligro" type="submit">Eliminar este archivo y sus resultados</button></form>
+  </section>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if lista %}<script src="{% static 'herramientas/offline/compartir.js' %}"></script><script src="{% static 'herramientas/triangulacion/triangulacion.js' %}"></script>{% endif %}<script src="{% static 'herramientas/convertidor/recargar.js' %}"></script>{% endblock %}
