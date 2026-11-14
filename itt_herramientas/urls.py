@@ -21,6 +21,7 @@ urlpatterns = [
     path("perfil-activo/", views.perfil_activo, name="perfil_activo"),
     path("perfil.css", views.perfil_css, name="perfil_css"),
     path("perfil/logo/", views.perfil_logo, name="perfil_logo"),
+    path("perfiles/<slug:clave>/logo/", views.perfil_logo_vista, name="perfil_logo_vista"),
     path("convertidor/", convertidor.inicio, name="convertidor"),
     path("convertidor/<uuid:pk>/", convertidor.banco, name="convertidor_banco"),
     path("convertidor/<uuid:pk>/analizar/", convertidor.analizar, name="convertidor_analizar"),

@@ -14,12 +14,29 @@ class PerfilForm(forms.ModelForm):
     firma = forms.FileField(label="Firma (PNG o JPEG)", required=False, help_text="Solo se usa dentro del PDF; nunca se ofrece como descarga.")
     cedula = forms.FileField(label="Cédula profesional (imagen)", required=False, help_text="Solo se usa dentro del PDF; nunca se ofrece como descarga.")
 
+    quitar_logo = forms.BooleanField(label="Quitar el logo propio (se usa el de fábrica)", required=False)
+    quitar_firma = forms.BooleanField(label="Quitar la firma", required=False)
+    quitar_cedula = forms.BooleanField(label="Quitar la cédula", required=False)
+
+    #: cómo se agrupan los campos en la pantalla: (título, nombres de campo)
+    GRUPOS = (
+        ("Identidad", ("nombre", "encabezado", "encabezado_en", "descripcion", "descripcion_en")),
+        ("Contacto", ("sitio_web", "telefono", "etiqueta_telefono", "etiqueta_telefono_en", "direccion", "correo")),
+        ("Firma y pie de los documentos", ("firmante", "firmante_reporte", "cedula_profesional", "pie", "pie_en")),
+        ("Datos bancarios", ("banco", "clabe", "cuenta")),
+    )
+
+    @property
+    def grupos(self):
+        return [(titulo, [self[n] for n in nombres]) for titulo, nombres in self.GRUPOS]
+
     class Meta:
         model = Perfil
         fields = ["nombre", "encabezado", "encabezado_en", "descripcion", "descripcion_en", "sitio_web", "telefono",
                   "etiqueta_telefono", "etiqueta_telefono_en", "direccion", "correo", "firmante", "pie", "pie_en",
                   "firmante_reporte", "cedula_profesional", "banco", "clabe", "cuenta"]
-        labels = {"sitio_web": "Sitio web", "telefono": "Teléfono", "etiqueta_telefono": "Etiqueta del teléfono",
+        labels = {"encabezado": "Encabezado", "encabezado_en": "Encabezado (inglés)", "descripcion": "Descripción", "descripcion_en": "Descripción (inglés)",
+                  "firmante": "Firmante de cotizaciones", "pie": "Pie de página", "pie_en": "Pie de página (inglés)", "sitio_web": "Sitio web", "telefono": "Teléfono", "etiqueta_telefono": "Etiqueta del teléfono",
                   "etiqueta_telefono_en": "Etiqueta del teléfono (inglés)", "direccion": "Domicilio", "correo": "Correo",
                   "firmante_reporte": "Firmante de reportes", "cedula_profesional": "Cédula profesional (número)",
                   "banco": "Banco", "clabe": "CLABE", "cuenta": "Cuenta"}
@@ -46,6 +63,8 @@ class PerfilForm(forms.ModelForm):
         perfil = self.save(commit=False)
         for tipo in perfiles.IMAGENES:
             archivo = self.cleaned_data.get(tipo)
+            if not archivo and self.cleaned_data.get(f"quitar_{tipo}"):
+                perfiles.quitar_imagen(perfil, tipo)
             if archivo:
                 try:
                     perfiles.guardar_imagen(perfil, tipo, archivo.read())
@@ -133,15 +152,27 @@ class PaletaForm(forms.Form):
 class PreferenciasForm(forms.Form):
     reports_include_map = forms.BooleanField(label="Incluir croquis en los reportes", required=False)
     reports_include_credentials = forms.BooleanField(label="Incluir cédula y firma en los reportes", required=False)
-    geospatial_utm_zone = forms.IntegerField(label="Zona UTM", min_value=1, max_value=60)
+    geospatial_utm_zone = forms.TypedChoiceField(label="Zona UTM", coerce=int, choices=[(i, str(i)) for i in range(1, 61)])
     geospatial_hemisphere = forms.ChoiceField(label="Hemisferio", choices=[("N", "Norte"), ("S", "Sur")])
     geospatial_map_layer = forms.ChoiceField(label="Mapa base del convertidor", choices=[(k, k) for k in MAP_LAYERS])
-    geospatial_labels = forms.BooleanField(label="Etiquetas", required=False)
-    geospatial_hatches = forms.BooleanField(label="Sombreado de polígonos (hatch)", required=False)
-    geospatial_clamp_to_ground = forms.BooleanField(label="Pegar al relieve en KML", required=False)
+    geospatial_labels = forms.BooleanField(label="Conservar nombres como etiquetas", required=False)
+    geospatial_hatches = forms.BooleanField(label="Crear rellenos para polígonos al convertir a DXF", required=False)
+    geospatial_clamp_to_ground = forms.BooleanField(label="Pegar KML/KMZ al relieve de Google Earth", required=False)
     sketches_map_layer = forms.ChoiceField(label="Mapa base de croquis", choices=[(k, k) for k in MAP_LAYERS])
     sketches_contour_interval = forms.ChoiceField(label="Equidistancia de curvas", choices=[(i, i) for i in preferencias.INTERVALOS])
     triangulation_draw_preview = forms.BooleanField(label="Dibujar vista previa de la triangulación", required=False)
+
+    #: cómo se agrupan en la pantalla: cada preferencia dice a qué herramienta pertenece
+    GRUPOS = (
+        ("Reportes fotográficos", ("reports_include_map", "reports_include_credentials")),
+        ("Convertidor DXF ↔ KML/KMZ", ("geospatial_utm_zone", "geospatial_hemisphere", "geospatial_map_layer", "geospatial_labels", "geospatial_hatches", "geospatial_clamp_to_ground")),
+        ("Croquis de ubicación", ("sketches_map_layer", "sketches_contour_interval")),
+        ("Triangulación", ("triangulation_draw_preview",)),
+    )
+
+    @property
+    def grupos(self):
+        return [(titulo, [self[n] for n in nombres]) for titulo, nombres in self.GRUPOS]
 
     @classmethod
     def desde(cls, datos: dict, *args, **kwargs):

@@ -5,8 +5,13 @@
 {% block cuerpo %}
 {% include "herramientas/_perfil_nav.html" %}
 <form method="post" enctype="multipart/form-data" class="tv-formulario">{% csrf_token %}
-  {% for campo in formulario %}{% campo campo %}{% endfor %}
-  <p>Imágenes cargadas: logo {{ imagenes.logo|yesno:"sí,no" }}, firma {{ imagenes.firma|yesno:"sí,no" }}, cédula {{ imagenes.cedula|yesno:"sí,no" }}.</p>
+  {% for titulo, campos in formulario.grupos %}<fieldset><legend>{{ titulo }}</legend>{% for campo in campos %}{% campo campo %}{% endfor %}</fieldset>{% endfor %}
+  <fieldset><legend>Imágenes</legend>
+    <div class="itt-imagen"><div class="itt-imagen__vista"><img src="{% url 'herramientas:perfil_logo_vista' perfil.clave %}" alt="Logo actual de {{ perfil.nombre }}" height="56"><span class="tv-tenue">{% if imagenes.logo %}Logo propio cargado.{% else %}Se usa el logo de fábrica.{% endif %}</span></div>
+      {% campo formulario.logo %}{% if imagenes.logo %}{% campo formulario.quitar_logo %}{% endif %}</div>
+    <div class="itt-imagen"><p class="tv-tenue">Firma: {{ imagenes.firma|yesno:"cargada,sin cargar" }}.</p>{% campo formulario.firma %}{% if imagenes.firma %}{% campo formulario.quitar_firma %}{% endif %}</div>
+    <div class="itt-imagen"><p class="tv-tenue">Cédula: {{ imagenes.cedula|yesno:"cargada,sin cargar" }}.</p>{% campo formulario.cedula %}{% if imagenes.cedula %}{% campo formulario.quitar_cedula %}{% endif %}</div>
+  </fieldset>
   <button type="submit" class="tv-boton">Guardar</button>
 </form>
 {% endblock %}

@@ -97,6 +97,14 @@ def guardar_imagen(perfil: Perfil, tipo: str, datos: bytes) -> Path:
     return destino
 
 
+def quitar_imagen(perfil: Perfil, tipo: str) -> None:
+    """Borra la imagen propia del perfil (el logo vuelve al de fábrica; sin firma o cédula, los documentos salen sin ellas)."""
+    ruta = ruta_imagen(perfil, tipo)
+    if ruta is not None:
+        ruta.unlink(missing_ok=True)
+    setattr(perfil, IMAGENES[tipo], "")
+
+
 def ajustes_de(perfil: Perfil) -> dict:
     """Ajustes del dominio que equivalen a este perfil (se activan con `ajustes_activos`)."""
     campos = {dominio: getattr(perfil, campo) or "" for campo, dominio in CAMPOS.items()}
