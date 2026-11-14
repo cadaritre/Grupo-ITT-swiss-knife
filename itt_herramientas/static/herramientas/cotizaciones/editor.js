@@ -419,14 +419,14 @@
   const limpioNombre = (t, respaldo) => { const l = (t || "").replace(/[<>:"/\\|?*\x00-\x1f]/g, " ").split(/\s+/).filter(Boolean).join(" ").replace(/^[ .]+|[ .]+$/g, ""); return l.slice(0, 90) || respaldo; };
   const nombreEditable = () => (reg ? `EDITABLE_COTIZACION ${limpioNombre(reg.datos.quote_number, "SIN FOLIO")} - ${limpioNombre(reg.datos.project_title, "SERVICIOS")}.json` : "editable.json");
 
-  async function pedirPdf() {
-    const r = await ITT.cot.pedir(urls.pdf, { metodo: "POST", json: { datos: reg.datos }, crudo: true });
+  async function pedirPdf(exportar) {
+    const r = await ITT.cot.pedir(urls.pdf + (exportar ? "?exportar=1" : ""), { metodo: "POST", json: { datos: reg.datos }, crudo: true });
     const blob = await r.blob();
     const disp = r.headers.get("Content-Disposition") || "";
     let nombre = `COTIZACION ${limpioNombre(reg.datos.quote_number, "SIN FOLIO")} - ${limpioNombre(reg.datos.project_title, "SERVICIOS")}.pdf`;
     const m = /filename\*=utf-8''([^;]+)/i.exec(disp) || /filename="([^"]+)"/i.exec(disp);
     if (m) { try { nombre = decodeURIComponent(m[1]); } catch (_) { nombre = m[1]; } }
-    return { blob, nombre, pendientes: Number(r.headers.get("X-Imagenes-Pendientes") || 0) };
+    return { blob, nombre, pendientes: Number(r.headers.get("X-Imagenes-Pendientes") || 0), drive: r.headers.get("X-Drive") === "encolado" };
   }
 
   const dibujarPdf = (blob, contenedor) => ITT.vistaPdf.dibujar(blob, contenedor, { pdfjs: PDFJS, worker: PDFJS_WORKER });
@@ -448,7 +448,7 @@
     pdfActual = null;
     dlg.showModal();
     try {
-      const r = await pedirPdf();
+      const r = await pedirPdf(true);                      // el PDF final: va a Drive si la persona lo conectó
       pdfActual = r;
       if (r.pendientes) {
         const a = $("pdf-advertencias");
@@ -457,7 +457,7 @@
         ITT.subirAhora && ITT.subirAhora();
       }
       $("pdf-compartir").disabled = false; $("pdf-descargar").disabled = false;
-      $("pdf-estado").textContent = r.nombre;
+      $("pdf-estado").textContent = r.drive ? `${r.nombre} · se envía a tu Drive` : r.nombre;
       await dibujarPdf(r.blob, $("pdf-paginas"));
     } catch (e) {
       $("pdf-estado").textContent = e.mensaje || `No se pudo mostrar el PDF: ${e.message || e}`;

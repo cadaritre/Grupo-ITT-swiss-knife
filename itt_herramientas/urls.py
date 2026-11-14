@@ -4,6 +4,7 @@ from . import views
 from .convertidor import vistas as convertidor
 from .cotizaciones import vistas as cotizaciones
 from .croquis import vistas as croquis
+from .drive import vistas as drive
 from .triangulacion import vistas as triangulacion
 from .reportes import vistas as reportes
 
@@ -75,6 +76,16 @@ urlpatterns = [
     path("triangulacion/<uuid:pk>/descargar/", triangulacion.descargar, name="triangulacion_descargar"),
     path("triangulacion/<uuid:pk>/vista.png", triangulacion.vista, name="triangulacion_vista"),
     path("triangulacion/<uuid:pk>/vector.json", triangulacion.vector, name="triangulacion_vector"),
+    path("drive/", drive.pagina, name="drive"),
+    path("drive/conectar/", drive.autorizar, name="drive_autorizar"),
+    path("drive/oauth/callback/", drive.callback, name="drive_callback"),
+    path("drive/token/", drive.token, name="drive_token"),
+    path("drive/carpeta/", drive.carpeta, name="drive_carpeta"),
+    path("drive/crear-raiz/", drive.crear_raiz, name="drive_crear_raiz"),
+    path("drive/ajustes/", drive.ajustes_drive, name="drive_ajustes"),
+    path("drive/reintentar/", drive.reintentar, name="drive_reintentar"),
+    path("drive/descartar/<uuid:pk>/", drive.descartar, name="drive_descartar"),
+    path("drive/desconectar/", drive.desconectar, name="drive_desconectar"),
     path("preferencias/", views.preferencias_, name="preferencias"),
     path("diccionario/", views.diccionario, name="diccionario"),
     path("perfiles/", views.perfiles_, name="perfiles"),
