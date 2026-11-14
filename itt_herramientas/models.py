@@ -207,3 +207,32 @@ class Cotizacion(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_cotizacion_cliente")]
         ordering = ["-actualizada"]
+
+
+class Reporte(models.Model):
+    """Reporte fotográfico de una cuenta (herramientas-web.md §4.2). Se arma en el teléfono y se sincroniza como borrador.
+
+    `datos` = {titulo, fecha, con_croquis, con_credenciales, fotos: [{sha256, nota, tomada, lat, lon, precision, sin_ubicacion,
+    nombre}]}: el orden de `fotos` es el orden del PDF. Las fotos viven en `Captura` (por sha256); aquí solo se referencian.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cuenta_id = models.BigIntegerField(db_index=True)
+    id_cliente = models.UUIDField(null=True, blank=True)
+    datos = models.JSONField()
+    revision = models.PositiveIntegerField(default=1)
+    perfil = models.CharField(max_length=20, default="grupo_itt")
+    titulo = models.CharField(max_length=200, blank=True)
+    fotos = models.PositiveIntegerField(default=0)
+    copia_de = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="copias")
+    tarea_id = models.UUIDField(null=True, blank=True)
+    salida_ruta = models.CharField(max_length=300, blank=True)               # último PDF generado, relativo a TV_HERRAMIENTAS_ARCHIVOS
+    salida_nombre = models.CharField(max_length=200, blank=True)
+    salida_revision = models.PositiveIntegerField(null=True, blank=True)     # revisión del reporte con que se generó
+    generado = models.DateTimeField(null=True, blank=True)
+    creada = models.DateTimeField(default=timezone.now)
+    actualizada = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_reporte_cliente")]
+        ordering = ["-actualizada"]

@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 from .convertidor import vistas as convertidor
 from .cotizaciones import vistas as cotizaciones
+from .reportes import vistas as reportes
 
 app_name = "herramientas"
 
@@ -42,6 +43,15 @@ urlpatterns = [
     path("cotizaciones/api/<uuid:pk>/", cotizaciones.detalle, name="cotizaciones_detalle"),
     path("cotizaciones/api/<uuid:pk>/duplicar/", cotizaciones.duplicar, name="cotizaciones_duplicar"),
     path("cotizaciones/api/<uuid:pk>/editable.json", cotizaciones.editable, name="cotizaciones_editable"),
+    path("reportes/", reportes.pagina, name="reportes"),
+    path("reportes/api/contexto/", reportes.contexto, name="reportes_contexto"),
+    path("reportes/api/lista/", reportes.lista, name="reportes_lista"),
+    path("reportes/api/sincronizar/", reportes.sincronizar, name="reportes_sincronizar"),
+    path("reportes/api/foto/<str:sha256>/", reportes.foto, name="reportes_foto"),
+    path("reportes/api/<uuid:pk>/", reportes.detalle, name="reportes_detalle"),
+    path("reportes/api/<uuid:pk>/pdf/", reportes.pdf, name="reportes_pdf"),
+    path("reportes/api/<uuid:pk>/descargar/", reportes.descargar, name="reportes_descargar"),
+    path("mapa/teselas/<slug:capa>/<int:z>/<int:x>/<int:y>.png", views.teselas, name="teselas"),
     path("preferencias/", views.preferencias_, name="preferencias"),
     path("diccionario/", views.diccionario, name="diccionario"),
     path("perfiles/", views.perfiles_, name="perfiles"),

@@ -18,7 +18,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from tvplataforma import ajustes
 
-from ..comun import diccionarios, perfiles
+from ..comun import capturas, diccionarios, perfiles, sincronizacion
 from ..dominio import quotation_models as qm
 from ..dominio import quotation_pdf
 from ..dominio.quotation_i18n import STANDARD_UNITS
@@ -157,46 +157,15 @@ def guardar_nueva(usuario, datos: dict, perfil: str, id_cliente: uuid.UUID | Non
 
 
 def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str) -> dict:
-    """Aplica un borrador del teléfono. Nunca pisa trabajo ajeno: si el servidor cambió desde la revisión base, guarda una COPIA.
-
-    Idempotente: repetir la misma petición (por una respuesta perdida) devuelve el mismo resultado sin duplicar.
-    """
+    """Aplica un borrador del teléfono (ver `comun.sincronizacion`). Nunca pisa: ante un conflicto guarda una COPIA."""
     q = validar(datos)
-    nuevos = a_datos(q)
-    with transaction.atomic():
-        propias = Cotizacion.objects.select_for_update().filter(cuenta_id=usuario.pk)
-        if servidor_id is not None:
-            actual = propias.filter(pk=servidor_id).first()
-            if actual is None:
-                raise CotizacionInvalida("La cotización ya no existe en el servidor.")
-        else:
-            actual = propias.filter(id_cliente=id_cliente).first()
-            if actual is None:                                            # borrador nuevo del teléfono
-                c = Cotizacion(cuenta_id=usuario.pk, id_cliente=id_cliente)
-                _aplicar(c, q, perfil)
-                c.save()
-                return {"resultado": "creada", "servidor_id": str(c.id), "revision": c.revision, "folio": c.folio}
-            # Reintento tras perder la respuesta de la creación: la base es la primera revisión.
-            if revision_base is None:
-                revision_base = 1
-        if actual.datos == nuevos:
-            return {"resultado": "sin_cambios", "servidor_id": str(actual.id), "revision": actual.revision, "folio": actual.folio}
-        if revision_base == actual.revision:
-            _aplicar(actual, q, perfil)
-            actual.revision += 1
-            actual.save()
-            return {"resultado": "actualizada", "servidor_id": str(actual.id), "revision": actual.revision, "folio": actual.folio}
-        # Conflicto: el servidor cambió desde que el teléfono se basó en él. La versión del teléfono se conserva como COPIA.
-        # Reenviar el mismo conflicto no duplica: la copia lleva el id del borrador y la revisión base como llave.
-        llave = uuid.uuid5(id_cliente, f"copia:{revision_base}")
-        copia = propias.filter(id_cliente=llave).first()
-        if copia is not None:
-            return {"resultado": "copia", "servidor_id": str(copia.id), "revision": copia.revision, "folio": copia.folio, "copia_de": str(actual.id)}
+
+    def copia(obj):
         q.project_title = (q.project_title.rstrip() + " (desde el teléfono)").strip()
-        copia = Cotizacion(cuenta_id=usuario.pk, id_cliente=llave, copia_de=actual)
-        _aplicar(copia, q, perfil)
-        copia.save()
-        return {"resultado": "copia", "servidor_id": str(copia.id), "revision": copia.revision, "folio": copia.folio, "copia_de": str(actual.id)}
+        _aplicar(obj, q, perfil)
+
+    return sincronizacion.sincronizar(Cotizacion, usuario, id_cliente, servidor_id, revision_base, a_datos(q),
+                                      aplicar=lambda obj: _aplicar(obj, q, perfil), aplicar_copia=copia, error=CotizacionInvalida)
 
 
 def duplicar(usuario, c: Cotizacion) -> Cotizacion:
@@ -272,13 +241,7 @@ def traducir(datos: dict, idioma: str) -> dict:
 
 def ruta_foto(usuario, sha256: str) -> Path | None:
     """Archivo de una foto de ESTA cuenta (para las miniaturas del editor)."""
-    if not _SHA.match(sha256):
-        return None
-    captura = Captura.objects.filter(cuenta_id=usuario.pk, sha256=sha256).first()
-    if captura is None:
-        return None
-    ruta = Path(ajustes.valor("TV_HERRAMIENTAS_ARCHIVOS")) / captura.ruta
-    return ruta if ruta.is_file() else None
+    return capturas.ruta(usuario.pk, sha256)
 
 
 # -- Corrector -------------------------------------------------------------------------------------------------------------

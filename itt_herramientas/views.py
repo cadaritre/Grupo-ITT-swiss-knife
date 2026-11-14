@@ -29,7 +29,7 @@ TTL_IMPORTACION = 3600
 HERRAMIENTAS_DE_INICIO = (
     ("cotizaciones", "Cotizaciones", "Crea y edita cotizaciones, también sin señal. Genera el PDF y compártelo.", "herramientas:cotizaciones"),
     ("convertidor", "Convertidor DXF ↔ KML/KMZ", "Convierte planos y polígonos entre DXF, KML y KMZ.", "herramientas:convertidor"),
-    ("reportes", "Capturar fotos", "Toma fotos en campo y súbelas cuando haya señal.", "herramientas:capturar"),
+    ("reportes", "Reportes fotográficos", "Toma fotos en campo con hora y ubicación, ordénalas y genera el PDF. Funciona sin señal.", "herramientas:reportes"),
 )
 
 
@@ -363,4 +363,22 @@ def perfil_logo(request):
         ruta = branding.active_profile().logo_path
     respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if str(ruta).lower().endswith(".png") else "image/jpeg")
     respuesta["Cache-Control"] = "private, no-cache"
+    return respuesta
+
+
+@requiere_rol("herramientas", "reportes", "croquis", "admin")
+def teselas(request, capa, z, x, y):
+    """Teselas de mapa de OpenStreetMap/OpenTopoMap con caché en disco (el navegador no sale a internet: CSP)."""
+    from django.http import HttpResponse
+
+    from .comun import teselas as servicio_teselas
+
+    try:
+        datos = servicio_teselas.obtener(capa, z, x, y)
+    except servicio_teselas.SinTesela:
+        respuesta = HttpResponse(status=404)
+        respuesta["Cache-Control"] = "no-store"
+        return respuesta
+    respuesta = HttpResponse(datos, content_type="image/png")
+    respuesta["Cache-Control"] = "private, max-age=604800"
     return respuesta

@@ -7,7 +7,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 from . import fuentes
-from .almacenamiento import agente_usuario
+from .almacenamiento import agente_usuario, cache_dir
 from .metadata import PhotoInfo
 
 TILE = 256
@@ -33,9 +33,21 @@ def _zoom(points: list[tuple[float, float]], width: int, height: int) -> int:
 
 
 def _tile(x: int, y: int, zoom: int) -> Image.Image:
+    # Con caché en disco (política de uso de OSM): la misma tesela no se pide dos veces. Misma carpeta que el croquis.
+    target = cache_dir("map_tiles") / "Calles_OpenStreetMap" / str(zoom) / str(x) / f"{y}.png"
+    if target.exists():
+        try:
+            with Image.open(target) as cached:
+                return cached.convert("RGB").copy()
+        except Exception:
+            target.unlink(missing_ok=True)
     request = urllib.request.Request(OSM_URL.format(z=zoom, x=x, y=y), headers={"User-Agent": agente_usuario("ITTHerramientas/1.0")})
     with urllib.request.urlopen(request, timeout=8) as response:
-        return Image.open(BytesIO(response.read())).convert("RGB")
+        payload = response.read()
+    image = Image.open(BytesIO(payload)).convert("RGB")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+    return image
 
 
 def _font(size: int, bold: bool = False):
