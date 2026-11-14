@@ -244,8 +244,10 @@ def test_corte_a_mitad_de_la_subida_se_reanuda_sin_duplicar(motor, tmp_path, ser
         ctx.close()                                                    # se cierra todo con la subida a medias
 
         ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria))
+        ctx.set_offline(True)                                          # la app sube sola al abrir: sin red, para poder mirar la cola antes de que lo haga
         pagina = abrir(ctx, servidor)
         assert cola(pagina)["items"][0]["uploadUrl"] == item["uploadUrl"]          # recuerda dónde iba
+        ctx.set_offline(False)
         pagina.evaluate("ITT.subirAhora()")
         esperar_sin_pendientes(pagina)
         assert Captura.objects.count() == 1

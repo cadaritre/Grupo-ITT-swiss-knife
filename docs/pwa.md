@@ -138,3 +138,47 @@ Pendiente o distinto a propósito:
 - **Sin probar en teléfono real**: la prueba de aceptación de 40 fotos en modo avión con reinicio del teléfono, red lenta real, compartir por WhatsApp
   y correo, el permiso de ubicación en la app instalada de iOS, la memoria al reducir fotos de 48 MP en iPhone antiguos, la ubicación EXIF que
   iOS quita de las fotos de cámara (por eso se usa el GPS de la sesión), y el rendimiento con 150 fotos.
+
+## Croquis de ubicación (IT-8)
+
+`/croquis/` es una página fija (como las demás): abre sin conexión. El proyecto se **autoguarda** como borrador de `offline/documentos.js`
+(el `RECUPERACION_CROQUIS_*.json` del escritorio) y se sincroniza solo; los vectores no viajan al teléfono, los guarda el servidor.
+
+| Pieza | Dónde | Qué hace |
+| --- | --- | --- |
+| Mapa | MapLibre (compilación CSP) con teselas de `/mapa/teselas/…` | Capas OpenStreetMap, OpenTopoMap y base neutra, con atribución. El navegador nunca sale a internet |
+| Dibujo | Terra Draw 1.39 + adaptador MapLibre (`vendor/terradraw`) | Mover, polígono, rectángulo y editar vértices. Un solo área; al terminar de dibujar pasa a «Editar». El área se calcula con la misma fórmula del servidor y pasa a rojo sobre 50 km² |
+| Vértices | tabla bajo el mapa | Nombre, latitud, longitud, descripción, subir/bajar/quitar y agregar; importa CSV (Punto, Latitud, Longitud, Descripción) y KML/KMZ (toma el polígono mayor) |
+| Capas | hoja «Mapa y capas» | Categorías con su conteo, polígono de selección y etiquetas; se guardan en el proyecto y filtran la cartografía del mapa |
+| Vectorizar | tarea `vectorizar_croquis` | Una consulta a Overpass (por bloques sobre 50 km²), recorte, curvas desde Terrarium si la capa es topográfica. Hasta 50 km²; arriba, **«Exportar proyecto para el módulo local»** (el `SketchData` del escritorio, también sin conexión) |
+| Vigencia | `fuente(datos)` | Los vectores valen solo mientras el área, la capa y las curvas sean las de la vectorización; si no, la exportación responde 409 «vectoriza de nuevo» (como el escritorio descarta el resultado) |
+| PDF y DXF | tarea `generar_croquis` | `generate_sketch_pdf` y `generate_sketch_dxf` del escritorio con el perfil de la cuenta; vista previa con PDF.js, Compartir y Descargar |
+| Teléfono | «Pantalla completa» | El mapa ocupa toda la pantalla con las herramientas encima; «Mi ubicación» pone un punto de referencia |
+
+Paridad (`pruebas/test_croquis.py`): para el mismo polígono y la misma respuesta de Overpass grabada (sin red), el PDF de la web es
+idéntico byte a byte al del dominio y el DXF tiene las mismas capas y entidades que el del dominio (`comparar_dxf`); la
+vectorización recorta lo que cae fuera del polígono y clasifica por categoría.
+
+Pendiente o distinto a propósito:
+- Dibujo táctil real (dedos, zoom con pellizco mientras se dibuja), la memoria con 50 km² urbanos densos (meta: menos de 600 MB y 3 min) y el
+  uso real de Overpass **no se probaron**: las pruebas usan una respuesta grabada y el dibujo se ejerce con el ratón de Playwright en Chromium
+  (WebKit de Playwright no trae WebGL aquí; allí se prueban vértices, importación y modo sin conexión).
+- Importar, vectorizar, exportar y el mapa base necesitan conexión; dibujar vértices, editar datos y el proyecto para el módulo local no.
+
+## Teselas de mapa: política de uso de OpenStreetMap
+
+Todo el tráfico de mapas de Herramientas pasa por `/mapa/teselas/` (navegador) o por `dominio/teselas.py` (PDF del croquis y del reporte),
+que cumple <https://operations.osmfoundation.org/policies/tiles/>:
+
+- **Agente de usuario identificable con URL de contacto**: `TV_MAPAS_AGENTE`. En producción debe ser, por ejemplo,
+  `TresVizoHerramientas/1.0 (+https://tools.tresvizo.com)`; `manage.py check` avisa (`herramientas.W001`) si no tiene esa forma.
+- **Caché en disco que respeta las cabeceras**: se guarda `max-age` / `Expires` de la respuesta (sin ellas, 7 días; tope de 30). Pasado
+  el plazo se **revalida** con `If-None-Match` / `If-Modified-Since` (un 304 no vuelve a bajar la imagen). Sin red, se sirve la copia
+  vieja en vez de nada. Al navegador se le da `Cache-Control: private, max-age=<lo que queda>`.
+- **Sin precarga**: solo se pide la tesela que alguien está viendo o que un PDF necesita en ese momento; nunca rangos de zoom ni áreas.
+- **Volumen modesto**: tope de 1 500 teselas NUEVAS por cuenta y por hora (429 con `Retry-After`); leer de la caché no cuenta. Zoom máximo de
+  la capa (19 OSM, 17 OpenTopoMap) y coordenadas dentro del mundo.
+- **Atribución** visible en el mapa y en el PDF («© OpenStreetMap contributors»).
+- Overpass: las instancias salen de `TV_OVERPASS_URLS` (contrato), con caché por consulta de 24 h y el mismo agente.
+
+Pruebas: `pruebas/test_teselas.py`.

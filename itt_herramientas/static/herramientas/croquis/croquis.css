@@ -1,0 +1,21 @@
+/* Croquis de ubicación. Se suma a cotizaciones.css y reportes.css. Solo tokens de tvplataforma; sin estilos en línea. */
+.cq-herramientas { display: grid; gap: var(--tv-espacio-2, 8px); margin-bottom: var(--tv-espacio-2, 8px); }
+.cq-modos, .cq-acciones-mapa { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); }
+.cq-modos .tv-boton, .cq-acciones-mapa .tv-boton { flex: 1 1 0; min-height: var(--tv-tactil-min, 44px); }
+.cq-modos .tv-boton[aria-pressed="true"] { background: var(--tv-boton); color: var(--tv-sobre-boton); }
+.cq-area { padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); border-radius: var(--tv-radio, 8px); background: var(--tv-seleccion); color: var(--tv-sobre-seleccion); font-variant-numeric: tabular-nums; margin-bottom: var(--tv-espacio-2, 8px); }
+.cq-area[data-estado="excedida"] { background: var(--tv-estado-error-fondo); color: var(--tv-estado-error-texto); font-weight: 700; outline: 2px solid var(--tv-estado-error-texto); }
+.cq-area[data-estado="vacia"] { background: var(--tv-secundario); color: var(--tv-sobre-secundario); }
+.cq-mapa { height: min(60dvh, 520px); min-height: 280px; border-radius: var(--tv-radio, 8px); background: var(--tv-secundario); touch-action: none; margin-bottom: var(--tv-espacio-2, 8px); }
+.cq-vertices { margin: 0; }
+.cq-vertice { display: grid; gap: var(--tv-espacio-2, 8px); grid-template-columns: 1fr; }
+.cq-capas { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--tv-espacio-1, 4px); }
+.cq-barra__acciones { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+#salida-progreso { width: 100%; }
+@media (min-width: 1000px) { .cq-mapa { height: min(68dvh, 640px); } .cq-vertice { grid-template-columns: 1fr 1fr; } }
+
+/* Mapa a pantalla completa (teléfono): el mapa ocupa todo, con las herramientas y el área encima. */
+.cq-sin-desplazar { overflow: hidden; }
+.cq[data-completo="1"] .cq-mapa { position: fixed; inset: 0; height: 100dvh; min-height: 0; margin: 0; border-radius: 0; z-index: 35; }
+.cq[data-completo="1"] .cq-herramientas { position: fixed; inset: auto 0 calc(var(--cot-alto-pendientes, 60px)) 0; z-index: 36; margin: 0; padding: var(--tv-espacio-2, 8px); background: var(--tv-cabecera); }
+.cq[data-completo="1"] .cq-area { position: fixed; inset: var(--tv-espacio-2, 8px) var(--tv-espacio-2, 8px) auto var(--tv-espacio-2, 8px); z-index: 36; margin: 0; }

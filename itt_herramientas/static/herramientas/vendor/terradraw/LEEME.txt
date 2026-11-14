@@ -1,0 +1,3 @@
+Terra Draw 1.39.0 y terra-draw-maplibre-gl-adapter 1.5.0 (MIT, licencia declarada en el package.json de ambos paquetes), compilaciones UMD sin modificar, obtenidas con
+«npm pack terra-draw@1.39.0 terra-draw-maplibre-gl-adapter@1.5.0». Se usan en el croquis para dibujar y editar el polígono
+sobre MapLibre (globales terraDraw y terraDrawMaplibreGlAdapter).

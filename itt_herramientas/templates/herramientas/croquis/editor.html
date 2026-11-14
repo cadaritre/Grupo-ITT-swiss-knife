@@ -1,0 +1,135 @@
+{% extends "herramientas/pwa/_pagina.html" %}
+{% load static %}
+{% block titulo %}Croquis de ubicación{% endblock %}
+{% block contenido %}
+{# HTML idéntico para todas las cuentas: así el service worker lo guarda y se abre sin conexión. Los datos llegan de IndexedDB y de la API. #}
+<div id="cq" class="cot cq" data-pdfjs="{% static 'herramientas/vendor/pdfjs/pdf.min.mjs' %}" data-pdfjs-worker="{% static 'herramientas/vendor/pdfjs/pdf.worker.min.mjs' %}"{% for nombre, ruta in urls.items %} data-url-{{ nombre }}="{{ ruta }}"{% endfor %}>
+  <p id="cq-red" class="tv-tenue cot-red" role="status"></p>
+  <p id="cq-mensaje" class="itt-aviso" role="alert" hidden></p>
+
+  <section id="cq-vista-lista" aria-labelledby="cq-titulo-lista">
+    <div class="cot-encabezado"><h1 id="cq-titulo-lista">Croquis de ubicación</h1></div>
+    <div class="itt-acciones"><button type="button" id="cq-nuevo" class="tv-boton">Nuevo croquis</button></div>
+    <p id="cq-lista-vacia" class="tv-tenue" hidden>Aún no hay croquis. Crea el primero con «Nuevo croquis».</p>
+    <ul id="cq-lista" class="cot-lista"></ul>
+  </section>
+
+  <section id="cq-vista-editor" aria-labelledby="cq-titulo-editor" hidden>
+    <div class="cot-encabezado">
+      <a href="#/" class="tv-boton tv-boton--secundario">‹ Croquis</a>
+      <span id="cq-estado-guardado" class="tv-tenue" role="status"></span>
+    </div>
+    <h1 id="cq-titulo-editor" class="cot-titulo-doc">Croquis</h1>
+    <p id="cq-aviso-doc" class="tv-alerta tv-alerta--aviso" hidden></p>
+
+    <div class="cq-herramientas" role="toolbar" aria-label="Herramientas de dibujo">
+      <div class="cq-modos" role="group" aria-label="Modo">
+        <button type="button" class="tv-boton tv-boton--secundario" data-modo="static" aria-pressed="true">Mover</button>
+        <button type="button" class="tv-boton tv-boton--secundario" data-modo="polygon" aria-pressed="false">Polígono</button>
+        <button type="button" class="tv-boton tv-boton--secundario" data-modo="rectangle" aria-pressed="false">Rectángulo</button>
+        <button type="button" class="tv-boton tv-boton--secundario" data-modo="select" aria-pressed="false">Editar</button>
+      </div>
+      <div class="cq-acciones-mapa">
+        <button type="button" id="cq-ajustar" class="tv-boton tv-boton--secundario">Ajustar al área</button>
+        <button type="button" id="cq-ubicacion" class="tv-boton tv-boton--secundario">Mi ubicación</button>
+        <button type="button" id="cq-completa" class="tv-boton tv-boton--secundario" aria-pressed="false">Pantalla completa</button>
+      </div>
+    </div>
+    <div id="cq-area" class="cq-area" role="status" data-estado="vacia">Sin área</div>
+    <div id="cq-mapa" class="cq-mapa" aria-label="Mapa del croquis"></div>
+    <p id="cq-mapa-info" class="tv-tenue"></p>
+
+    <details class="cot-paso" id="cq-paso-datos" open>
+      <summary>Datos del croquis</summary>
+      <div class="cot-paso__cuerpo">
+        <div class="tv-campo"><label for="q-title">Título</label><input id="q-title" data-dato="title" type="text" maxlength="200" autocomplete="off"></div>
+        <div class="tv-campo"><label for="q-client">Cliente</label><input id="q-client" data-dato="client" type="text" maxlength="200" autocomplete="organization"></div>
+        <div class="tv-campo"><label for="q-project">Proyecto</label><input id="q-project" data-dato="project" type="text" maxlength="200" autocomplete="off"></div>
+        <div class="tv-campo"><label for="q-location">Localización</label><input id="q-location" data-dato="location" type="text" maxlength="200" autocomplete="off"></div>
+        <div class="tv-campo"><label for="q-sketch_date">Fecha (dd/mm/aaaa)</label><input id="q-sketch_date" data-dato="sketch_date" type="text" inputmode="numeric" maxlength="10" autocomplete="off"></div>
+        <div class="tv-campo"><label for="q-notes">Notas</label><textarea id="q-notes" data-dato="notes" rows="3" maxlength="3000"></textarea></div>
+      </div>
+    </details>
+
+    <details class="cot-paso" id="cq-paso-vertices">
+      <summary>Vértices del área <span class="cot-resumen-paso" id="cq-resumen-vertices"></span></summary>
+      <div class="cot-paso__cuerpo">
+        <div class="itt-acciones">
+          <label class="tv-boton tv-boton--secundario">Importar CSV o KML/KMZ<input id="cq-importar" class="itt-ocultar-entrada" type="file" accept=".csv,.txt,.kml,.kmz"></label>
+          <button type="button" id="cq-agregar-vertice" class="tv-boton tv-boton--secundario">Agregar vértice</button>
+          <button type="button" id="cq-limpiar" class="tv-boton tv-boton--secundario">Borrar el área</button>
+        </div>
+        <p id="cq-sin-vertices" class="tv-tenue">Dibuja el área sobre el mapa, o importa un CSV con Punto, Latitud, Longitud y Descripción, o un KML/KMZ del predio.</p>
+        <ol id="cq-vertices" class="itt-lista cq-vertices"></ol>
+      </div>
+    </details>
+
+    <details class="cot-paso" id="cq-paso-capas">
+      <summary>Mapa y capas <span class="cot-resumen-paso" id="cq-resumen-capas"></span></summary>
+      <div class="cot-paso__cuerpo">
+        <div class="tv-campo"><label for="q-map_layer">Mapa base</label><select id="q-map_layer" data-dato="map_layer"></select></div>
+        <div class="tv-campo" id="q-contornos-caja"><label for="q-contour_interval">Equidistancia de curvas de nivel</label><select id="q-contour_interval" data-dato="contour_interval"></select></div>
+        <div class="itt-acciones">
+          <button type="button" id="cq-capas-todas" class="tv-boton tv-boton--secundario">Mostrar todas</button>
+          <button type="button" id="cq-capas-ninguna" class="tv-boton tv-boton--secundario">Ocultar todas</button>
+        </div>
+        <ul id="cq-capas" class="cq-capas"></ul>
+      </div>
+    </details>
+
+    <div class="cot-barra" id="cq-barra" role="region" aria-label="Acciones del croquis">
+      <p id="cq-resumen-barra" class="rep-resumen" role="status"></p>
+      <div class="cot-barra__acciones cq-barra__acciones" id="cq-acciones">
+        <button type="button" id="cq-vectorizar" class="tv-boton">Vectorizar mapa</button>
+        <button type="button" id="cq-pdf" class="tv-boton" hidden>PDF</button>
+        <button type="button" id="cq-dxf" class="tv-boton tv-boton--secundario" hidden>DXF</button>
+        <button type="button" id="cq-modulo" class="tv-boton" hidden>Exportar proyecto para el módulo local</button>
+        <button type="button" id="cq-mas" class="tv-boton tv-boton--secundario">Más</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog id="dlg-salida" class="tv-hoja cot-hoja-pdf" aria-labelledby="dlg-salida-titulo">
+  <div class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-salida-titulo">Trabajo en curso</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <p id="salida-estado" class="tv-tenue" role="status"></p>
+    <progress id="salida-progreso" max="100" value="0" hidden></progress>
+    <p id="salida-error" class="tv-alerta tv-alerta--error" role="alert" hidden></p>
+    <p id="salida-resumen" class="tv-alerta tv-alerta--info" hidden></p>
+    <div id="salida-paginas" class="cot-vp-paginas"></div>
+    <div class="tv-formulario__acciones">
+      <button type="button" id="salida-cancelar" class="tv-boton tv-boton--secundario" hidden>Cancelar</button>
+      <button type="button" id="salida-compartir" class="tv-boton" disabled hidden>Compartir</button>
+      <button type="button" id="salida-descargar" class="tv-boton tv-boton--secundario" disabled hidden>Descargar</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlg-mas" class="tv-hoja" aria-labelledby="dlg-mas-titulo">
+  <div class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-mas-titulo">Más acciones</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <div class="tv-pila">
+      <button type="button" id="mas-vectorizar" class="tv-boton tv-boton--secundario">Vectorizar de nuevo</button>
+      <button type="button" id="mas-modulo" class="tv-boton tv-boton--secundario">Exportar proyecto (.json) para el módulo local</button>
+      <button type="button" id="mas-borrar" class="tv-boton tv-boton--peligro">Eliminar croquis</button>
+    </div>
+  </div>
+</dialog>
+{% include "herramientas/pwa/_confirmar.html" %}
+{% endblock %}
+{% block scripts %}
+<link rel="stylesheet" href="{% static 'herramientas/vendor/maplibre/maplibre-gl.css' %}">
+<link rel="stylesheet" href="{% static 'herramientas/cotizaciones/cotizaciones.css' %}">
+<link rel="stylesheet" href="{% static 'herramientas/reportes/reportes.css' %}">
+<link rel="stylesheet" href="{% static 'herramientas/croquis/croquis.css' %}">
+<script src="{% static 'herramientas/vendor/maplibre/maplibre-gl-csp.js' %}" data-worker="{% static 'herramientas/vendor/maplibre/maplibre-gl-csp-worker.js' %}"></script>
+<script src="{% static 'herramientas/vendor/terradraw/terra-draw.umd.js' %}"></script>
+<script src="{% static 'herramientas/vendor/terradraw/terra-draw-maplibre-gl-adapter.umd.js' %}"></script>
+<script src="{% static 'herramientas/offline/ayudas.js' %}"></script>
+<script src="{% static 'herramientas/offline/documentos.js' %}"></script>
+<script src="{% static 'herramientas/offline/vista-pdf.js' %}"></script>
+<script src="{% static 'herramientas/croquis/croquis.js' %}"></script>
+{% endblock %}
