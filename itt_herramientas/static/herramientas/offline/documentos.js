@@ -21,26 +21,46 @@
     return Object.assign({}, extra, { clase: r.status >= 500 || r.status === 404 ? "servidor" : "rechazo", mensaje, estado: r.status });
   }
 
-  /** Petición a la API. Lanza {clase:"red"|"sesion"|"rechazo"|"servidor", mensaje, estado}. */
+  /** Token CSRF que corresponde a la cookie de ahora (lo da `/sesion/`) y se guarda para la cola. "" sin red o sin sesión. */
+  async function tokenVigente() {
+    try {
+      const s = await fetch("/sesion/", { credentials: "same-origin", cache: "no-store", redirect: "manual", headers: { Accept: "application/json" } });
+      if (!s.ok) return "";
+      const d = await s.json();
+      await cola().guardarAjuste("csrf", d.csrf);
+      await cola().guardarAjuste("cuenta", d.cuenta);
+      return d.csrf || "";
+    } catch (_) { return ""; }                                    // sin red: la petición fallará con su propio mensaje
+  }
+
+  /** Petición a la API. Lanza {clase:"red"|"sesion"|"rechazo"|"servidor", mensaje, estado}.
+   *
+   * El token CSRF guardado puede no ser el de la cookie: al abrir la página sin cookie, ui.js y la herramienta piden `/sesion/` a
+   * la vez y cada respuesta trae un secreto distinto (gana la última cookie, pero se pudo guardar el token de la otra); también
+   * cambia al volver a iniciar sesión. Si el servidor rechaza el token (403 de CSRF), se pide el vigente y se repite UNA vez:
+   * el rechazo ocurre antes de la vista, así que repetir no duplica nada.
+   */
   async function pedir(ruta, opciones) {
     const o = Object.assign({ metodo: "GET" }, opciones);
     const cabeceras = { Accept: "application/json" };
-    if (o.metodo !== "GET") {
-      let csrf = await cola().ajuste("csrf", "");
-      if (!csrf && navigator.onLine) {                          // primera petición antes de que ui.js termine de pedir la sesión: se pide aquí
-        try {
-          const s = await fetch("/sesion/", { credentials: "same-origin", cache: "no-store", redirect: "manual", headers: { Accept: "application/json" } });
-          if (s.ok) { const d = await s.json(); csrf = d.csrf; await cola().guardarAjuste("csrf", d.csrf); await cola().guardarAjuste("cuenta", d.cuenta); }
-        } catch (_) { /* sin red: la petición fallará con su propio mensaje */ }
-      }
-      cabeceras["X-CSRFToken"] = csrf;
-    }
     let cuerpo;
     if (o.json !== undefined) { cabeceras["Content-Type"] = "application/json"; cuerpo = JSON.stringify(o.json); }
     else if (o.formulario) cuerpo = o.formulario;
-    let r;
-    try { r = await fetch(ruta, { method: o.metodo, headers: cabeceras, body: cuerpo, credentials: "same-origin", redirect: "manual", cache: "no-store" }); }
-    catch (e) { throw { clase: "red", mensaje: "Sin conexión" }; }
+    const enviar = async (csrf) => {
+      if (o.metodo !== "GET") cabeceras["X-CSRFToken"] = csrf;
+      try { return await fetch(ruta, { method: o.metodo, headers: cabeceras, body: cuerpo, credentials: "same-origin", redirect: "manual", cache: "no-store" }); }
+      catch (e) { throw { clase: "red", mensaje: "Sin conexión" }; }
+    };
+    let csrf = "";
+    if (o.metodo !== "GET") {
+      csrf = await cola().ajuste("csrf", "");
+      if (!csrf && navigator.onLine) csrf = await tokenVigente();          // primera petición antes de que ui.js termine de pedir la sesión
+    }
+    let r = await enviar(csrf);
+    if (r.status === 403 && o.metodo !== "GET" && /CSRF/i.test(await r.clone().text().catch(() => ""))) {
+      const vigente = await tokenVigente();
+      if (vigente) r = await enviar(vigente);
+    }
     if (r.type === "opaqueredirect" || r.status === 401) throw { clase: "sesion", mensaje: "Vuelve a iniciar sesión" };
     if (r.status === 403) throw { clase: "sesion", mensaje: "Sin permiso o sesión caducada. Vuelve a iniciar sesión." };
     if (!r.ok) throw await error(r);

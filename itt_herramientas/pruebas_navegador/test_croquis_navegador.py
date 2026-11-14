@@ -308,3 +308,23 @@ def test_importar_un_csv_con_area_pregunta_reemplazar_o_agregar(motor, tmp_path,
         expect(pagina.locator("#cq-vertices > li")).to_have_count(2, timeout=TIEMPO)
     finally:
         ctx.close()
+
+
+def test_un_token_csrf_que_no_es_el_de_la_cookie_se_renueva_y_la_importacion_sigue(motor, tmp_path, servidor, sesion_de, croquista):
+    """Al abrir sin cookie CSRF, ui.js y la herramienta piden /sesion/ a la vez y cada respuesta trae otro secreto: se podía guardar el
+    token que no es el de la cookie y la importación quedaba en «Sin permiso» (la prueba de reemplazar o agregar fallaba bajo carga).
+    Ahora un 403 de CSRF pide el token vigente y repite una vez."""
+    from django.middleware.csrf import _get_new_csrf_string, _mask_cipher_secret
+
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(croquista))
+    try:
+        pagina = abrir(ctx, servidor)
+        nuevo(pagina)
+        pagina.evaluate("t => ITT.cola.guardarAjuste('csrf', t)", _mask_cipher_secret(_get_new_csrf_string()))   # el de la otra respuesta
+        pagina.locator("#cq-paso-vertices summary").click()
+        csv = "Punto;Latitud;Longitud\nA;28,633;-106,07\nB;28.633;-106.067\nC;28.635;-106.067\n".encode()
+        pagina.set_input_files("#cq-importar", [{"name": "p.csv", "mimeType": "text/csv", "buffer": csv}])
+        expect(pagina.locator("#cq-vertices > li")).to_have_count(3, timeout=TIEMPO)
+        sin_pendientes(pagina)                                             # y el autoguardado también sube con el token renovado
+    finally:
+        ctx.close()
