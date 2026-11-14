@@ -1,8 +1,8 @@
 """Regresión de memoria de la triangulación EN EL LÍMITE de la web (75 000 puntos, ~150 000 triángulos).
 
-Cada paso corre en un proceso nuevo (el pico de memoria de un proceso solo sube) y se compara con el tope de la cola `herramientas`: 768 MB.
-El proceso de la prueba mide solo Python + NumPy + ezdxf + dominio; el trabajador real suma Django y la base, así que lo medido es
-un mínimo. Los números de referencia están en docs/pwa.md.
+Cada paso corre en un proceso nuevo (el pico de memoria de un proceso solo sube) y se compara con el tope de la cola `herramientas`, que sale del ajuste
+`HERRAMIENTAS_COLA_MEMORIA_MB` (1024 MB en el servidor de 8 GB; 768 MB antes).
+El proceso de la prueba mide solo Python + NumPy + ezdxf + dominio; a lo medido se le suman ~100 MB del trabajador real. Los números de referencia están en docs/pwa.md.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-TOPE_MB = 768
+SOBRECOSTO_TRABAJADOR_MB = 100        # Django, la base y tvplataforma que el proceso de medida no carga (estimado)
 PUNTOS = 75_000
 RAIZ = Path(__file__).resolve().parents[2]
 
@@ -67,11 +67,9 @@ np.savez_compressed(NPZ, triangulos=np.asarray(m.triangles), puntos=np.asarray(m
     return {"ruta": str(ruta), "npz": str(npz), "salida": str(carpeta / "salida.dxf")}
 
 
-@pytest.mark.parametrize("paso", [
-    "tin", "dxf_tin", "dxf_pendientes",
-    pytest.param("dxf_escurrimiento", marks=pytest.mark.xfail(strict=True, reason="782 MB medidos a 75 000 puntos: pasa del tope de 768 MB aun sin Django (docs/pwa.md). Si esto empieza a pasar, baja el límite o sube la cola.")),
-])
-def test_pico_de_memoria_en_el_limite_de_la_web(paso, entradas):
-    pico = correr(PASOS[paso], **entradas)
-    print(f"{paso}: {pico:.0f} MB")
-    assert pico < TOPE_MB, f"{paso}: {pico:.0f} MB (tope {TOPE_MB} MB)"
+@pytest.mark.parametrize("paso", ["tin", "dxf_tin", "dxf_pendientes", "dxf_escurrimiento"])
+def test_pico_de_memoria_en_el_limite_de_la_web(paso, entradas, settings):
+    tope = settings.HERRAMIENTAS_COLA_MEMORIA_MB
+    pico = correr(PASOS[paso], **entradas) + SOBRECOSTO_TRABAJADOR_MB
+    print(f"{paso}: {pico:.0f} MB (tope {tope} MB)")
+    assert pico < tope, f"{paso}: {pico:.0f} MB con el sobrecosto del trabajador (tope {tope} MB)"

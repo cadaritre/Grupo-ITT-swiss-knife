@@ -201,8 +201,8 @@ quedan los resúmenes y las opciones.
 Intencional frente al escritorio: la web trabaja con **una superficie por archivo** (de puntos o de triángulos) y de ella salen las pendientes y el
 escurrimiento; el escritorio deja elegir una fuente distinta en cada pestaña. Cambiar la superficie borra los análisis (dejarían de corresponder).
 
-Límites de la web: **75 000 puntos únicos y 150 000 triángulos** (100 MB por archivo). Salen de la memoria medida (abajo) frente al tope de 768 MB de la cola
-`herramientas`, que no se toca; el contrato (`TV_HERRAMIENTAS_LIMITES["triangulacion"]`) trae 200 000 / 400 000 y `servicio.limites()` toma el MENOR de los dos,
+Límites de la web: **75 000 puntos únicos y 150 000 triángulos** (100 MB por archivo). Salen de la memoria medida (abajo) frente al tope de la cola
+`herramientas` (ahora **1 024 MB**, servidor de 8 GB; antes 768 MB); el contrato (`TV_HERRAMIENTAS_LIMITES["triangulacion"]`) trae 200 000 / 400 000 y `servicio.limites()` toma el MENOR de los dos,
 así que la web ya aplica el tope aunque el contrato no se haya cambiado. Lo más pesado se queda en el módulo local.
 
 Paridad (`pruebas/test_triangulacion.py`): con el DXF de puntos de prueba, los triángulos y estadísticas, las áreas por rango y las flechas de la web son los del
@@ -217,6 +217,5 @@ correcto antes de calcular el Delaunay, y 75 000 sí entran.
 | **75 000 puntos (límite de la web, ≈150 000 triángulos)** | 300 MB | 345 MB | 644 MB | **781 MB** |
 | 200 000 puntos (≈400 000 triángulos; antiguo límite del contrato) | 814 MB | 816 MB | 1 604 MB | 2 030 MB |
 
-`pruebas/test_triangulacion_memoria.py` repite las medidas del límite (75 000 puntos) en procesos nuevos y exige menos de 768 MB. **El DXF de escurrimiento al límite
-mide 781 MB: pasa del tope aun sin Django**, así que esa medida está marcada `xfail(strict=True)` (la prueba avisará cuando deje de fallar). Con Django y la base el trabajador real
-suma otros ~100 MB, por lo que el margen real es menor en los pasos de pendientes y escurrimiento; para que TODO quepa con holgura el límite debería ser de ~55 000 puntos.
+`pruebas/test_triangulacion_memoria.py` repite las medidas del límite (75 000 puntos) en procesos nuevos y exige que lo medido **más ~100 MB del trabajador real** quede por debajo del tope, que lee del ajuste
+`HERRAMIENTAS_COLA_MEMORIA_MB` (1 024). Con ese tope todos los pasos pasan; el más pesado, el DXF de escurrimiento, mide 781 MB (+100 = 881 MB, margen de ~140 MB). Con el tope antiguo de 768 MB ese paso no cabía.
