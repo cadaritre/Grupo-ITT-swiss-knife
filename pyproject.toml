@@ -50,6 +50,7 @@ itt_herramientas = [
     "dominio/activos/*",
     "templates/**/*",
     "static/**/*",
+    "offline/*.tpl",
 ]
 
 [tool.pytest.ini_options]
