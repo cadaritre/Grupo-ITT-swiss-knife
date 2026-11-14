@@ -47,7 +47,7 @@ def banco(request, pk):
     return render(request, "herramientas/convertidor/banco.html", {
         "c": c, "resumen": c.resumen, "tarea": tarea, "en_curso": en_curso, "salidas": salidas, "zonas": range(1, 61),
         "formato": op.get("formato") if op.get("formato") in salidas else salidas[0],
-        "etiquetas": op.get("etiquetas", prefs["labels"]), "rellenos": op.get("rellenos", prefs["hatches"]), "relieve": op.get("relieve", prefs["clamp_to_ground"]),
+        "etiquetas": op.get("etiquetas", prefs["labels"]), "rellenos": op.get("rellenos", prefs["hatches"]), "relieve": op.get("relieve", True),   # cada archivo nuevo empieza pegado al relieve (decisión del propietario, 14-11-2026); apagarlo no se hereda
         "capas_elegidas": set(op.get("capas") or [x["nombre"] for x in c.resumen.get("capas", [])]),
         "precisiones": servicio.PRECISIONES, "precision": op.get("precision", "topografica"), "es_dxf": c.formato == "dxf", "lista": c.estado == Conversion.Estado.LISTO and not en_curso,
         "tiene_salida": bool(c.salida_ruta)})

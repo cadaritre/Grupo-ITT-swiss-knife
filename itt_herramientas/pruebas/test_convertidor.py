@@ -183,6 +183,15 @@ def test_convertir_recuerda_las_opciones_de_la_cuenta(cliente_de, convertidora, 
     assert (p["utm_zone"], p["hemisphere"], p["labels"], p["hatches"], p["clamp_to_ground"]) == (14, "S", False, False, False)
 
 
+def test_pegar_al_relieve_viene_activado_en_cada_archivo_nuevo_aunque_la_ultima_vez_se_apagara(cliente_de, convertidora, entradas_geo):
+    cl = cliente_de(convertidora)
+    c = listo(cl, entradas_geo["convertidor.dxf"])
+    cl.post(url("convertidor_convertir", pk=c.pk), {"formato": "kmz", "zona": "13", "hemisferio": "N", "capa": ["PREDIO"]})   # sin «relieve»
+    otro = listo(cl, entradas_geo["convertidor.dxf"])
+    pagina = cl.get(url("convertidor_banco", pk=otro.pk)).content.decode()
+    assert 'id="relieve" name="relieve" checked' in pagina
+
+
 def test_cada_conversion_es_de_una_sola_cuenta(cliente_de, convertidora, crear_usuario, roles, entradas_geo):
     c = listo(cliente_de(convertidora), entradas_geo["convertidor.dxf"])
     cliente_de(convertidora).post(url("convertidor_convertir", pk=c.pk), {"formato": "kml", "zona": "13", "hemisferio": "N", "capa": ["PREDIO"]})
@@ -224,3 +233,54 @@ def test_vista_previa_se_simplifica_cuando_es_enorme(monkeypatch):
     pocos = gc.GeoDataset(features=[gc.GeoFeature("Polygon", [[(0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (1.0, 1.0, 0.0)]], "P", "")])
     assert servicio.geojson(pocos)["features"][0]["geometry"]["coordinates"][0][0] == [0.0, 0.0]
     assert servicio.geojson(pocos)["features"][0]["geometry"]["coordinates"][0][-1] == [0.0, 0.0]                  # el anillo se cierra
+
+
+def _dataset(*alturas):
+    return gc.GeoDataset(features=[gc.GeoFeature("LineString", [[(500000.0 + i, 3170000.0, z) for i, z in enumerate(alturas)]], layer="TRAZO")])
+
+
+def test_un_dibujo_plano_no_trae_alturas_del_terreno():
+    assert not gc.tiene_alturas_del_terreno(_dataset(0, 0, 0))
+    assert not gc.tiene_alturas_del_terreno(_dataset(24.337, 24.34, 24.34))        # la «elevación» del dibujo del propietario (14-11-2026)
+    assert gc.tiene_alturas_del_terreno(_dataset(1420.2, 1424.9, 1431.0))           # un levantamiento con alturas reales
+    assert not gc.tiene_alturas_del_terreno(gc.GeoDataset())
+
+
+def _kml_de(c):
+    with zipfile.ZipFile(servicio.raiz() / c.salida_ruta) as zf:
+        return zf.read("doc.kml").decode()
+
+
+def test_sin_pegar_al_relieve_un_dxf_plano_se_pega_de_todos_modos_y_se_dice(cliente_de, convertidora, tmp_path):
+    """Un KML «absolute» de un dibujo plano queda enterrado en Google Earth (solo se ve apagando el relieve). Caso real del
+    propietario: un trazo con toda la geometría a 24.34 m convertido con «Pegar al relieve» apagado."""
+    import ezdxf
+
+    doc = ezdxf.new()
+    doc.modelspace().add_lwpolyline([(390000, 3170000), (390120, 3170040), (390200, 3170160)], dxfattribs={"layer": "TRAZO", "elevation": 24.34})
+    ruta = tmp_path / "trazo plano.dxf"
+    doc.saveas(ruta)
+    cl = cliente_de(convertidora)
+    c = listo(cl, ruta)
+    cl.post(url("convertidor_convertir", pk=c.pk), {"formato": "kmz", "zona": "13", "hemisferio": "N", "capa": ["TRAZO"]})
+    c.refresh_from_db()
+    kml = _kml_de(c)
+    assert "<altitudeMode>clampToGround</altitudeMode>" in kml and "absolute" not in kml and "24.34" not in kml
+    assert c.opciones["relieve_automatico"] is True and c.opciones["relieve"] is False        # se respeta lo elegido y se anota el ajuste
+    assert "no trae alturas del terreno" in cl.get(url("convertidor_banco", pk=c.pk)).content.decode()
+
+
+def test_un_dxf_con_alturas_reales_sin_pegar_al_relieve_conserva_las_alturas(cliente_de, convertidora, entradas_geo):
+    cl = cliente_de(convertidora)
+    c = listo(cl, entradas_geo["convertidor.dxf"])                                 # el caso de paridad es un levantamiento 3D
+    cl.post(url("convertidor_convertir", pk=c.pk), {"formato": "kmz", "zona": "13", "hemisferio": "N", "capa": ["PREDIO", "CURVAS"]})
+    c.refresh_from_db()
+    assert "<altitudeMode>absolute</altitudeMode>" in _kml_de(c) and c.opciones["relieve_automatico"] is False
+    assert "no trae alturas del terreno" not in cl.get(url("convertidor_banco", pk=c.pk)).content.decode()
+
+
+def test_con_alturas_reales_y_sin_pegar_al_relieve_se_respetan_las_alturas(convertidora, tmp_path, monkeypatch):
+    destino = tmp_path / "con_alturas.kml"
+    gc.write_kml(_dataset(1420.2, 1424.9, 1431.0), destino, clamp_to_ground=False)
+    kml = destino.read_text()
+    assert "<altitudeMode>absolute</altitudeMode>" in kml and ",1424.9" in kml

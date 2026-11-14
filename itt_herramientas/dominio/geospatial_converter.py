@@ -512,6 +512,17 @@ def _coordinates_text(points: list[Coord], ground_clamped: bool = False) -> str:
     return " ".join(f"{_decimales(longitude, 8)},{_decimales(latitude, 8)},{_decimales(altitude, 3)}" for longitude, latitude, altitude in points)
 
 
+ALTURA_MINIMA_DEL_TERRENO = 0.5   # m: menos variación que esto es un dibujo plano, no un levantamiento con alturas
+
+
+def tiene_alturas_del_terreno(dataset: GeoDataset, selected_layers: set[str] | None = None) -> bool:
+    """¿Las alturas del dibujo describen el terreno? Solo si varían (un levantamiento 3D). Un dibujo plano, todo a 0 o a una
+    sola elevación (p. ej. 24.34), no trae alturas reales: escrito con altitudeMode «absolute» quedaría enterrado bajo el
+    relieve de Google Earth y solo se vería apagando el relieve."""
+    alturas = [p[2] for f in dataset.filtered(selected_layers).features for parte in f.parts for p in parte if len(p) > 2]
+    return bool(alturas) and max(alturas) - min(alturas) >= ALTURA_MINIMA_DEL_TERRENO
+
+
 def write_kml(
     dataset: GeoDataset,
     path: str | Path,

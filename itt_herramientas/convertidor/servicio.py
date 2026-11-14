@@ -196,13 +196,18 @@ def convertir(c: Conversion) -> None:
     destino.mkdir(parents=True)
     objetivo = destino / nombre_salida(c, formato)
     progreso(0.72, "Escribiendo el archivo…")
+    # «Pegar al relieve» apagado solo tiene sentido con alturas reales del terreno. Un dibujo plano (todo a 0 o a una sola
+    # elevación) quedaría enterrado en Google Earth: se pega al relieve de todos modos y se dice en el resultado.
+    relieve = bool(op.get("relieve", True))
+    automatico = formato in ("kml", "kmz") and not relieve and not gc.tiene_alturas_del_terreno(dataset, capas)
     gc.convert_file(
         dataset, objetivo, zone=int(op["zona"]), hemisphere=op["hemisferio"], selected_layers=capas,
-        add_labels=bool(op.get("etiquetas", True)), add_hatches=bool(op.get("rellenos", True)), clamp_to_ground=bool(op.get("relieve", True)),
+        add_labels=bool(op.get("etiquetas", True)), add_hatches=bool(op.get("rellenos", True)), clamp_to_ground=relieve or automatico,
         progress=lambda v, m: progreso(0.72 + 0.27 * v, m),
     )
     c.salida_ruta, c.salida_formato = str(objetivo.relative_to(raiz())), formato
-    c.save(update_fields=["salida_ruta", "salida_formato"])
+    c.opciones = {**op, "relieve_automatico": automatico}
+    c.save(update_fields=["salida_ruta", "salida_formato", "opciones"])
     progreso(1.0, "Listo")
     if formato in ("kml", "kmz"):                                              # a Drive (Poligonos KML), como el escritorio; el DXF no se envía
         from ..drive import servicio as drive
