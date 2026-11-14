@@ -302,3 +302,60 @@ class Triangulacion(models.Model):
 
     class Meta:
         ordering = ["-creada"]
+
+
+class ConexionDrive(models.Model):
+    """Conexión de una cuenta con su Google Drive (OAuth `drive.file`, herramientas-web.md §3).
+
+    El token de actualización se guarda CIFRADO (`drive/cifrado.py`). La jerarquía es la del escritorio:
+    `GRUPO ITT REPORTES/<persona>/{Cotizaciones, Reportes fotograficos, Poligonos KML}`.
+    """
+
+    class Estado(models.TextChoices):
+        OK = "ok", "Conectada"
+        REAUTORIZAR = "reautorizar", "Hay que volver a conectar"
+        CARPETA_PERDIDA = "carpeta_perdida", "La carpeta ya no está disponible"
+
+    cuenta_id = models.BigIntegerField(unique=True)
+    correo = models.CharField(max_length=254, blank=True)
+    token_cifrado = models.TextField()
+    estado = models.CharField(max_length=16, choices=Estado.choices, default=Estado.OK)
+    error = models.CharField(max_length=300, blank=True)
+    persona = models.CharField(max_length=100, blank=True)                 # nombre de la carpeta de la persona
+    carpeta_raiz_id = models.CharField(max_length=100, blank=True)         # «GRUPO ITT REPORTES» (elegida con Picker o creada por la app)
+    carpetas = models.JSONField(default=dict, blank=True)                  # {persona: id, cotizaciones: id, reportes: id, poligonos: id}
+    automatico = models.BooleanField(default=True)                         # enviar solo lo que se genera (reportes, KML/KMZ, cotizaciones)
+    creada = models.DateTimeField(default=timezone.now)
+    actualizada = models.DateTimeField(default=timezone.now)
+
+
+class EnvioDrive(models.Model):
+    """Un archivo en la cola de envío a Drive: pendiente hasta que Google confirma el mismo contenido (md5)."""
+
+    class Estado(models.TextChoices):
+        PENDIENTE = "pendiente", "Pendiente"
+        ENVIANDO = "enviando", "Enviando"
+        ENVIADO = "enviado", "Enviado"
+        ERROR = "error", "Con error"
+        DESCARTADO = "descartado", "Descartado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cuenta_id = models.BigIntegerField(db_index=True)
+    categoria = models.CharField(max_length=12)                            # cotizaciones | reportes | poligonos
+    nombre = models.CharField(max_length=200)
+    ruta = models.CharField(max_length=300)                                # copia local en drive_cola/, relativa a TV_HERRAMIENTAS_ARCHIVOS
+    sha256 = models.CharField(max_length=64)
+    clave = models.CharField(max_length=64, blank=True, db_index=True)       # huella de lo que se generó (datos + versión), para no mandar de nuevo un PDF que solo cambió de fecha interna
+    bytes = models.BigIntegerField()
+    estado = models.CharField(max_length=12, choices=Estado.choices, default=Estado.PENDIENTE)
+    intentos = models.PositiveIntegerField(default=0)
+    proximo_intento = models.DateTimeField(default=timezone.now, db_index=True)
+    error = models.CharField(max_length=300, blank=True)
+    drive_id = models.CharField(max_length=100, blank=True)
+    drive_nombre = models.CharField(max_length=200, blank=True)            # el nombre con que quedó (puede llevar sufijo si ya había otro distinto)
+    creada = models.DateTimeField(default=timezone.now)
+    enviada = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["creada"]
+        constraints = [models.UniqueConstraint(fields=["cuenta_id", "categoria", "nombre", "sha256"], name="herramientas_enviodrive_unico")]

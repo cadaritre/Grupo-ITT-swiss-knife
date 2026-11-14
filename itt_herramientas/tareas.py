@@ -146,3 +146,12 @@ def exportar_triangulacion(triangulacion_id, tipo, opciones):
         return {"mensaje": f"No se pudo exportar: {exc}"}
     url = reverse("herramientas:triangulacion_descargar", args=[t.pk], urlconf=urlconf_de("herramientas"))
     return {"mensaje": "DXF listo.", "url": url, "etiqueta": "Descargar DXF"}
+
+
+@tarea(cola="herramientas")
+def enviar_a_drive(cuenta_id):
+    """Envía a Google Drive lo pendiente de una cuenta (los reintentos los dispara `herramientas_drive_reintentar` o la persona)."""
+    from .drive import servicio
+
+    r = servicio.procesar(cuenta_id)
+    return {"mensaje": f"{r['enviados']} enviados, {r['pendientes']} pendientes."}

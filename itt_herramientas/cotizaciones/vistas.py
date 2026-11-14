@@ -139,9 +139,19 @@ def pdf(request):
     respuesta = HttpResponse(contenido, content_type="application/pdf")
     from django.utils.http import content_disposition_header
 
+    respuesta["X-Drive"] = "no"
+    if request.GET.get("exportar") == "1":                                       # el PDF final (no la vista previa): a Drive el PDF y su editable, como el escritorio
+        from ..drive import servicio as drive
+
+        editable = nombre.replace("COTIZACION", "EDITABLE_COTIZACION", 1).rsplit(".", 1)[0] + ".json"
+        clave = drive.clave_de("cotizacion", json.dumps(cuerpo.get("datos"), sort_keys=True), perfiles.perfil_activo(request.user).clave)
+        e1 = drive.encolar(request.user.pk, "cotizaciones", nombre, contenido=contenido, clave=clave)
+        e2 = drive.encolar(request.user.pk, "cotizaciones", editable, contenido=json.dumps(cuerpo.get("datos"), ensure_ascii=False, indent=2).encode("utf-8"), clave=clave)
+        respuesta["X-Drive"] = "encolado" if (e1 or e2) else "no"
+
     respuesta["Content-Disposition"] = content_disposition_header(request.GET.get("descargar") == "1", nombre)
     respuesta["X-Imagenes-Pendientes"] = str(len(pendientes))
-    respuesta["Access-Control-Expose-Headers"] = "X-Imagenes-Pendientes, Content-Disposition"
+    respuesta["Access-Control-Expose-Headers"] = "X-Imagenes-Pendientes, Content-Disposition, X-Drive"
     return _privado(respuesta)
 
 

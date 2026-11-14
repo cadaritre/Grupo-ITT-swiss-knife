@@ -174,4 +174,7 @@ def generar(r: Reporte) -> Path:
     Reporte.objects.filter(pk=r.pk).update(salida_ruta=destino.relative_to(capturas.raiz()).as_posix(), salida_nombre=nombre_pdf(datos["titulo"]),
                                            salida_revision=revision, generado=timezone.now())
     progreso(1.0, "Listo")
+    from ..drive import servicio as drive
+
+    drive.encolar(r.cuenta_id, "reportes", nombre_pdf(datos["titulo"]), origen=destino, clave=drive.clave_de("reporte", r.pk, revision, r.perfil))           # a Drive si la persona lo conectó (no falla el reporte si no)
     return destino

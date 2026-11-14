@@ -201,6 +201,10 @@ def convertir(c: Conversion) -> None:
     c.salida_ruta, c.salida_formato = str(objetivo.relative_to(raiz())), formato
     c.save(update_fields=["salida_ruta", "salida_formato"])
     progreso(1.0, "Listo")
+    if formato in ("kml", "kmz"):                                              # a Drive (Poligonos KML), como el escritorio; el DXF no se envía
+        from ..drive import servicio as drive
+
+        drive.encolar(c.cuenta_id, "poligonos", objetivo.name, origen=objetivo, clave=drive.clave_de("conversion", c.pk, sorted(op.items(), key=str)))
 
 
 def borrar_archivos(c: Conversion) -> None:

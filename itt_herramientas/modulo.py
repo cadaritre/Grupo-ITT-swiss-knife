@@ -9,7 +9,7 @@ MODULO = Modulo(
     orden=20,
     # El service worker, el manifiesto, la guía de instalación y la página de captura (HTML sin datos de ninguna cuenta,
     # necesaria para arrancar sin conexión) se sirven sin sesión: el navegador los pide sin poder seguir un inicio de sesión.
-    limpiezas=("itt_herramientas.convertidor.servicio.limpiar",),
+    limpiezas=("itt_herramientas.convertidor.servicio.limpiar", "itt_herramientas.drive.servicio.limpiar"),
     rutas_publicas=("sw.js", "manifest.webmanifest", "capturar/", "instalar/", "cotizaciones/", "reportes/", "croquis/"),
     roles=[
         Rol("reportes", "Reportes fotográficos"),
