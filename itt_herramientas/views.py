@@ -28,6 +28,7 @@ TTL_IMPORTACION = 3600
 #: (rol, título, descripción, nombre de la URL) de las herramientas que se listan en el inicio según el rol de la cuenta
 HERRAMIENTAS_DE_INICIO = (
     ("cotizaciones", "Cotizaciones", "Crea y edita cotizaciones, también sin señal. Genera el PDF y compártelo.", "herramientas:cotizaciones"),
+    ("croquis", "Croquis de ubicación", "Dibuja el área sobre el mapa, vectoriza OpenStreetMap y genera el PDF y el DXF.", "herramientas:croquis"),
     ("convertidor", "Convertidor DXF ↔ KML/KMZ", "Convierte planos y polígonos entre DXF, KML y KMZ.", "herramientas:convertidor"),
     ("reportes", "Reportes fotográficos", "Toma fotos en campo con hora y ubicación, ordénalas y genera el PDF. Funciona sin señal.", "herramientas:reportes"),
 )
@@ -368,17 +369,25 @@ def perfil_logo(request):
 
 @requiere_rol("herramientas", "reportes", "croquis", "admin")
 def teselas(request, capa, z, x, y):
-    """Teselas de mapa de OpenStreetMap/OpenTopoMap con caché en disco (el navegador no sale a internet: CSP)."""
+    """Teselas de OpenStreetMap/OpenTopoMap con caché en disco (el navegador no sale a internet: CSP).
+
+    Respeta la política de OSM: solo se pide lo que el mapa muestra, la vigencia viene de las cabeceras del origen y las
+    descargas nuevas por cuenta tienen tope por hora (429).
+    """
     from django.http import HttpResponse
 
     from .comun import teselas as servicio_teselas
 
     try:
-        datos = servicio_teselas.obtener(capa, z, x, y)
+        datos, restante = servicio_teselas.obtener(capa, z, x, y, cuenta_id=request.user.pk)
+    except servicio_teselas.DemasiadasDescargas:
+        respuesta = HttpResponse("Demasiadas teselas nuevas por hora.", status=429, content_type="text/plain; charset=utf-8")
+        respuesta["Retry-After"] = "600"
+        return respuesta
     except servicio_teselas.SinTesela:
         respuesta = HttpResponse(status=404)
         respuesta["Cache-Control"] = "no-store"
         return respuesta
     respuesta = HttpResponse(datos, content_type="image/png")
-    respuesta["Cache-Control"] = "private, max-age=604800"
+    respuesta["Cache-Control"] = f"private, max-age={int(max(60, restante))}"
     return respuesta

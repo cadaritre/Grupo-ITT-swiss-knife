@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 from .convertidor import vistas as convertidor
 from .cotizaciones import vistas as cotizaciones
+from .croquis import vistas as croquis
 from .reportes import vistas as reportes
 
 app_name = "herramientas"
@@ -52,6 +53,17 @@ urlpatterns = [
     path("reportes/api/<uuid:pk>/pdf/", reportes.pdf, name="reportes_pdf"),
     path("reportes/api/<uuid:pk>/descargar/", reportes.descargar, name="reportes_descargar"),
     path("mapa/teselas/<slug:capa>/<int:z>/<int:x>/<int:y>.png", views.teselas, name="teselas"),
+    path("croquis/", croquis.pagina, name="croquis"),
+    path("croquis/api/contexto/", croquis.contexto, name="croquis_contexto"),
+    path("croquis/api/lista/", croquis.lista, name="croquis_lista"),
+    path("croquis/api/sincronizar/", croquis.sincronizar, name="croquis_sincronizar"),
+    path("croquis/api/importar/", croquis.importar, name="croquis_importar"),
+    path("croquis/api/<uuid:pk>/", croquis.detalle, name="croquis_detalle"),
+    path("croquis/api/<uuid:pk>/vectorizar/", croquis.vectorizar, name="croquis_vectorizar"),
+    path("croquis/api/<uuid:pk>/exportar/", croquis.exportar, name="croquis_exportar"),
+    path("croquis/api/<uuid:pk>/descargar/", croquis.descargar, name="croquis_descargar"),
+    path("croquis/api/<uuid:pk>/vectores.geojson", croquis.vectores, name="croquis_vectores"),
+    path("croquis/api/<uuid:pk>/editable.json", croquis.editable, name="croquis_editable"),
     path("preferencias/", views.preferencias_, name="preferencias"),
     path("diccionario/", views.diccionario, name="diccionario"),
     path("perfiles/", views.perfiles_, name="perfiles"),

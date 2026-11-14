@@ -236,3 +236,35 @@ class Reporte(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_reporte_cliente")]
         ordering = ["-actualizada"]
+
+
+class Croquis(models.Model):
+    """Croquis de ubicación de una cuenta (herramientas-web.md §4.3), con autoguardado en el servidor.
+
+    `datos` es el `SketchData` del escritorio SIN `features` (los vectores pesan megas y los produce el servidor): van en un
+    archivo (`vectores_ruta`) que vale solo mientras `vectores_fuente` sea la huella del área, la capa y las curvas actuales.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cuenta_id = models.BigIntegerField(db_index=True)
+    id_cliente = models.UUIDField(null=True, blank=True)
+    datos = models.JSONField()
+    revision = models.PositiveIntegerField(default=1)
+    perfil = models.CharField(max_length=20, default="grupo_itt")
+    titulo = models.CharField(max_length=200, blank=True)
+    copia_de = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="copias")
+    vectores_ruta = models.CharField(max_length=300, blank=True)
+    vectores_fuente = models.CharField(max_length=64, blank=True)
+    vectorizado = models.DateTimeField(null=True, blank=True)
+    vectores_resumen = models.JSONField(default=dict, blank=True)         # {total, conteos, area_km2}
+    tarea_id = models.UUIDField(null=True, blank=True)                    # vectorización o exportación en curso
+    salida_ruta = models.CharField(max_length=300, blank=True)
+    salida_nombre = models.CharField(max_length=200, blank=True)
+    salida_formato = models.CharField(max_length=3, blank=True)
+    salida_fuente = models.CharField(max_length=64, blank=True)           # huella de los datos con que se generó
+    creada = models.DateTimeField(default=timezone.now)
+    actualizada = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_croquis_cliente")]
+        ordering = ["-actualizada"]
