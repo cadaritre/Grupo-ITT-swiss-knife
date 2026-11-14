@@ -498,8 +498,9 @@ def test_nueva_version_se_ofrece_y_no_se_activa_sola(motor, tmp_path, servidor, 
         expect(pagina.locator("#itt-actualizar")).to_be_visible(timeout=TIEMPO)
         assert pagina.evaluate("!!document.querySelector('html[data-captura-lista]')") and "pendiente" in texto_contador(pagina)   # la página NO se recargó sola
         assert "version-nueva-de-prueba" not in pagina.evaluate("navigator.serviceWorker.controller.scriptURL")
-        pagina.locator("#itt-actualizar [data-itt=actualizar]").click()
-        pagina.wait_for_selector("html[data-captura-lista]", timeout=TIEMPO)                     # tras tocar «Actualizar» se recarga con la versión nueva
+        with pagina.expect_navigation(timeout=TIEMPO):                   # tras tocar «Actualizar» se recarga con la versión nueva; sin esperar
+            pagina.locator("#itt-actualizar [data-itt=actualizar]").click()   # la recarga, el selector casaba con la página vieja y lo siguiente
+        pagina.wait_for_selector("html[data-captura-lista]", timeout=TIEMPO)  # moría con «Execution context was destroyed»
         esperar(pagina, "navigator.serviceWorker.getRegistration().then(r => !!r.active && !r.waiting)")
         esperar_sin_pendientes(pagina)                                   # la captura no se perdió: sigue en el teléfono hasta subirse
         assert Captura.objects.count() == 1
