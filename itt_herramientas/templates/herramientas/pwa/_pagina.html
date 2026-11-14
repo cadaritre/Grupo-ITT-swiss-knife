@@ -1,44 +1,45 @@
-{% load static herramientas %}<!doctype html>
-<html lang="es">
+{% load static tv herramientas %}<!doctype html>
+<html lang="es" data-tv-tema="{{ tv_preferencias.tema|default:'claro' }}"{% if tv_preferencias.lateral_colapsado %} data-tv-lateral="colapsado"{% endif %}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light">
-<title>{% block titulo %}Herramientas{% endblock %} · TresVizo</title>
+<meta name="color-scheme" content="{% if tv_preferencias.tema == 'oscuro' %}dark{% else %}light{% endif %}">
+<title>{% block titulo %}Herramientas{% endblock %} · Herramientas</title>
 <link rel="stylesheet" href="{% static 'tvplataforma/tokens.css' %}">
 <link rel="stylesheet" href="{% static 'tvplataforma/base.css' %}">
 <link rel="stylesheet" href="{% static 'tvplataforma/componentes.css' %}">
 {% include "herramientas/pwa/_cabeza.html" %}
 {% perfil_clave as clave %}<link rel="icon" href="{% static 'herramientas/img/favicon-'|add:clave|add:'-32.png' %}" type="image/png" sizes="32x32">
 <link rel="icon" href="{% static 'herramientas/img/icono-'|add:clave|add:'-192.png' %}" type="image/png" sizes="192x192">
+<script src="{% static 'tvplataforma/js/base.js' %}" defer></script>
 </head>
-<body>
+<body class="tv-con-lateral itt-campo">
 <a class="tv-saltar" href="#contenido">Saltar al contenido</a>
-{# La cabecera es igual para todas las cuentas (la página se guarda sin conexión): nada de aquí depende de quién entró. El nombre, las herramientas y el cierre de sesión los rellena menu.js con lo que dice /sesion/. #}
+{# Páginas de campo: abren sin conexión, así que su HTML no depende de la cuenta. Es el mismo armazón que el resto de la plataforma (lateral, cajón, cabecera); el menú, el nombre y la salida los rellena menu.js con lo que dice /sesion/ (y lo recuerda sin señal). #}
+{% lateral_de_campo %}
+<div class="tv-cuerpo">
 <header class="tv-cabecera"><div class="tv-cabecera__fila">
-  <a class="tv-marca" href="{% url 'herramientas:inicio' %}" aria-label="TresVizo · Inicio de Herramientas"><img src="{% static 'tvplataforma/img/marca.png' %}" alt="" width="28" height="32"><span>TresVizo</span></a>
-  {% if clave == 'grupo_itt' %}<img class="tv-modulo-icono" src="{% static 'herramientas/img/marca-grupo_itt.png' %}" alt="" width="28" height="28">{% endif %}
-  <a class="tv-cabecera__modulo" href="{% url 'herramientas:inicio' %}">Herramientas</a>
+  <button type="button" class="tv-cabecera__cajon tv-boton tv-boton--fantasma tv-boton--icono" data-tv-cajon aria-controls="tv-lateral" aria-expanded="false">{% icono "menu" etiqueta="Abrir el menú" %}</button>
+  <a class="tv-marca tv-marca--modulo" href="{% url 'herramientas:inicio' %}" aria-label="Herramientas: inicio">{% if clave == 'grupo_itt' %}<img class="tv-modulo-icono" src="{% static 'herramientas/img/marca-grupo_itt.png' %}" alt="" width="28" height="28">{% else %}<img class="tv-modulo-icono" src="{% static 'herramientas/img/modulo.png' %}" alt="" width="28" height="28">{% endif %}<span>Herramientas</span></a>
   <span class="tv-cabecera__espacio"></span>
-  <details class="tv-menu itt-menu" id="itt-menu">
-    <summary aria-label="Menú de Herramientas"><span class="tv-insignia" id="itt-menu-nombre">Menú</span></summary>
+  {% if tv_usuario %}<button type="button" class="tv-boton tv-boton--fantasma tv-boton--icono tv-cabecera__buscar" data-tv-paleta-abrir title="Buscar (Ctrl K)">{% icono "search" etiqueta="Buscar o ir a…" %}</button>{% endif %}
+  <details class="tv-menu tv-menu--cuenta itt-menu" id="itt-menu">
+    <summary aria-label="Menú de la cuenta"><span class="tv-avatar" id="itt-menu-avatar" aria-hidden="true" hidden></span><span class="tv-insignia tv-menu__nombre" id="itt-menu-nombre">Menú</span></summary>
     <div class="tv-menu__panel">
       <div class="tv-menu__titulo" id="itt-menu-titulo" hidden></div>
-      <a href="{% url 'herramientas:inicio' %}" data-itt-menu="inicio">Inicio de Herramientas</a>
+      <a href="{{ tv_urls.cuenta }}" data-itt-menu="cuenta" hidden>{% icono "circle-user-round" clase="tv-nav__icono" %}Mi cuenta</a>
+      <a href="{% url 'herramientas:capturar' %}" data-itt-menu="capturar" data-itt-menu-campo hidden>{% icono "camera" clase="tv-nav__icono" %}Capturar fotos</a>
+      <a href="{% url 'herramientas:instalar' %}" data-itt-menu="instalar">{% icono "smartphone" clase="tv-nav__icono" %}Instalar en el teléfono</a>
+      <button type="button" data-tv-tema-cambiar data-itt-con-sesion hidden>{% if tv_preferencias.tema == "oscuro" %}{% icono "sun" clase="tv-nav__icono" %}Tema claro{% else %}{% icono "moon" clase="tv-nav__icono" %}Tema oscuro{% endif %}</button>
       <hr class="tv-menu__separador" data-itt-menu-campo hidden>
-      <a href="{% url 'herramientas:capturar' %}" data-itt-menu="capturar" data-itt-menu-campo hidden>Capturar fotos</a>
-      <a href="{% url 'herramientas:cotizaciones' %}" data-itt-menu="cotizaciones" data-itt-menu-campo hidden>Cotizaciones</a>
-      <a href="{% url 'herramientas:reportes' %}" data-itt-menu="reportes" data-itt-menu-campo hidden>Reportes fotográficos</a>
-      <a href="{% url 'herramientas:croquis' %}" data-itt-menu="croquis" data-itt-menu-campo hidden>Croquis de ubicación</a>
-      <hr class="tv-menu__separador">
-      <a href="{{ tv_urls.cuenta }}" data-itt-menu="cuenta" hidden>Mi cuenta</a>
-      <a href="{{ tv_urls.entrar }}" data-itt-menu="entrar" hidden>Iniciar sesión</a>
-      <form method="post" action="{% url 'tvplataforma:sso_salir' %}" id="itt-salir" hidden><button type="submit" id="itt-salir-boton">Cerrar sesión</button></form>
+      <a href="{{ tv_urls.entrar }}" data-itt-menu="entrar" hidden>{% icono "log-in" clase="tv-nav__icono" %}Iniciar sesión</a>
+      <form method="post" action="{% url 'tvplataforma:sso_salir' %}" id="itt-salir" hidden><button type="submit" id="itt-salir-boton">{% icono "log-out" clase="tv-nav__icono" %}Cerrar sesión</button></form>
       <p class="itt-menu__nota tv-tenue" id="itt-salir-aviso" hidden>Sin conexión: para cerrar sesión necesitas señal.</p>
     </div>
   </details>
 </div></header>
 <main id="contenido" class="tv-principal">{% block contenido %}{% endblock %}</main>
+</div>
 <dialog id="dlg-salir" class="tv-hoja tv-hoja--confirmar" aria-labelledby="dlg-salir-titulo">
   <form method="dialog" class="tv-hoja__cuerpo">
     <div class="tv-hoja__asa" aria-hidden="true"></div>
@@ -47,6 +48,9 @@
     <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" id="dlg-salir-no">Seguir en la app</button><button type="submit" value="si" class="tv-boton" id="dlg-salir-si">Cerrar sesión</button></div>
   </form>
 </dialog>
+{% if tv_usuario %}{% include "tvplataforma/_paleta.html" %}{% endif %}
+<div class="tv-avisos" id="tv-avisos" aria-live="polite"></div>
+{% include "herramientas/pwa/_iconos.html" %}
 {% include "herramientas/pwa/_cola.html" with banda="si" %}
 <script src="{% static 'herramientas/offline/menu.js' %}"></script>
 {% block scripts %}{% endblock %}

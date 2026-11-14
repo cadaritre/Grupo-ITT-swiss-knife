@@ -26,7 +26,8 @@ ACTIVOS = (
     "vendor/pdfjs/pdf.min.mjs", "vendor/pdfjs/pdf.worker.min.mjs",
     "vendor/maplibre/maplibre-gl.css", "vendor/maplibre/maplibre-gl-csp.js", "vendor/maplibre/maplibre-gl-csp-worker.js",     # el croquis abre el mapa sin señal
     "vendor/terradraw/terra-draw.umd.js", "vendor/terradraw/terra-draw-maplibre-gl-adapter.umd.js",
-    "img/marca-grupo_itt.png",
+    "img/marca-grupo_itt.png", "img/modulo.png",
+    *(f"img/herramientas/{h}.png" for h in ("cotizaciones", "reportes", "croquis", "convertidor", "triangulacion")),     # pestañas del módulo
     *(f"img/favicon-{clave}-32.png" for clave in ("grupo_itt", "tresvizo")),
     *(f"img/icono-{clave}-{tam}.png" for clave in ("grupo_itt", "tresvizo") for tam in (192, 512)),
     *(f"img/icono-maskable-{clave}-512.png" for clave in ("grupo_itt", "tresvizo")),
@@ -36,7 +37,7 @@ ACTIVOS = (
 
 #: lo compartido de `tvplataforma` que cargan las páginas sin conexión (hojas de estilo y logo del encabezado). Se precarga al instalar:
 #: si solo se guardara cuando una página ya controlada por el service worker lo pide, la primera apertura sin señal saldría sin estilos.
-ACTIVOS_PLATAFORMA = ("tokens.css", "base.css", "componentes.css", "img/marca.png")
+ACTIVOS_PLATAFORMA = ("tokens.css", "base.css", "componentes.css", "img/marca.png", "js/base.js")
 
 
 def ruta_plataforma(relativa: str) -> Path:

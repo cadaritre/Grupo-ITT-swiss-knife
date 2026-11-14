@@ -1,0 +1,16 @@
+{% load static tv %}{# Mismo marcado que el lateral de tvplataforma/base.html; las entradas se muestran según la cuenta (menu.js). #}
+<aside class="tv-lateral" id="tv-lateral" aria-label="Navegación" data-itt-lateral>
+  <div class="tv-lateral__cabeza">
+    <a class="tv-lateral__marca" href="{% url 'herramientas:inicio' %}"><img src="{% static 'herramientas/img/modulo.png' %}" alt="" width="28" height="28"><span class="tv-lateral__texto">Herramientas</span></a>
+    <button type="button" class="tv-lateral__plegar" data-tv-plegar aria-label="Contraer el lateral" aria-expanded="true" aria-controls="tv-lateral">{% icono "panel-left" %}</button>
+  </div>
+  <button type="button" class="tv-lateral__buscar" data-tv-paleta-abrir data-itt-con-sesion hidden>{% icono "search" clase="tv-nav__icono" %}<span class="tv-lateral__texto">Buscar</span><kbd class="tv-tecla tv-lateral__texto" data-tv-tecla-cmd>Ctrl K</kbd></button>
+  <nav class="tv-lateral__nav" aria-label="Secciones">
+    {% for g in grupos %}{% if g.titulo %}<div class="tv-lateral__titulo" role="presentation" data-itt-grupo><span class="tv-lateral__texto">{{ g.titulo }}</span></div>{% endif %}
+    {% for e in g.entradas %}<a href="{{ e.url }}" data-etiqueta="{{ e.etiqueta }}" data-itt-nav="{{ e.clave }}"{% if e.actual %} aria-current="page"{% endif %}{% if e.clave != "inicio" %} hidden{% endif %}>{% icono e.icono clase="tv-nav__icono" %}<span class="tv-lateral__texto">{{ e.etiqueta }}</span></a>{% endfor %}{% endfor %}
+  </nav>
+  {% if con_atajos %}<div class="tv-lateral__pie">
+    <button type="button" data-tv-abrir="tv-atajos" data-etiqueta="Atajos de teclado">{% icono "keyboard" clase="tv-nav__icono" %}<span class="tv-lateral__texto">Atajos de teclado</span><kbd class="tv-tecla tv-lateral__texto">?</kbd></button>
+  </div>{% endif %}
+</aside>
+<div class="tv-velo" data-tv-cajon-cerrar></div>

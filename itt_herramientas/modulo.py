@@ -1,4 +1,5 @@
 from tvplataforma.modulos import Modulo, Rol
+from tvplataforma.navegacion import Accion, Busqueda, Entrada
 
 MODULO = Modulo(
     clave="herramientas",
@@ -12,6 +13,27 @@ MODULO = Modulo(
     # necesaria para arrancar sin conexión) se sirven sin sesión: el navegador los pide sin poder seguir un inicio de sesión.
     limpiezas=("itt_herramientas.convertidor.servicio.limpiar", "itt_herramientas.drive.servicio.limpiar"),
     rutas_publicas=("sw.js", "manifest.webmanifest", "capturar/", "instalar/", "cotizaciones/", "reportes/", "croquis/"),
+    # Navegación como datos (contrato 1.5, §12): el armazón pinta con esto el lateral, el cajón del teléfono y la paleta, por rol.
+    # Las páginas de campo (que abren sin conexión) pintan el mismo menú con `{% lateral_de_campo %}`.
+    menu=[
+        Entrada("Inicio", "house", "herramientas:inicio", clave="inicio", atajo="g h"),
+        Entrada("Cotizaciones", "receipt", "herramientas:cotizaciones", roles=("cotizaciones", "admin"), grupo="Campo", atajo="g o", clave="cotizaciones"),
+        Entrada("Reportes fotográficos", "camera", "herramientas:reportes", roles=("reportes", "admin"), grupo="Campo", atajo="g r", clave="reportes"),
+        Entrada("Croquis de ubicación", "map", "herramientas:croquis", roles=("croquis", "admin"), grupo="Campo", atajo="g m", clave="croquis"),
+        Entrada("Capturar fotos", "images", "herramientas:capturar", roles=("reportes", "cotizaciones", "admin"), grupo="Campo", clave="capturar"),
+        Entrada("Convertidor", "arrow-right-left", "herramientas:convertidor", roles=("convertidor", "admin"), grupo="Gabinete", atajo="g v", clave="convertidor"),
+        Entrada("Triangulación", "triangle", "herramientas:triangulacion", roles=("triangulacion", "admin"), grupo="Gabinete", atajo="g t", clave="triangulacion"),
+        Entrada("Ajustes", "settings", "herramientas:preferencias", grupo="Cuenta", atajo="g a", clave="ajustes"),
+    ],
+    acciones=[
+        Accion("Nueva cotización", "file-plus", "/cotizaciones/#/nueva", roles=("cotizaciones", "admin"), atajo="n"),
+        Accion("Machotes de cotización", "library-big", "/cotizaciones/#/machotes", roles=("cotizaciones", "admin")),
+        Accion("Nuevo reporte fotográfico", "camera", "/reportes/#/nuevo", roles=("reportes", "admin")),
+        Accion("Nuevo croquis", "map-pin-plus", "/croquis/#/nuevo", roles=("croquis", "admin")),
+        Accion("Convertir un archivo", "file-up", "herramientas:convertidor", roles=("convertidor", "admin")),
+        Accion("Conectar Google Drive", "hard-drive-upload", "herramientas:drive"),
+    ],
+    busqueda=Busqueda("herramientas:buscar", "Buscar documentos", icono="file-text", roles=("cotizaciones", "reportes", "croquis", "admin")),
     roles=[
         Rol("reportes", "Reportes fotográficos", "Toma fotos en campo y genera el reporte en PDF."),
         Rol("cotizaciones", "Cotizaciones", "Crea cotizaciones, también sin señal, y genera su PDF."),
@@ -26,3 +48,4 @@ MODULO = Modulo(
 
 #: Roles de las herramientas (todos menos `admin`): quien tenga alguno puede usar los comunes.
 ROLES_DE_HERRAMIENTAS = tuple(r.clave for r in MODULO.roles if r.clave not in ("admin", "cambiar_perfil"))
+

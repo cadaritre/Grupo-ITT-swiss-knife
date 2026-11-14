@@ -12,7 +12,7 @@ from django.contrib import messages
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from tvplataforma import permisos
 from tvplataforma.permisos import requiere_rol
 
@@ -27,11 +27,11 @@ solo_admin = requiere_rol("herramientas", "admin")
 TTL_IMPORTACION = 3600
 #: (rol, título, descripción, nombre de la URL) de las herramientas que se listan en el inicio según el rol de la cuenta
 HERRAMIENTAS_DE_INICIO = (
-    ("cotizaciones", "Cotizaciones", "Crea y edita cotizaciones, también sin señal. Genera el PDF y compártelo.", "herramientas:cotizaciones"),
-    ("croquis", "Croquis de ubicación", "Dibuja el área sobre el mapa, vectoriza OpenStreetMap y genera el PDF y el DXF.", "herramientas:croquis"),
-    ("triangulacion", "Triangulación y pendientes", "Genera un TIN desde puntos, zonifica pendientes y dibuja el escurrimiento; exporta DXF.", "herramientas:triangulacion"),
-    ("convertidor", "Convertidor DXF ↔ KML/KMZ", "Convierte planos y polígonos entre DXF, KML y KMZ.", "herramientas:convertidor"),
-    ("reportes", "Reportes fotográficos", "Toma fotos en campo con hora y ubicación, ordénalas y genera el PDF. Funciona sin señal.", "herramientas:reportes"),
+    ("cotizaciones", "Cotizaciones", "Cotiza en campo o en la oficina y comparte el PDF.", "herramientas:cotizaciones"),
+    ("reportes", "Reportes fotográficos", "Fotos con hora y ubicación, listas en un PDF.", "herramientas:reportes"),
+    ("croquis", "Croquis de ubicación", "Dibuja el predio sobre el mapa y genera PDF y DXF.", "herramientas:croquis"),
+    ("convertidor", "Convertidor DXF ↔ KML/KMZ", "Lleva planos a Google Earth y polígonos a AutoCAD.", "herramientas:convertidor"),
+    ("triangulacion", "Triangulación y pendientes", "TIN, pendientes y escurrimiento a partir de un DXF.", "herramientas:triangulacion"),
 )
 
 
@@ -49,6 +49,7 @@ def inicio(request):
 @usuario_de_herramientas
 @require_http_methods(["GET", "POST"])
 def preferencias_(request):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     formulario = PreferenciasForm.desde(preferencias.obtener(request.user.pk), request.POST or None)
     if request.method == "POST" and formulario.is_valid():
         try:
@@ -64,6 +65,7 @@ def preferencias_(request):
 @usuario_de_herramientas
 @require_http_methods(["GET", "POST"])
 def diccionario(request):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     admin = _es_admin(request)
     if request.method == "POST":
         accion = request.POST.get("accion", "")
@@ -93,6 +95,7 @@ def diccionario(request):
 
 @solo_admin
 def perfiles_(request):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     return render(request, "herramientas/perfiles.html", {"perfiles": Perfil.objects.all()})
 
 
@@ -106,6 +109,7 @@ def _perfil(clave: str) -> Perfil:
 @solo_admin
 @require_http_methods(["GET", "POST"])
 def perfil_editar(request, clave):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     perfil = _perfil(clave)
     formulario = PerfilForm(request.POST or None, request.FILES or None, instance=perfil)
     if request.method == "POST" and formulario.is_valid():
@@ -120,6 +124,7 @@ def perfil_editar(request, clave):
 @solo_admin
 @require_http_methods(["GET", "POST"])
 def perfil_textos(request, clave):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     perfil = _perfil(clave)
     if request.method == "POST" and "restaurar" in request.POST:
         perfil.textos_reporte, perfil.textos_cotizacion_es, perfil.textos_cotizacion_en = {}, {}, {}
@@ -138,6 +143,7 @@ def perfil_textos(request, clave):
 @solo_admin
 @require_http_methods(["GET", "POST"])
 def perfil_paleta(request, clave):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     from .dominio import quote_theme
 
     perfil = _perfil(clave)
@@ -186,6 +192,7 @@ def _archivo_importacion(usuario, token) -> Path:
 @usuario_de_herramientas
 @require_http_methods(["GET", "POST"])
 def importar(request):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     if request.method == "POST":
         archivo = request.FILES.get("zip")
         if archivo is None:
@@ -207,6 +214,7 @@ def importar(request):
 @usuario_de_herramientas
 @require_http_methods(["GET", "POST"])
 def importar_confirmar(request, token):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     ruta = _archivo_importacion(request.user, token)
     if not ruta.is_file() or time.time() - ruta.stat().st_mtime > TTL_IMPORTACION:
         messages.error(request, "La importación caducó. Sube el ZIP otra vez.")
@@ -297,6 +305,22 @@ def _herramientas_de_campo(usuario) -> list[str]:
     return (["capturar"] if tiene("reportes") or tiene("cotizaciones") else []) + campo
 
 
+def _navegacion(usuario) -> list[str]:
+    """Pestañas del módulo que ve esta cuenta (las páginas sin conexión las muestran con esto)."""
+    def tiene(rol):
+        return permisos.tiene_rol(usuario, "herramientas", rol) or permisos.tiene_rol(usuario, "herramientas", "admin")
+    from .modulo import MODULO
+
+    return [e.clave for e in MODULO.menu if not e.roles or any(tiene(r) for r in e.roles)]
+
+
+def _tema(usuario) -> str:
+    """Tema elegido por la cuenta (claro por omisión; nunca el del sistema)."""
+    from tvplataforma.models import Preferencias
+
+    return Preferencias.de(usuario).tema
+
+
 def sesion(request):
     """Quién está con sesión y su token CSRF, para que la cola (y el service worker) puedan subir. 401 si no hay sesión."""
     from django.http import HttpResponse, JsonResponse
@@ -305,7 +329,8 @@ def sesion(request):
     u = request.user
     if not (u.is_authenticated and u.is_active) or not any(permisos.tiene_rol(u, "herramientas", r) for r in (*ROLES_DE_HERRAMIENTAS, "admin")):
         return HttpResponse(status=401)
-    respuesta = JsonResponse({"cuenta": u.pk, "nombre": u.get_full_name() or u.get_username(), "csrf": get_token(request), "herramientas": _herramientas_de_campo(u)})
+    respuesta = JsonResponse({"cuenta": u.pk, "nombre": u.get_full_name() or u.get_username(), "csrf": get_token(request), "herramientas": _herramientas_de_campo(u), "nav": _navegacion(u),
+                              "tema": _tema(u)})
     respuesta["Cache-Control"] = "no-store"
     return respuesta
 
@@ -412,4 +437,34 @@ def teselas(request, capa, z, x, y):
         return respuesta
     respuesta = HttpResponse(datos, content_type="image/png")
     respuesta["Cache-Control"] = f"private, max-age={int(max(60, restante))}"
+    return respuesta
+
+
+@requiere_rol("herramientas", "cotizaciones", "reportes", "croquis", "admin")
+@require_GET
+def buscar(request):
+    """Búsqueda de la paleta (contrato 1.5, §12.1): los documentos de ESTA cuenta, solo de las herramientas que tiene. Hasta 20."""
+    from django.db.models import Q
+    from django.http import JsonResponse
+
+    from .models import Cotizacion, Croquis, Reporte
+
+    q = " ".join(request.GET.get("q", "").split())[:80]
+    resultados: list[dict] = []
+    if len(q) >= 2:
+        def tiene(rol):
+            return permisos.tiene_rol(request.user, "herramientas", rol) or permisos.tiene_rol(request.user, "herramientas", "admin")
+        propio = {"cuenta_id": request.user.pk}
+        if tiene("cotizaciones"):
+            for c in Cotizacion.objects.filter(Q(folio__icontains=q) | Q(cliente__icontains=q) | Q(proyecto__icontains=q), **propio).order_by("-actualizada")[:10]:
+                resultados.append({"titulo": " · ".join(x for x in (c.folio, c.proyecto) if x) or "Cotización", "subtitulo": f"Cotización · {c.cliente}" if c.cliente else "Cotización",
+                                   "url": f"{reverse('herramientas:cotizaciones')}#/s/{c.pk}"})
+        if tiene("reportes"):
+            for r in Reporte.objects.filter(titulo__icontains=q, **propio).order_by("-actualizada")[:10]:
+                resultados.append({"titulo": r.titulo or "Reporte", "subtitulo": f"Reporte fotográfico · {r.fotos} foto{'s' if r.fotos != 1 else ''}", "url": f"{reverse('herramientas:reportes')}#/s/{r.pk}"})
+        if tiene("croquis"):
+            for k in Croquis.objects.filter(titulo__icontains=q, **propio).order_by("-actualizada")[:10]:
+                resultados.append({"titulo": k.titulo or "Croquis", "subtitulo": "Croquis de ubicación", "url": f"{reverse('herramientas:croquis')}#/s/{k.pk}"})
+    respuesta = JsonResponse({"resultados": resultados[:20]})
+    respuesta["Cache-Control"] = "private, no-store"
     return respuesta

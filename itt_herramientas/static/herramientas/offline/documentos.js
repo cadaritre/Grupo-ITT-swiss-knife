@@ -15,7 +15,7 @@
   const copiar = (x) => JSON.parse(JSON.stringify(x));
 
   async function error(r) {
-    let mensaje = `Error ${r.status}`;
+    let mensaje = r.status >= 500 ? "Algo falló de nuestro lado. Inténtalo de nuevo en un momento." : r.status === 404 ? "Ya no existe. Recarga la página." : "No se pudo completar. Revisa los datos e inténtalo de nuevo.";
     let extra = {};
     try { const d = await r.json(); if (d && d.error) mensaje = d.error; extra = d || {}; } catch (_) { /* no era JSON */ }
     return Object.assign({}, extra, { clase: r.status >= 500 || r.status === 404 ? "servidor" : "rechazo", mensaje, estado: r.status });
@@ -173,7 +173,15 @@
       (ITT.sincronizadores = ITT.sincronizadores || []).push(sincronizar);
     }
 
-    return { tipo, iniciar, pedir, url, listar, crear, guardar, borrar, sincronizar, copiar, get urls() { return urls; } };
+    /** Id local del documento que en el servidor es `servidorId` (enlaces de la búsqueda). Si aún no está en el teléfono, sincroniza una vez. */
+    async function localDe(servidorId) {
+      const buscar = async () => ((await listar()).find((b) => b.servidor_id === servidorId) || {}).id || null;
+      let id = await buscar();
+      if (!id && navigator.onLine) { try { await sincronizar(); } catch (_) { /* sin red: se queda en la lista */ } id = await buscar(); }
+      return id;
+    }
+
+    return { tipo, iniciar, pedir, url, listar, crear, guardar, borrar, sincronizar, copiar, localDe, get urls() { return urls; } };
   }
 
   ITT.crearDocumentos = crearDocumentos;

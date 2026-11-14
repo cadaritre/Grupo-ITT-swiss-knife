@@ -17,6 +17,7 @@ urlpatterns = [
     path("capturar/", views.capturar, name="capturar"),
     path("instalar/", views.instalar, name="instalar"),
     path("sesion/", views.sesion, name="sesion"),
+    path("buscar/", views.buscar, name="buscar"),
     path("capturas/", views.capturas, name="capturas"),
     path("perfil-activo/", views.perfil_activo, name="perfil_activo"),
     path("perfil.css", views.perfil_css, name="perfil_css"),

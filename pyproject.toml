@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = "LicenseRef-Propietaria"
 dependencies = [
-    "tvplataforma>=1,<2",
+    "tvplataforma>=1.5,<2",       # navegación como datos (menú, paleta y búsqueda) y preferencias de tema
     "Django>=5.2,<5.3",
     "Pillow>=12.2,<14",
     "reportlab>=4.4,<6",

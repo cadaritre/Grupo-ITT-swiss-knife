@@ -1,4 +1,4 @@
-<button type="button" class="{{ clase }}" data-tv-abrir="{{ id }}">{{ abrir }}</button>
+{% load tv %}<button type="button" class="{{ clase }}" data-tv-abrir="{{ id }}">{% if icono %}{% icono icono %}<span>{{ abrir }}</span>{% else %}{{ abrir }}{% endif %}</button>
 <dialog id="{{ id }}" class="tv-hoja tv-hoja--confirmar" aria-labelledby="{{ id }}-titulo">
   <form method="post" action="{{ accion }}" class="tv-hoja__cuerpo">{% csrf_token %}
     <div class="tv-hoja__asa" aria-hidden="true"></div>

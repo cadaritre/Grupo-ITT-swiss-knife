@@ -3,6 +3,8 @@
  *   ITT.ui.limpiar(nodo)                  vacía un nodo
  *   ITT.ui.mensaje(id, texto, tipo)       aviso en un <p id> con role=alert
  *   ITT.ui.confirmar(texto, opciones)     cuadro de confirmación (plantilla pwa/_confirmar.html), sustituye a confirm()/prompt()
+ *   ITT.ui.icono(nombre, etiqueta)        icono de Lucide clonado de <template id="itt-iconos"> (pwa/_iconos.html)
+ *   ITT.ui.boton(props, icono, texto)     botón .tv-boton con icono; sin texto lleva `etiqueta` como nombre accesible
  */
 (function (global) {
   "use strict";
@@ -23,6 +25,23 @@
   }
   const limpiar = (n) => { while (n.firstChild) n.firstChild.remove(); };
 
+  /** Icono de Lucide (decorativo salvo que lleve etiqueta). Los SVG vienen de la plantilla, no del JS. */
+  function icono(nombre, etiqueta) {
+    const molde = document.getElementById("itt-iconos");
+    const origen = molde && molde.content.querySelector(`[data-i="${nombre}"] svg`);
+    if (!origen) return document.createTextNode("");
+    const svg = origen.cloneNode(true);
+    if (etiqueta) { svg.removeAttribute("aria-hidden"); svg.setAttribute("role", "img"); svg.setAttribute("aria-label", etiqueta); }
+    return svg;
+  }
+  /** Botón con icono. `props.etiqueta` sin texto: botón solo de icono, con nombre accesible y título. */
+  function boton(props, nombreIcono, texto) {
+    const p = Object.assign({ type: "button" }, props);
+    const etiqueta = p.etiqueta; delete p.etiqueta;
+    if (!texto && etiqueta) { p["aria-label"] = etiqueta; p.title = etiqueta; p.class = `${p.class || "tv-boton tv-boton--secundario"} itt-boton-icono`; }
+    return h("button", p, nombreIcono ? icono(nombreIcono) : null, texto ? h("span", {}, texto) : null);
+  }
+
   /** Aviso flotante, pegado encima de la barra de acciones de abajo (donde se tocó), no al inicio de la página. Se retira solo. */
   function mensaje(id, texto, tipo) {
     const m = $(id);
@@ -33,8 +52,9 @@
     clearTimeout(m._retirar);
     if (!texto) return;
     const barra = [...document.querySelectorAll(".cot-barra, .cq-barra")].find((b) => b.offsetParent !== null && getComputedStyle(b).position !== "static");
-    const alto = barra ? Math.max(0, innerHeight - barra.getBoundingClientRect().top) : 0;
-    m.style.setProperty("--itt-flota", `${Math.round(alto + 8)}px`);
+    // Con barra: la distancia ya incluye la banda de pendientes que pudiera haber debajo. Sin barra: el CSS se coloca sobre la banda.
+    if (barra) m.style.setProperty("--itt-flota", `${Math.round(Math.max(0, innerHeight - barra.getBoundingClientRect().top) + 8)}px`);
+    else m.style.removeProperty("--itt-flota");
     m._retirar = setTimeout(() => { m.hidden = true; }, tipo === "error" ? 12000 : 6000);
   }
 
@@ -64,5 +84,5 @@
   const fechaAIso = (es) => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(es || "").trim()); return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : ""; };
   const fechaAEs = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "")); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
 
-  ITT.ui = { h, limpiar, mensaje, confirmar, fechaAIso, fechaAEs };
+  ITT.ui = { h, limpiar, mensaje, confirmar, fechaAIso, fechaAEs, icono, boton };
 })(typeof self !== "undefined" ? self : this);

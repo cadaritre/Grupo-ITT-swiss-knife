@@ -1,7 +1,8 @@
 {% extends "herramientas/base_comun.html" %}
-{% load tv %}
+{% load tv herramientas %}
 {% block titulo_pagina %}Perfil {{ perfil.nombre }}{% endblock %}
-{% block encabezado %}<h1>Perfil: {{ perfil.nombre }}</h1>{% endblock %}
+{% block subnav %}{% nav_ajustes %}{% endblock %}
+{% block titulo_h1 %}<h1>Perfil: {{ perfil.nombre }}</h1>{% endblock %}
 {% block cuerpo %}
 {% include "herramientas/_perfil_nav.html" %}
 <form method="post" enctype="multipart/form-data" class="tv-formulario">{% csrf_token %}
@@ -12,6 +13,6 @@
     <div class="itt-imagen"><p class="tv-tenue">Firma: {{ imagenes.firma|yesno:"cargada,sin cargar" }}.</p>{% campo formulario.firma %}{% if imagenes.firma %}{% campo formulario.quitar_firma %}{% endif %}</div>
     <div class="itt-imagen"><p class="tv-tenue">Cédula: {{ imagenes.cedula|yesno:"cargada,sin cargar" }}.</p>{% campo formulario.cedula %}{% if imagenes.cedula %}{% campo formulario.quitar_cedula %}{% endif %}</div>
   </fieldset>
-  <button type="submit" class="tv-boton">Guardar</button>
+  <button type="submit" class="tv-boton">{% icono "check" %}<span>Guardar</span></button>
 </form>
 {% endblock %}

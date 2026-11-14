@@ -1,18 +1,26 @@
 {% extends "herramientas/base_comun.html" %}
-{% load static tv %}
-{% block encabezado %}<h1>Inicio</h1>{% endblock %}
+{% load static tv herramientas %}
+{% block titulo_pagina %}Inicio{% endblock %}
+{% block titulo_h1 %}<h1>Herramientas</h1>{% endblock %}
 {% block cuerpo %}
 <div class="itt-inicio">
-{% if herramientas %}<h2 class="itt-inicio__titulo">Herramientas</h2>
-<div class="tv-rejilla">{% for titulo, descripcion, enlace, icono in herramientas %}<a class="tv-tarjeta tv-tarjeta--enlace" href="{{ enlace }}"><div class="tv-tarjeta__cabecera"><img src="{% static icono %}" alt="" width="40" height="40"><h2 class="tv-tarjeta__titulo">{{ titulo }}</h2></div>{{ descripcion }}</a>{% endfor %}</div>{% endif %}
-<h2 class="itt-inicio__titulo">Ajustes</h2>
-<div class="tv-rejilla">
+{% if herramientas %}<section aria-labelledby="inicio-herramientas">
+<h2 class="itt-seccion" id="inicio-herramientas">Herramientas</h2>
+<ul class="itt-herramientas">{% for titulo, descripcion, enlace, icono in herramientas %}<li><a class="itt-herramienta" href="{{ enlace }}">
+  <img src="{% static icono %}" alt="" width="48" height="48">
+  <span class="itt-herramienta__texto"><strong>{{ titulo }}</strong><span>{{ descripcion }}</span></span>
+  {% icono "chevron-right" clase="itt-herramienta__flecha" %}</a></li>{% endfor %}</ul>
+</section>{% endif %}
+<section aria-labelledby="inicio-ajustes">
+<h2 class="itt-seccion" id="inicio-ajustes">Ajustes</h2>
 {% url 'herramientas:preferencias' as u_pref %}{% url 'herramientas:diccionario' as u_dic %}{% url 'herramientas:importar' as u_imp %}{% url 'herramientas:perfiles' as u_per %}{% url 'herramientas:drive' as u_drive %}
-{% tarjeta titulo="Preferencias" enlace=u_pref %}Zona UTM, mapa base y opciones que se recuerdan en tus herramientas.{% endtarjeta %}
-<a class="tv-tarjeta tv-tarjeta--enlace" href="{{ u_drive }}"><div class="tv-tarjeta__cabecera"><img src="{% static 'herramientas/img/herramientas/drive.png' %}" alt="" width="40" height="40"><h2 class="tv-tarjeta__titulo">Google Drive</h2></div>Conecta tu Drive para que reportes, cotizaciones y polígonos KML se guarden solos en GRUPO ITT REPORTES.</a>
-{% tarjeta titulo="Diccionario" enlace=u_dic %}Palabras que el corrector ortográfico debe aceptar.{% endtarjeta %}
-{% tarjeta titulo="Importar configuración del escritorio" enlace=u_imp %}Trae a la web tus perfiles, textos, paleta, preferencias, diccionario y machotes.{% endtarjeta %}
-{% if es_admin %}{% tarjeta titulo="Perfiles corporativos" enlace=u_per %}Identidad, textos, paleta, firma y logo de Grupo ITT y TresVizo.{% endtarjeta %}{% endif %}
-</div>
+<ul class="itt-ajustes">
+  <li><a href="{{ u_pref }}">{% icono "sliders-horizontal" %}<span><strong>Preferencias</strong><span>Zona UTM, mapa base y opciones de cada herramienta</span></span>{% icono "chevron-right" clase="itt-herramienta__flecha" %}</a></li>
+  <li><a href="{{ u_drive }}">{% icono "hard-drive-upload" %}<span><strong>Google Drive</strong><span>Guarda solos tus reportes, cotizaciones y KML</span></span>{% icono "chevron-right" clase="itt-herramienta__flecha" %}</a></li>
+  <li><a href="{{ u_dic }}">{% icono "spell-check" %}<span><strong>Diccionario</strong><span>Palabras que el corrector acepta</span></span>{% icono "chevron-right" clase="itt-herramienta__flecha" %}</a></li>
+  <li><a href="{{ u_imp }}">{% icono "folder-open" %}<span><strong>Importar del escritorio</strong><span>Perfiles, textos, paleta, machotes y diccionario</span></span>{% icono "chevron-right" clase="itt-herramienta__flecha" %}</a></li>
+  {% if es_admin %}<li><a href="{{ u_per }}">{% icono "building-2" %}<span><strong>Perfiles corporativos</strong><span>Identidad, textos y paleta de Grupo ITT y TresVizo</span></span>{% icono "chevron-right" clase="itt-herramienta__flecha" %}</a></li>{% endif %}
+</ul>
+</section>
 </div>
 {% endblock %}

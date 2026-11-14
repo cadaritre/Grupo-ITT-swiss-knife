@@ -1,11 +1,12 @@
 {% extends "herramientas/base_comun.html" %}
-{% load tv %}
+{% load tv herramientas %}
 {% block titulo_pagina %}Importar del escritorio{% endblock %}
-{% block encabezado %}<h1>Importar configuración del escritorio</h1>{% endblock %}
+{% block subnav %}{% nav_ajustes %}{% endblock %}
+{% block titulo_h1 %}<h1>Importar del escritorio</h1><p class="tv-subtitulo">Perfiles, textos, paleta, preferencias, diccionario y machotes.</p>{% endblock %}
 {% block cuerpo %}
-<p>Sube un ZIP con <code>Configuracion/settings.json</code>, <code>Diccionarios/</code> y <code>Cotizaciones/Machotes/</code> de tu carpeta «Grupo ITT App». Antes de aplicar nada verás qué contiene.</p>
+
 <form method="post" enctype="multipart/form-data" class="tv-formulario">{% csrf_token %}
-  <div class="tv-campo"><label for="zip">ZIP de configuración</label><input id="zip" type="file" name="zip" accept=".zip,application/zip" required></div>
-  <button type="submit" class="tv-boton">Revisar</button>
+  <div class="tv-campo"><label for="zip">Carpeta «Grupo ITT App» comprimida en ZIP</label><input id="zip" type="file" name="zip" accept=".zip,application/zip" required aria-describedby="zip-ayuda"><p class="tv-campo__ayuda" id="zip-ayuda">Antes de aplicar nada verás qué trae.</p></div>
+  <button type="submit" class="tv-boton">{% icono "folder-open" %}<span>Revisar el ZIP</span></button>
 </form>
 {% endblock %}

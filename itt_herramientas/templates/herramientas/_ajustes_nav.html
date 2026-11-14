@@ -1,0 +1,3 @@
+{% load tv %}<nav class="tv-subnav itt-subnav" aria-label="Ajustes">
+{% for e in entradas %}<a href="{{ e.url }}"{% if e.actual %} aria-current="page"{% endif %}>{% icono e.icono %}<span>{{ e.etiqueta }}</span></a>{% endfor %}
+</nav>

@@ -42,7 +42,7 @@
     caja.dataset.estado = r.error ? "error" : estado.pausada ? "pausada" : r.total ? "pendiente" : "limpio";
     const etiqueta = caja.querySelector("[data-itt=texto]");
     let detalle = "";
-    if (r.total === 0) detalle = "Todo está guardado en el servidor";
+    if (r.total === 0) detalle = "Todo está al día";
     else {
       detalle = plural(r.total, "1 pendiente", `${r.total} pendientes`);
       if (r.subiendo) detalle += ` · subiendo ${r.items.find((i) => i.estado === "subiendo")?.progreso ?? 0} %`;
@@ -94,8 +94,8 @@
         const d = await r.json();
         await ITT.cola.guardarAjuste("cuenta", d.cuenta);
         await ITT.cola.guardarAjuste("csrf", d.csrf);
-        await ITT.cola.guardarAjuste("menu", { nombre: d.nombre, herramientas: d.herramientas || [] });
-        document.dispatchEvent(new CustomEvent("itt:sesion", { detail: { activa: true, nombre: d.nombre, herramientas: d.herramientas || [], csrf: d.csrf } }));
+        await ITT.cola.guardarAjuste("menu", { nombre: d.nombre, herramientas: d.herramientas || [], nav: d.nav || [], tema: d.tema || "claro" });
+        document.dispatchEvent(new CustomEvent("itt:sesion", { detail: { activa: true, nombre: d.nombre, herramientas: d.herramientas || [], nav: d.nav || [], tema: d.tema || "claro", csrf: d.csrf } }));
         await ITT.cola.guardarAjuste("sesion_caducada", false);
         if (estado.pausada === "sesion") estado.pausada = "";
       } else if (r.status === 401 || r.type === "opaqueredirect") {

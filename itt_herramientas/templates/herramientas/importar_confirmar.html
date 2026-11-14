@@ -1,13 +1,14 @@
 {% extends "herramientas/base_comun.html" %}
-{% load tv %}
+{% load tv herramientas %}
 {% block titulo_pagina %}Confirmar importación{% endblock %}
-{% block encabezado %}<h1>Qué se importará</h1>{% endblock %}
+{% block subnav %}{% nav_ajustes %}{% endblock %}
+{% block titulo_h1 %}<h1>Qué se importará</h1><p class="tv-subtitulo">Desmarca lo que no quieras traer.</p>{% endblock %}
 {% block cuerpo %}
 {% if not elementos %}{% alerta tipo="aviso" %}No hay nada que puedas importar de este ZIP.{% endalerta %}{% endif %}
 <form method="post" class="tv-formulario">{% csrf_token %}
   {% for e in elementos %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" id="e_{{ e.clave }}" name="elemento_{{ e.clave }}" checked><label for="e_{{ e.clave }}">{{ e.titulo }} ({{ e.cantidad }})</label><div class="tv-campo__ayuda">{{ e.detalle }}</div></div>{% endfor %}
   {% if es_admin %}<div class="tv-campo"><label for="perfil_destino">Aplicar textos y paleta al perfil</label>
   <select id="perfil_destino" name="perfil_destino">{% for p in perfiles %}<option value="{{ p.clave }}"{% if p.clave == activo %} selected{% endif %}>{{ p.nombre }}</option>{% endfor %}</select></div>{% endif %}
-  {% if elementos %}<button type="submit" class="tv-boton">Importar lo marcado</button>{% endif %}
+  {% if elementos %}<button type="submit" class="tv-boton">{% icono "check" %}<span>Importar lo marcado</span></button>{% endif %}
 </form>
 {% endblock %}

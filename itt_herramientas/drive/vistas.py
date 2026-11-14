@@ -31,6 +31,7 @@ def _conexion(request) -> ConexionDrive | None:
 
 @usuario_de_herramientas
 def pagina(request):
+    request.tv_seccion = "ajustes"                 # la sección «Ajustes» del lateral queda marcada
     c = _conexion(request)
     if c is not None and servicio.disponible():
         servicio.procesar(request.user.pk)                   # abrir la página también reintenta lo que ya tocaba

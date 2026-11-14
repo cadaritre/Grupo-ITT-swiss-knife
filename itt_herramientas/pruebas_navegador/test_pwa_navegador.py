@@ -586,14 +586,21 @@ def test_cabecera_de_las_paginas_de_campo_lleva_al_inicio_y_tiene_cuenta_y_salid
         con_service_worker(pagina)
         pagina.goto(servidor.url + "/reportes/")
         esperar(pagina, "document.querySelector('#itt-menu-nombre').textContent === 'ana'", timeout=TIEMPO)
-        assert pagina.evaluate("document.querySelector('.tv-cabecera__modulo').getAttribute('href')") == "/"
         assert pagina.evaluate("document.querySelector('a.tv-marca').getAttribute('href')") == "/"
+        # Lateral del módulo (cajón en el teléfono): las secciones de la cuenta, con la actual marcada (el HTML es el mismo para todas).
+        nav = lambda clave: pagina.locator(f"#tv-lateral a[data-itt-nav={clave}]")
+        assert nav("reportes").get_attribute("aria-current") == "page"
+        assert nav("reportes").get_attribute("hidden") is None and nav("inicio").get_attribute("hidden") is None
+        assert nav("croquis").get_attribute("hidden") is not None                         # la cuenta no tiene ese rol: no se ofrece
+        pagina.locator("[data-tv-cajon]").click()                                          # el cajón abre y deja ver las secciones
+        expect(nav("reportes")).to_be_visible()
+        pagina.keyboard.press("Escape")
+        pagina.locator("[data-tv-cajon-cerrar]").click(force=True)
         pagina.locator("#itt-menu summary").click()
         panel = pagina.locator("#itt-menu .tv-menu__panel")
         expect(panel).to_be_visible()
-        assert pagina.locator("#itt-menu a[data-itt-menu=reportes]").get_attribute("aria-current") == "page"
+        pagina.wait_for_timeout(400)                                                       # termina la animación de entrada (escala) del menú
         assert pagina.locator("#itt-menu a[data-itt-menu=capturar]").is_visible()
-        assert pagina.locator("#itt-menu a[data-itt-menu=croquis]").is_hidden()          # la cuenta no tiene ese rol: no se ofrece
         assert pagina.locator("#itt-menu a[data-itt-menu=cuenta]").is_visible() and pagina.locator("#itt-salir-boton").is_visible()
         for caja in [e.bounding_box() for e in panel.locator("a, button").all() if e.is_visible()]:
             assert caja["height"] >= 43.5, caja                                          # objetivos táctiles de 44 px
@@ -619,8 +626,8 @@ def test_menu_sin_conexion_recuerda_la_cuenta_y_avisa_que_salir_necesita_senal(m
         pagina.goto(servidor.url + "/cotizaciones/")
         pagina.wait_for_selector("#cot", timeout=TIEMPO)
         esperar(pagina, "document.querySelector('#itt-menu-nombre').textContent === 'ana'", timeout=TIEMPO)
+        assert pagina.locator("#tv-lateral a[data-itt-nav=reportes]").get_attribute("hidden") is None   # sigue pudiendo moverse entre las herramientas guardadas
         pagina.locator("#itt-menu summary").click()
-        assert pagina.locator("#itt-menu a[data-itt-menu=reportes]").is_visible()        # sigue pudiendo moverse entre las herramientas guardadas
         expect(pagina.locator("#itt-salir-aviso")).to_be_visible()
         pagina.locator("#itt-salir-boton").click(force=True)
         assert not pagina.locator("#dlg-salir").is_visible()                              # sin señal no hay cierre de sesión a medias

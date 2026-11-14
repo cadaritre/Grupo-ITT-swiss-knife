@@ -19,7 +19,13 @@
   function pintar(datos) {
     const activa = !!(datos && datos.activa);
     conocida = true;
-    $("itt-menu-nombre").textContent = activa ? datos.nombre : "Menú";
+    $("itt-menu-nombre").textContent = activa ? String(datos.nombre || "").split(/\s+/)[0] || datos.nombre : "Menú";
+    const avatar = $("itt-menu-avatar");
+    if (avatar) {
+      const partes = activa ? String(datos.nombre || "").trim().split(/\s+/).filter(Boolean) : [];
+      avatar.textContent = partes.slice(0, 2).map((p) => p[0].toUpperCase()).join("");
+      avatar.hidden = !avatar.textContent;
+    }
     const titulo = $("itt-menu-titulo");
     titulo.hidden = !activa;
     titulo.textContent = activa ? datos.nombre : "";
@@ -29,6 +35,27 @@
       if (["capturar", "cotizaciones", "reportes", "croquis"].includes(clave)) a.hidden = !herramientas.has(clave);
     }
     menu.querySelector("hr[data-itt-menu-campo]").hidden = herramientas.size === 0;
+    const lateral = document.querySelector("[data-itt-lateral]");          // lateral del módulo: solo las secciones de la cuenta (el HTML las trae todas)
+    if (lateral) {
+      const visibles = new Set(activa ? datos.nav || ["inicio"] : ["inicio"]);
+      for (const a of lateral.querySelectorAll("a[data-itt-nav]")) a.hidden = !visibles.has(a.dataset.ittNav);
+      for (const t of lateral.querySelectorAll("[data-itt-grupo]")) {      // un título de grupo sin entradas visibles no se muestra
+        let n = t.nextElementSibling, alguna = false;
+        while (n && !n.hasAttribute("data-itt-grupo")) { if (!n.hidden) alguna = true; n = n.nextElementSibling; }
+        t.hidden = !alguna;
+      }
+    }
+    for (const e of document.querySelectorAll("[data-itt-con-sesion]")) e.hidden = !activa;
+    if (datos && datos.csrf) {                                             // token para el armazón (tema, lateral): la página guardada no lo trae
+      let m = document.querySelector('meta[name="csrf-token"]');
+      if (!m) { m = document.createElement("meta"); m.name = "csrf-token"; document.head.append(m); }
+      m.content = datos.csrf;
+    }
+    if (datos && (datos.tema === "oscuro" || datos.tema === "claro")) {   // tema de la cuenta (elegido a mano; nunca el del sistema)
+      document.documentElement.dataset.tvTema = datos.tema;
+      const meta = document.querySelector('meta[name="color-scheme"]');
+      if (meta) meta.content = datos.tema === "oscuro" ? "dark" : "light";
+    }
     mostrar("[data-itt-menu=cuenta]", activa);
     mostrar("[data-itt-menu=entrar]", !activa);
     $("itt-salir").hidden = !activa;
@@ -42,7 +69,7 @@
     try {
       const m = await ITT.cola.ajuste("menu", null);
       const caducada = await ITT.cola.ajuste("sesion_caducada", false);
-      if (m && !conocida) { csrf = await ITT.cola.ajuste("csrf", ""); pintar({ activa: !caducada, nombre: m.nombre, herramientas: m.herramientas, csrf }); }
+      if (m && !conocida) { csrf = await ITT.cola.ajuste("csrf", ""); pintar({ activa: !caducada, nombre: m.nombre, herramientas: m.herramientas, nav: m.nav, tema: m.tema, csrf }); }
     } catch (_) { /* sin IndexedDB: el menú queda con lo básico */ }
   }
 

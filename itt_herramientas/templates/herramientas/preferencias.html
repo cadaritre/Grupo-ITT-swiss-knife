@@ -1,11 +1,12 @@
 {% extends "herramientas/base_comun.html" %}
-{% load tv %}
+{% load tv herramientas %}
 {% block titulo_pagina %}Preferencias{% endblock %}
-{% block encabezado %}<h1>Preferencias</h1>{% endblock %}
+{% block subnav %}{% nav_ajustes %}{% endblock %}
+{% block titulo_h1 %}<h1>Preferencias</h1><p class="tv-subtitulo">Valores con que empieza cada herramienta.</p>{% endblock %}
 {% block cuerpo %}
 <form method="post" class="tv-formulario" action="">{% csrf_token %}
   {% if formulario.non_field_errors %}{% alerta tipo="error" %}{{ formulario.non_field_errors }}{% endalerta %}{% endif %}
   {% for titulo, campos in formulario.grupos %}<fieldset><legend>{{ titulo }}</legend>{% for campo in campos %}{% campo campo %}{% endfor %}</fieldset>{% endfor %}
-  <button type="submit" class="tv-boton">Guardar</button>
+  <button type="submit" class="tv-boton">{% icono "check" %}<span>Guardar</span></button>
 </form>
 {% endblock %}
