@@ -70,3 +70,65 @@ button.cot-insignia { cursor: pointer; min-height: var(--tv-tactil-min, 44px); }
   .cot-barra { grid-template-columns: 1fr auto; align-items: center; }
   .cot-barra__acciones { grid-template-columns: repeat(3, auto); }
 }
+
+/* --- Pulido visual (auditoría UX 13-11-2026). Solo presentación; mismos tokens. --- */
+/* Estado de la red: sin conexión se ve como aviso, no como un renglón más. */
+.cot-red[data-estado="sin_conexion"] { background: var(--tv-estado-aviso-fondo); padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); border-radius: var(--tv-radio, 8px); }
+.cot-encabezado { margin-bottom: var(--tv-espacio-3, 12px); }
+.cot-encabezado .tv-boton { white-space: nowrap; }
+.cot > section > .tv-campo { margin-bottom: var(--tv-espacio-3, 12px); }
+.cot .itt-aviso { margin-top: 0; }
+.cot-tarjeta, .cot-paso { border-color: var(--tv-separador); }
+.cot-paso > summary { border-radius: var(--tv-radio, 8px); }
+.cot-paso[open] > summary { margin-bottom: var(--tv-espacio-1, 4px); }
+.cot-tarjeta__enlace { border-radius: var(--tv-radio, 8px); }
+.cot-tarjeta__pie .tv-boton { padding: 0 var(--tv-espacio-3, 12px); }
+.cot-tarjeta__pie .cot-insignia { margin-right: auto; }
+.cot-concepto { border-color: var(--tv-separador); }
+
+/* Hojas (diálogos): el botón de cerrar no se parte, los campos respiran y las acciones quedan parejas. */
+.tv-hoja__cabecera h2 { min-width: 0; font-size: 1.125rem; }
+.tv-hoja__cabecera .tv-boton { flex: none; white-space: nowrap; }
+.tv-hoja__cuerpo > .tv-campo, .tv-hoja__cuerpo > .cot-fila-numeros, .tv-hoja__cuerpo > .rep-mapa { margin-bottom: var(--tv-espacio-3, 12px); }
+.tv-hoja__cuerpo input[type="text"], .tv-hoja__cuerpo input[type="search"], .tv-hoja__cuerpo textarea { width: 100%; box-sizing: border-box; }
+.tv-hoja__cuerpo .tv-formulario__acciones { margin-top: var(--tv-espacio-4, 16px); }
+.tv-hoja__cuerpo .tv-boton { min-height: var(--tv-tactil-min, 44px); }
+.cot-fila-numeros { grid-template-columns: 1fr 1fr; align-items: end; }
+.cot-fila-numeros > :nth-child(3):last-child { grid-column: 1 / -1; }
+.cot-importe { margin: 0; text-align: right; font-size: 1.0625rem; }
+@media (min-width: 480px) { .cot-fila-numeros { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); } .cot-fila-numeros > :nth-child(3):last-child { grid-column: auto; } }
+@media (max-width: 599px) {
+  .tv-hoja__cuerpo .tv-formulario__acciones { display: grid; grid-template-columns: 1fr 1fr; }
+  .tv-hoja__cuerpo .tv-formulario__acciones > .tv-boton { padding: var(--tv-espacio-1, 4px) var(--tv-espacio-2, 8px); text-align: center; line-height: 1.2; }
+  .tv-hoja__cuerpo .tv-formulario__acciones > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  #dlg-salida .tv-formulario__acciones > .tv-boton { grid-column: auto; }
+}
+/* Vista del PDF: Compartir y Descargar siempre a la mano, sin recorrer todas las páginas. */
+.cot-hoja-pdf .tv-formulario__acciones { position: sticky; bottom: 0; margin: 0 calc(-1 * var(--tv-espacio-4, 16px)) calc(-1 * var(--tv-espacio-4, 16px) - env(safe-area-inset-bottom)); padding: var(--tv-espacio-3, 12px) var(--tv-espacio-4, 16px) calc(var(--tv-espacio-3, 12px) + env(safe-area-inset-bottom)); background: var(--tv-superficie); border-top: 1px solid var(--tv-separador); }
+.cot-hoja-pdf .tv-formulario__acciones:not(:has(> :not([hidden]))) { display: none; }
+.cot-hoja-pdf #pdf-estado, .cot-hoja-pdf #salida-estado { font-size: .875rem; overflow-wrap: anywhere; }
+
+/* Machotes: texto alineado a la izquierda, como una lista. */
+.cot-plantillas .cot-lista { gap: var(--tv-espacio-2, 8px); }
+.tv-boton.cot-plantilla { display: grid; justify-content: stretch; justify-items: start; align-content: center; padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); font-weight: 400; overflow-wrap: anywhere; }
+.cot-plantilla strong { font-weight: 600; }
+.cot-plantilla .tv-tenue { font-size: .875rem; }
+.cot-sugerencias { margin-top: var(--tv-espacio-3, 12px); }
+.cot-sugerencias:empty { margin: 0; }
+.cot-acciones-ortografia { grid-template-columns: 1fr 1fr; }
+
+/* Barra de totales: importes en una línea y botones que no se parten. */
+.cot-barra { box-shadow: 0 -2px 8px rgb(0 0 0 / .06); }
+.cot-totales { gap: var(--tv-espacio-1, 4px) var(--tv-espacio-3, 12px); align-items: end; }
+.cot-totales dd { font-size: .9375rem; white-space: nowrap; }
+.cot-total { margin-left: auto; text-align: right; }
+.cot-total dd { font-size: 1.125rem; }
+.cot-barra__acciones { grid-template-columns: auto auto minmax(0, 1fr); }
+.cot-barra__acciones .tv-boton { white-space: nowrap; padding: 0 var(--tv-espacio-3, 12px); }
+.rep-barra__acciones { grid-template-columns: 1fr 2fr; }
+@media (min-width: 1000px) {
+  .cot-totales { justify-content: flex-start; gap: var(--tv-espacio-6, 32px); }
+  .cot-total { margin-left: 0; text-align: left; }
+  .cot-barra__acciones { grid-template-columns: repeat(3, auto); }
+  .cot-barra__acciones .tv-boton { padding: 0 var(--tv-espacio-4, 16px); }
+}

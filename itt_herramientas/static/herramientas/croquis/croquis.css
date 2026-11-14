@@ -19,3 +19,21 @@
 .cq[data-completo="1"] .cq-mapa { position: fixed; inset: 0; height: 100dvh; min-height: 0; margin: 0; border-radius: 0; z-index: 35; }
 .cq[data-completo="1"] .cq-herramientas { position: fixed; inset: auto 0 calc(var(--cot-alto-pendientes, 60px)) 0; z-index: 36; margin: 0; padding: var(--tv-espacio-2, 8px); background: var(--tv-cabecera); }
 .cq[data-completo="1"] .cq-area { position: fixed; inset: var(--tv-espacio-2, 8px) var(--tv-espacio-2, 8px) auto var(--tv-espacio-2, 8px); z-index: 36; margin: 0; }
+
+/* --- Pulido visual (auditoría UX 13-11-2026). Solo presentación. --- */
+/* Barra de dibujo: en el teléfono, dos por renglón; ninguna palabra se parte. */
+.cq-modos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cq-acciones-mapa { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cq-modos .tv-boton, .cq-acciones-mapa .tv-boton { padding: var(--tv-espacio-1, 4px) var(--tv-espacio-2, 8px); line-height: 1.2; text-align: center; min-width: 0; }
+.cq-acciones-mapa .tv-boton { font-size: .875rem; }
+.cq-acciones-mapa .tv-boton[aria-pressed="true"] { background: var(--tv-boton); color: var(--tv-sobre-boton); }
+@media (min-width: 480px) { .cq-modos { grid-template-columns: repeat(4, minmax(0, 1fr)); } .cq-acciones-mapa .tv-boton { font-size: 1rem; } }
+.cq-area { font-weight: 600; }
+.cq-vertice { border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); padding: var(--tv-espacio-3, 12px); background: var(--tv-fondo); }
+.cq-barra__acciones { grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
+.cq-barra__acciones .tv-boton { white-space: normal; line-height: 1.2; padding: var(--tv-espacio-1, 4px) var(--tv-espacio-3, 12px); }
+@media (min-width: 700px) { .cq-capas { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); } }
+@media (min-width: 1000px) { .cq-barra__acciones { display: flex; flex-wrap: wrap; justify-content: flex-end; } }
+/* Pantalla completa: la superficie del área no tapa los botones de acercar. */
+.cq[data-completo="1"] .cq-area { right: 56px; box-shadow: 0 1px 4px rgb(0 0 0 / .25); }
+.cq[data-completo="1"] .cq-herramientas { border-top: 1px solid var(--tv-separador); }

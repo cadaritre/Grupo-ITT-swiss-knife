@@ -90,7 +90,7 @@
       ul.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "" },
         h("a", { class: "cot-tarjeta__enlace", href: `#/r/${b.id}` },
           h("strong", {}, d.titulo || "Sin nombre"),
-          h("span", { class: "tv-tenue" }, `${d.fecha} · ${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`)),
+          h("span", { class: "tv-tenue" }, `${String(d.fecha || "").split("-").reverse().join("/")} · ${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`)),
         h("div", { class: "cot-tarjeta__pie" },
           h("span", { class: "cot-insignia", "data-estado": b.sucio || por ? "pendiente" : "listo" }, por ? `${por} foto${por === 1 ? "" : "s"} por subir` : b.sucio ? "Sin sincronizar" : "Sincronizado"),
           b.aviso ? h("span", { class: "cot-insignia", "data-estado": "pendiente" }, "Copia por conflicto") : null,

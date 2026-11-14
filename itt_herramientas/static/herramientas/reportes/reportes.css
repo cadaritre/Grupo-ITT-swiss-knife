@@ -13,3 +13,18 @@
 .rep-mapa { height: min(50dvh, 360px); border-radius: var(--tv-radio, 8px); background: var(--tv-secundario); margin-bottom: var(--tv-espacio-2, 8px); }
 #pdf-progreso { width: 100%; }
 @media (min-width: 1000px) { .rep-foto { grid-template-columns: 96px 1fr; } .rep-foto img { width: 96px; height: 96px; } }
+
+/* --- Pulido visual (auditoría UX 13-11-2026). Solo presentación. --- */
+.rep-captura { margin-top: var(--tv-espacio-4, 16px); }
+.rep-soltar { margin-top: var(--tv-espacio-3, 12px); }
+/* Tarjeta de foto: los botones usan todo el ancho de la tarjeta (menos renglones en el teléfono). */
+.rep-foto { column-gap: var(--tv-espacio-3, 12px); row-gap: var(--tv-espacio-1, 4px); }
+.rep-foto > div { display: contents; }
+.rep-foto > div > * { grid-column: 2; min-width: 0; }
+.rep-foto > img { grid-row: 1 / span 3; }
+.rep-foto > div > .rep-botones { grid-column: 1 / -1; margin-top: var(--tv-espacio-2, 8px); }
+.rep-foto .tv-campo input { width: 100%; }
+.rep-botones .tv-boton { padding: 0 var(--tv-espacio-3, 12px); }
+.rep-foto .rep-botones > .tv-boton:last-child { margin-left: auto; }
+.rep-resumen { font-size: .9375rem; }
+#pdf-progreso, #salida-progreso { height: 8px; accent-color: var(--tv-boton); }
