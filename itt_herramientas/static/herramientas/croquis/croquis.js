@@ -117,8 +117,8 @@
     if (mapaListo) return mapaListo;
     mapaListo = new Promise((resolver) => {
       try {
-        const script = document.querySelector("script[data-worker]");
-        maplibregl.setWorkerUrl(script.dataset.worker);
+        const script = document.querySelector("script[data-itt-maplibre-worker]");     // atributo propio: otros scripts traen sus propios workers
+        maplibregl.setWorkerUrl(script.dataset.ittMaplibreWorker);
         mapa = new maplibregl.Map({
           container: "cq-mapa", attributionControl: false, dragRotate: false, pitchWithRotate: false, center: [-106.0691, 28.633], zoom: 12, maxZoom: 19,
           style: { version: 8, sources: {

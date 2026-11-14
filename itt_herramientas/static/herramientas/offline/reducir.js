@@ -6,8 +6,8 @@
   const ITT = (global.ITT = global.ITT || {});
   // Las URL del worker y de exif.js vienen de la plantilla ({% static %}): en producción llevan huella (y son las que guarda el service worker).
   const SCRIPT = global.document && document.currentScript;
-  const URL_WORKER = SCRIPT && SCRIPT.dataset.worker;
-  const URL_EXIF = SCRIPT && SCRIPT.dataset.exif;
+  const URL_WORKER = SCRIPT && SCRIPT.dataset.ittReducirWorker;
+  const URL_EXIF = SCRIPT && SCRIPT.dataset.ittExif;
   const LADO = 2400;
   const CALIDAD = 0.85;
 

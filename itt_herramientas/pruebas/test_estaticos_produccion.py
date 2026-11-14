@@ -59,6 +59,10 @@ def test_cada_url_estatica_de_las_paginas_existe_con_huella(produccion, cliente_
         assert any(parte in v for v in vistos), parte
     assert 'data-itt-maplibre-worker="/static/herramientas/vendor/maplibre/maplibre-gl-csp-worker.' in paginas["convertidor_banco"]
     assert 'data-maplibre-worker="/static/herramientas/vendor/maplibre/maplibre-gl-csp-worker.' in paginas["reportes"]
+    assert 'data-itt-maplibre-worker="/static/herramientas/vendor/maplibre/maplibre-gl-csp-worker.' in paginas["croquis"]
+    # Cada script con worker lleva su propio atributo: un `script[data-worker]` genérico tomaba el del reductor de fotos en el croquis.
+    for html in paginas.values():
+        assert "data-worker=" not in html
 
 
 def test_el_service_worker_precarga_los_nombres_con_huella(produccion):
