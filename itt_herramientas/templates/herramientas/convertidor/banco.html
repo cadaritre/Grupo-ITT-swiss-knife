@@ -1,5 +1,5 @@
 {% extends "herramientas/base_comun.html" %}
-{% load static tv %}
+{% load static tv herramientas %}
 {% block titulo_pagina %}{{ c.nombre }}{% endblock %}
 {% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/vendor/maplibre/maplibre-gl.css' %}"><link rel="stylesheet" href="{% static 'herramientas/convertidor/convertidor.css' %}">{% endblock %}
 {% block encabezado %}<h1>{{ c.nombre }}</h1>{% endblock %}
@@ -12,7 +12,7 @@
 {% elif lista %}
 <div class="itt-conv" id="itt-conv" data-vista="{% url 'herramientas:convertidor_vista' c.pk %}">
   <div class="itt-conv__panel">
-    <p class="itt-resumen" data-itt="resumen">{{ resumen.elementos|stringformat:"d" }} elemento{{ resumen.elementos|pluralize }} · {{ resumen.capas|length }} capa{{ resumen.capas|length|pluralize }}{% if resumen.geometrias.puntos %} · {{ resumen.geometrias.puntos }} punto{{ resumen.geometrias.puntos|pluralize }}{% endif %}{% if resumen.geometrias.lineas %} · {{ resumen.geometrias.lineas }} línea{{ resumen.geometrias.lineas|pluralize }}{% endif %}{% if resumen.geometrias.poligonos %} · {{ resumen.geometrias.poligonos }} polígono{{ resumen.geometrias.poligonos|pluralize }}{% endif %}</p>
+    <p class="itt-resumen" data-itt="resumen">{{ resumen.elementos|floatformat:"0g" }} elemento{{ resumen.elementos|pluralize }} · {{ resumen.capas|length }} capa{{ resumen.capas|length|pluralize }}{% if resumen.geometrias.puntos %} · {{ resumen.geometrias.puntos }} punto{{ resumen.geometrias.puntos|pluralize }}{% endif %}{% if resumen.geometrias.lineas %} · {{ resumen.geometrias.lineas }} línea{{ resumen.geometrias.lineas|pluralize }}{% endif %}{% if resumen.geometrias.poligonos %} · {{ resumen.geometrias.poligonos }} polígono{{ resumen.geometrias.poligonos|pluralize }}{% endif %}</p>
     {% for aviso in resumen.avisos %}<p class="itt-aviso" role="status">⚠ {{ aviso }}</p>{% endfor %}
 
     <form method="post" action="{% url 'herramientas:convertidor_analizar' c.pk %}" class="tv-formulario itt-zona" id="itt-form-zona">{% csrf_token %}
@@ -35,13 +35,13 @@
       {% if es_dxf %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" id="relieve" name="relieve"{% if relieve %} checked{% endif %}><label for="relieve">Pegar KML/KMZ al relieve de Google Earth</label></div>
       {% else %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" id="rellenos" name="rellenos"{% if rellenos %} checked{% endif %}><label for="rellenos">Crear rellenos para polígonos en DXF</label><div class="tv-campo__ayuda">Cada relleno repite los vértices de su polígono: el DXF puede pesar casi el doble.</div></div>{% endif %}
       <h2 class="itt-capas-titulo">Capas a exportar <span class="itt-capas-acciones"><button type="button" class="tv-boton tv-boton--secundario" data-itt="todas">Todas</button> <button type="button" class="tv-boton tv-boton--secundario" data-itt="ninguna">Ninguna</button></span></h2>
-      <ul class="itt-capas">{% for capa in resumen.capas %}<li><label><input type="checkbox" name="capa" value="{{ capa.nombre }}" data-itt="capa"{% if capa.nombre in capas_elegidas %} checked{% endif %}><span class="itt-swatch" data-color="{{ capa.color }}"></span> {{ capa.nombre }} <span class="tv-tenue">{{ capa.elementos|stringformat:"d" }}</span></label></li>{% endfor %}</ul>
+      <ul class="itt-capas">{% for capa in resumen.capas %}<li><label><input type="checkbox" name="capa" value="{{ capa.nombre }}" data-itt="capa"{% if capa.nombre in capas_elegidas %} checked{% endif %}><span class="itt-swatch" data-color="{{ capa.color }}"></span> {{ capa.nombre }} <span class="tv-tenue">{{ capa.elementos|floatformat:"0g" }}</span></label></li>{% endfor %}</ul>
       <button class="tv-boton" type="submit" id="itt-convertir">Convertir</button>
     </form>
     {% if tiene_salida %}{% tarjeta titulo="Último archivo convertido" %}<p>{{ c.salida_formato|upper }} listo.</p>
       <p><a class="tv-boton" href="{% url 'herramientas:convertidor_descargar' c.pk %}" data-itt="descargar">Descargar</a>
       <button type="button" class="tv-boton tv-boton--secundario" id="itt-compartir" data-url="{% url 'herramientas:convertidor_descargar' c.pk %}" data-nombre="{{ c.nombre }}" hidden>Compartir</button></p>{% endtarjeta %}{% endif %}
-    <form method="post" action="{% url 'herramientas:convertidor_borrar' c.pk %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">Eliminar este archivo del servidor</button></form>
+    {% url 'herramientas:convertidor_borrar' c.pk as u_borrar %}{% confirmar_accion id="eliminar-archivo" accion=u_borrar abrir="Eliminar este archivo del servidor" titulo="¿Eliminar este archivo?" texto="Se borra «"|add:c.nombre|add:"» del servidor, con su vista previa y el último archivo convertido." detalle="Si ya descargaste el resultado, tu copia no se toca. Para convertirlo de nuevo tendrás que subir el archivo otra vez." aceptar="Eliminar archivo" %}
   </div>
   <div class="itt-conv__mapa">
     <div id="itt-mapa" role="img" aria-label="Vista previa geográfica de las capas"></div>

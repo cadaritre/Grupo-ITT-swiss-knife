@@ -3,7 +3,7 @@
 {% block titulo_pagina %}Triangulación, pendientes y escurrimiento{% endblock %}
 {% block encabezado %}<h1>Triangulación, pendientes y escurrimiento</h1>{% endblock %}
 {% block cuerpo %}
-<p>Sube un DXF con puntos (POINT, INSERT o vértices de polilíneas) o con una triangulación (3DFACE). Genera el TIN, zonifica las pendientes por rangos y dibuja las flechas de escurrimiento; exporta DXF. Hasta {{ limite_mb }} MB, {{ limite_puntos|stringformat:"d" }} puntos únicos y {{ limite_triangulos|stringformat:"d" }} triángulos; si tu archivo es más grande, ábrelo en <strong>Herramientas Grupo ITT (módulo local)</strong>.</p>
+<p>Sube un DXF con puntos (POINT, INSERT o vértices de polilíneas) o con una triangulación (3DFACE). Genera el TIN, zonifica las pendientes por rangos y dibuja las flechas de escurrimiento; exporta DXF. Hasta {{ limite_mb }} MB, {{ limite_puntos|floatformat:"0g" }} puntos únicos y {{ limite_triangulos|floatformat:"0g" }} triángulos; si tu archivo es más grande, ábrelo en <strong>Herramientas Grupo ITT (módulo local)</strong>.</p>
 <div id="itt-subida-triangulacion" data-banco="{% url 'herramientas:triangulacion_banco' '00000000-0000-0000-0000-000000000000' %}">
 {% subida destino="herramientas.triangulacion_entrada" accept=".dxf" etiqueta="Elige un DXF" max_bytes=limite_bytes %}
 </div>

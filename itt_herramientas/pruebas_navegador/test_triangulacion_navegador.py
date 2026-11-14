@@ -118,7 +118,7 @@ def test_de_la_subida_al_dxf_en_el_telefono(motor, tmp_path, servidor, sesion_de
         esperar(pagina, "!!document.documentElement.dataset.triCompartido")
         assert pagina.evaluate("document.documentElement.dataset.triCompartido") in {"compartido", "descargado"}
         sin_desborde(pagina)
-        for selector in (".tri-modos [data-modo=tin]", "[data-pestana=superficie]", "[data-itt=ajustar]", "#tri-exportar button[type=submit]"):
+        for selector in ("[data-pestana=superficie]", "[data-itt=ajustar]", "#tri-exportar button[type=submit]"):
             caja = pagina.locator(selector).bounding_box()
             assert caja and caja["height"] >= 43.5, selector
     finally:

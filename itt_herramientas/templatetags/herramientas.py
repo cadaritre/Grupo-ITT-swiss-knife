@@ -44,3 +44,13 @@ def marca_perfil(context):
         "app": activo.app_name, "sitio": sitio, "sitio_etiqueta": activo.website_label, "puede_cambiar": puede,
         "opciones": [("grupo_itt", "Grupo ITT"), ("tresvizo", "TresVizo")] if puede else [],
     }
+
+
+@register.inclusion_tag("herramientas/_confirmar_accion.html", takes_context=True)
+def confirmar_accion(context, id, accion, abrir, titulo, texto, aceptar, detalle="", clase="tv-boton tv-boton--secundario"):
+    """Botón que, en vez de ejecutar una acción que no se deshace, abre una hoja que dice exactamente qué va a pasar.
+
+    `accion` es la URL del POST; `abrir` el texto del botón; `titulo` y `texto` lo que se le explica a la persona; `detalle` una segunda línea
+    opcional (lo que SÍ se conserva). La acción solo se envía con el botón rojo de la hoja.
+    """
+    return {"id": id, "accion": accion, "abrir": abrir, "titulo": titulo, "texto": texto, "aceptar": aceptar, "detalle": detalle, "clase": clase, "csrf_token": context.get("csrf_token")}

@@ -117,3 +117,25 @@ def test_sin_conexion_ni_cliente_la_pagina_lo_explica(motor, tmp_path, servidor,
         assert pagina.locator("text=Conectar con Google").count() == 0
     finally:
         ctx.close()
+
+
+def test_desconectar_drive_no_se_envia_sin_confirmar(motor, tmp_path, servidor, sesion_de, persona, falso):
+    conectada(falso, persona)
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(persona), viewport={"width": 360, "height": 780})
+    try:
+        pagina = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pagina.goto(servidor.url + "/drive/")
+        pagina.get_by_role("button", name="Desconectar Drive").first.click()
+        hoja = pagina.locator("#desconectar-drive")
+        expect(hoja).to_be_visible()
+        expect(hoja).to_contain_text("Lo que ya está en tu Drive se queda ahí")
+        pagina.get_by_role("button", name="Cancelar").first.click()
+        expect(hoja).not_to_be_visible()
+        assert ConexionDrive.objects.exists()                                   # cancelar no desconecta
+        pagina.get_by_role("button", name="Desconectar Drive").first.click()
+        hoja.get_by_role("button", name="Desconectar Drive").click()
+        pagina.wait_for_url("**/drive/")
+        expect(pagina.get_by_role("button", name="Conectar con Google")).to_be_visible(timeout=TIEMPO)
+        assert not ConexionDrive.objects.exists()
+    finally:
+        ctx.close()

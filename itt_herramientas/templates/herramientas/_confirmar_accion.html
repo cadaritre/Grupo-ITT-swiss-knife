@@ -1,0 +1,13 @@
+<button type="button" class="{{ clase }}" data-tv-abrir="{{ id }}">{{ abrir }}</button>
+<dialog id="{{ id }}" class="tv-hoja tv-hoja--confirmar" aria-labelledby="{{ id }}-titulo">
+  <form method="post" action="{{ accion }}" class="tv-hoja__cuerpo">{% csrf_token %}
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="{{ id }}-titulo">{{ titulo }}</h2>
+    <p>{{ texto }}</p>
+    {% if detalle %}<p class="tv-tenue">{{ detalle }}</p>{% endif %}
+    <div class="tv-hoja__acciones">
+      <button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button>
+      <button type="submit" class="tv-boton tv-boton--peligro">{{ aceptar }}</button>
+    </div>
+  </form>
+</dialog>

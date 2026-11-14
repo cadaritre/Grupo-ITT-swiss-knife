@@ -42,3 +42,7 @@
 .tri-capas input[type="checkbox"] { width: 20px; height: 20px; flex: none; accent-color: var(--tv-boton); }
 .tri-tabla td[data-etiqueta="Rango"] > span { min-width: 0; }
 .tri-muestra { margin-right: var(--tv-espacio-1, 4px); }
+
+/* Una sola fila de pasos (abajo, en el panel) cambia la vista y el formulario a la vez; sobre el visor solo queda «Ajustar». */
+.tri-modos { justify-content: flex-end; }
+.tri-modos .tv-boton { flex: 0 0 auto; }

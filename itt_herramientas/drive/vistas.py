@@ -36,7 +36,12 @@ def pagina(request):
         servicio.procesar(request.user.pk)                   # abrir la página también reintenta lo que ya tocaba
     envios = EnvioDrive.objects.filter(cuenta_id=request.user.pk).exclude(estado=EnvioDrive.Estado.DESCARTADO).order_by("-creada")[:40]
     resumen = {e: EnvioDrive.objects.filter(cuenta_id=request.user.pk, estado=e).count() for e in (EnvioDrive.Estado.PENDIENTE, EnvioDrive.Estado.ERROR, EnvioDrive.Estado.ENVIADO)}
-    return render(request, "herramientas/drive/pagina.html", {
+    por_enviar = EnvioDrive.objects.filter(cuenta_id=request.user.pk, estado__in=[EnvioDrive.Estado.PENDIENTE, EnvioDrive.Estado.ENVIANDO, EnvioDrive.Estado.ERROR]).count()
+    # Al desconectar, lo que no se alcanzó a enviar se descarta (no se conserva para otra cuenta de Google: se mandaría a un Drive ajeno al de esta persona).
+    texto_desconectar = ("Los %d archivos que todavía no se envían se descartarán y ya no llegarán a tu Drive." % por_enviar if por_enviar > 1 else
+                         "El archivo que todavía no se envía se descartará y ya no llegará a tu Drive." if por_enviar == 1 else
+                         "No hay archivos pendientes de enviar.")
+    return render(request, "herramientas/drive/pagina.html", {"texto_desconectar": texto_desconectar,
         "disponible": servicio.disponible(), "c": c, "envios": envios, "resumen": resumen, "categorias": {k: v[0] for k, v in servicio.CATEGORIAS.items()},
         "raiz": servicio.CARPETA_RAIZ, "picker": bool(getattr(settings, "HERRAMIENTAS_DRIVE_API_KEY", "") and getattr(settings, "HERRAMIENTAS_DRIVE_APP_ID", "")),
         "picker_url": getattr(settings, "HERRAMIENTAS_DRIVE_PICKER_URL", "https://apis.google.com/js/api.js"), "token_url": reverse("herramientas:drive_token"),

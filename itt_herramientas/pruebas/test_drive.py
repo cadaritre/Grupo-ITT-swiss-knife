@@ -398,3 +398,19 @@ def test_el_convertidor_envia_kml_y_kmz_pero_no_dxf(cliente_de, crear_usuario, r
     k = listo(cl, entradas_geo["capas.kml"])
     cl.post(url("convertidor_convertir", pk=k.pk), {"formato": "dxf", "zona": "13", "hemisferio": "N", "capa": ["Predios"], "etiquetas": "on"})
     assert EnvioDrive.objects.count() == 1                                                  # el DXF resultante NO se envía
+
+
+def test_desconectar_y_descartar_piden_confirmar_y_dicen_que_se_pierde(cliente_de, persona, falso):
+    """UX-ITT-04: ningún botón destructivo envía el formulario al primer toque; la hoja dice qué pasa con lo pendiente."""
+    cl = cliente_de(persona)
+    con_carpeta(cl, falso, persona)
+    falso.fallar("upload/drive", 500)
+    servicio.encolar(persona.pk, "reportes", "Uno.pdf", contenido=PDF)
+    falso.fallar("upload/drive", 500)
+    servicio.encolar(persona.pk, "reportes", "Dos.pdf", contenido=PDF + b"2")
+    html = cl.get(url("drive")).content.decode()
+    assert "Los 2 archivos que todavía no se envían se descartarán" in html and "Lo que ya está en tu Drive se queda ahí" in html
+    assert html.count('data-tv-abrir="desconectar-drive"') == 1 and "¿Descartar este envío?" in html
+    # el único botón que envía la desconexión está dentro de la hoja de confirmación
+    antes, _, dentro = html.partition('<dialog id="desconectar-drive"')
+    assert 'drive/desconectar/' not in antes and "drive/desconectar/" in dentro

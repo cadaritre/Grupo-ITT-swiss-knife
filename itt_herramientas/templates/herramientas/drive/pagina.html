@@ -1,10 +1,11 @@
 {% extends "herramientas/base_comun.html" %}
-{% load static tv %}
+{% load static tv herramientas %}
 {% block titulo_pagina %}Google Drive{% endblock %}
 {% block encabezado %}<h1>Envío a Google Drive</h1>{% endblock %}
 {% block cuerpo %}
-<p>Los reportes fotográficos, las cotizaciones (PDF y editable) y los polígonos KML/KMZ se copian solos a tu Google Drive, con la misma estructura de siempre:
-<strong>{{ raiz }} / tu nombre / {% for n in categorias.values %}{{ n }}{% if not forloop.last %} · {% endif %}{% endfor %}</strong>. Los DXF, croquis y triangulaciones no se envían. Si Drive no está conectado, todo queda en el servidor y se descarga desde cada herramienta.</p>
+<p>Reportes fotográficos, cotizaciones (PDF y editable) y polígonos KML/KMZ se copian solos a tu Google Drive, ordenados así:</p>
+<ul class="itt-estructura" aria-label="Estructura de carpetas en tu Drive"><li><strong>{{ raiz }}</strong><ul><li>{{ c.persona|default:"Tu nombre" }}<ul>{% for n in categorias.values %}<li>{{ n }}</li>{% endfor %}</ul></li></ul></li></ul>
+<p class="tv-tenue">Los DXF, croquis y triangulaciones no se envían. Si Drive no está conectado, todo queda en el servidor y se descarga desde cada herramienta.</p>
 <p class="tv-tenue">Herramientas solo ve los archivos y carpetas que ella misma crea o que tú le abres con el selector de Google (permiso «drive.file»); nunca el resto de tu Drive.</p>
 
 {% if not disponible %}
@@ -20,8 +21,8 @@
   <h2>Carpeta</h2>
   {% if c.carpeta_raiz_id %}<p id="drive-carpeta-ok">Tus archivos se guardan en <strong>{{ raiz }} / {{ c.persona }}</strong>.</p>{% else %}<p id="drive-sin-carpeta" class="itt-aviso" role="status">Todavía no eliges dónde guardar los archivos. Hasta entonces se acumulan aquí, sin perderse.</p>{% endif %}
   <div class="itt-acciones" id="drive-acciones" data-token="{{ token_url }}" data-carpeta="{{ carpeta_url }}" data-picker="{{ picker_url }}">
-    {% if picker %}<button type="button" class="tv-boton" id="drive-elegir">Elegir la carpeta compartida con el selector de Google</button>{% endif %}
-    <form method="post" action="{% url 'herramientas:drive_crear_raiz' %}">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--secundario">Crear «{{ raiz }}» en mi Drive</button></form>
+    {% if picker %}<button type="button" class="tv-boton{% if c.carpeta_raiz_id %} tv-boton--secundario{% endif %}" id="drive-elegir">{% if c.carpeta_raiz_id %}Cambiar carpeta{% else %}Elegir la carpeta compartida con el selector de Google{% endif %}</button>{% endif %}
+    {% if not c.carpeta_raiz_id %}<form method="post" action="{% url 'herramientas:drive_crear_raiz' %}">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--secundario">Crear «{{ raiz }}» en mi Drive</button></form>{% endif %}
   </div>
   {% if not picker %}<p class="tv-tenue">El selector de Google necesita una clave de API y el número de proyecto de Google Cloud; el propietario los configura (ver docs/drive.md). Mientras tanto puedes crear la carpeta en tu propio Drive.</p>{% endif %}
   <p id="drive-mensaje" class="itt-aviso" role="alert" hidden></p>
@@ -37,10 +38,13 @@
   <p>{{ resumen.enviado }} enviados · {{ resumen.pendiente }} pendientes · {{ resumen.error }} con error.</p>
   <form method="post" action="{% url 'herramientas:drive_reintentar' %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">Reintentar ahora</button></form>
   {% if envios %}<ul class="itt-lista" id="drive-envios">{% for e in envios %}<li class="itt-captura itt-captura--texto" data-estado="{{ e.estado }}"><div><div class="itt-captura__texto"><strong>{{ e.nombre }}</strong><span class="tv-tenue">{{ e.get_estado_display }}{% if e.drive_nombre and e.drive_nombre != e.nombre %} · quedó como «{{ e.drive_nombre }}»{% endif %}{% if e.error %} · {{ e.error }}{% endif %}</span></div>
-    {% if e.estado == "pendiente" or e.estado == "error" %}<form method="post" action="{% url 'herramientas:drive_descartar' e.pk %}">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">Descartar</button></form>{% endif %}</div></li>{% endfor %}</ul>
+    {% if e.estado == "pendiente" or e.estado == "error" %}{% url 'herramientas:drive_descartar' e.pk as u_descartar %}{% with envio_id=e.pk|stringformat:"s" %}{% confirmar_accion id="descartar-"|add:envio_id accion=u_descartar abrir="Descartar" titulo="¿Descartar este envío?" texto="«"|add:e.nombre|add:"» ya no se enviará a tu Google Drive." detalle="El documento no se borra de Herramientas: puedes volver a generarlo o descargarlo desde su herramienta." aceptar="Descartar envío" %}{% endwith %}{% endif %}</div></li>{% endfor %}</ul>
   {% else %}<p class="tv-tenue">Aún no hay envíos.</p>{% endif %}
 
-  <form method="post" action="{% url 'herramientas:drive_desconectar' %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--peligro" type="submit">Desconectar Drive</button></form>
+  {% url 'herramientas:drive_desconectar' as u_desconectar %}
+  <div class="tv-tarjeta tv-peligro"><h2 class="tv-tarjeta__titulo">Desconectar Drive</h2>
+    <p>Herramientas dejará de enviar archivos a tu Google Drive y se revoca su acceso.</p>
+    {% confirmar_accion id="desconectar-drive" accion=u_desconectar abrir="Desconectar Drive" titulo="¿Desconectar Google Drive?" texto=texto_desconectar detalle="Lo que ya está en tu Drive se queda ahí. Los documentos siguen en Herramientas para descargarlos. Para volver a enviar a Drive tendrás que conectar de nuevo." aceptar="Desconectar Drive" clase="tv-boton tv-boton--peligro" %}</div>
 {% endif %}
 {% endblock %}
 {% block scripts %}{% if c and picker %}<script src="{% static 'herramientas/drive/drive.js' %}"></script>{% endif %}{% endblock %}

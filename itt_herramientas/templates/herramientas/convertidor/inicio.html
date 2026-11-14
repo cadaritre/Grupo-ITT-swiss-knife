@@ -3,7 +3,7 @@
 {% block titulo_pagina %}Convertidor DXF ↔ KML/KMZ{% endblock %}
 {% block encabezado %}<h1>Convertidor DXF ↔ KML/KMZ</h1>{% endblock %}
 {% block cuerpo %}
-<p>Convierte un DXF a KML o KMZ para Google Earth, o un KML/KMZ a DXF para AutoCAD. Hasta {{ limite_mb }} MB y {{ limite_entidades|stringformat:"d" }} entidades; si tu archivo es más grande, ábrelo en <strong>Herramientas Grupo ITT (módulo local)</strong>.</p>
+<p>Convierte un DXF a KML o KMZ para Google Earth, o un KML/KMZ a DXF para AutoCAD. Hasta {{ limite_mb }} MB y {{ limite_entidades|floatformat:"0g" }} entidades; si tu archivo es más grande, ábrelo en <strong>Herramientas Grupo ITT (módulo local)</strong>.</p>
 <div id="itt-subida-convertidor" data-banco="{% url 'herramientas:convertidor_banco' '00000000-0000-0000-0000-000000000000' %}">
 {% subida destino="herramientas.convertidor_entrada" accept=".dxf,.kml,.kmz" etiqueta="Elige un DXF, KML o KMZ" max_bytes=limite_bytes %}
 </div>

@@ -85,7 +85,7 @@
         const acciones = document.createElement("div");
         const quitar = document.createElement("button"); quitar.type = "button"; quitar.textContent = "Quitar"; quitar.className = "tv-boton tv-boton--secundario";
         quitar.addEventListener("click", async () => {
-          if (!confirm("Esta foto aún no está en el servidor. Si la quitas, se pierde. ¿Quitarla de todos modos?")) return;
+          if (!(await ITT.ui.confirmar("Esta foto aún no está en el servidor. Si la quitas, se pierde y no se puede recuperar.", { aceptar: "Quitar foto", peligro: true }))) return;
           await ITT.cola.borrar(item.id);
         });
         const reintentar = document.createElement("button"); reintentar.type = "button"; reintentar.textContent = "Reintentar"; reintentar.dataset.itt = "reintentar"; reintentar.className = "tv-boton";
