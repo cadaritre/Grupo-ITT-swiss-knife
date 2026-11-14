@@ -1,6 +1,8 @@
 /* Comportamiento común de la PWA en todas las páginas de Herramientas:
  *  - banda «N pendientes» (solo cuando hay pendientes o error, y solo en las páginas donde sirve);
- *  - aviso antes de cerrar con pendientes (`beforeunload`);
+ *  - SIN aviso del navegador al salir: todo queda guardado en el teléfono al instante (los editores guardan a los 300 ms y al
+ *    ocultarse la página) y se sube solo al volver a abrir, con señal o cada 30 s. Un «¿Abandonar el sitio?» en cada clic
+ *    no protege nada y estorba; lo pendiente se ve en la banda y se explica al cerrar sesión (menu.js);
  *  - `navigator.storage.persist()` y aviso al llegar al 80 % de la cuota;
  *  - disparadores de subida: al abrir, al volver la señal, al volver a primer plano y cada 30 s;
  *  - registro del service worker y aviso «Hay una versión nueva · Actualizar».
@@ -147,10 +149,8 @@
   }
   ITT.pedirAlmacenamiento = almacenamiento;
 
-  // Aviso al cerrar con pendientes (solo existe en la pestaña; en la app instalada lo cubre la banda fija).
-  addEventListener("beforeunload", (e) => {
-    if (estado.resumen.total > 0) { e.preventDefault(); e.returnValue = "Tienes capturas sin subir. Se conservan en este teléfono, pero aún no están en el servidor."; return e.returnValue; }
-  });
+  // Al salir de la página no se pregunta nada (ver arriba): solo se intenta subir lo pendiente una vez más, sin esperar.
+  addEventListener("pagehide", () => { if (estado.resumen.total > 0 && navigator.onLine && !estado.subiendo) subir(); });
 
   // Service worker y actualizaciones.
   async function registrarSW() {

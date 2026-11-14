@@ -362,17 +362,24 @@ def test_sesion_caducada_conserva_la_cola(motor, tmp_path, servidor, sesion_de, 
         ctx.close()
 
 
-def test_aviso_antes_de_cerrar_solo_con_pendientes(motor, tmp_path, servidor, sesion_de, usuaria):
+def test_salir_de_la_pagina_nunca_pregunta_ni_con_pendientes(motor, tmp_path, servidor, sesion_de, usuaria):
+    """Lo pendiente ya está guardado en el teléfono: el «¿Abandonar el sitio?» del navegador no protege nada y salía en cada
+    clic (queja del propietario, 14-11-2026). Se navega sin preguntar y lo pendiente sigue ahí y se sube después."""
     ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria))
     try:
         pagina = abrir(ctx, servidor)
         con_service_worker(pagina)
         ctx.set_offline(True)
         probar = "(() => { const e = new Event('beforeunload', {cancelable: true}); dispatchEvent(e); return e.defaultPrevented; })()"
-        assert pagina.evaluate(probar) is False                        # sin pendientes no molesta
+        assert pagina.evaluate(probar) is False                        # sin pendientes
         capturar(pagina, foto(color="#654321"))
         esperar_guardadas(pagina, "1")
-        assert pagina.evaluate(probar) is True                         # con pendientes pide confirmar
+        assert pagina.evaluate(probar) is False                        # con pendientes tampoco
+        dialogos = []
+        pagina.on("dialog", lambda d: (dialogos.append(d.type), d.dismiss()))
+        pagina.reload()                                                # salir de verdad: sin diálogo
+        assert dialogos == []
+        assert cola(pagina)["total"] == 1                              # y la foto sigue guardada en el teléfono
     finally:
         ctx.close()
 
