@@ -213,7 +213,7 @@
       for (const otro of dibujo.getSnapshot()) if (otro.id !== id) dibujo.removeFeatures([otro.id]);          // un solo área a la vez
       setTimeout(() => ponerModo("select"), 0);
     }
-    pintarVertices(); cambioDeArea();
+    pintarTablaVertices(); pintarVertices(); cambioDeArea();             // la tabla sigue al mapa (antes quedaba vacía o con coordenadas viejas)
   }
 
   function ponerModo(modo) {
@@ -326,6 +326,7 @@
 
   function pintarTablaVertices() {
     const ol = $("cq-vertices");
+    const activo = document.activeElement && ol.contains(document.activeElement) ? document.activeElement.id : "";
     limpiar(ol);
     const p = reg.datos.points;
     p.forEach((v, i) => {
@@ -339,10 +340,11 @@
           campo("Longitud", `v-lo-${i}`, v.longitude.toFixed(7), { inputMode: "decimal" }, (e) => editarCoordenada(i, "longitude", e.target, 180))),
         campo("Descripción", `v-d-${i}`, v.description || "", { maxLength: 200 }, (e) => { v.description = e.target.value.slice(0, 200); programarGuardado(); }),
         h("div", { class: "rep-botones" },
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", disabled: i === 0, "aria-label": `Subir el vértice ${i + 1}`, onclick: () => moverVertice(i, -1) }, "↑"),
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", disabled: i === p.length - 1, "aria-label": `Bajar el vértice ${i + 1}`, onclick: () => moverVertice(i, 1) }, "↓"),
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", "data-itt": "quitar-vertice", onclick: () => quitarVertice(i) }, "Quitar"))));
+          boton({ onclick: () => moverVertice(i, -1), disabled: i === 0, etiqueta: `Subir el vértice ${i + 1}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "chevron-up"),
+          boton({ onclick: () => moverVertice(i, 1), disabled: i === p.length - 1, etiqueta: `Bajar el vértice ${i + 1}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "chevron-down"),
+          boton({ onclick: () => quitarVertice(i), etiqueta: `Quitar el vértice ${i + 1}`, "data-itt": "quitar-vertice", class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
     });
+    if (activo && $(activo)) $(activo).focus();
   }
   function editarCoordenada(i, campo, entrada, limite) {
     const n = parseFloat(String(entrada.value).replace(",", "."));

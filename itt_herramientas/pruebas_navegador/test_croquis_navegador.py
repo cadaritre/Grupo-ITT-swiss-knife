@@ -115,6 +115,10 @@ def test_dibujar_vectorizar_y_exportar_pdf_y_dxf(motor, tmp_path, servidor, sesi
         expect(pagina.locator("#cq-area")).to_contain_text("4 vértices")
         assert pagina.locator("#cq-area").get_attribute("data-estado") == "ok"
         assert pagina.locator(".cq-modos [data-modo=select]").get_attribute("aria-pressed") == "true"      # al terminar queda en modo editar
+        # La tabla de vértices sigue al mapa: lo dibujado aparece en ella con las mismas coordenadas
+        expect(pagina.locator("#cq-vertices > li")).to_have_count(4)
+        puntos = pagina.evaluate("ITT.cola.borradores().then(b => b.find(x => x.tipo === 'croquis').datos.points)")
+        assert [pagina.locator(f"#v-la-{i}").input_value() for i in range(4)] == [f"{q['latitude']:.7f}" for q in puntos]
         pagina.wait_for_timeout(600)
         sin_pendientes(pagina)
         # --- Vectorizar con la respuesta de Overpass grabada ---
@@ -165,6 +169,11 @@ def test_vertices_a_mano_limite_de_area_y_proyecto_para_el_modulo_local(motor, t
         poner_vertices(pagina, CUADRO)
         expect(pagina.locator("#cq-area")).to_contain_text("4 vértices")
         assert pagina.locator("#cq-area").get_attribute("data-estado") == "ok"
+        # Cada fila: subir, bajar y quitar con icono, nombre accesible y 44 px
+        for etiqueta in ("Subir el vértice 2", "Bajar el vértice 2", "Quitar el vértice 2"):
+            b = pagina.locator(f"#cq-vertices button[aria-label='{etiqueta}']")
+            expect(b).to_be_visible()
+            assert b.locator("svg").count() == 1 and b.bounding_box()["height"] >= 43.5, etiqueta
         expect(pagina.locator("#cq-vectorizar")).to_be_visible()
         expect(pagina.locator("#cq-modulo")).to_be_hidden()
         # Cambiar un vértice a mano mueve el polígono.
