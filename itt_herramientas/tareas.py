@@ -1,12 +1,37 @@
 """Tareas de Herramientas (el armazón importa este módulo al arrancar). Cola `herramientas`: 1 s a 3 min, ≤ 768 MB."""
 from __future__ import annotations
 
-from tvplataforma.tareas import tarea
+import functools
 
+from tvplataforma.tareas import Cancelada, tarea as _tarea
+
+from .comun import errores
 from .models import Conversion
 
 
-@tarea(cola="herramientas")
+def tarea(cola):
+    """`@tarea` del armazón con los errores saneados: la persona ve un mensaje en español, el detalle queda en el registro.
+
+    Un `InterruptedError` es la cancelación pedida desde dentro de un cálculo: termina la tarea como cancelada, no como fallida.
+    """
+    registrar = _tarea(cola=cola)
+
+    def decorador(funcion):
+        @functools.wraps(funcion)
+        def segura(*args, **kwargs):
+            try:
+                return funcion(*args, **kwargs)
+            except Cancelada:
+                raise
+            except InterruptedError:
+                raise Cancelada() from None
+            except Exception as exc:
+                raise errores.ErrorDeTarea(errores.texto(exc)) from exc
+        return registrar(segura)
+    return decorador
+
+
+@tarea("herramientas")
 def analizar_conversion(conversion_id):
     from .convertidor import servicio
 
@@ -14,7 +39,7 @@ def analizar_conversion(conversion_id):
     return {"mensaje": "Archivo leído."}
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def convertir_conversion(conversion_id):
     from .convertidor import servicio
 
@@ -28,7 +53,7 @@ def convertir_conversion(conversion_id):
     return {"mensaje": "Conversión terminada.", "url": url, "etiqueta": "Descargar"}
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def generar_reporte(reporte_id):
     """PDF de un reporte fotográfico (10 a 90 s para 150 fotos)."""
     from django.urls import reverse
@@ -43,7 +68,7 @@ def generar_reporte(reporte_id):
     return {"mensaje": "Reporte listo.", "url": url, "etiqueta": "Descargar PDF"}
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def vectorizar_croquis(croquis_id):
     """Vectoriza el área de un croquis desde OpenStreetMap (10 s a 2 min; hasta 50 km²)."""
     from .models import Croquis
@@ -53,7 +78,7 @@ def vectorizar_croquis(croquis_id):
     return {"mensaje": "Cartografía lista."}
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def generar_croquis(croquis_id, formato):
     """PDF o DXF de un croquis."""
     from django.urls import reverse
@@ -74,7 +99,7 @@ def _triangulacion(triangulacion_id):
     return Triangulacion.objects.get(pk=triangulacion_id)
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def analizar_triangulacion(triangulacion_id):
     """Lee el DXF y cuenta lo que trae (segundos)."""
     from .models import Triangulacion
@@ -85,7 +110,7 @@ def analizar_triangulacion(triangulacion_id):
         t.resumen = servicio.leer(t)
         t.estado, t.error = Triangulacion.Estado.LISTO, ""
     except Exception as exc:
-        t.estado, t.error = Triangulacion.Estado.ERROR, str(exc)
+        t.estado, t.error = Triangulacion.Estado.ERROR, errores.texto(exc, errores.ARCHIVO_ILEGIBLE)
     t.save(update_fields=["resumen", "estado", "error"])
     return {"mensaje": "Archivo leído."}
 
@@ -95,22 +120,24 @@ def _calculo(triangulacion_id, funcion, mensaje):
     t.error = ""
     try:
         funcion(t)
+    except InterruptedError:
+        raise
     except Exception as exc:                                         # se muestra en la mesa de trabajo; el DXF sigue en su estado
-        t.error = str(exc)
+        t.error = errores.texto(exc)
         t.save(update_fields=["error"])
-        return {"mensaje": f"No se pudo calcular: {exc}"}
+        return {"mensaje": f"No se pudo calcular: {t.error}"}
     t.save(update_fields=["error"])
     return {"mensaje": mensaje}
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def calcular_superficie_triangulacion(triangulacion_id, opciones):
     from .triangulacion import servicio
 
     return _calculo(triangulacion_id, lambda t: servicio.calcular_superficie(t, opciones), "Superficie lista.")
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def calcular_pendientes_triangulacion(triangulacion_id, rangos, decimales):
     from .triangulacion import servicio
     from .dominio import triangulation as tri
@@ -120,7 +147,7 @@ def calcular_pendientes_triangulacion(triangulacion_id, rangos, decimales):
     return _calculo(triangulacion_id, trabajo, "Zonificación lista.")
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def calcular_escurrimiento_triangulacion(triangulacion_id, rangos, opciones):
     from .triangulacion import servicio
     from .dominio import triangulation as tri
@@ -130,7 +157,7 @@ def calcular_escurrimiento_triangulacion(triangulacion_id, rangos, opciones):
     return _calculo(triangulacion_id, trabajo, "Escurrimientos listos.")
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def exportar_triangulacion(triangulacion_id, tipo, opciones):
     from django.urls import reverse
     from tvplataforma.middleware import urlconf_de
@@ -140,15 +167,17 @@ def exportar_triangulacion(triangulacion_id, tipo, opciones):
     t = _triangulacion(triangulacion_id)
     try:
         servicio.exportar(t, tipo, opciones)
+    except InterruptedError:
+        raise
     except Exception as exc:
-        t.error = str(exc)
+        t.error = errores.texto(exc)
         t.save(update_fields=["error"])
-        return {"mensaje": f"No se pudo exportar: {exc}"}
+        return {"mensaje": f"No se pudo exportar: {t.error}"}
     url = reverse("herramientas:triangulacion_descargar", args=[t.pk], urlconf=urlconf_de("herramientas"))
     return {"mensaje": "DXF listo.", "url": url, "etiqueta": "Descargar DXF"}
 
 
-@tarea(cola="herramientas")
+@tarea("herramientas")
 def enviar_a_drive(cuenta_id):
     """Envía a Google Drive lo pendiente de una cuenta (los reintentos los dispara `herramientas_drive_reintentar` o la persona)."""
     from .drive import servicio

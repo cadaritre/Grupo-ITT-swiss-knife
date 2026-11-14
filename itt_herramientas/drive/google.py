@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import urllib.error
 import urllib.parse
@@ -18,6 +19,7 @@ from pathlib import Path
 from django.conf import settings
 from tvplataforma import ajustes
 
+log = logging.getLogger("itt_herramientas.drive")
 ALCANCES = "openid email https://www.googleapis.com/auth/drive.file"
 TROZO = 8 * 1024 * 1024                         # múltiplo de 256 KiB, como pide la carga reanudable
 CARPETA = "application/vnd.google-apps.folder"
@@ -71,7 +73,8 @@ class TransporteUrllib:
         except urllib.error.HTTPError as exc:
             return Respuesta(exc.code, {k.lower(): v for k, v in exc.headers.items()}, exc.read())
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
-            raise Temporal(f"Sin conexión con Google: {exc}") from exc
+            log.warning("Sin conexión con Google: %s: %s", type(exc).__name__, exc)
+            raise Temporal("No hay conexión con Google en este momento. Se reintenta solo.") from exc
 
 
 def pkce() -> tuple[str, str]:
@@ -107,8 +110,9 @@ class Google:
             return datos
         error = datos.get("error", "")
         if error in ("invalid_grant", "unauthorized_client", "invalid_client", "access_denied") or r.estado in (400, 401):
-            raise Reautorizar(datos.get("error_description") or error or "Google rechazó la autorización.", r.estado, error)
-        raise Temporal(f"Google no respondió ({r.estado}).", r.estado, error)
+            log.warning("Google rechazó la autorización (%s): %s", r.estado, datos.get("error_description") or error)
+            raise Reautorizar("Google rechazó la autorización. Vuelve a conectar Drive.", r.estado, error)
+        raise Temporal("Google no respondió. Se reintenta solo.", r.estado, error)
 
     def canjear(self, codigo: str, redirect_uri: str, verificador: str) -> dict:
         return self._token({"grant_type": "authorization_code", "code": codigo, "redirect_uri": redirect_uri, "code_verifier": verificador})
@@ -149,16 +153,16 @@ class Google:
             motivo = (r.json().get("error", {}).get("errors") or [{}])[0].get("reason", "")
         except AttributeError:
             pass
-        mensaje = f"Google Drive respondió {r.estado} {motivo}".strip()
+        log.warning("Google Drive respondió %s %s", r.estado, motivo)
         if r.estado == 401:
-            raise TokenVencido(mensaje, r.estado, motivo)
+            raise TokenVencido("La sesión con Google caducó.", r.estado, motivo)
         if r.estado == 404 or (r.estado == 403 and motivo in ("notFound", "forbidden", "insufficientFilePermissions", "appNotAuthorizedToFile")):
-            raise NoDisponible(mensaje, r.estado, motivo)
+            raise NoDisponible("Google no deja ver esa carpeta o ese archivo a esta app.", r.estado, motivo)
         if r.estado == 429 or r.estado >= 500 or (r.estado == 403 and motivo in ("rateLimitExceeded", "userRateLimitExceeded", "backendError", "dailyLimitExceeded")):
-            raise Temporal(mensaje, r.estado, motivo)
+            raise Temporal("Google Drive no responde por ahora. Se reintenta solo.", r.estado, motivo)
         if r.estado == 403 and motivo == "storageQuotaExceeded":
             raise ErrorGoogle("Tu Google Drive no tiene espacio. Libera espacio y se reintenta solo.", r.estado, motivo)
-        raise ErrorGoogle(mensaje, r.estado, motivo)
+        raise ErrorGoogle("Google Drive rechazó la operación. Si se repite, vuelve a conectar Drive.", r.estado, motivo)
 
     def archivo(self, acceso: str, id_: str, campos: str = "id,name,mimeType,trashed,md5Checksum,size") -> dict:
         datos = self._drive(acceso, "GET", f"/files/{urllib.parse.quote(id_, safe='')}", {"fields": campos})

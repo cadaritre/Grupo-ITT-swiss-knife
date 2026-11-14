@@ -12,7 +12,7 @@ from tvplataforma import ajustes
 from tvplataforma.models import Tarea
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import preferencias
+from ..comun import errores, preferencias
 from ..models import Conversion
 from ..tareas import analizar_conversion, convertir_conversion
 from . import servicio
@@ -72,7 +72,7 @@ def analizar(request, pk):
     try:
         c.zona, c.hemisferio = _zona(request.POST, c)
     except ValueError as exc:
-        messages.error(request, str(exc))
+        messages.error(request, errores.texto(exc, "Revisa los valores del formulario e inténtalo de nuevo."))
         return redirect("herramientas:convertidor_banco", pk=c.pk)
     c.estado = Conversion.Estado.ANALIZANDO
     c.save(update_fields=["zona", "hemisferio", "estado"])
@@ -101,7 +101,7 @@ def convertir(request, pk):
     try:
         zona, hem = _zona(post, c)
     except ValueError as exc:
-        messages.error(request, str(exc))
+        messages.error(request, errores.texto(exc, "Revisa los valores del formulario e inténtalo de nuevo."))
         return redirect("herramientas:convertidor_banco", pk=c.pk)
     precision = post.get("precision", "topografica")
     if precision not in servicio.PRECISIONES:

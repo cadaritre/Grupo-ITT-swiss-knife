@@ -15,6 +15,7 @@ import numpy as np
 from tvplataforma import ajustes
 from tvplataforma.tareas import cancelada, progreso
 
+from ..comun import errores
 from ..dominio import triangulation as tri
 from ..models import Triangulacion
 
@@ -22,7 +23,7 @@ MODOS_SUPERFICIE = ("puntos", "capas")
 MAX_RANGOS = 20                         # los argumentos de una tarea caben en 8 KiB
 
 
-class ErrorLimite(ValueError):
+class ErrorLimite(errores.ErrorUsuario):
     """El trabajo supera lo que la web procesa; el mensaje manda a la persona al módulo local."""
 
 
@@ -71,7 +72,8 @@ def leer(t: Triangulacion) -> dict:
     try:
         documento = ezdxf.readfile(ruta_origen(t))
     except (OSError, ezdxf.DXFError) as exc:
-        raise ValueError(f"No se pudo leer el DXF: {exc}") from exc
+        errores.log.warning("No se pudo leer el DXF de la triangulación %s: %s: %s", t.pk, type(exc).__name__, exc)
+        raise errores.ErrorUsuario("No se pudo leer el DXF. Revisa que sea un DXF válido y que no esté dañado, y vuelve a subirlo.") from exc
     progreso(0.1, "Contando entidades…")
     puntos = inserts = vertices = caras = 0
     capas: dict[str, int] = {}

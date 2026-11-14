@@ -168,7 +168,7 @@ def test_un_error_pasajero_reprograma_con_espera_y_luego_llega(cliente_de, perso
     falso.fallar("upload/drive", 500)
     e = servicio.encolar(persona.pk, "cotizaciones", "COT-1.pdf", contenido=PDF)
     e.refresh_from_db()
-    assert e.estado == "pendiente" and e.intentos == 1 and e.proximo_intento > timezone.now() + timedelta(seconds=30) and "500" in e.error
+    assert e.estado == "pendiente" and e.intentos == 1 and e.proximo_intento > timezone.now() + timedelta(seconds=30) and "no responde" in e.error and "500" not in e.error
     assert servicio.procesar(persona.pk)["enviados"] == 0                               # aún no toca: no se golpea a Google
     r = servicio.procesar(persona.pk, ahora=timezone.now() + timedelta(minutes=5))
     e.refresh_from_db()

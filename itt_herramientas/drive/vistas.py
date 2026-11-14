@@ -63,7 +63,7 @@ def callback(request):
         messages.error(request, "La conexión con Google no se pudo verificar (el enlace caducó). Inténtalo de nuevo.")
         return redirect("herramientas:drive")
     if request.GET.get("error"):
-        messages.warning(request, "No se concedió el acceso a Google Drive." if request.GET["error"] == "access_denied" else f"Google respondió: {request.GET['error']}")
+        messages.warning(request, "No se concedió el acceso a Google Drive." if request.GET["error"] == "access_denied" else "Google no concedió el acceso a Drive. Inténtalo de nuevo.")
         return redirect("herramientas:drive")
     try:
         tokens = servicio.cliente().canjear(request.GET.get("code", ""), _url_callback(request), guardado["verificador"])

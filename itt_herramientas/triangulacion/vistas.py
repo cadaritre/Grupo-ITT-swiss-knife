@@ -12,6 +12,7 @@ from django.views.decorators.http import require_POST
 from tvplataforma.models import Tarea
 from tvplataforma.permisos import requiere_rol
 
+from ..comun import errores
 from ..dominio import triangulation as tri
 from ..models import Triangulacion
 from ..tareas import (calcular_escurrimiento_triangulacion, calcular_pendientes_triangulacion, calcular_superficie_triangulacion, exportar_triangulacion)
@@ -94,7 +95,7 @@ def superficie(request, pk):
     try:
         opciones = servicio.opciones_superficie(request.POST)
     except ValueError as exc:
-        messages.error(request, str(exc))
+        messages.error(request, errores.texto(exc, "Revisa los valores del formulario e inténtalo de nuevo."))
         return redirect("herramientas:triangulacion_banco", pk=t.pk)
     return _encolar(request, t, calcular_superficie_triangulacion, opciones)
 
@@ -110,7 +111,7 @@ def pendientes(request, pk):
         rangos = servicio.rangos_pendientes(request.POST)
         decimales = servicio._num(request.POST.get("decimales"), "decimales", minimo=0, maximo=6, por_omision=2, entero=True)
     except ValueError as exc:
-        messages.error(request, str(exc))
+        messages.error(request, errores.texto(exc, "Revisa los valores del formulario e inténtalo de nuevo."))
         return redirect("herramientas:triangulacion_banco", pk=t.pk)
     return _encolar(request, t, calcular_pendientes_triangulacion, [{k: v for k, v in asdict(r).items() if k in ("name", "min_pct", "max_pct", "color_hex")} for r in rangos], decimales)
 
@@ -126,7 +127,7 @@ def escurrimiento(request, pk):
         rangos = servicio.rangos_flujo(request.POST)
         opciones = servicio.opciones_flujo(request.POST)
     except ValueError as exc:
-        messages.error(request, str(exc))
+        messages.error(request, errores.texto(exc, "Revisa los valores del formulario e inténtalo de nuevo."))
         return redirect("herramientas:triangulacion_banco", pk=t.pk)
     return _encolar(request, t, calcular_escurrimiento_triangulacion, [{k: v for k, v in asdict(r).items() if k in ("name", "min_pct", "max_pct", "color_hex", "length_factor", "lineweight_mm")} for r in rangos], opciones)
 

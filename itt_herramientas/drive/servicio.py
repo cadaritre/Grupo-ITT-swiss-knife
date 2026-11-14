@@ -109,7 +109,7 @@ def acceso(c: ConexionDrive, forzar: bool = False) -> str:
     except (google.Reautorizar, cifrado.TokenIlegible) as exc:
         c.estado, c.error = ConexionDrive.Estado.REAUTORIZAR, "Google ya no acepta esta conexión. Vuelve a conectar Drive."
         c.save(update_fields=["estado", "error"])
-        raise google.Reautorizar(str(exc)) from exc
+        raise google.Reautorizar("Vuelve a conectar Drive.") from exc
     _guardar_acceso(c, tokens)
     if c.estado == ConexionDrive.Estado.REAUTORIZAR:
         c.estado, c.error = ConexionDrive.Estado.OK, ""

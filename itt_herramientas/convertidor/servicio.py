@@ -16,6 +16,7 @@ from django.utils import timezone
 from tvplataforma import ajustes
 from tvplataforma.tareas import cancelada, progreso
 
+from ..comun import errores
 from ..dominio import geometria
 from ..dominio import geospatial_converter as gc
 from ..models import Conversion
@@ -29,7 +30,7 @@ MAX_PUNTOS_VISTA = 40_000
 MAX_DESCOMPRIMIDO = 400 * 1024 * 1024        # un KMZ que descomprima a más que esto es una bomba, no un mapa
 
 
-class ErrorLimite(ValueError):
+class ErrorLimite(errores.ErrorUsuario):
     """El archivo supera lo que la web procesa; el mensaje manda a la persona al módulo local."""
 
 
@@ -60,9 +61,9 @@ def revisar_kmz(ruta: Path) -> None:
         with zipfile.ZipFile(ruta) as zf:
             total = sum(i.file_size for i in zf.infolist())
     except zipfile.BadZipFile as exc:
-        raise ValueError("El KMZ no es un ZIP válido.") from exc
+        raise errores.ErrorUsuario("El KMZ no es un ZIP válido o está dañado. Guárdalo de nuevo desde Google Earth y vuelve a subirlo.") from exc
     if total > MAX_DESCOMPRIMIDO:
-        raise ValueError("El KMZ descomprime a un tamaño excesivo y no se procesa.")
+        raise errores.ErrorUsuario("El KMZ descomprime a un tamaño excesivo y no se procesa.")
 
 
 def leer(c: Conversion, tolerancia: float | None = None) -> "gc.GeoDataset":
@@ -166,7 +167,9 @@ def analizar(c: Conversion) -> None:
         progreso(1.0, "Listo")
     except Exception as exc:                               # el error se muestra a la persona; la tarea no debe "fallar" a medias
         c.estado = Conversion.Estado.ERROR
-        c.error = str(exc) if isinstance(exc, (ErrorLimite, ValueError, RuntimeError)) else f"No se pudo leer el archivo: {exc}"
+        if isinstance(exc, InterruptedError):
+            raise
+        c.error = errores.texto(exc, errores.ARCHIVO_ILEGIBLE)
         c.resumen = {}
     c.save()
 
@@ -180,10 +183,10 @@ def convertir(c: Conversion) -> None:
     op = c.opciones
     formato = op["formato"]
     if formato not in FORMATOS_SALIDA[c.formato]:
-        raise ValueError(f"Un archivo {c.formato.upper()} se convierte a {' o '.join(f.upper() for f in FORMATOS_SALIDA[c.formato])}.")
+        raise errores.ErrorUsuario(f"Un archivo {c.formato.upper()} se convierte a {' o '.join(f.upper() for f in FORMATOS_SALIDA[c.formato])}.")
     capas = set(op.get("capas") or [])
     if not capas:
-        raise ValueError("Activa al menos una capa para exportar.")
+        raise errores.ErrorUsuario("Activa al menos una capa para exportar.")
     dataset = leer(c, geometria.TOLERANCIAS.get(op.get("precision", ""), geometria.TOLERANCIA_POR_OMISION))
     if cancelada():
         return

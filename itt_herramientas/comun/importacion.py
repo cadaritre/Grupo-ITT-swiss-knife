@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from ..dominio.quotation_templates import CustomConceptTemplateStore
 from ..models import MachoteCuenta, Perfil
-from . import diccionarios, perfiles, preferencias
+from . import diccionarios, errores, perfiles, preferencias
 
 VERSION_AJUSTES = 5
 MAX_ZIP_BYTES = 25 * 1024 * 1024
@@ -139,7 +139,7 @@ def _machotes(datos: bytes) -> list:
         try:
             return CustomConceptTemplateStore._read(ruta)
         except (OSError, ValueError, TypeError) as exc:
-            raise ImportacionInvalida(str(exc)) from exc
+            raise ImportacionInvalida(errores.texto(exc, "La colección de machotes del archivo no es válida.")) from exc
 
 
 def _logo_de(paquete: Paquete, clave: str) -> tuple[str, bytes] | None:

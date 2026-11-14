@@ -20,7 +20,7 @@ from pathlib import Path
 from django.utils import timezone
 from tvplataforma.tareas import cancelada, progreso
 
-from ..comun import capturas, perfiles, sincronizacion
+from ..comun import capturas, errores, perfiles, sincronizacion
 from ..dominio import branding, geospatial_converter as gc, location_sketch as ls, osm_vector, terrain_contours
 from ..models import Croquis, Perfil
 
@@ -173,10 +173,14 @@ def vectorizar(c: Croquis) -> None:
         progreso(fraccion if fraccion is not None else 0.1, mensaje)
 
     progreso(0.02, "Consultando OpenStreetMap…")
-    features = osm_vector.fetch_osm_features(selection, progress=avance)
-    if topo:
-        progreso(0.7, "Calculando curvas de nivel…")
-        features.extend(terrain_contours.fetch_elevation_contours(selection, datos["contour_interval"], progress=avance))
+    try:
+        features = osm_vector.fetch_osm_features(selection, progress=avance)
+        if topo:
+            progreso(0.7, "Calculando curvas de nivel…")
+            features.extend(terrain_contours.fetch_elevation_contours(selection, datos["contour_interval"], progress=avance))
+    except RuntimeError as exc:                                      # los servidores de mapas no respondieron: el detalle (direcciones y respuestas) queda en el registro
+        errores.log.warning("Fallo al consultar el mapa del croquis %s: %s", c.pk, exc)
+        raise errores.ErrorUsuario("No se pudo consultar el mapa en este momento (los servidores de OpenStreetMap no respondieron). Espera unos minutos e inténtalo de nuevo.") from exc
     progreso(0.92, "Guardando…")
     carpeta = _carpeta(c)
     carpeta.mkdir(parents=True, exist_ok=True)
@@ -329,5 +333,5 @@ def poligono_de_kml(contenido: bytes, nombre: str) -> tuple[list[dict], int]:
         except CroquisInvalido:
             raise
         except Exception as exc:
-            raise CroquisInvalido(str(exc)) from exc
+            raise CroquisInvalido(errores.texto(exc, "No se pudo leer el KML o KMZ. Revisa que contenga un polígono con al menos tres vértices.")) from exc
     return [{"name": p.name, "latitude": round(p.latitude, 7), "longitude": round(p.longitude, 7), "description": ""} for p in puntos][:MAX_VERTICES], cuantos

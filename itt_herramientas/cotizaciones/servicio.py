@@ -18,7 +18,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from tvplataforma import ajustes
 
-from ..comun import capturas, diccionarios, perfiles, sincronizacion
+from ..comun import capturas, diccionarios, errores, perfiles, sincronizacion
 from ..dominio import quotation_models as qm
 from ..dominio import quotation_pdf
 from ..dominio.quotation_i18n import STANDARD_UNITS
@@ -321,7 +321,7 @@ def importar_machotes(usuario, datos: bytes) -> tuple[int, int]:
         try:
             registros = CustomConceptTemplateStore._read(ruta)
         except (OSError, ValueError, TypeError) as exc:
-            raise CotizacionInvalida(str(exc)) from exc
+            raise CotizacionInvalida(errores.texto(exc, "El archivo no es una colección de machotes de cotización válida.")) from exc
     nombres = {n.casefold() for n in MachoteCuenta.objects.filter(cuenta_id=usuario.pk).values_list("nombre", flat=True)}
     ids = set(MachoteCuenta.objects.filter(cuenta_id=usuario.pk).values_list("plantilla_id", flat=True))
     agregados = renombrados = 0
