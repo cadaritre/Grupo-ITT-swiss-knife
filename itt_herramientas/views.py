@@ -43,7 +43,7 @@ def _es_admin(request) -> bool:
 def inicio(request):
     herramientas = [(titulo, descripcion, reverse(nombre), f"herramientas/img/herramientas/{rol}.png") for rol, titulo, descripcion, nombre in HERRAMIENTAS_DE_INICIO
                     if permisos.tiene_rol(request.user, "herramientas", rol) or permisos.tiene_rol(request.user, "herramientas", "admin")]
-    return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "puede_cambiar": perfiles.puede_cambiar(request.user), "herramientas": herramientas})
+    return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "puede_cambiar": perfiles.puede_cambiar(request.user), "herramientas": herramientas, "mostrar_banda": "si", "mostrar_marca": True})
 
 
 @usuario_de_herramientas
@@ -289,6 +289,14 @@ def instalar(request):
     return respuesta
 
 
+def _herramientas_de_campo(usuario) -> list[str]:
+    """Las páginas de campo (las que abren sin conexión) a las que esta cuenta tiene acceso: las lista el menú de la app."""
+    def tiene(rol):
+        return permisos.tiene_rol(usuario, "herramientas", rol) or permisos.tiene_rol(usuario, "herramientas", "admin")
+    campo = [t for t in ("cotizaciones", "reportes", "croquis") if tiene(t)]
+    return (["capturar"] if tiene("reportes") or tiene("cotizaciones") else []) + campo
+
+
 def sesion(request):
     """Quién está con sesión y su token CSRF, para que la cola (y el service worker) puedan subir. 401 si no hay sesión."""
     from django.http import HttpResponse, JsonResponse
@@ -297,7 +305,7 @@ def sesion(request):
     u = request.user
     if not (u.is_authenticated and u.is_active) or not any(permisos.tiene_rol(u, "herramientas", r) for r in (*ROLES_DE_HERRAMIENTAS, "admin")):
         return HttpResponse(status=401)
-    respuesta = JsonResponse({"cuenta": u.pk, "nombre": u.get_full_name() or u.get_username(), "csrf": get_token(request)})
+    respuesta = JsonResponse({"cuenta": u.pk, "nombre": u.get_full_name() or u.get_username(), "csrf": get_token(request), "herramientas": _herramientas_de_campo(u)})
     respuesta["Cache-Control"] = "no-store"
     return respuesta
 
@@ -351,6 +359,19 @@ def perfil_css(request):
             reglas.append(f"  {token}: {valor};")
     cuerpo = ":root {\n" + "\n".join(reglas) + "\n}\n" if reglas else "/* paleta de fábrica */\n"
     respuesta = HttpResponse(cuerpo, content_type="text/css; charset=utf-8")
+    respuesta["Cache-Control"] = "private, no-cache"
+    return respuesta
+
+
+@solo_admin
+def perfil_logo_vista(request, clave):
+    """Vista previa del logo de un perfil (propio o de fábrica) para quien lo administra. Solo el logo: nunca la firma ni la cédula."""
+    from django.http import FileResponse
+
+    perfil = _perfil(clave)
+    with perfiles.activar(perfil):
+        ruta = branding.active_profile().logo_path
+    respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if str(ruta).lower().endswith(".png") else "image/jpeg")
     respuesta["Cache-Control"] = "private, no-cache"
     return respuesta
 

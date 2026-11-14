@@ -117,6 +117,10 @@ def sin_fallas(pagina):
     pagina.evaluate("() => { if (window.__fetch0) window.fetch = window.__fetch0; }")
 
 
+def banda_visible(pagina) -> bool:
+    return pagina.locator("#itt-pendientes").is_visible()
+
+
 def texto_contador(pagina) -> str:
     return pagina.locator("#itt-pendientes [data-itt=texto]").inner_text()
 
@@ -187,7 +191,8 @@ def test_modo_avion_captura_y_sube_al_volver_la_senal(motor, tmp_path, servidor,
         ctx.set_offline(False)                                         # vuelve la señal
         pagina.evaluate("ITT.subirAhora()")
         esperar_sin_pendientes(pagina)
-        assert texto_contador(pagina) == "Sin pendientes"
+        assert not banda_visible(pagina)                                 # sin pendientes la banda no ocupa lugar (UX-ITT-05)
+        assert pagina.evaluate("document.querySelector('#itt-pendientes').dataset.total") == "0"
         capturas = list(Captura.objects.order_by("orden"))
         assert len(capturas) == 3
         assert [c.sin_ubicacion for c in capturas] == [False, False, False]
@@ -461,7 +466,7 @@ def test_instalable_manifiesto_service_worker_y_guia(motor, tmp_path, servidor, 
         pagina = abrir(ctx, servidor)
         con_service_worker(pagina)
         pagina.goto(servidor.url + "/")
-        pagina.wait_for_selector("#itt-pendientes", timeout=TIEMPO)
+        pagina.wait_for_selector("#itt-pendientes", state="attached", timeout=TIEMPO)
         enlace = pagina.evaluate("document.querySelector('link[rel=manifest]').href")
         manifiesto = json.loads(pagina.evaluate("fetch(document.querySelector('link[rel=manifest]').href).then(r => r.text())"))
         assert enlace.endswith("/manifest.webmanifest") and manifiesto["scope"] == "/" and manifiesto["start_url"] == "/"
@@ -493,7 +498,7 @@ def test_nueva_version_se_ofrece_y_no_se_activa_sola(motor, tmp_path, servidor, 
         expect(pagina.locator("#itt-actualizar")).to_be_visible(timeout=TIEMPO)
         assert pagina.evaluate("!!document.querySelector('html[data-captura-lista]')") and "pendiente" in texto_contador(pagina)   # la página NO se recargó sola
         assert "version-nueva-de-prueba" not in pagina.evaluate("navigator.serviceWorker.controller.scriptURL")
-        pagina.locator("#itt-actualizar button").click()
+        pagina.locator("#itt-actualizar [data-itt=actualizar]").click()
         pagina.wait_for_selector("html[data-captura-lista]", timeout=TIEMPO)                     # tras tocar «Actualizar» se recarga con la versión nueva
         esperar(pagina, "navigator.serviceWorker.getRegistration().then(r => !!r.active && !r.waiting)")
         esperar_sin_pendientes(pagina)                                   # la captura no se perdió: sigue en el teléfono hasta subirse
@@ -534,5 +539,90 @@ def test_primera_apertura_sin_conexion_sale_con_estilos(motor, tmp_path, servido
         assert hojas and all(ok for _, ok in hojas), hojas
         assert pagina.evaluate("getComputedStyle(document.querySelector('.tv-cabecera')).display") != "inline"     # el encabezado lleva su estilo
         assert pagina.evaluate("document.querySelector('.tv-marca img').complete && document.querySelector('.tv-marca img').naturalWidth > 0")
+    finally:
+        ctx.close()
+
+
+def test_banda_de_pendientes_solo_cuando_hay_algo_y_solo_donde_sirve(motor, tmp_path, servidor, sesion_de, usuaria):
+    """UX-ITT-05 y UX-ITT-14: sin pendientes no hay banda; con pendientes sale en las páginas de campo y en el inicio, no en el resto,
+    con el verbo en singular o plural según el número y un enlace a lo que está pendiente."""
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria))
+    try:
+        pagina = abrir(ctx, servidor)
+        con_service_worker(pagina)
+        assert not banda_visible(pagina)                                        # nada pendiente: no ocupa lugar
+        assert pagina.evaluate("document.documentElement.dataset.banda") == "no"
+        agregar = "(n) => ITT.cola.agregar({ blob: new Blob([new Uint8Array(10 + n)], { type: 'image/jpeg' }), estado: 'error', error: 'prueba', sha256: String(n).repeat(64).slice(0, 64), meta: { referencia: 'libre' } })"
+        pagina.evaluate(agregar, 1)                                              # pendientes que no se suben solos (en error): la banda no depende de la carrera con la subida
+        esperar_guardadas(pagina, "1")
+        expect(pagina.locator("#itt-pendientes")).to_be_visible()
+        assert texto_contador(pagina).startswith("1 pendiente") and "guardado en este navegador" in texto_contador(pagina)
+        assert pagina.locator("#itt-pendientes [data-itt=enlace]").is_hidden()   # lo pendiente es de esta página: ya está a la vista
+        pagina.evaluate(agregar, 2)
+        esperar_guardadas(pagina, "2")
+        assert "2 pendientes" in texto_contador(pagina) and "guardados en este navegador" in texto_contador(pagina)
+        pagina.goto(servidor.url + "/reportes/")                                # otra página de campo: el enlace lleva a las capturas
+        pagina.wait_for_selector("#itt-pendientes", state="attached", timeout=TIEMPO)
+        expect(pagina.locator("#itt-pendientes")).to_be_visible(timeout=TIEMPO)
+        enlace = pagina.locator("#itt-pendientes [data-itt=enlace]")
+        expect(enlace).to_be_visible(timeout=TIEMPO)
+        assert enlace.get_attribute("href") == "/capturar/" and enlace.inner_text() == "Ver capturas"
+        pagina.goto(servidor.url + "/preferencias/")                            # página que no es de campo: la cola cuenta, la banda no sale
+        pagina.wait_for_selector("#itt-pendientes", state="attached", timeout=TIEMPO)
+        esperar(pagina, "document.querySelector('#itt-pendientes').dataset.total === '2'", timeout=TIEMPO)
+        assert not banda_visible(pagina) and pagina.evaluate("document.documentElement.dataset.banda") == "no"
+        pagina.goto(servidor.url + "/")                                         # el inicio sí: es donde se decide qué abrir
+        esperar(pagina, "document.querySelector('#itt-pendientes').dataset.total === '2'", timeout=TIEMPO)
+        expect(pagina.locator("#itt-pendientes")).to_be_visible(timeout=TIEMPO)
+    finally:
+        ctx.close()
+
+
+def test_cabecera_de_las_paginas_de_campo_lleva_al_inicio_y_tiene_cuenta_y_salida(motor, tmp_path, servidor, sesion_de, usuaria):
+    """UX-ITT-03: salida clara desde las páginas de campo, también sin conexión (la página sigue siendo la misma para todas las cuentas)."""
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria), viewport={"width": 360, "height": 740})
+    try:
+        pagina = abrir(ctx, servidor)
+        con_service_worker(pagina)
+        pagina.goto(servidor.url + "/reportes/")
+        esperar(pagina, "document.querySelector('#itt-menu-nombre').textContent === 'ana'", timeout=TIEMPO)
+        assert pagina.evaluate("document.querySelector('.tv-cabecera__modulo').getAttribute('href')") == "/"
+        assert pagina.evaluate("document.querySelector('a.tv-marca').getAttribute('href')") == "/"
+        pagina.locator("#itt-menu summary").click()
+        panel = pagina.locator("#itt-menu .tv-menu__panel")
+        expect(panel).to_be_visible()
+        assert pagina.locator("#itt-menu a[data-itt-menu=reportes]").get_attribute("aria-current") == "page"
+        assert pagina.locator("#itt-menu a[data-itt-menu=capturar]").is_visible()
+        assert pagina.locator("#itt-menu a[data-itt-menu=croquis]").is_hidden()          # la cuenta no tiene ese rol: no se ofrece
+        assert pagina.locator("#itt-menu a[data-itt-menu=cuenta]").is_visible() and pagina.locator("#itt-salir-boton").is_visible()
+        for caja in [e.bounding_box() for e in panel.locator("a, button").all() if e.is_visible()]:
+            assert caja["height"] >= 43.5, caja                                          # objetivos táctiles de 44 px
+        # Cerrar sesión pide confirmar y dice qué pasa con lo pendiente.
+        with pagina.expect_request(lambda r: r.method == "POST" and r.url.endswith("/sso/salir")) as pedido:
+            pagina.locator("#itt-salir-boton").click()
+            expect(pagina.locator("#dlg-salir")).to_be_visible()
+            assert "iniciar sesión otra vez" in pagina.locator("#dlg-salir-texto").inner_text()
+            pagina.locator("#dlg-salir-si").click()
+        assert pedido.value.post_data and "csrfmiddlewaretoken=" in pedido.value.post_data
+    finally:
+        ctx.close()
+
+
+def test_menu_sin_conexion_recuerda_la_cuenta_y_avisa_que_salir_necesita_senal(motor, tmp_path, servidor, sesion_de, usuaria):
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria))
+    try:
+        pagina = abrir(ctx, servidor)
+        con_service_worker(pagina)
+        pagina.goto(servidor.url + "/cotizaciones/")
+        esperar(pagina, "document.querySelector('#itt-menu-nombre').textContent === 'ana'", timeout=TIEMPO)
+        ctx.set_offline(True)
+        pagina.goto(servidor.url + "/cotizaciones/")
+        pagina.wait_for_selector("#cot", timeout=TIEMPO)
+        esperar(pagina, "document.querySelector('#itt-menu-nombre').textContent === 'ana'", timeout=TIEMPO)
+        pagina.locator("#itt-menu summary").click()
+        assert pagina.locator("#itt-menu a[data-itt-menu=reportes]").is_visible()        # sigue pudiendo moverse entre las herramientas guardadas
+        expect(pagina.locator("#itt-salir-aviso")).to_be_visible()
+        pagina.locator("#itt-salir-boton").click(force=True)
+        assert not pagina.locator("#dlg-salir").is_visible()                              # sin señal no hay cierre de sesión a medias
     finally:
         ctx.close()

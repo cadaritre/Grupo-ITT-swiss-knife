@@ -56,7 +56,8 @@ def test_el_selector_muestra_el_perfil_activo_y_cambia(cliente_de, con_permiso):
     assert "Perfil activo: Grupo ITT" in html and 'aria-pressed="true" disabled>Grupo ITT' in html
     r = c.post(url("perfil_activo"), {"perfil": "tresvizo", "siguiente": url("preferencias")})
     assert r.status_code == 302 and r["Location"] == url("preferencias")
-    html = c.get(url("preferencias")).content.decode()
+    assert 'data-perfil=' not in c.get(url("preferencias")).content.decode()                 # UX-ITT-06: la franja de identidad vive solo en el inicio
+    html = c.get(url("inicio")).content.decode()
     assert 'data-perfil="tresvizo"' in html and "Herramientas TresVizo" in html and "Perfil activo: TresVizo" in html
     assert "www.tresvizo.com" in html and 'href="https://www.tresvizo.com/"' in html
     assert 'href="/manifest.webmanifest?p=tresvizo"' in html and "apple-touch-icon-tresvizo.png" in html

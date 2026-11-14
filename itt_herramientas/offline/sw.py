@@ -19,7 +19,7 @@ SCRIPTS_SW = ("offline/cola.js", "offline/tus.js", "offline/subidor.js")
 #: todo lo que se guarda en caché al instalar
 ACTIVOS = (
     "offline/cola.js", "offline/tus.js", "offline/subidor.js", "offline/exif.js", "offline/reducir.js", "offline/reducir.worker.js",
-    "offline/compartir.js", "offline/ui.js", "offline/captura.js", "offline/instalar.js", "offline/pwa.css",
+    "offline/compartir.js", "offline/ui.js", "offline/menu.js", "offline/captura.js", "offline/instalar.js", "offline/pwa.css",
     "offline/ayudas.js", "offline/documentos.js", "offline/vista-pdf.js",
     "reportes/reportes.js", "reportes/reportes.css", "croquis/croquis.js", "croquis/croquis.css",
     "cotizaciones/totales.js", "cotizaciones/borradores.js", "cotizaciones/ortografia.js", "cotizaciones/editor.js", "cotizaciones/cotizaciones.css",

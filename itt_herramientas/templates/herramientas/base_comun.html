@@ -6,5 +6,5 @@
 <link rel="icon" href="{% static 'herramientas/img/icono-'|add:clave|add:'-192.png' %}" type="image/png" sizes="192x192">{% endblock %}
 {% block icono_modulo %}{% perfil_clave as clave %}{% if clave == 'grupo_itt' %}<img class="tv-modulo-icono" src="{% static 'herramientas/img/marca-grupo_itt.png' %}" alt="" width="28" height="28">{% endif %}{% endblock %}
 {% block cabeza %}{% include "herramientas/pwa/_cabeza.html" %}{% endblock %}
-{% block contenido %}{% marca_perfil %}{% block cuerpo %}{% endblock %}{% endblock %}
-{% block pie %}{% include "herramientas/pwa/_cola.html" %}{% endblock %}
+{% block contenido %}{% if mostrar_marca %}{% marca_perfil %}{% endif %}{% block cuerpo %}{% endblock %}{% endblock %}
+{% block pie %}{% include "herramientas/pwa/_cola.html" with banda=mostrar_banda %}{% endblock %}

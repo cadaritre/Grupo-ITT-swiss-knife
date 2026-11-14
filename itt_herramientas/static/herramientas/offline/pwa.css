@@ -5,7 +5,7 @@
 .itt-pendientes[data-estado="pendiente"], .itt-pendientes[data-estado="pausada"] { background: var(--tv-seleccion); }
 .itt-pendientes[data-estado="error"] { background: var(--tv-secundario); outline: 2px solid var(--tv-foco); }
 .itt-pendientes a { min-height: var(--tv-tactil-min, 44px); display: inline-flex; align-items: center; }
-body { padding-bottom: calc(var(--tv-tactil-min, 44px) + 16px + env(safe-area-inset-bottom)); }
+
 .itt-aviso { padding: var(--tv-espacio-3, 12px) var(--tv-espacio-4, 16px); border: 1px solid var(--tv-borde); border-radius: var(--tv-radio, 8px); margin: var(--tv-espacio-3, 12px) 0; background: var(--tv-superficie); }
 .itt-aviso[hidden], .itt-pendientes[hidden] { display: none; }
 .itt-actualizar { position: fixed; inset: 0 0 auto 0; z-index: 50; display: flex; gap: 12px; align-items: center; justify-content: center; padding: 8px 16px; background: var(--tv-primario); color: var(--tv-fondo); }
@@ -31,8 +31,6 @@ body { padding-bottom: calc(var(--tv-tactil-min, 44px) + 16px + env(safe-area-in
 .itt-marca__cambio button { min-height: var(--tv-tactil-min, 44px); }
 
 /* --- Pulido visual (auditoría UX 13-11-2026). Solo presentación; mismos tokens. --- */
-/* Los botones nunca parten una palabra a la mitad (el cuerpo usa overflow-wrap: anywhere para textos largos). */
-.tv-boton { overflow-wrap: normal; word-break: normal; }
 /* Un aviso sin texto no deja una caja vacía. */
 .itt-aviso:empty { display: none; }
 /* Párrafos de explicación: renglones de largo cómodo en pantallas anchas. */
@@ -93,11 +91,6 @@ body { padding-bottom: calc(var(--tv-tactil-min, 44px) + 16px + env(safe-area-in
 .itt-inicio .tv-tarjeta--enlace:hover { box-shadow: 0 2px 8px rgb(0 0 0 / .08); }
 .itt-inicio .tv-tarjeta__titulo { color: var(--tv-primario); }
 
-/* Navegación entre las secciones de un perfil. */
-.tv-subnav { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); margin-bottom: var(--tv-espacio-4, 16px); border-bottom: 1px solid var(--tv-separador); }
-.tv-subnav a { display: inline-flex; align-items: center; min-height: var(--tv-tactil-min, 44px); padding: 0 var(--tv-espacio-3, 12px); text-decoration: none; color: var(--tv-texto); font-weight: 600; border-bottom: 3px solid transparent; margin-bottom: -1px; }
-.tv-subnav a:hover { border-bottom-color: var(--tv-borde); }
-.tv-subnav a[aria-current="page"] { color: var(--tv-primario); border-bottom-color: var(--tv-primario); }
 
 /* Formularios sencillos (diccionario, importar): mismos campos que el resto del portal. */
 .itt-formulario-linea { display: grid; gap: var(--tv-espacio-3, 12px); align-items: end; margin-bottom: var(--tv-espacio-4, 16px); }
@@ -106,8 +99,6 @@ body { padding-bottom: calc(var(--tv-tactil-min, 44px) + 16px + env(safe-area-in
 .itt-palabras li { display: flex; align-items: center; justify-content: space-between; gap: var(--tv-espacio-3, 12px); padding: var(--tv-espacio-1, 4px) var(--tv-espacio-1, 4px) var(--tv-espacio-1, 4px) var(--tv-espacio-3, 12px); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); min-height: var(--tv-tactil-min, 44px); }
 .itt-palabras li.itt-palabras__vacio { border-style: dashed; color: var(--tv-tenue); padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); }
 .itt-palabras form { margin: 0; }
-.tv-campo input[type="file"] { width: 100%; min-height: var(--tv-tactil-min, 44px); padding: var(--tv-espacio-2, 8px) 0; font: inherit; }
-input[type="file"]::file-selector-button { min-height: 36px; margin-right: var(--tv-espacio-3, 12px); padding: 0 var(--tv-espacio-3, 12px); border: 1px solid var(--tv-borde); border-radius: var(--tv-radio, 8px); background: var(--tv-secundario); color: var(--tv-sobre-secundario); font: inherit; font-weight: 600; cursor: pointer; }
 .tv-formulario fieldset { border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); padding: var(--tv-espacio-4, 16px); margin: 0; display: grid; gap: var(--tv-espacio-4, 16px); min-width: 0; background: var(--tv-superficie); }
 .tv-formulario fieldset legend { font-weight: 700; padding: 0 var(--tv-espacio-2, 8px); }
 .itt-paleta-muestra { display: block; max-width: 100%; height: auto; margin-bottom: var(--tv-espacio-4, 16px); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); }
@@ -115,3 +106,39 @@ input[type="file"]::file-selector-button { min-height: 36px; margin-right: var(-
 .tv-principal > .itt-lista { margin-bottom: var(--tv-espacio-5, 24px); }
 #drive-acciones form { margin: 0; display: grid; }
 #drive-acciones .tv-boton { line-height: 1.2; padding-top: var(--tv-espacio-1, 4px); padding-bottom: var(--tv-espacio-1, 4px); }
+
+/* --- Auditoría UX 14-11-2026 --- */
+/* Banda de pendientes: solo existe cuando hay algo que decir; las barras de abajo se acomodan según esté o no. */
+:root { --itt-banda: 0px; }
+html[data-banda="si"] { --itt-banda: calc(var(--tv-tactil-min, 44px) + var(--tv-espacio-4, 16px)); }
+body { padding-bottom: calc(var(--itt-banda) + env(safe-area-inset-bottom)); }
+.itt-pendientes[data-estado="listo"] { background: var(--tv-estado-exito-fondo); color: var(--tv-estado-exito-texto); border-top-color: var(--tv-estado-exito-texto); }
+.itt-pendientes[data-estado="listo"] a { display: none; }
+.itt-pendientes[hidden] { display: none; }
+
+/* Aviso de versión nueva: franja bajo la cabecera, no tapa nada. */
+.itt-actualizar { position: static; inset: auto; z-index: auto; display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); align-items: center; justify-content: space-between; margin: 0 0 var(--tv-espacio-3, 12px);
+  padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); border-radius: var(--tv-radio, 8px); background: var(--tv-estado-info-fondo); color: var(--tv-estado-info-texto); border: 1px solid var(--tv-estado-info-texto); box-shadow: none; }
+.itt-actualizar[hidden] { display: none; }
+.itt-actualizar__acciones { display: flex; gap: var(--tv-espacio-2, 8px); }
+.itt-actualizar .tv-boton { min-height: var(--tv-tactil-min, 44px); }
+
+/* Menú de la cabecera de las páginas de campo. */
+.itt-menu .tv-menu__panel { min-width: 16rem; }
+.itt-menu__nota { margin: 0; padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); font-size: .875rem; }
+#itt-salir-boton[aria-disabled="true"] { opacity: .6; }
+.tv-cabecera a.tv-cabecera__modulo { text-decoration: none; display: inline-flex; align-items: center; min-height: var(--tv-tactil-min, 44px); }
+.itt-imagen { display: grid; gap: var(--tv-espacio-2, 8px); padding-bottom: var(--tv-espacio-3, 12px); border-bottom: 1px solid var(--tv-separador); }
+.itt-imagen:last-child { border-bottom: 0; padding-bottom: 0; }
+.itt-imagen__vista { display: flex; align-items: center; gap: var(--tv-espacio-3, 12px); }
+.itt-imagen__vista img { max-width: 160px; height: 56px; width: auto; object-fit: contain; background: #fff; border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); padding: 4px; }
+.itt-estructura, .itt-estructura ul { list-style: none; margin: 0; padding-left: var(--tv-espacio-4, 16px); }
+.itt-estructura { padding-left: 0; margin-bottom: var(--tv-espacio-3, 12px); }
+.itt-estructura li { margin: var(--tv-espacio-1, 4px) 0; }
+.itt-estructura ul { border-left: 2px solid var(--tv-separador); padding-left: var(--tv-espacio-3, 12px); margin-left: var(--tv-espacio-2, 8px); }
+
+/* Avisos de los editores: flotan encima de la barra de acciones (donde se tocó) y no estorban los toques. */
+.itt-aviso--flotante { position: fixed; z-index: 45; left: var(--tv-espacio-4, 16px); right: var(--tv-espacio-4, 16px); bottom: calc(var(--itt-banda, 0px) + var(--itt-flota, 16px) + env(safe-area-inset-bottom)); max-width: 36rem; margin: 0 auto;
+  box-shadow: 0 4px 16px rgb(0 0 0 / .18); pointer-events: none; background: var(--tv-estado-info-fondo); color: var(--tv-estado-info-texto); border-color: var(--tv-estado-info-texto); font-weight: 600; }
+.itt-aviso--flotante[data-tipo="error"] { background: var(--tv-estado-error-fondo); color: var(--tv-estado-error-texto); border-color: var(--tv-estado-error-texto); }
+.itt-aviso--flotante[hidden] { display: none; }

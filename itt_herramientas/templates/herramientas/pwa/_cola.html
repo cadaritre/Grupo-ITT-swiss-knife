@@ -1,7 +1,8 @@
-{% load static %}<div id="itt-actualizar" class="itt-actualizar" role="status" hidden><span>Hay una versión nueva</span> · <button type="button" class="tv-boton">Actualizar</button></div>
-<div id="itt-pendientes" class="itt-pendientes" role="status" aria-live="polite" data-total="0" data-estado="limpio">
+{% load static %}<div id="itt-actualizar" class="itt-actualizar" role="status" hidden><span>Hay una versión nueva de la app.</span><span class="itt-actualizar__acciones"><button type="button" class="tv-boton" data-itt="actualizar">Actualizar</button><button type="button" class="tv-boton tv-boton--secundario" data-itt="luego">Luego</button></span></div>
+{# La banda solo se enseña cuando hay algo que decir (pendientes, error o sesión caducada) y solo donde sirve: en las páginas de campo y en el inicio (`banda="si"`). En las demás sigue en la página, oculta, para que la cola siga contando. #}
+<div id="itt-pendientes" class="itt-pendientes" role="status" aria-live="polite" data-total="0" data-estado="limpio" data-banda="{{ banda|default:'no' }}" hidden>
   <span data-itt="texto">Sin pendientes</span>
-  <a href="{% url 'herramientas:capturar' %}">Ver capturas</a>
+  <a href="{% url 'herramientas:capturar' %}" data-itt="enlace" hidden>Ver capturas</a>
 </div>
 <p id="itt-almacenamiento" class="itt-aviso" role="alert" hidden></p>
 <script src="{% static 'herramientas/offline/cola.js' %}"></script>

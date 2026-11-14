@@ -17,7 +17,7 @@
 /* Mapa a pantalla completa (teléfono): el mapa ocupa todo, con las herramientas y el área encima. */
 .cq-sin-desplazar { overflow: hidden; }
 .cq[data-completo="1"] .cq-mapa { position: fixed; inset: 0; height: 100dvh; min-height: 0; margin: 0; border-radius: 0; z-index: 35; }
-.cq[data-completo="1"] .cq-herramientas { position: fixed; inset: auto 0 calc(var(--cot-alto-pendientes, 60px)) 0; z-index: 36; margin: 0; padding: var(--tv-espacio-2, 8px); background: var(--tv-cabecera); }
+.cq[data-completo="1"] .cq-herramientas { position: fixed; inset: auto 0 calc(var(--cot-alto-pendientes, 0px)) 0; z-index: 36; margin: 0; padding: var(--tv-espacio-2, 8px); background: var(--tv-cabecera); }
 .cq[data-completo="1"] .cq-area { position: fixed; inset: var(--tv-espacio-2, 8px) var(--tv-espacio-2, 8px) auto var(--tv-espacio-2, 8px); z-index: 36; margin: 0; }
 
 /* --- Pulido visual (auditoría UX 13-11-2026). Solo presentación. --- */

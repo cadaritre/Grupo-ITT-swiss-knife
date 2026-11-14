@@ -13,9 +13,42 @@
 <link rel="icon" href="{% static 'herramientas/img/icono-'|add:clave|add:'-192.png' %}" type="image/png" sizes="192x192">
 </head>
 <body>
-<header class="tv-cabecera"><div class="tv-cabecera__fila"><span class="tv-marca"><img src="{% static 'tvplataforma/img/marca.png' %}" alt="" width="28" height="32"><span>TresVizo</span></span>{% perfil_clave as clave %}{% if clave == 'grupo_itt' %}<img class="tv-modulo-icono" src="{% static 'herramientas/img/marca-grupo_itt.png' %}" alt="" width="28" height="28">{% endif %}<span class="tv-cabecera__modulo">Herramientas</span></div></header>
+<a class="tv-saltar" href="#contenido">Saltar al contenido</a>
+{# La cabecera es igual para todas las cuentas (la página se guarda sin conexión): nada de aquí depende de quién entró. El nombre, las herramientas y el cierre de sesión los rellena menu.js con lo que dice /sesion/. #}
+<header class="tv-cabecera"><div class="tv-cabecera__fila">
+  <a class="tv-marca" href="{% url 'herramientas:inicio' %}" aria-label="TresVizo · Inicio de Herramientas"><img src="{% static 'tvplataforma/img/marca.png' %}" alt="" width="28" height="32"><span>TresVizo</span></a>
+  {% if clave == 'grupo_itt' %}<img class="tv-modulo-icono" src="{% static 'herramientas/img/marca-grupo_itt.png' %}" alt="" width="28" height="28">{% endif %}
+  <a class="tv-cabecera__modulo" href="{% url 'herramientas:inicio' %}">Herramientas</a>
+  <span class="tv-cabecera__espacio"></span>
+  <details class="tv-menu itt-menu" id="itt-menu">
+    <summary aria-label="Menú de Herramientas"><span class="tv-insignia" id="itt-menu-nombre">Menú</span></summary>
+    <div class="tv-menu__panel">
+      <div class="tv-menu__titulo" id="itt-menu-titulo" hidden></div>
+      <a href="{% url 'herramientas:inicio' %}" data-itt-menu="inicio">Inicio de Herramientas</a>
+      <hr class="tv-menu__separador" data-itt-menu-campo hidden>
+      <a href="{% url 'herramientas:capturar' %}" data-itt-menu="capturar" data-itt-menu-campo hidden>Capturar fotos</a>
+      <a href="{% url 'herramientas:cotizaciones' %}" data-itt-menu="cotizaciones" data-itt-menu-campo hidden>Cotizaciones</a>
+      <a href="{% url 'herramientas:reportes' %}" data-itt-menu="reportes" data-itt-menu-campo hidden>Reportes fotográficos</a>
+      <a href="{% url 'herramientas:croquis' %}" data-itt-menu="croquis" data-itt-menu-campo hidden>Croquis de ubicación</a>
+      <hr class="tv-menu__separador">
+      <a href="{{ tv_urls.cuenta }}" data-itt-menu="cuenta" hidden>Mi cuenta</a>
+      <a href="{{ tv_urls.entrar }}" data-itt-menu="entrar" hidden>Iniciar sesión</a>
+      <form method="post" action="{% url 'tvplataforma:sso_salir' %}" id="itt-salir" hidden><button type="submit" id="itt-salir-boton">Cerrar sesión</button></form>
+      <p class="itt-menu__nota tv-tenue" id="itt-salir-aviso" hidden>Sin conexión: para cerrar sesión necesitas señal.</p>
+    </div>
+  </details>
+</div></header>
 <main id="contenido" class="tv-principal">{% block contenido %}{% endblock %}</main>
-{% include "herramientas/pwa/_cola.html" %}
+<dialog id="dlg-salir" class="tv-hoja tv-hoja--confirmar" aria-labelledby="dlg-salir-titulo">
+  <form method="dialog" class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="dlg-salir-titulo">¿Cerrar sesión?</h2>
+    <p id="dlg-salir-texto"></p>
+    <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" id="dlg-salir-no">Seguir en la app</button><button type="submit" value="si" class="tv-boton" id="dlg-salir-si">Cerrar sesión</button></div>
+  </form>
+</dialog>
+{% include "herramientas/pwa/_cola.html" with banda="si" %}
+<script src="{% static 'herramientas/offline/menu.js' %}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
