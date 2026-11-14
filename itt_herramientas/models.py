@@ -140,6 +140,7 @@ class MachoteCuenta(models.Model):
     nombre = models.CharField(max_length=160)
     idioma = models.CharField(max_length=2, default="es")
     concepto = models.JSONField()
+    anterior = models.JSONField(null=True, blank=True)               # versión previa del concepto al sobrescribir el machote
     creado = models.DateTimeField(default=timezone.now)
     actualizado = models.DateTimeField(default=timezone.now)
 
@@ -179,3 +180,30 @@ class Captura(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "sha256"], name="herramientas_captura_sha")]
         ordering = ["referencia", "orden", "id"]
+
+
+class Cotizacion(models.Model):
+    """Una cotización de la cuenta. `datos` es el JSON de `QuoteData` del escritorio (mismo esquema, compatible en los dos sentidos).
+
+    `revision` sube con cada guardado. El teléfono guarda borradores sin conexión con la revisión en que se basaron: si al
+    sincronizar el servidor ya cambió, la versión del teléfono no pisa nada y se guarda como copia.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cuenta_id = models.BigIntegerField(db_index=True)
+    id_cliente = models.UUIDField(null=True, blank=True)             # identidad del borrador en el teléfono: hace idempotente la sincronización
+    datos = models.JSONField(default=dict)
+    revision = models.PositiveIntegerField(default=1)
+    perfil = models.CharField(max_length=20, default="grupo_itt")
+    folio = models.CharField(max_length=60, blank=True)
+    cliente = models.CharField(max_length=160, blank=True)
+    proyecto = models.CharField(max_length=200, blank=True)
+    moneda = models.CharField(max_length=3, default="MXN")
+    total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    copia_de = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="copias")
+    creada = models.DateTimeField(default=timezone.now)
+    actualizada = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_cotizacion_cliente")]
+        ordering = ["-actualizada"]

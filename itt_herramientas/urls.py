@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import views
 from .convertidor import vistas as convertidor
+from .cotizaciones import vistas as cotizaciones
 
 app_name = "herramientas"
 
@@ -23,6 +24,24 @@ urlpatterns = [
     path("convertidor/<uuid:pk>/vista.geojson", convertidor.vista, name="convertidor_vista"),
     path("convertidor/<uuid:pk>/descargar/", convertidor.descargar, name="convertidor_descargar"),
     path("convertidor/<uuid:pk>/borrar/", convertidor.borrar, name="convertidor_borrar"),
+    path("cotizaciones/", cotizaciones.pagina, name="cotizaciones"),
+    path("cotizaciones/api/contexto/", cotizaciones.contexto, name="cotizaciones_contexto"),
+    path("cotizaciones/api/lista/", cotizaciones.lista, name="cotizaciones_lista"),
+    path("cotizaciones/api/sincronizar/", cotizaciones.sincronizar, name="cotizaciones_sincronizar"),
+    path("cotizaciones/api/pdf/", cotizaciones.pdf, name="cotizaciones_pdf"),
+    path("cotizaciones/api/ortografia/", cotizaciones.ortografia, name="cotizaciones_ortografia"),
+    path("cotizaciones/api/traducir/", cotizaciones.traducir, name="cotizaciones_traducir"),
+    path("cotizaciones/api/foto/<str:sha256>/", cotizaciones.foto, name="cotizaciones_foto"),
+    path("cotizaciones/api/palabra/", cotizaciones.palabra, name="cotizaciones_palabra"),
+    path("cotizaciones/api/machotes/", cotizaciones.machotes, name="cotizaciones_machotes"),
+    path("cotizaciones/api/machotes/exportar/", cotizaciones.machotes_exportar, name="cotizaciones_machotes_exportar"),
+    path("cotizaciones/api/machotes/importar/", cotizaciones.machotes_importar, name="cotizaciones_machotes_importar"),
+    path("cotizaciones/api/machotes/<uuid:pk>/", cotizaciones.machote, name="cotizaciones_machote"),
+    path("cotizaciones/api/machotes/<uuid:pk>/restaurar/", cotizaciones.machote_restaurar, name="cotizaciones_machote_restaurar"),
+    path("cotizaciones/api/importar/", cotizaciones.importar, name="cotizaciones_importar"),
+    path("cotizaciones/api/<uuid:pk>/", cotizaciones.detalle, name="cotizaciones_detalle"),
+    path("cotizaciones/api/<uuid:pk>/duplicar/", cotizaciones.duplicar, name="cotizaciones_duplicar"),
+    path("cotizaciones/api/<uuid:pk>/editable.json", cotizaciones.editable, name="cotizaciones_editable"),
     path("preferencias/", views.preferencias_, name="preferencias"),
     path("diccionario/", views.diccionario, name="diccionario"),
     path("perfiles/", views.perfiles_, name="perfiles"),
