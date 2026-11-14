@@ -11,7 +11,7 @@
 "use strict";
 const VERSION = "__VERSION__";
 const CACHE = "itt-herramientas-" + VERSION;
-const PAGINAS = ["/capturar/", "/instalar/", "/cotizaciones/"];
+const PAGINAS = ["/capturar/", "/instalar/", "/cotizaciones/", "/reportes/"];
 const ACTIVOS = __ACTIVOS__;
 
 importScripts(...__SCRIPTS_SW__);

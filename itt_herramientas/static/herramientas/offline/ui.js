@@ -64,8 +64,9 @@
   }
 
   async function subir() {
-    if (estado.subiendo) return;
+    if (estado.subiendo) { estado.documentosPendientes = true; return; }   // un documento cambió durante un ciclo: se sincroniza en cuanto termine (las fotos no se reintentan en caliente)
     estado.subiendo = true;
+    estado.documentosPendientes = false;
     try {
       await sesion();
       // Sincronizadores de documentos (cotizaciones...): se registran en ITT.sincronizadores y corren antes y después de las
@@ -79,6 +80,10 @@
     estado.subiendo = false;
     await refrescar();
     if (ITT.solicitarSyncDeFondo) ITT.solicitarSyncDeFondo();
+    if (estado.documentosPendientes) {
+      estado.documentosPendientes = false;
+      for (const sincronizar of ITT.sincronizadores || []) { try { await sincronizar(); } catch (e) { /* se reintenta en el siguiente ciclo */ } }
+    }
   }
 
   async function almacenamiento() {

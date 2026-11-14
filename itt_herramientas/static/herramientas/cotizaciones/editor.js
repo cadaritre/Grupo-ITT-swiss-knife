@@ -466,32 +466,7 @@
     return { blob, nombre, pendientes: Number(r.headers.get("X-Imagenes-Pendientes") || 0) };
   }
 
-  let pdfjs = null;
-  async function cargarPdfjs() {
-    if (pdfjs) return pdfjs;
-    pdfjs = await import(PDFJS);
-    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
-    return pdfjs;
-  }
-  async function dibujarPdf(blob, contenedor) {
-    const lib = await cargarPdfjs();
-    const doc = await lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), isEvalSupported: false }).promise;
-    limpiarNodo(contenedor);
-    const ancho = Math.max(240, contenedor.clientWidth || 320);
-    const dpr = Math.min(self.devicePixelRatio || 1, 2);
-    for (let n = 1; n <= doc.numPages; n++) {
-      const pagina = await doc.getPage(n);
-      const base = pagina.getViewport({ scale: 1 });
-      const vp = pagina.getViewport({ scale: (ancho / base.width) * dpr });
-      const lienzo = h("canvas", { class: "cot-vp-pagina", "aria-label": `Página ${n} de ${doc.numPages}`, role: "img" });
-      lienzo.width = Math.floor(vp.width); lienzo.height = Math.floor(vp.height);
-      lienzo.style.width = `${ancho}px`;                       // CSSOM: permitido por la CSP (sin estilos en línea)
-      contenedor.append(lienzo);
-      await pagina.render({ canvasContext: lienzo.getContext("2d"), viewport: vp }).promise;
-    }
-    contenedor.dataset.paginas = String(doc.numPages);
-    return doc.numPages;
-  }
+  const dibujarPdf = (blob, contenedor) => ITT.vistaPdf.dibujar(blob, contenedor, { pdfjs: PDFJS, worker: PDFJS_WORKER });
 
   async function generarPdf() {
     const d = reg.datos;
@@ -659,12 +634,13 @@
     addEventListener("hashchange", ruta);
     const red = () => { $("cot-red").textContent = enLinea() ? "En línea" : "Sin conexión: puedes seguir editando; todo queda en este teléfono."; $("cot-red").dataset.estado = enLinea() ? "en_linea" : "sin_conexion"; estadoGuardado(); };
     addEventListener("online", red); addEventListener("offline", red); red();
-    document.addEventListener("itt:cot", async (e) => {
+    document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
-      if (d.tipo === "copia" && reg && reg.id === d.id) {
+      if (d.tipo !== "cotizacion") return;
+      if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
         await confirmar("Esta cotización cambió en otro dispositivo mientras la editabas aquí. Tus cambios NO se perdieron: se guardaron como una copia nueva. Te llevamos a la copia.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/c/${d.copia}`;
-      } else if (d.tipo === "sincronizado") {
+      } else if (d.tipo_evento === "sincronizado") {
         if (raiz.dataset.vista === "lista") pintarLista();
         else if (reg) { const r = await ITT.cola.borrador(reg.id); if (r) { reg.sucio = r.sucio; reg.servidor_id = r.servidor_id; reg.revision_base = r.revision_base; estadoGuardado(); } }
       }

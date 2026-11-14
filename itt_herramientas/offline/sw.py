@@ -20,6 +20,8 @@ SCRIPTS_SW = ("offline/cola.js", "offline/tus.js", "offline/subidor.js")
 ACTIVOS = (
     "offline/cola.js", "offline/tus.js", "offline/subidor.js", "offline/exif.js", "offline/reducir.js", "offline/reducir.worker.js",
     "offline/compartir.js", "offline/ui.js", "offline/captura.js", "offline/instalar.js", "offline/pwa.css",
+    "offline/documentos.js", "offline/vista-pdf.js",
+    "reportes/reportes.js", "reportes/reportes.css",
     "cotizaciones/totales.js", "cotizaciones/borradores.js", "cotizaciones/ortografia.js", "cotizaciones/editor.js", "cotizaciones/cotizaciones.css",
     "vendor/pdfjs/pdf.min.mjs", "vendor/pdfjs/pdf.worker.min.mjs",
     *(f"img/icono-{clave}-{tam}.png" for clave in ("grupo_itt", "tresvizo") for tam in (192, 512)),

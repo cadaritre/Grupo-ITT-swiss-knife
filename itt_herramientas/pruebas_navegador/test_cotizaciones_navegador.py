@@ -170,6 +170,7 @@ def test_conflicto_guarda_copia_y_no_pisa(motor, tmp_path, servidor, sesion_de, 
         pagina.wait_for_selector("#cot-vista-editor:not([hidden])")
         pagina.fill("#f-project_title", "Proyecto original")
         agregar_concepto(pagina, "Uno", 1, 100)
+        pagina.wait_for_timeout(800)                       # el guardado diferido (300 ms) ya escribió y subió: nada queda en vuelo
         sin_pendientes(pagina)
         original = Cotizacion.objects.get()
         # El teléfono todavía no se entera del cambio de la oficina: sin esto, el ciclo de sincronización bajaría la versión nueva
@@ -177,8 +178,9 @@ def test_conflicto_guarda_copia_y_no_pisa(motor, tmp_path, servidor, sesion_de, 
         pagina.evaluate("""() => { const f0 = window.fetch.bind(window); window.fetch = (u, o) => (/\\/cotizaciones\\/api\\/lista\\//.test(String((u && u.url) || u)) ? Promise.reject(new TypeError('Failed to fetch')) : f0(u, o)); }""")
         # Otro dispositivo cambia la cotización en el servidor.
         datos = dict(original.datos, project_title="Cambiado en la oficina")
-        Cotizacion.objects.filter(pk=original.pk).update(datos=datos, revision=2)
-        # El teléfono edita partiendo de la revisión 1.
+        revision = original.revision + 1                 # el teléfono pudo subir en varios pasos: se parte de la revisión que tiene el servidor
+        Cotizacion.objects.filter(pk=original.pk).update(datos=datos, revision=revision)
+        # El teléfono edita partiendo de la revisión que bajó antes.
         pagina.fill("#f-client_name", "Cliente desde el teléfono")
         pagina.locator("#confirmar-si").wait_for(state="visible", timeout=TIEMPO * 2)
         expect(pagina.locator("#confirmar-texto")).to_contain_text("se guardaron como una copia")
@@ -186,7 +188,7 @@ def test_conflicto_guarda_copia_y_no_pisa(motor, tmp_path, servidor, sesion_de, 
         sin_pendientes(pagina)
         assert Cotizacion.objects.count() == 2
         original.refresh_from_db()
-        assert original.datos["project_title"] == "Cambiado en la oficina" and original.revision == 2
+        assert original.datos["project_title"] == "Cambiado en la oficina" and original.revision == revision
         copia = Cotizacion.objects.exclude(pk=original.pk).get()
         assert copia.datos["client_name"] == "Cliente desde el teléfono" and copia.copia_de_id == original.pk
         assert copia.datos["project_title"].endswith("(desde el teléfono)")

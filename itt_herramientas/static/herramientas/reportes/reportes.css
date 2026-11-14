@@ -1,0 +1,15 @@
+/* Reportes fotográficos. Se suma a cotizaciones.css (tarjetas, barra, hojas). Solo tokens de tvplataforma; sin estilos en línea. */
+.rep-captura h2 { display: flex; align-items: center; gap: var(--tv-espacio-3, 12px); }
+.rep-soltar { display: none; border: 2px dashed var(--tv-borde); border-radius: var(--tv-radio, 8px); padding: var(--tv-espacio-4, 16px); text-align: center; color: var(--tv-tenue); margin-bottom: var(--tv-espacio-3, 12px); }
+.rep-soltar--activa { background: var(--tv-seleccion); color: var(--tv-sobre-seleccion); border-color: var(--tv-foco); }
+@media (hover: hover) and (pointer: fine) { .rep-soltar { display: block; } }
+.rep-fotos { margin-bottom: var(--tv-espacio-3, 12px); counter-reset: foto; }
+.rep-foto { grid-template-columns: 64px 1fr; align-items: start; }
+.rep-foto[data-ubicada=""] .rep-ubicacion { color: var(--tv-estado-aviso-texto); font-weight: 600; }
+.rep-botones { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); }
+.rep-botones .tv-boton { min-height: var(--tv-tactil-min, 44px); min-width: var(--tv-tactil-min, 44px); }
+.rep-resumen { margin: 0; font-variant-numeric: tabular-nums; }
+.rep-barra__acciones { grid-template-columns: 1fr 2fr; }
+.rep-mapa { height: min(50dvh, 360px); border-radius: var(--tv-radio, 8px); background: var(--tv-secundario); margin-bottom: var(--tv-espacio-2, 8px); }
+#pdf-progreso { width: 100%; }
+@media (min-width: 1000px) { .rep-foto { grid-template-columns: 96px 1fr; } .rep-foto img { width: 96px; height: 96px; } }

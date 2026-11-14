@@ -66,7 +66,7 @@ Sin teléfono real quedan sin verificar:
 - El contador y el aviso de espacio muestran «dónde están los pendientes» («están en este navegador») cuando no es la app instalada.
 - No hay subida «en segundo plano» en iOS: es una limitación de la plataforma, no se simula.
 - Las capturas de otra cuenta en el mismo teléfono no se suben con la cuenta actual (se omiten hasta que esa cuenta vuelva a entrar).
-- Reportes (IT-7) usará `referencia` para agrupar las fotos de un borrador; aquí solo existe el destino genérico y la página de captura.
+- Los reportes (IT-7) agrupan sus fotos con `referencia = reporte:<id>`; `/capturar/` queda para capturas sueltas.
 
 ## Identidad corporativa (Grupo ITT / TresVizo)
 
@@ -113,3 +113,28 @@ Límites sin probar en teléfono real (se suman a los de arriba):
 - Cotización hecha en la pestaña de Safari y en la app instalada: almacenamientos separados (ver punto 2).
 - La vista previa con PDF.js y su rendimiento en iPhone antiguos con cotizaciones de 15 conceptos y varias fotos.
 - Compartir el PDF con WhatsApp/Correo (punto 7).
+
+## Reportes fotográficos (IT-7)
+
+`/reportes/` es una página fija (como `/cotizaciones/`): abre sin conexión. Los reportes son borradores de `offline/documentos.js`
+(la misma sincronización idempotente con copia por conflicto que las cotizaciones; `comun/sincronizacion.py` en el servidor).
+
+| Pieza | Dónde | Qué hace |
+| --- | --- | --- |
+| Captura | `reportes/reportes.js` | Cámara (`capture="environment"`) o galería múltiple; reducción en Worker (2400 px, JPEG 0.85); hora = EXIF o reloj; ubicación = EXIF, o GPS del teléfono si la foto es de cámara y el fix tiene menos de 2 min, o «sin ubicación». Cada foto entra a la cola tus de siempre (`referencia = reporte:<id>`) y al borrador con hora, ubicación, precisión y nota |
+| Orden y notas | editor | Orden de captura; subir/bajar por foto. Nota por foto y «nota para las siguientes fotos» |
+| Ubicar a mano | diálogo | Mapa MapLibre con teselas **del propio servidor** (`/mapa/teselas/<capa>/<z>/<x>/<y>.png`, caché en disco, agente identificable: la CSP no deja salir a OSM) o latitud/longitud escritas. Sin señal o sin WebGL quedan las coordenadas |
+| Computadora | zona de soltar | Archivos o carpetas arrastrados (recorre subcarpetas); misma reducción en el navegador |
+| PDF | tarea `generar_reporte` | Espera a que el reporte y TODAS sus fotos estén en el servidor, genera con `generate_report` del escritorio y el perfil activo de la cuenta, avanza por página, vista previa con PDF.js y Compartir/Descargar. 409 con «faltan N fotos» si se pide antes |
+
+Paridad: `pruebas/test_reportes.py::test_pdf_de_la_web_identico_al_del_dominio` pasa las mismas fotos y textos por la web y directo por
+`generate_report` (modo invariante de ReportLab) y exige el mismo PDF byte a byte, con y sin croquis, con y sin página de cédula y firma, y con
+los dos perfiles. El croquis usa la caché de teselas compartida (`map_tiles/…`); sin red o sin caché sale el mapa de respaldo del escritorio.
+
+Pendiente o distinto a propósito:
+- **Reordenar**: botones subir/bajar (el diseño permite «arrastrando o con subir y bajar»); no hay arrastre táctil.
+- **Fotos de otro dispositivo**: el reporte baja con sus fotos por miniatura del servidor (`/reportes/api/foto/<sha>/`); el PDF siempre sale del servidor.
+- **Sin señal**: se captura, ordena, anota y ubica; generar el PDF (y mostrar el mapa) necesita conexión.
+- **Sin probar en teléfono real**: la prueba de aceptación de 40 fotos en modo avión con reinicio del teléfono, red lenta real, compartir por WhatsApp
+  y correo, el permiso de ubicación en la app instalada de iOS, la memoria al reducir fotos de 48 MP en iPhone antiguos, la ubicación EXIF que
+  iOS quita de las fotos de cámara (por eso se usa el GPS de la sesión), y el rendimiento con 150 fotos.
