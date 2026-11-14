@@ -203,21 +203,11 @@
   </div>
 </dialog>
 
-<dialog id="dlg-confirmar" class="tv-hoja" aria-labelledby="dlg-confirmar-titulo">
-  <form method="dialog" class="tv-hoja__cuerpo">
-    <div class="tv-hoja__asa" aria-hidden="true"></div>
-    <div class="tv-hoja__cabecera"><h2 id="dlg-confirmar-titulo">Confirmar</h2></div>
-    <p id="confirmar-texto"></p>
-    <div class="tv-campo" id="confirmar-campo" hidden><label for="confirmar-entrada" id="confirmar-etiqueta">Nombre</label><input id="confirmar-entrada" type="text" maxlength="160" autocomplete="off"></div>
-    <div class="tv-formulario__acciones">
-      <button type="button" class="tv-boton tv-boton--secundario" id="confirmar-no">Cancelar</button>
-      <button type="submit" value="si" class="tv-boton" id="confirmar-si">Aceptar</button>
-    </div>
-  </form>
-</dialog>
+{% include "herramientas/pwa/_confirmar.html" %}
 {% endblock %}
 {% block scripts %}
 <link rel="stylesheet" href="{% static 'herramientas/cotizaciones/cotizaciones.css' %}">
+<script src="{% static 'herramientas/offline/ayudas.js' %}"></script>
 <script src="{% static 'herramientas/offline/documentos.js' %}"></script>
 <script src="{% static 'herramientas/offline/vista-pdf.js' %}"></script>
 <script src="{% static 'herramientas/cotizaciones/totales.js' %}"></script>

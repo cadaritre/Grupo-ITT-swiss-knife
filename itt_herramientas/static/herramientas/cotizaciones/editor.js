@@ -20,49 +20,12 @@
   let vistaPrevia = null;
 
   // -- Utilidades -----------------------------------------------------------------------------------------------------------
-  function h(etiqueta, props, ...hijos) {
-    const e = document.createElement(etiqueta);
-    for (const [k, v] of Object.entries(props || {})) {
-      if (v === false || v == null) continue;
-      if (k === "class") e.className = v;
-      else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
-      else if (k in e && k !== "list") e[k] = v;
-      else e.setAttribute(k, v === true ? "" : v);
-    }
-    for (const hijo of hijos.flat()) if (hijo != null) e.append(hijo);
-    return e;
-  }
-  const limpiarNodo = (n) => { while (n.firstChild) n.firstChild.remove(); };
+  const { h, limpiar, confirmar } = ITT.ui;
   const url = (nombre, id) => ITT.cot.url(nombre, id);
   const enLinea = () => navigator.onLine;
 
-  function mensaje(texto, tipo) {
-    const m = $("cot-mensaje");
-    m.textContent = texto || "";
-    m.hidden = !texto;
-    m.dataset.tipo = tipo || "";
-    if (texto) m.scrollIntoView({ block: "nearest" });
-  }
+  const mensaje = (texto, tipo) => ITT.ui.mensaje("cot-mensaje", texto, tipo);
 
-  /** Cuadro de confirmación (sustituye a confirm()/prompt()). Resuelve true/false, o el texto escrito si `entrada`. */
-  function confirmar(texto, opciones) {
-    const o = Object.assign({ aceptar: "Aceptar", cancelar: "Cancelar", entrada: null, etiqueta: "Nombre", peligro: false, soloAviso: false }, opciones);
-    const dlg = $("dlg-confirmar");
-    $("confirmar-texto").textContent = texto;
-    $("confirmar-campo").hidden = o.entrada === null;
-    $("confirmar-etiqueta").textContent = o.etiqueta;
-    $("confirmar-entrada").value = o.entrada || "";
-    $("confirmar-si").textContent = o.aceptar;
-    $("confirmar-si").classList.toggle("tv-boton--peligro", o.peligro);
-    $("confirmar-no").textContent = o.cancelar;
-    $("confirmar-no").hidden = o.soloAviso;
-    $("confirmar-no").onclick = () => dlg.close("no");
-    return new Promise((resolver) => {
-      dlg.returnValue = "no";
-      dlg.addEventListener("close", () => resolver(dlg.returnValue === "si" ? (o.entrada === null ? true : $("confirmar-entrada").value.trim()) : false), { once: true });
-      dlg.showModal();
-    });
-  }
 
   function numero(texto) {
     let t = String(texto).trim().replace(/\s/g, "").replace(/^\$/, "");
@@ -159,7 +122,7 @@
     const filtro = $("cot-buscar").value.trim().toLowerCase();
     const todos = await ITT.cot.listar();
     const visibles = todos.filter((b) => !filtro || [b.datos.quote_number, b.datos.client_name, b.datos.project_title].join(" ").toLowerCase().includes(filtro));
-    limpiarNodo(lista);
+    limpiar(lista);
     $("cot-lista-vacia").hidden = todos.length > 0;
     for (const b of visibles) {
       const t = T.totales(b.datos);
@@ -209,7 +172,7 @@
     $("f-idioma").value = d.language || "es";
     $("f-vat_rate").disabled = d.include_vat === false;
     const aviso = $("cot-aviso-doc");
-    limpiarNodo(aviso);
+    limpiar(aviso);
     aviso.hidden = !reg.aviso;
     if (reg.aviso) {
       aviso.append(reg.aviso, " ", h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: async () => { reg.aviso = ""; aviso.hidden = true; await guardarYa(); } }, "Entendido"));
@@ -240,7 +203,7 @@
 
   function pintarConceptos() {
     const lista = $("cot-conceptos");
-    limpiarNodo(lista);
+    limpiar(lista);
     const items = reg.datos.items;
     $("cot-sin-conceptos").hidden = items.length > 0;
     const t = T.totales(reg.datos);
@@ -343,7 +306,7 @@
     const filtro = $("p-buscar").value.trim().toLowerCase();
     const idioma = reg.datos.language;
     const caja = $("p-lista");
-    limpiarNodo(caja);
+    limpiar(caja);
     const grupo = (titulo, filas) => {
       if (!filas.length) return;
       caja.append(h("h3", {}, titulo));
@@ -368,7 +331,7 @@
   // Imágenes
   function pintarImagenes() {
     const ul = $("cot-imagenes");
-    limpiarNodo(ul);
+    limpiar(ul);
     const imgs = reg.datos.images;
     $("cot-sin-imagenes").hidden = imgs.length > 0;
     imgs.forEach((im, i) => {
@@ -481,7 +444,7 @@
     $("pdf-estado").textContent = "Generando el PDF…";
     $("pdf-advertencias").hidden = true;
     $("pdf-compartir").disabled = true; $("pdf-descargar").disabled = true;
-    limpiarNodo($("pdf-paginas"));
+    limpiar($("pdf-paginas"));
     pdfActual = null;
     dlg.showModal();
     try {
@@ -531,7 +494,7 @@
   // -- Machotes (pantalla) --------------------------------------------------------------------------------------------------------------
   async function pintarMachotes() {
     const ul = $("cot-machotes-lista");
-    limpiarNodo(ul);
+    limpiar(ul);
     if (enLinea()) await recargarContexto();
     const filas = (ctx && ctx.machotes) || [];
     $("cot-machotes-vacio").hidden = filas.length > 0;

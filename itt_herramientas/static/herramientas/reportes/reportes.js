@@ -25,43 +25,10 @@
   const enLinea = () => navigator.onLine;
 
   // -- Utilidades ---------------------------------------------------------------------------------------------------------------
-  function h(etiqueta, props, ...hijos) {
-    const e = document.createElement(etiqueta);
-    for (const [k, v] of Object.entries(props || {})) {
-      if (v === false || v == null) continue;
-      if (k === "class") e.className = v;
-      else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
-      else if (k in e && k !== "list") e[k] = v;
-      else e.setAttribute(k, v === true ? "" : v);
-    }
-    for (const hijo of hijos.flat()) if (hijo != null) e.append(hijo);
-    return e;
-  }
-  const limpiar = (n) => { while (n.firstChild) n.firstChild.remove(); };
+  const { h, limpiar, confirmar } = ITT.ui;
 
-  function mensaje(texto, tipo) {
-    const m = $("rep-mensaje");
-    m.textContent = texto || "";
-    m.hidden = !texto;
-    m.dataset.tipo = tipo || "";
-    if (texto) m.scrollIntoView({ block: "nearest" });
-  }
+  const mensaje = (texto, tipo) => ITT.ui.mensaje("rep-mensaje", texto, tipo);
 
-  function confirmar(texto, opciones) {
-    const o = Object.assign({ aceptar: "Aceptar", cancelar: "Cancelar", peligro: false, soloAviso: false }, opciones);
-    const dlg = $("dlg-confirmar");
-    $("confirmar-texto").textContent = texto;
-    $("confirmar-si").textContent = o.aceptar;
-    $("confirmar-si").classList.toggle("tv-boton--peligro", o.peligro);
-    $("confirmar-no").textContent = o.cancelar;
-    $("confirmar-no").hidden = o.soloAviso;
-    $("confirmar-no").onclick = () => dlg.close("no");
-    return new Promise((resolver) => {
-      dlg.returnValue = "no";
-      dlg.addEventListener("close", () => resolver(dlg.returnValue === "si"), { once: true });
-      dlg.showModal();
-    });
-  }
 
   // -- Guardado ------------------------------------------------------------------------------------------------------------------
   function estadoGuardado() {
