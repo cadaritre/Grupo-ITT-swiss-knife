@@ -120,9 +120,10 @@ class Google:
     def renovar(self, token_actualizacion: str) -> dict:
         return self._token({"grant_type": "refresh_token", "refresh_token": token_actualizacion})
 
-    def revocar(self, token: str) -> None:
+    def revocar(self, token: str, timeout: float = 60) -> None:
         try:
-            self.transporte.peticion("POST", self.puertas["revocar"], {"Content-Type": "application/x-www-form-urlencoded"}, urllib.parse.urlencode({"token": token}).encode())
+            self.transporte.peticion("POST", self.puertas["revocar"], {"Content-Type": "application/x-www-form-urlencoded"}, urllib.parse.urlencode({"token": token}).encode(),
+                                     timeout=timeout)
         except ErrorGoogle:
             pass                                                                    # revocar es de buena fe: de todos modos se olvida el token
 

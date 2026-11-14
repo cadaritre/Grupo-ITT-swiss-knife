@@ -414,3 +414,169 @@ def test_desconectar_y_descartar_piden_confirmar_y_dicen_que_se_pierde(cliente_d
     # el único botón que envía la desconexión está dentro de la hoja de confirmación
     antes, _, dentro = html.partition('<dialog id="desconectar-drive"')
     assert 'drive/desconectar/' not in antes and "drive/desconectar/" in dentro
+
+
+# -- Cuentas eliminadas y suspendidas (tvplataforma 1.8, Modulo.al_eliminar_cuenta) ----------------------------------------------
+
+def _eliminar_como_el_portal(cuenta, capturar):
+    """Lo que hace `cuentas.servicios.eliminar()` del portal: las funciones de los módulos y el borrado, en una transacción."""
+    from django.db import transaction
+    from tvplataforma import modulos
+
+    with capturar(execute=True), transaction.atomic():
+        informes = modulos.al_eliminar_cuenta(cuenta.pk)
+        cuenta.delete()
+    return informes
+
+
+def test_el_modulo_registra_su_funcion_al_eliminar_una_cuenta():
+    from tvplataforma import modulos
+
+    assert modulos.modulo("herramientas").al_eliminar_cuenta == ("itt_herramientas.drive.servicio.al_eliminar_cuenta",)
+
+
+def test_eliminar_la_cuenta_quita_su_drive_y_cancela_su_cola_pero_conserva_sus_documentos(cliente_de, persona, falso, django_capture_on_commit_callbacks):
+    from itt_herramientas.models import Captura, Cotizacion, Reporte
+
+    cl = cliente_de(persona)
+    con_carpeta(cl, falso, persona)
+    enviado = servicio.encolar(persona.pk, "reportes", "Enviado.pdf", contenido=PDF)
+    falso.fallar("upload/drive", 500)
+    pendiente = servicio.encolar(persona.pk, "reportes", "Pendiente.pdf", contenido=PDF + b"p")
+    falso.fallar("upload/drive", 500)
+    con_error = servicio.encolar(persona.pk, "cotizaciones", "Error.pdf", contenido=PDF + b"e")
+    EnvioDrive.objects.filter(pk=con_error.pk).update(estado=EnvioDrive.Estado.ERROR)
+    refresco = next(iter(falso.refrescos))
+    # Sus documentos (cotización, reporte con su PDF y una foto) son de la empresa.
+    raiz = servicio.capturas.raiz()
+    (raiz / "reportes").mkdir(parents=True, exist_ok=True)
+    (raiz / "reportes" / "R.pdf").write_bytes(PDF)
+    (raiz / "fotos").mkdir(parents=True, exist_ok=True)
+    (raiz / "fotos" / "f.jpg").write_bytes(b"jpg")
+    cot = Cotizacion.objects.create(cuenta_id=persona.pk, datos={"quote_number": "COT-1"}, folio="COT-1")
+    rep = Reporte.objects.create(cuenta_id=persona.pk, datos={"titulo": "R"}, titulo="R", salida_ruta="reportes/R.pdf", salida_nombre="R.pdf")
+    foto = Captura.objects.create(cuenta_id=persona.pk, sha256="a" * 64, ruta="fotos/f.jpg", bytes=3)
+    llamadas = len(falso.llamadas)
+
+    informes = _eliminar_como_el_portal(persona, django_capture_on_commit_callbacks)
+
+    assert informes == {"herramientas": ["Se quitó la conexión con Google Drive y se cancelaron 2 envíos pendientes."]}
+    assert not ConexionDrive.objects.exists()                                            # el token cifrado ya no existe
+    assert refresco in falso.revocados                                                    # y se revocó en Google (de buena fe)
+    for e in (pendiente, con_error):
+        e.refresh_from_db()
+        assert e.estado == "descartado" and e.error == "La cuenta se eliminó."
+    enviado.refresh_from_db()
+    assert enviado.estado == "enviado"                                                   # lo ya enviado queda en Drive y en el historial
+    assert not (raiz / "drive_cola" / str(persona.pk)).exists()                          # sin copias locales en la cola
+    # Los documentos, su PDF y la foto se quedan, con su autor guardado.
+    assert Cotizacion.objects.filter(pk=cot.pk).exists() and Reporte.objects.filter(pk=rep.pk).exists() and Captura.objects.filter(pk=foto.pk).exists()
+    assert Cotizacion.objects.get(pk=cot.pk).autor_nombre == "Ana María"
+    assert (raiz / "reportes" / "R.pdf").read_bytes() == PDF and (raiz / "fotos" / "f.jpg").is_file()
+    # Ni la tarea ni el temporizador mandan nada a nombre de la cuenta eliminada.
+    EnvioDrive.objects.filter(pk=pendiente.pk).update(estado=EnvioDrive.Estado.PENDIENTE, proximo_intento=timezone.now() - timedelta(minutes=1))
+    assert servicio.reintentar_todo() == 0 and servicio.procesar(persona.pk, forzar=True)["enviados"] == 0
+    assert not [u for m, u in falso.llamadas[llamadas:] if "upload" in u]
+
+
+def test_eliminar_una_cuenta_sin_drive_no_informa_nada_y_es_idempotente(crear_usuario, django_capture_on_commit_callbacks):
+    from django.db import transaction
+
+    u = crear_usuario("Sin Drive")
+    cuenta_id = u.pk
+    assert _eliminar_como_el_portal(u, django_capture_on_commit_callbacks) == {}
+    with transaction.atomic():
+        assert servicio.al_eliminar_cuenta(cuenta_id) is None
+        # Sin conexión pero con envíos abiertos (p. ej. desconectó a media subida): se cancelan igual y se informa.
+        for n, nombre in enumerate(("a.pdf", "b.pdf")):
+            EnvioDrive.objects.create(cuenta_id=cuenta_id, categoria="reportes", nombre=nombre, ruta="", sha256=str(n) * 64, bytes=1)
+        assert servicio.al_eliminar_cuenta(cuenta_id) == "Se cancelaron 2 envíos pendientes a Google Drive."
+        assert servicio.al_eliminar_cuenta(cuenta_id) is None
+
+
+def test_si_la_eliminacion_se_deshace_la_conexion_y_la_cola_siguen_intactas(cliente_de, persona, falso, django_capture_on_commit_callbacks):
+    from django.db import transaction
+
+    con_carpeta(cliente_de(persona), falso, persona)
+    falso.fallar("upload/drive", 500)
+    pendiente = servicio.encolar(persona.pk, "reportes", "Pendiente.pdf", contenido=PDF)
+    copia = servicio.capturas.raiz() / EnvioDrive.objects.get(pk=pendiente.pk).ruta
+    with django_capture_on_commit_callbacks(execute=True) as callbacks, pytest.raises(RuntimeError), transaction.atomic():
+        servicio.al_eliminar_cuenta(persona.pk)
+        raise RuntimeError("otro módulo falló")                                           # el portal deshace la transacción
+    assert callbacks == []                                                                 # nada se borró ni se revocó
+    assert ConexionDrive.objects.filter(cuenta_id=persona.pk).exists() and not falso.revocados
+    pendiente.refresh_from_db()
+    assert pendiente.estado == "pendiente" and copia.is_file()
+
+
+def test_si_google_no_responde_al_revocar_la_cuenta_igual_se_elimina(cliente_de, persona, falso, django_capture_on_commit_callbacks, monkeypatch):
+    con_carpeta(cliente_de(persona), falso, persona)
+    tiempos = []
+
+    def sin_red(*args, timeout=0, **kwargs):
+        tiempos.append(timeout)
+        raise google.Temporal("sin red")
+
+    monkeypatch.setattr(falso, "peticion", sin_red)
+    _eliminar_como_el_portal(persona, django_capture_on_commit_callbacks)
+    assert not ConexionDrive.objects.exists() and tiempos == [servicio.REVOCAR_TIMEOUT]   # un solo intento, con tiempo límite corto
+
+
+def test_suspender_la_cuenta_pausa_sus_envios_y_reactivarla_los_reanuda(cliente_de, persona, falso):
+    con_carpeta(cliente_de(persona), falso, persona)
+    persona.is_active = False                                                              # «Suspender» en la consola del portal
+    persona.save(update_fields=["is_active"])
+    e = servicio.encolar(persona.pk, "reportes", "Durante.pdf", contenido=PDF)              # un PDF que termina después de suspenderla
+    assert e is not None
+    e.refresh_from_db()
+    llamadas = len(falso.llamadas)
+    assert e.estado == "pendiente" and e.intentos == 0                                     # la tarea no envió nada ni gastó intentos
+    assert servicio.reintentar_todo() == 0 and servicio.procesar(persona.pk, forzar=True)["enviados"] == 0
+    assert servicio.enviar_uno(e, ConexionDrive.objects.get()) is False
+    e.refresh_from_db()
+    assert e.estado == "pendiente" and e.intentos == 0 and len(falso.llamadas) == llamadas  # ni una petición a Google
+    assert ConexionDrive.objects.filter(cuenta_id=persona.pk).exists()                     # el token se conserva
+    persona.is_active = True                                                               # «Reactivar»
+    persona.save(update_fields=["is_active"])
+    assert servicio.reintentar_todo() == 1                                                 # el siguiente paso del temporizador lo manda
+    e.refresh_from_db()
+    assert e.estado == "enviado" and falso.archivos[e.drive_id]["contenido"] == PDF
+
+
+def test_suspender_a_media_tanda_detiene_el_resto(cliente_de, persona, falso, monkeypatch):
+    con_carpeta(cliente_de(persona), falso, persona)
+    falso.fallar("upload/drive", 500)
+    falso.fallar("upload/drive", 500)
+    a = servicio.encolar(persona.pk, "reportes", "A.pdf", contenido=PDF + b"a")
+    b = servicio.encolar(persona.pk, "reportes", "B.pdf", contenido=PDF + b"b")
+    enviar = servicio.enviar_uno
+
+    def y_suspender(e, c):
+        r = enviar(e, c)
+        type(persona).objects.filter(pk=persona.pk).update(is_active=False)                # la suspenden mientras sube el primero
+        return r
+
+    monkeypatch.setattr(servicio, "enviar_uno", y_suspender)
+    assert servicio.procesar(persona.pk, forzar=True)["enviados"] == 1
+    estados = sorted(EnvioDrive.objects.filter(pk__in=[a.pk, b.pk]).values_list("estado", flat=True))
+    assert estados == ["enviado", "pendiente"]
+
+
+def test_el_envio_salta_cuentas_que_no_existen_y_la_limpieza_cierra_lo_que_dejaron(cliente_de, persona, falso, django_capture_on_commit_callbacks):
+    con_carpeta(cliente_de(persona), falso, persona)
+    falso.fallar("upload/drive", 500)
+    e = servicio.encolar(persona.pk, "reportes", "Huerfano.pdf", contenido=PDF)
+    refresco = next(iter(falso.refrescos))
+    cuenta_id = persona.pk
+    type(persona).objects.filter(pk=cuenta_id).delete()                                    # eliminada sin la función (p. ej. antes de 1.8)
+    EnvioDrive.objects.filter(pk=e.pk).update(proximo_intento=timezone.now() - timedelta(minutes=1))
+    llamadas = len(falso.llamadas)
+    assert servicio.procesar(cuenta_id, forzar=True)["enviados"] == 0 and servicio.reintentar_todo() == 0
+    assert servicio.encolar(cuenta_id, "reportes", "Nuevo.pdf", contenido=PDF + b"n") is None
+    assert len(falso.llamadas) == llamadas                                                 # ni una petición a Google
+    with django_capture_on_commit_callbacks(execute=True):
+        servicio.limpiar()                                                                 # la limpieza diaria (tv_limpiar)
+    e.refresh_from_db()
+    assert not ConexionDrive.objects.exists() and e.estado == "descartado" and refresco in falso.revocados
+    assert not (servicio.capturas.raiz() / "drive_cola" / str(cuenta_id)).exists()

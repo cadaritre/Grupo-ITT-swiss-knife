@@ -13,6 +13,8 @@ MODULO = Modulo(
     # necesaria para arrancar sin conexión) se sirven sin sesión: el navegador los pide sin poder seguir un inicio de sesión.
     limpiezas=("itt_herramientas.convertidor.servicio.limpiar", "itt_herramientas.drive.servicio.limpiar", "itt_herramientas.supervision.servicio.limpiar",
                "itt_herramientas.comun.zips.limpiar"),
+    # Al eliminar una cuenta (contrato 1.8) se quita su conexión con Google Drive y se cancela su cola; sus documentos se quedan.
+    al_eliminar_cuenta=("itt_herramientas.drive.servicio.al_eliminar_cuenta",),
     rutas_publicas=("sw.js", "manifest.webmanifest", "capturar/", "instalar/", "cotizaciones/", "reportes/", "croquis/"),
     # Navegación como datos (contrato 1.5, §12): el armazón pinta con esto el lateral, el cajón del teléfono y la paleta, por rol.
     # Las páginas de campo (que abren sin conexión) pintan el mismo menú con `{% lateral_de_campo %}`.

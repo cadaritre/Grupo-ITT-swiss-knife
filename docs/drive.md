@@ -29,6 +29,26 @@ Los DXF, los croquis y las triangulaciones **no** se envían. Sin Drive conectad
 - Se envía solo lo **final**: el PDF de una cotización al generarlo para compartir (no la vista previa), el PDF de un reporte al terminar la tarea, el KML/KMZ al convertir.
   La persona puede apagar el envío automático en `/drive/`.
 
+## Cuentas eliminadas y suspendidas
+
+Las cotizaciones, reportes, croquis, fotos y PDF son de la empresa: **nunca** se borran con la cuenta (cada uno guarda a su autor y, si la cuenta
+ya no existe, muestra «Cuenta eliminada»). Lo que sí se corta es el envío al Drive **personal** de esa persona:
+
+- **Eliminar la cuenta** (consola del portal): el portal llama `drive.servicio.al_eliminar_cuenta` (contrato `tvplataforma` 1.8,
+  `Modulo.al_eliminar_cuenta`) dentro de la transacción de la eliminación, antes de borrar la cuenta. Se borra la conexión (con el token de
+  actualización cifrado) y se cancelan sus envíos pendientes, en curso y con error («La cuenta se eliminó.»). Al confirmarse la eliminación
+  se borran las copias locales de `drive_cola/<cuenta>/` y se **revoca el token en Google**, de buena fe y con 5 s de tiempo límite
+  (`REVOCAR_TIMEOUT`): si Google no responde, la cuenta igual queda eliminada y el token ya no existe aquí. La actividad de la consola dice
+  «Herramientas Grupo ITT: Se quitó la conexión con Google Drive y se cancelaron N envíos pendientes». Si algo falla, no se elimina nada y la
+  consola muestra el motivo. Lo que ya se había enviado se queda en Drive (la carpeta compartida es de la empresa).
+- **Suspender la cuenta**: no se toca nada. Los envíos **se pausan**: la cola se conserva, con el token, y nada sale mientras la cuenta esté
+  inactiva. Al **reactivarla** salen solos en el siguiente paso del temporizador (cada 5 minutos), sin gastar intentos.
+- **Defensa en profundidad**: el envío comprueba antes de cada archivo que la cuenta exista y esté activa (`cuenta_activa`, en `procesar` y en
+  `enviar_uno`), así que ningún camino (la tarea `enviar_a_drive`, `herramientas_drive_reintentar`, la limpieza diaria, la página `/drive/`)
+  manda nada a nombre de una cuenta eliminada o suspendida, ni aunque faltara la función de arriba. `encolar` tampoco encola para una
+  cuenta que ya no existe. Y la limpieza diaria (`tv_limpiar`) cierra igual lo que hubieran dejado cuentas eliminadas antes de esto
+  (`cerrar_huerfanas`: borra la conexión, revoca el token y cancela la cola).
+
 ## Qué hace el propietario (Google Cloud, costo 0)
 
 Los nombres de los menús de Google cambian de vez en cuando; lo que importa son los valores.
@@ -98,8 +118,9 @@ WantedBy=timers.target
 
 ## Qué está probado y qué no
 
-- Probado con el Google falso (25 pruebas de servidor, 6 de navegador en Chromium y WebKit): PKCE y `state`, token cifrado, jerarquía, `drive.file` (la app solo ve lo creado o
+- Probado con el Google falso (pruebas de servidor, 6 de navegador en Chromium y WebKit): PKCE y `state`, token cifrado, jerarquía, `drive.file` (la app solo ve lo creado o
   concedido), carga reanudable con cortes, caducidad del token de acceso, límites de uso, revocación, carpeta borrada, nombres repetidos, no duplicar, aislamiento entre cuentas,
-  desconexión (revoca y descarta lo pendiente), integración con cotizaciones, reportes y convertidor, y la página con un Picker falso.
+  desconexión (revoca y descarta lo pendiente), cuenta eliminada (quita la conexión, revoca, cancela la cola y conserva los documentos; si la
+  eliminación se deshace no cambia nada), cuenta suspendida (pausa y reanuda), cuentas que ya no existen, integración con cotizaciones, reportes y convertidor, y la página con un Picker falso.
 - **No probado** (necesita las credenciales del propietario): el consentimiento y el selector reales de Google, la lista exacta de `TV_CSP_EXTRA`, la cuota de Drive de las cuentas,
   el vencimiento real de tokens, y si Google pide verificación al publicar. El cliente sigue la documentación de OAuth 2.0 / Drive v3, pero eso se confirma con la primera conexión real.

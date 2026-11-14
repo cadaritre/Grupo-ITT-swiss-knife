@@ -8,6 +8,7 @@ persona le abrió con el selector de Google, por eso la carpeta compartida se el
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import shutil
 import uuid
@@ -16,7 +17,7 @@ from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from ..comun import capturas
@@ -27,6 +28,8 @@ CARPETA_RAIZ = "GRUPO ITT REPORTES"
 CATEGORIAS = {"cotizaciones": ("Cotizaciones", {".pdf", ".json"}), "reportes": ("Reportes fotograficos", {".pdf"}), "poligonos": ("Poligonos KML", {".kml", ".kmz"})}
 TIPOS = {".pdf": "application/pdf", ".json": "application/json", ".kml": "application/vnd.google-earth.kml+xml", ".kmz": "application/vnd.google-earth.kmz"}
 MAX_INTENTOS = 12
+#: Tiempo límite para revocar el token en Google al eliminar una cuenta (corre al confirmar la eliminación, en la petición de la consola).
+REVOCAR_TIMEOUT = 5
 LOTE = 20
 VIDA_ENVIADOS_DIAS = 30
 _INVALIDO = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -34,6 +37,8 @@ _RESERVADOS = {"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(1, 10)), *
 
 #: Transporte de Google para las pruebas (None = internet real).
 _transporte = None
+log = logging.getLogger("itt_herramientas.drive")
+_ABIERTOS = (EnvioDrive.Estado.PENDIENTE, EnvioDrive.Estado.ENVIANDO, EnvioDrive.Estado.ERROR)
 
 
 def cliente() -> google.Google:
@@ -55,6 +60,11 @@ def nombre_carpeta(valor: str, respaldo: str = "Usuario sin nombre") -> str:
 
 def conexion_de(cuenta_id: int) -> ConexionDrive | None:
     return ConexionDrive.objects.filter(cuenta_id=cuenta_id).first()
+
+
+def cuenta_activa(cuenta_id: int) -> bool:
+    """¿Existe la cuenta del portal y está activa? Nada sale a Drive a nombre de una cuenta eliminada o suspendida."""
+    return get_user_model().objects.filter(pk=cuenta_id, is_active=True).exists()
 
 
 # -- Conexión -------------------------------------------------------------------------------------------------------------------
@@ -93,6 +103,61 @@ def desconectar(c: ConexionDrive) -> None:
     pendientes.update(estado=EnvioDrive.Estado.DESCARTADO, error="Drive se desconectó.")
     cache.delete(f"drive:acceso:{c.cuenta_id}")
     c.delete()
+
+
+def al_eliminar_cuenta(cuenta_id: int) -> str | None:
+    """El portal elimina la cuenta (tvplataforma 1.8, `Modulo.al_eliminar_cuenta`): se corta todo lo de Drive a su nombre.
+
+    Corre dentro de la transacción de la eliminación, antes de borrar la cuenta. Se borra la conexión (con el token de actualización
+    cifrado) y se cancelan sus envíos pendientes, en curso y con error. Al confirmarse la eliminación se borran las copias locales de
+    la cola y se revoca el token en Google, de buena fe y con tiempo límite corto (si Google no responde, el token ya no existe aquí).
+    Las cotizaciones, reportes, croquis, fotos y PDF no se tocan: son de la empresa y guardan a su autor. Lo ya enviado queda en Drive.
+    Es idempotente. Devuelve la línea para la actividad de la consola, o None si no había nada de Drive.
+    """
+    c = ConexionDrive.objects.select_for_update().filter(cuenta_id=cuenta_id).first()
+    abiertos = EnvioDrive.objects.select_for_update().filter(cuenta_id=cuenta_id, estado__in=_ABIERTOS)
+    rutas = [e.ruta for e in abiertos if e.ruta]
+    cancelados = abiertos.update(estado=EnvioDrive.Estado.DESCARTADO, error="La cuenta se eliminó.")
+    token = c.token_cifrado if c is not None else ""
+    if c is not None:
+        c.delete()
+
+    def al_confirmar():
+        cache.delete(f"drive:acceso:{cuenta_id}")
+        for ruta in rutas:
+            _borrar_copia_en(ruta)
+        shutil.rmtree(_carpeta_cola(cuenta_id), ignore_errors=True)
+        if token:
+            _revocar_de_buena_fe(token, cuenta_id)
+
+    transaction.on_commit(al_confirmar, robust=True)
+    if c is None and not cancelados:
+        return None
+    envios = "se canceló 1 envío pendiente" if cancelados == 1 else f"se cancelaron {cancelados} envíos pendientes"
+    if c is None:
+        return f"{envios[0].upper()}{envios[1:]} a Google Drive."
+    return "Se quitó la conexión con Google Drive" + (f" y {envios}." if cancelados else ".")
+
+
+def _revocar_de_buena_fe(token_cifrado: str, cuenta_id: int) -> None:
+    try:
+        cliente().revocar(cifrado.descifrar(token_cifrado), timeout=REVOCAR_TIMEOUT)
+    except Exception:                                                              # noqa: BLE001 - la cuenta ya se eliminó; el token ya no existe aquí
+        log.warning("No se pudo revocar en Google el token de Drive de la cuenta eliminada %s", cuenta_id, exc_info=True)
+
+
+def cerrar_huerfanas() -> int:
+    """Conexiones y envíos de cuentas que ya no existen (eliminadas antes de `al_eliminar_cuenta`, o por fuera de la consola): se cierran igual."""
+    vivas = set(get_user_model().objects.values_list("pk", flat=True))
+    ids = set(ConexionDrive.objects.values_list("cuenta_id", flat=True)) | set(
+        EnvioDrive.objects.filter(estado__in=_ABIERTOS).values_list("cuenta_id", flat=True))
+    cerradas = 0
+    for cuenta_id in sorted(ids - vivas):
+        with transaction.atomic():
+            if al_eliminar_cuenta(cuenta_id):
+                cerradas += 1
+                log.info("Drive: se cerró lo de la cuenta %s, que ya no existe", cuenta_id)
+    return cerradas
 
 
 def _guardar_acceso(c: ConexionDrive, tokens: dict) -> None:
@@ -199,8 +264,12 @@ def _carpeta_cola(cuenta_id: int) -> Path:
 
 
 def _borrar_copia(e: EnvioDrive) -> None:
-    ruta = capturas.raiz() / e.ruta
-    if e.ruta and ruta.is_file():
+    _borrar_copia_en(e.ruta)
+
+
+def _borrar_copia_en(relativa: str) -> None:
+    ruta = capturas.raiz() / relativa
+    if relativa and ruta.is_file():
         ruta.unlink(missing_ok=True)
         try:
             ruta.parent.rmdir()
@@ -233,6 +302,8 @@ def encolar(cuenta_id: int, categoria: str, nombre: str, origen: Path | None = N
     try:
         c = conexion_de(cuenta_id)
         if c is None or not disponible() or not elegible(categoria, nombre) or not (c.automatico or forzar):
+            return None
+        if not get_user_model().objects.filter(pk=cuenta_id).exists():              # cuenta eliminada: nada a su nombre (suspendida sí espera)
             return None
         nombre = nombre_carpeta(nombre, "archivo")[:200]
         if clave:
@@ -319,7 +390,12 @@ def _espera(intentos: int) -> timedelta:
 
 
 def enviar_uno(e: EnvioDrive, c: ConexionDrive) -> bool:
-    """Intenta enviar un archivo. True si quedó en Drive. Los errores pasajeros reprograman; los permanentes lo dejan «con error» para reintentar a mano."""
+    """Intenta enviar un archivo. True si quedó en Drive. Los errores pasajeros reprograman; los permanentes lo dejan «con error» para reintentar a mano.
+
+    Si la cuenta ya no existe o está suspendida no envía nada ni toca el envío: queda pendiente y sale cuando la reactivan.
+    """
+    if not cuenta_activa(e.cuenta_id):
+        return False
     ruta = capturas.raiz() / e.ruta
     e.estado, e.intentos = EnvioDrive.Estado.ENVIANDO, e.intentos + 1
     e.save(update_fields=["estado", "intentos"])
@@ -380,21 +456,28 @@ def _reprogramar(e: EnvioDrive, mensaje: str, horas: float | None = None, contar
 
 
 def procesar(cuenta_id: int, ahora=None, forzar: bool = False) -> dict:
-    """Envía lo pendiente de la cuenta cuyo turno ya llegó (o todo, con `forzar`). Devuelve {enviados, pendientes}."""
+    """Envía lo pendiente de la cuenta cuyo turno ya llegó (o todo, con `forzar`). Devuelve {enviados, pendientes}.
+
+    Es el único camino de envío (la tarea `enviar_a_drive`, `reintentar_todo`, la limpieza diaria y la página `/drive/`): con la cuenta
+    eliminada o suspendida no se envía nada (se comprueba antes de cada archivo); lo pendiente espera y sale solo al reactivarla.
+    """
     c = conexion_de(cuenta_id)
     resultado = {"enviados": 0, "pendientes": 0}
-    if c is None or not disponible():
+    if c is None or not disponible() or not cuenta_activa(cuenta_id):
         return resultado
     ahora = ahora or timezone.now()
     consulta = EnvioDrive.objects.filter(cuenta_id=cuenta_id, estado__in=[EnvioDrive.Estado.PENDIENTE, EnvioDrive.Estado.ENVIANDO])
     if not forzar:
         consulta = consulta.filter(proximo_intento__lte=ahora)
     for e in consulta.order_by("creada")[:LOTE]:
-        if c.estado == ConexionDrive.Estado.REAUTORIZAR and not forzar:
+        if (c.estado == ConexionDrive.Estado.REAUTORIZAR and not forzar) or not cuenta_activa(cuenta_id):
             break
         if enviar_uno(e, c):
             resultado["enviados"] += 1
-        c.refresh_from_db()
+        try:
+            c.refresh_from_db()
+        except ConexionDrive.DoesNotExist:                                         # se desconectó o se eliminó la cuenta a media tanda
+            break
     resultado["pendientes"] = EnvioDrive.objects.filter(cuenta_id=cuenta_id, estado=EnvioDrive.Estado.PENDIENTE).count()
     return resultado
 
@@ -417,7 +500,8 @@ def descartar_envio(e: EnvioDrive) -> None:
 
 
 def limpiar() -> int:
-    """`tv_limpiar` (diario): olvida los envíos ya terminados de hace más de 30 días y reintenta lo pendiente."""
+    """`tv_limpiar` (diario): cierra lo de Drive de cuentas que ya no existen, olvida los envíos terminados de hace más de 30 días y reintenta lo pendiente."""
+    cerrar_huerfanas()
     viejos = EnvioDrive.objects.filter(estado__in=[EnvioDrive.Estado.ENVIADO, EnvioDrive.Estado.DESCARTADO], creada__lt=timezone.now() - timedelta(days=VIDA_ENVIADOS_DIAS))
     n = viejos.count()
     viejos.delete()
