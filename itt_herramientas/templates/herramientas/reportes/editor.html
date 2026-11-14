@@ -1,58 +1,58 @@
 {% extends "herramientas/pwa/_pagina.html" %}
-{% load static %}
+{% load static tv %}
 {% block titulo %}Reportes fotográficos{% endblock %}
 {% block contenido %}
 {# HTML idéntico para todas las cuentas: así el service worker lo guarda y se abre sin conexión. Los datos llegan de IndexedDB y de la API. #}
 <div id="rep" class="cot rep" data-pdfjs="{% static 'herramientas/vendor/pdfjs/pdf.min.mjs' %}" data-pdfjs-worker="{% static 'herramientas/vendor/pdfjs/pdf.worker.min.mjs' %}" data-maplibre="{% static 'herramientas/vendor/maplibre/maplibre-gl-csp.js' %}" data-maplibre-worker="{% static 'herramientas/vendor/maplibre/maplibre-gl-csp-worker.js' %}" data-maplibre-css="{% static 'herramientas/vendor/maplibre/maplibre-gl.css' %}"{% for nombre, ruta in urls.items %} data-url-{{ nombre }}="{{ ruta }}"{% endfor %}>
-  <p id="rep-red" class="tv-tenue cot-red" role="status"></p>
+  <p id="rep-red" class="cot-red" role="status" hidden></p>
   <p id="rep-mensaje" class="itt-aviso" role="alert" hidden></p>
 
   <section id="rep-vista-lista" aria-labelledby="rep-titulo-lista">
-    <div class="cot-encabezado"><h1 id="rep-titulo-lista">Reportes fotográficos</h1></div>
-    <div class="itt-acciones">
-      <button type="button" id="rep-nuevo" class="tv-boton">Nuevo reporte</button>
-    </div>
-    <p id="rep-lista-vacia" class="tv-tenue" hidden>Aún no hay reportes. Crea el primero con «Nuevo reporte»: funciona sin señal.</p>
+    <header class="tv-encabezado">
+      <div class="tv-encabezado__titulos"><h1 id="rep-titulo-lista">Reportes fotográficos</h1></div>
+      <div class="tv-acciones"><button type="button" id="rep-nuevo" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
+    </header>
+    <div id="rep-lista-vacia" class="itt-vacio" hidden>{% icono "camera" %}<p>Aún no tienes reportes</p><span>Funciona sin señal: las fotos se suben solas.</span><button type="button" class="tv-boton" id="rep-nuevo-vacio">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
     <ul id="rep-lista" class="cot-lista"></ul>
   </section>
 
   <section id="rep-vista-editor" aria-labelledby="rep-titulo-editor" hidden>
-    <div class="cot-encabezado">
-      <a href="#/" class="tv-boton tv-boton--secundario">‹ Reportes</a>
-      <span id="rep-estado-guardado" class="tv-tenue" role="status"></span>
+    <div class="cot-barra-sup">
+      <a href="#/" class="tv-boton tv-boton--secundario itt-boton-plano cot-volver">{% icono "arrow-left" %}<span>Reportes</span></a>
+      <span id="rep-estado-guardado" class="itt-estado" role="status"></span>
     </div>
     <h1 id="rep-titulo-editor" class="cot-titulo-doc">Reporte</h1>
     <p id="rep-aviso-doc" class="tv-alerta tv-alerta--aviso" hidden></p>
 
     <details class="cot-paso" id="rep-paso-datos" open>
-      <summary>Datos del reporte</summary>
+      <summary>{% icono "file-text" %}<span>Datos del reporte</span></summary>
       <div class="cot-paso__cuerpo">
         <div class="tv-campo"><label for="r-titulo">Nombre del reporte</label><input id="r-titulo" type="text" maxlength="200" autocomplete="off"></div>
         <div class="tv-campo"><label for="r-fecha">Fecha</label><input id="r-fecha" type="date"></div>
-        <div class="tv-campo tv-campo--casilla"><input id="r-croquis" type="checkbox"><label for="r-croquis">Portada con croquis de ubicación (si no, la portada lleva la primera foto)</label></div>
+        <div class="tv-campo tv-campo--casilla"><input id="r-croquis" type="checkbox"><label for="r-croquis">Portada con croquis de ubicación</label><p class="tv-campo__ayuda">Si no, la portada lleva la primera foto.</p></div>
         <div class="tv-campo tv-campo--casilla" id="r-credenciales-caja"><input id="r-credenciales" type="checkbox"><label for="r-credenciales">Agregar página de cédula y firma</label></div>
       </div>
     </details>
 
     <section class="rep-captura" aria-labelledby="rep-titulo-captura">
-      <h2 id="rep-titulo-captura">Fotos <span id="rep-contador" class="cot-insignia"></span></h2>
-      <div class="itt-acciones">
-        <label class="tv-boton">Tomar foto<input id="rep-camara" class="itt-ocultar-entrada" type="file" accept="image/*" capture="environment"></label>
-        <label class="tv-boton tv-boton--secundario">Elegir de la galería<input id="rep-galeria" class="itt-ocultar-entrada" type="file" accept="image/*" multiple></label>
-        <button type="button" id="rep-ubicacion" class="tv-boton tv-boton--secundario">Activar ubicación</button>
+      <h2 id="rep-titulo-captura">{% icono "images" %}<span>Fotos</span> <span id="rep-contador" class="cot-insignia"></span></h2>
+      <div class="rep-acciones-captura">
+        <label class="tv-boton">{% icono "camera" %}<span>Tomar foto</span><input id="rep-camara" class="itt-ocultar-entrada" type="file" accept="image/*" capture="environment"></label>
+        <label class="tv-boton tv-boton--secundario">{% icono "images" %}<span>Galería</span><input id="rep-galeria" class="itt-ocultar-entrada" type="file" accept="image/*" multiple></label>
+        <button type="button" id="rep-ubicacion" class="tv-boton tv-boton--secundario">{% icono "locate-fixed" %}<span>Activar ubicación</span></button>
       </div>
-      <p id="rep-geo" class="tv-tenue">Ubicación: sin activar</p>
-      <div class="tv-campo"><label for="rep-nota-siguiente">Nota para las siguientes fotos (opcional)</label><input id="rep-nota-siguiente" type="text" maxlength="1000" autocomplete="off"></div>
-      <div id="rep-soltar" class="rep-soltar" tabindex="0">Arrastra aquí fotos o carpetas (desde una computadora)</div>
-      <p id="rep-sin-fotos" class="tv-tenue">Aún no hay fotos.</p>
+      <p id="rep-geo" class="tv-tenue rep-geo">Ubicación: sin activar</p>
+      <div class="tv-campo"><label for="rep-nota-siguiente">Nota para las siguientes fotos <span class="tv-tenue">(opcional)</span></label><input id="rep-nota-siguiente" type="text" maxlength="1000" autocomplete="off"></div>
+      <div id="rep-soltar" class="rep-soltar" tabindex="0">{% icono "upload" %}<span>Arrastra aquí fotos o carpetas</span></div>
+      <p id="rep-sin-fotos" class="tv-tenue">Sin fotos todavía.</p>
       <ol id="rep-fotos" class="itt-lista rep-fotos"></ol>
     </section>
 
     <div class="cot-barra" id="rep-barra" role="region" aria-label="Acciones del reporte">
       <p id="rep-resumen-barra" class="rep-resumen" role="status"></p>
       <div class="cot-barra__acciones rep-barra__acciones">
-        <button type="button" id="rep-mas" class="tv-boton tv-boton--secundario">Más</button>
-        <button type="button" id="rep-pdf" class="tv-boton">Generar PDF</button>
+        <button type="button" id="rep-mas" class="tv-boton tv-boton--secundario itt-boton-icono" aria-haspopup="dialog" aria-label="Más acciones" title="Más acciones">{% icono "ellipsis" %}</button>
+        <button type="button" id="rep-pdf" class="tv-boton">{% icono "file-text" %}<span>Generar PDF</span></button>
       </div>
     </div>
   </section>
@@ -62,7 +62,7 @@
   <form method="dialog" class="tv-hoja__cuerpo" id="form-ubicar">
     <div class="tv-hoja__asa" aria-hidden="true"></div>
     <div class="tv-hoja__cabecera"><h2 id="dlg-ubicar-titulo">Ubicar la foto</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
-    <p class="tv-tenue">Toca el mapa para poner el punto, o escribe las coordenadas.</p>
+    <p class="tv-tenue">Toca el mapa o escribe las coordenadas.</p>
     <div id="u-mapa" class="rep-mapa" aria-label="Mapa para ubicar la foto"></div>
     <p id="u-mapa-info" class="tv-tenue"></p>
     <div class="cot-fila-numeros">
@@ -71,9 +71,9 @@
     </div>
     <p id="u-error" class="tv-campo__error" role="alert" hidden></p>
     <div class="tv-formulario__acciones">
-      <button type="button" id="u-actual" class="tv-boton tv-boton--secundario">Usar mi ubicación actual</button>
-      <button type="button" id="u-quitar" class="tv-boton tv-boton--secundario">Dejar sin ubicación</button>
-      <button type="submit" id="u-guardar" class="tv-boton" value="si">Guardar ubicación</button>
+      <button type="button" id="u-actual" class="tv-boton tv-boton--secundario">{% icono "locate-fixed" %}<span>Mi ubicación actual</span></button>
+      <button type="button" id="u-quitar" class="tv-boton tv-boton--secundario">{% icono "x" %}<span>Dejar sin ubicación</span></button>
+      <button type="submit" id="u-guardar" class="tv-boton" value="si">{% icono "check" %}<span>Guardar ubicación</span></button>
     </div>
   </form>
 </dialog>
@@ -87,8 +87,8 @@
     <p id="pdf-error" class="tv-alerta tv-alerta--error" role="alert" hidden></p>
     <div id="pdf-paginas" class="cot-vp-paginas"></div>
     <div class="tv-formulario__acciones">
-      <button type="button" id="pdf-compartir" class="tv-boton" disabled>Compartir</button>
-      <button type="button" id="pdf-descargar" class="tv-boton tv-boton--secundario" disabled>Descargar</button>
+      <button type="button" id="pdf-compartir" class="tv-boton" disabled>{% icono "share-2" %}<span>Compartir</span></button>
+      <button type="button" id="pdf-descargar" class="tv-boton tv-boton--secundario" disabled>{% icono "download" %}<span>Descargar PDF</span></button>
     </div>
   </div>
 </dialog>
@@ -97,8 +97,8 @@
   <div class="tv-hoja__cuerpo">
     <div class="tv-hoja__asa" aria-hidden="true"></div>
     <div class="tv-hoja__cabecera"><h2 id="dlg-mas-titulo">Más acciones</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
-    <div class="tv-pila">
-      <button type="button" id="mas-borrar" class="tv-boton tv-boton--peligro">Eliminar reporte</button>
+    <div class="cot-menu-acciones">
+      <button type="button" id="mas-borrar" class="cot-menu-accion cot-menu-accion--peligro">{% icono "trash-2" %}<span>Eliminar reporte</span></button>
     </div>
   </div>
 </dialog>

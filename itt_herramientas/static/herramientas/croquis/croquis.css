@@ -37,3 +37,11 @@
 /* Pantalla completa: la superficie del área no tapa los botones de acercar. */
 .cq[data-completo="1"] .cq-area { right: 56px; box-shadow: 0 1px 4px rgb(0 0 0 / .25); }
 .cq[data-completo="1"] .cq-herramientas { border-top: 1px solid var(--tv-separador); }
+
+/* Rediseño 14-11-2026: en el teléfono las acciones del mapa son iconos (con nombre accesible y etiqueta flotante). */
+@media (max-width: 599px) {
+  .cq-acciones-mapa { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--tv-espacio-2, 8px); }
+  .cq-acciones-mapa .tv-boton > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .cq-acciones-mapa .tv-boton { padding: 0; }
+}
+.cq-herramientas .tv-boton[aria-pressed="true"] .tv-icono { color: inherit; }

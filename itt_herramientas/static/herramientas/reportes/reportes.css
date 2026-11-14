@@ -28,3 +28,19 @@
 .rep-foto .rep-botones > .tv-boton:last-child { margin-left: auto; }
 .rep-resumen { font-size: .9375rem; }
 #pdf-progreso, #salida-progreso { height: 8px; accent-color: var(--tv-boton); }
+
+/* Rediseño 14-11-2026: captura primero, acciones con icono, ubicación con su icono. */
+.rep-captura h2 { font-size: var(--tv-texto-lg, 1.125rem); }
+.rep-captura h2 > .tv-icono { color: var(--tv-tenue); }
+.rep-acciones-captura { display: grid; grid-template-columns: 1fr 1fr; gap: var(--tv-espacio-2, 8px); margin: var(--tv-espacio-3, 12px) 0; }
+.rep-acciones-captura > :last-child { grid-column: 1 / -1; }
+@media (min-width: 600px) { .rep-acciones-captura { display: flex; flex-wrap: wrap; } }
+.rep-geo { margin: 0 0 var(--tv-espacio-3, 12px); font-size: var(--tv-texto-sm, .875rem); }
+.rep-soltar { display: none; align-items: center; justify-content: center; gap: var(--tv-espacio-2, 8px); border-radius: var(--tv-radio-grande, 12px); }
+@media (hover: hover) and (pointer: fine) { .rep-soltar { display: flex; } }
+.rep-ubicacion { display: flex; align-items: center; gap: var(--tv-espacio-1, 4px); }
+.rep-ubicacion .tv-icono { width: 1rem; height: 1rem; flex: none; }
+.rep-foto { border-radius: var(--tv-radio-grande, 12px); }
+.rep-foto img { border-radius: var(--tv-radio, 8px); }
+.rep-botones .itt-boton-icono { min-width: var(--tv-tactil-min, 44px); }
+.rep .tv-campo--casilla .tv-campo__ayuda { flex-basis: 100%; margin: 0; }

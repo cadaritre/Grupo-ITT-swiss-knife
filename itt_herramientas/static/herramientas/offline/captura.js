@@ -101,7 +101,7 @@
       li.dataset.estado = item.estado;
       li.querySelector("[data-itt=titulo]").textContent = `${item.nombre} · ${tamano(item.bytes)}`;
       const ubicacion = item.meta && item.meta.sin_ubicacion ? " · sin ubicación" : "";
-      li.querySelector("[data-itt=estado]").textContent = (item.estado === "subiendo" ? `Subiendo ${item.progreso} %` : item.estado === "error" ? `Error: ${item.error}` : item.error ? `En cola · ${item.error}` : "En cola · guardada en este teléfono") + ubicacion;
+      li.querySelector("[data-itt=estado]").textContent = (item.estado === "subiendo" ? `Subiendo ${item.progreso} %` : item.estado === "error" ? `Error: ${item.error}` : item.error ? `En cola · ${item.error}` : "Guardada en este teléfono · se sube sola") + ubicacion;
       const barra = li.querySelector("progress"); barra.value = item.progreso || 0; barra.hidden = item.estado !== "subiendo";
       li.querySelector("[data-itt=reintentar]").hidden = item.estado !== "error";
     }
@@ -115,7 +115,7 @@
     $("itt-camara").addEventListener("click", iniciarUbicacion);
     $("itt-ubicacion").addEventListener("click", iniciarUbicacion);
     $("itt-cerrar-tip").addEventListener("click", async () => { $("itt-instalar-tip").hidden = true; await ITT.cola.guardarAjuste("guia_vista", true); });
-    const red = () => { $("itt-red").textContent = navigator.onLine ? "En línea" : "Sin conexión: puedes seguir capturando"; $("itt-red").dataset.estado = navigator.onLine ? "en_linea" : "sin_conexion"; };
+    const red = () => { $("itt-red").textContent = navigator.onLine ? "En línea" : "Sin conexión. Puedes seguir capturando: todo se guarda en este teléfono."; $("itt-red").hidden = navigator.onLine; $("itt-red").dataset.estado = navigator.onLine ? "en_linea" : "sin_conexion"; };
     addEventListener("online", red); addEventListener("offline", red); red();
     let pintando = Promise.resolve();
     document.addEventListener("itt:cola", () => { pintando = pintando.then(dibujar).catch(() => {}); });

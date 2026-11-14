@@ -28,15 +28,18 @@
   const { h, limpiar, confirmar } = ITT.ui;
 
   const mensaje = (texto, tipo) => ITT.ui.mensaje("rep-mensaje", texto, tipo);
+  const { icono, boton } = ITT.ui;
 
 
   // -- Guardado ------------------------------------------------------------------------------------------------------------------
   function estadoGuardado() {
     const e = $("rep-estado-guardado");
-    if (!reg) { e.textContent = ""; return; }
+    limpiar(e);
+    if (!reg) return;
     // Un solo estado por documento, contado igual que la banda de pendientes: el reporte mismo (si tiene cambios) y cada foto que no ha llegado.
     const n = (reg.sucio ? 1 : 0) + (reg.porSubir || 0);
-    e.textContent = n ? `${n === 1 ? "1 pendiente" : `${n} pendientes`} · ${enLinea() ? "subiendo…" : "se suben con señal"}` : "Todo en el servidor";
+    e.append(icono(n ? (enLinea() ? "cloud-upload" : "cloud-off") : "cloud-check"),
+      h("span", {}, n ? `${n === 1 ? "1 pendiente" : `${n} pendientes`} · ${enLinea() ? "subiendo…" : "se suben con señal"}` : "Guardado"));
     e.dataset.estado = n ? "pendiente" : "sincronizado";
   }
   function programarGuardado() {
@@ -91,25 +94,28 @@
       const d = b.datos;
       ul.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "" },
         h("a", { class: "cot-tarjeta__enlace", href: `#/r/${b.id}` },
-          h("strong", {}, d.titulo || "Sin nombre"),
-          h("span", { class: "tv-tenue" }, `${String(d.fecha || "").split("-").reverse().join("/")} · ${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`)),
+          h("span", { class: "cot-tarjeta__folio" }, String(d.fecha || "").split("-").reverse().join("/")),
+          h("strong", { class: "cot-tarjeta__titulo" }, d.titulo || "Sin nombre"),
+          h("span", { class: "cot-tarjeta__cliente" }, `${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`)),
         h("div", { class: "cot-tarjeta__pie" },
-          h("span", { class: "cot-insignia", "data-estado": b.sucio || por ? "pendiente" : "listo" }, por ? `${por} foto${por === 1 ? "" : "s"} por subir` : b.sucio ? "Sin sincronizar" : "Sincronizado"),
-          b.aviso ? h("span", { class: "cot-insignia", "data-estado": "pendiente" }, "Copia por conflicto") : null,
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => borrarRegistro(b) }, "Eliminar"))));
+          por || b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono(enLinea() ? "cloud-upload" : "cloud-off"), h("span", {}, por ? `${por} foto${por === 1 ? "" : "s"} por subir` : "Sin subir"))
+            : h("span", { class: "itt-estado" }, icono("cloud-check"), h("span", {}, "Guardado")),
+          b.aviso ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia por conflicto")) : null,
+          h("span", { class: "cot-tarjeta__espacio" }),
+          boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${d.titulo || "reporte"}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
     }
   }
   async function nuevo() {
-    if (!ctx) return mensaje("Abre esta pantalla una vez con conexión para preparar los reportes sin señal.", "error");
+    if (!ctx) return mensaje("Sin conexión. Abre Reportes una vez con señal para poder trabajar sin ella.", "error");
     const r = await docs.crear({ titulo: ctx.titulo || "Reporte fotográfico", fecha: hoyISO(), con_croquis: true, con_credenciales: false, fotos: [] });
     location.hash = `#/r/${r.id}`;
   }
   async function borrarRegistro(b) {
     const por = await pendientesDe(b.id);
     const texto = por || b.sucio || !b.servidor_id
-      ? "Este reporte tiene fotos o cambios que quizá no estén en el servidor. Si lo eliminas, se pierden. ¿Eliminarlo?"
-      : "¿Eliminar este reporte? No se puede deshacer.";
-    if (!(await confirmar(texto, { aceptar: "Eliminar", peligro: true }))) return;
+      ? `¿Eliminar «${b.datos.titulo || "este reporte"}»? Tiene fotos o cambios que aún no se suben y se perderán.`
+      : `¿Eliminar «${b.datos.titulo || "este reporte"}»? No se puede deshacer.`;
+    if (!(await confirmar(texto, { aceptar: "Eliminar reporte", peligro: true }))) return;
     await quitarFotosEnCola(b.id);
     await docs.borrar(b.id);
     await pintarLista();
@@ -128,6 +134,7 @@
     $("r-credenciales").checked = !!d.con_credenciales;
     $("r-credenciales-caja").hidden = !(ctx && ctx.credenciales);
     $("rep-titulo-editor").textContent = d.titulo || "Reporte";
+    $("rep-paso-datos").open = !d.fotos.length;                       // con fotos, lo primero es seguir capturando
     const aviso = $("rep-aviso-doc");
     limpiar(aviso);
     aviso.hidden = !reg.aviso;
@@ -144,7 +151,7 @@
     const sin = reg.datos.fotos.filter((f) => f.lat == null).length;
     const c = $("rep-contador");
     c.textContent = `${n} de ${MAX_FOTOS()}`;
-    $("rep-resumen-barra").textContent = n ? `${n} foto${n === 1 ? "" : "s"}${por ? ` · ${por} por subir` : " · todas en el servidor"}${sin ? ` · ${sin} sin ubicación` : ""}` : "Sin fotos";
+    $("rep-resumen-barra").textContent = n ? `${n} foto${n === 1 ? "" : "s"}${por ? ` · ${por} por subir` : " · todas subidas"}${sin ? ` · ${sin} sin ubicación` : ""}` : "Sin fotos";
     $("rep-resumen-barra").dataset.porSubir = String(por);
   }
 
@@ -172,15 +179,15 @@
         h("div", {},
           h("strong", {}, `Foto ${String(i + 1).padStart(2, "0")}`),
           h("span", { class: "tv-tenue rep-meta" }, ` · ${horaCorta(f.tomada)}`),
-          h("div", { class: "tv-tenue rep-ubicacion" }, textoUbicacion(f)),
+          h("div", { class: "tv-tenue rep-ubicacion" }, icono(f.lat == null ? "triangle-alert" : "map-pin"), h("span", {}, textoUbicacion(f))),
           h("div", { class: "tv-campo" },
             h("label", { for: `nota-${i}` }, `Nota de la foto ${i + 1}`),
             h("input", { id: `nota-${i}`, type: "text", maxLength: 1000, value: f.nota || "", autocomplete: "off", oninput: (e) => { f.nota = e.target.value.slice(0, 1000); programarGuardado(); } })),
           h("div", { class: "rep-botones" },
-            h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => mover(i, -1), disabled: i === 0, "aria-label": `Subir la foto ${i + 1}` }, "↑"),
-            h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => mover(i, 1), disabled: i === fotos.length - 1, "aria-label": `Bajar la foto ${i + 1}` }, "↓"),
-            h("button", { type: "button", class: "tv-boton tv-boton--secundario", "data-itt": "ubicar", onclick: () => abrirUbicar(i) }, f.lat == null ? "Ubicar" : "Cambiar ubicación"),
-            h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => quitarFoto(i) }, "Quitar")))));
+            boton({ onclick: () => mover(i, -1), disabled: i === 0, etiqueta: `Subir la foto ${i + 1}` }, "chevron-up"),
+            boton({ onclick: () => mover(i, 1), disabled: i === fotos.length - 1, etiqueta: `Bajar la foto ${i + 1}` }, "chevron-down"),
+            boton({ class: "tv-boton tv-boton--secundario", "data-itt": "ubicar", onclick: () => abrirUbicar(i) }, "map-pin", f.lat == null ? "Ubicar" : "Cambiar ubicación"),
+            boton({ class: "tv-boton tv-boton--secundario itt-boton-plano", onclick: () => quitarFoto(i), etiqueta: `Quitar la foto ${i + 1}` }, "trash-2")))));
     });
     pintarContador();
   }
@@ -194,7 +201,7 @@
   }
   async function quitarFoto(i) {
     const f = reg.datos.fotos[i];
-    if (!(await confirmar("¿Quitar esta foto del reporte?", { aceptar: "Quitar", peligro: true }))) return;
+    if (!(await confirmar(`¿Quitar la foto ${String(i + 1).padStart(2, "0")} del reporte?`, { aceptar: "Quitar foto", peligro: true }))) return;
     reg.datos.fotos.splice(i, 1);
     for (const it of await ITT.cola.listar()) if (it.sha256 === f.sha256 && it.meta && it.meta.referencia === `reporte:${reg.id}` && it.estado !== "subiendo") await ITT.cola.borrar(it.id);
     pintarFotos(); programarGuardado();
@@ -345,7 +352,7 @@
     const d = reg.datos;
     if (!d.titulo.trim()) return mensaje("Escribe un nombre para el reporte.", "error");
     if (!d.fotos.length) return mensaje("Agrega al menos una fotografía.", "error");
-    if (!enLinea()) return mensaje("El PDF se genera en el servidor y necesita conexión. El reporte y sus fotos están guardados en este teléfono.", "error");
+    if (!enLinea()) return mensaje("Sin conexión. Genera el PDF cuando vuelva la señal; el reporte y sus fotos ya están guardados.", "error");
     await guardarYa();
     const dlg = $("dlg-pdf");
     const estado = $("pdf-estado"), barra = $("pdf-progreso"), error = $("pdf-error");
@@ -363,7 +370,7 @@
         if (r && r.error) throw { mensaje: `El servidor no aceptó el reporte: ${r.error}` };
         if (!por && r && !r.sucio) break;
         if (!enLinea()) throw { mensaje: "Se perdió la señal. Las fotos que faltan se suben solas al volver; genera el PDF de nuevo entonces." };
-        if (por !== ultimo) { estado.textContent = por ? `Subiendo fotos… faltan ${por}` : "Sincronizando el reporte…"; ultimo = por; }
+        if (por !== ultimo) { estado.textContent = por ? `Subiendo fotos… faltan ${por}` : "Preparando el reporte…"; ultimo = por; }
         ITT.subirAhora && ITT.subirAhora();
         await esperarMs(1000);
         if (intento === 599) throw { mensaje: "Las fotos tardan en subir. Revisa la señal y vuelve a intentarlo; no se perdió nada." };
@@ -423,6 +430,9 @@
   async function ruta() {
     mensaje("");
     if (reg && temporizador) await guardarYa();
+    const s = /^#\/s\/([0-9a-f-]{36})$/.exec(location.hash || "");          // desde la búsqueda: id del servidor
+    if (s) { const local = await docs.localDe(s[1]); history.replaceState(null, "", local ? `#/r/${local}` : "#/"); return ruta(); }
+    if (location.hash === "#/nuevo") { history.replaceState(null, "", "#/"); if (ctx) return nuevo(); }            // acción «Nuevo …» de la paleta
     const m = /^#\/r\/([0-9a-f-]{36})$/.exec(location.hash || "");
     if (m) {
       const r = await ITT.cola.borrador(m[1]);
@@ -440,6 +450,7 @@
 
   function enlazar() {
     $("rep-nuevo").addEventListener("click", nuevo);
+    $("rep-nuevo-vacio").addEventListener("click", nuevo);
     $("r-titulo").addEventListener("input", (e) => { reg.datos.titulo = e.target.value; $("rep-titulo-editor").textContent = reg.datos.titulo || "Reporte"; programarGuardado(); });
     $("r-fecha").addEventListener("input", (e) => { if (e.target.value) { reg.datos.fecha = e.target.value; programarGuardado(); } });
     $("r-croquis").addEventListener("change", (e) => { reg.datos.con_croquis = e.target.checked; programarGuardado(); });
@@ -466,14 +477,21 @@
     $("dlg-ubicar").addEventListener("close", () => { if (mapa) { mapa.remove(); mapa = null; } });
     for (const b of document.querySelectorAll("[data-cerrar]")) b.addEventListener("click", () => b.closest("dialog").close());
     addEventListener("hashchange", ruta);
-    const red = () => { $("rep-red").textContent = enLinea() ? "En línea" : "Sin conexión: puedes seguir capturando; todo queda en este teléfono."; $("rep-red").dataset.estado = enLinea() ? "en_linea" : "sin_conexion"; estadoGuardado(); };
+    const red = () => {
+      const e = $("rep-red");
+      limpiar(e);
+      if (!enLinea()) e.append(icono("cloud-off"), h("span", {}, "Sin conexión. Puedes seguir capturando: todo se guarda en este teléfono."));
+      e.hidden = enLinea();
+      e.dataset.estado = enLinea() ? "en_linea" : "sin_conexion";
+      estadoGuardado();
+    };
     addEventListener("online", red); addEventListener("offline", red); red();
     document.addEventListener("itt:cola", () => { if (raiz.dataset.vista === "editor" && reg) pintarContador(); else if (raiz.dataset.vista === "lista") pintarLista(); });
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "reporte") return;
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
-        await confirmar("Este reporte cambió en otro dispositivo mientras lo editabas aquí. Tus cambios NO se perdieron: se guardaron como una copia nueva. Te llevamos a la copia.", { aceptar: "Ver la copia", soloAviso: true });
+        await confirmar("Este reporte cambió en otro dispositivo mientras lo editabas. Tus cambios están a salvo en una copia nueva.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/r/${d.copia}`;
       } else if (d.tipo_evento === "sincronizado") {
         if (raiz.dataset.vista === "lista") pintarLista();
@@ -494,7 +512,7 @@
     docs.iniciar(urls);
     enlazar();
     await asegurarCuenta();
-    try { ctx = await contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Vuelve a iniciar sesión para preparar los reportes." : "Abre esta pantalla una vez con conexión para preparar los reportes sin señal.", "error"); }
+    try { ctx = await contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Tu sesión terminó. Vuelve a iniciar sesión." : "Sin conexión. Abre Reportes una vez con señal para poder trabajar sin ella.", "error"); }
     await ruta();
     docs.sincronizar();
     document.documentElement.dataset.repLista = "1";

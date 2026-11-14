@@ -12,6 +12,7 @@
   for (const a of raiz.attributes) if (a.name.startsWith("data-url-")) urls[a.name.slice(9)] = a.value;
   const docs = ITT.crearDocumentos({ tipo: "croquis", lista: "croquis", avisoCopia: "Se guardó como copia porque este croquis cambió en otro dispositivo mientras lo editabas aquí." });
   const mensaje = (texto, tipo) => ITT.ui.mensaje("cq-mensaje", texto, tipo);
+  const { icono, boton } = ITT.ui;
   const enLinea = () => navigator.onLine;
   const esperarMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -41,8 +42,10 @@
   // -- Guardado ------------------------------------------------------------------------------------------------------------------------
   function estadoGuardado() {
     const e = $("cq-estado-guardado");
-    if (!reg) { e.textContent = ""; return; }
-    e.textContent = reg.sucio ? (enLinea() ? "Guardado en este teléfono · subiendo…" : "Guardado en este teléfono · se sube con señal") : "Autoguardado en el servidor";
+    limpiar(e);
+    if (!reg) return;
+    const [ico, texto] = reg.sucio ? (enLinea() ? ["cloud-upload", "Guardando…"] : ["cloud-off", "Guardado en este teléfono"]) : ["cloud-check", "Guardado"];
+    e.append(icono(ico), h("span", {}, texto));
     e.dataset.estado = reg.sucio ? "pendiente" : "sincronizado";
   }
   function programarGuardado() {
@@ -87,16 +90,20 @@
       const d = b.datos;
       const km2 = areaKm2(d.points);
       ul.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "" },
-        h("a", { class: "cot-tarjeta__enlace", href: `#/q/${b.id}` }, h("strong", {}, d.title || "Sin título"),
-          h("span", { class: "tv-tenue" }, `${[d.client, d.project].filter(Boolean).join(" · ") || "Sin cliente"} · ${d.points.length ? `${d.points.length} vértices · ${textoKm2(km2)}${km2 >= 1 ? " km²" : ""}` : "sin área"}`)),
+        h("a", { class: "cot-tarjeta__enlace", href: `#/q/${b.id}` },
+          h("span", { class: "cot-tarjeta__folio" }, d.points.length ? `${d.points.length} vértices · ${textoKm2(km2)}${km2 >= 1 ? " km²" : ""}` : "Sin área"),
+          h("strong", { class: "cot-tarjeta__titulo" }, d.title || "Sin título"),
+          h("span", { class: "cot-tarjeta__cliente" }, [d.client, d.project].filter(Boolean).join(" · ") || "Sin cliente")),
         h("div", { class: "cot-tarjeta__pie" },
-          h("span", { class: "cot-insignia", "data-estado": b.sucio ? "pendiente" : "listo" }, b.sucio ? "Sin sincronizar" : "Autoguardado"),
-          b.aviso ? h("span", { class: "cot-insignia", "data-estado": "pendiente" }, "Copia por conflicto") : null,
-          h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: () => borrarRegistro(b) }, "Eliminar"))));
+          b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono(enLinea() ? "cloud-upload" : "cloud-off"), h("span", {}, "Sin subir"))
+            : h("span", { class: "itt-estado" }, icono("cloud-check"), h("span", {}, "Guardado")),
+          b.aviso ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia por conflicto")) : null,
+          h("span", { class: "cot-tarjeta__espacio" }),
+          boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${d.title || "croquis"}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
     }
   }
   async function nuevo() {
-    if (!ctx) return mensaje("Abre esta pantalla una vez con conexión para preparar los croquis sin señal.", "error");
+    if (!ctx) return mensaje("Sin conexión. Abre Croquis una vez con señal para poder trabajar sin ella.", "error");
     const d = new Date(), dos = (n) => String(n).padStart(2, "0");
     const base = JSON.parse(JSON.stringify(ctx.base));
     base.sketch_date = `${dos(d.getDate())}/${dos(d.getMonth() + 1)}/${d.getFullYear()}`;
@@ -104,7 +111,8 @@
     location.hash = `#/q/${r.id}`;
   }
   async function borrarRegistro(b) {
-    if (!(await confirmar(b.sucio || !b.servidor_id ? "Este croquis tiene cambios que quizá no estén en el servidor. Si lo eliminas, se pierde. ¿Eliminarlo?" : "¿Eliminar este croquis y su cartografía? No se puede deshacer.", { aceptar: "Eliminar", peligro: true }))) return;
+    const nombre = b.datos.title || "este croquis";
+    if (!(await confirmar(b.sucio || !b.servidor_id ? `¿Eliminar «${nombre}»? Tiene cambios que aún no se suben y se perderán.` : `¿Eliminar «${nombre}» y su cartografía? No se puede deshacer.`, { aceptar: "Eliminar croquis", peligro: true }))) return;
     await docs.borrar(b.id);
     await pintarLista();
     ITT.subirAhora && ITT.subirAhora();
@@ -127,7 +135,7 @@
             layers: [{ id: "fondo", type: "background", paint: { "background-color": "#E7EDF1" } }, { id: "osm", type: "raster", source: "osm", layout: { visibility: "none" } }, { id: "topo", type: "raster", source: "topo", layout: { visibility: "none" } }] },
         });
       } catch (e) {
-        $("cq-mapa-info").textContent = "Tu navegador no puede dibujar el mapa. Puedes escribir o importar los vértices; la vectorización y la exportación funcionan igual.";
+        $("cq-mapa-info").textContent = "Este navegador no puede mostrar el mapa. Escribe o importa los vértices; todo lo demás funciona igual.";
         resolver(false);
         return;
       }
@@ -378,7 +386,7 @@
 
   // -- Importar ------------------------------------------------------------------------------------------------------------------------
   async function importar(archivo) {
-    if (!enLinea()) return mensaje("Importar necesita conexión: el archivo se lee en el servidor.", "error");
+    if (!enLinea()) return mensaje("Sin conexión. Importa el archivo cuando vuelva la señal.", "error");
     const f = new FormData(); f.append("archivo", archivo);
     try {
       const r = await docs.pedir(urls.importar, { metodo: "POST", formulario: f });
@@ -464,7 +472,7 @@
   async function vectorizar() {
     const km2 = areaKm2(reg.datos.points);
     if (km2 > (ctx.limite_km2 || 50)) return mensaje(`El área mide ${textoKm2(km2)} km²: la web procesa hasta ${ctx.limite_km2} km².`, "error");
-    if (!enLinea()) return mensaje("Vectorizar consulta OpenStreetMap desde el servidor y necesita conexión.", "error");
+    if (!enLinea()) return mensaje("Sin conexión. Vectoriza el mapa cuando vuelva la señal.", "error");
     if (km2 > 10 && !(await confirmar(`Vas a procesar ${textoKm2(km2)} km² de OpenStreetMap. Puede tardar un par de minutos. ¿Continuar?`, { aceptar: "Vectorizar" }))) return;
     await correrTrabajo("Vectorizando el mapa", () => docs.pedir(docs.url("vectorizar", reg.servidor_id), { metodo: "POST", json: {} }), async () => {
       await refrescarEstado();
@@ -479,7 +487,7 @@
   }
 
   async function exportar(formato) {
-    if (!enLinea()) return mensaje("Exportar se hace en el servidor y necesita conexión. El croquis está guardado en este teléfono.", "error");
+    if (!enLinea()) return mensaje("Sin conexión. Exporta cuando vuelva la señal; el croquis ya está guardado.", "error");
     await correrTrabajo(formato === "pdf" ? "Generando el PDF" : "Generando el DXF", () => docs.pedir(docs.url("exportar", reg.servidor_id), { metodo: "POST", json: { formato } }), async () => {
       const r = await docs.pedir(`${docs.url("descargar", reg.servidor_id)}?ver=1`, { crudo: true });
       const blob = await r.blob();
@@ -492,7 +500,7 @@
       for (const id of ["salida-compartir", "salida-descargar"]) { $(id).hidden = false; $(id).disabled = false; }
       if (formato === "pdf") {
         try { await ITT.vistaPdf.dibujar(blob, $("salida-paginas"), { pdfjs: raiz.dataset.pdfjs, worker: raiz.dataset.pdfjsWorker }); }
-        catch (e) { $("salida-estado").textContent = `${nombre} (no se pudo mostrar aquí; puedes compartirlo o descargarlo)`; }
+        catch (e) { $("salida-estado").textContent = `${nombre} · no se puede mostrar aquí, pero puedes compartirlo o descargarlo.`; }
       } else {
         $("salida-resumen").hidden = false;
         $("salida-resumen").textContent = "DXF R2010 en metros, proyectado a WGS84 / UTM.";
@@ -533,6 +541,9 @@
   async function ruta() {
     mensaje("");
     if (reg && temporizador) await guardarYa();
+    const s = /^#\/s\/([0-9a-f-]{36})$/.exec(location.hash || "");          // desde la búsqueda: id del servidor
+    if (s) { const local = await docs.localDe(s[1]); history.replaceState(null, "", local ? `#/q/${local}` : "#/"); return ruta(); }
+    if (location.hash === "#/nuevo") { history.replaceState(null, "", "#/"); if (ctx) return nuevo(); }            // acción «Nuevo …» de la paleta
     const m = /^#\/q\/([0-9a-f-]{36})$/.exec(location.hash || "");
     if (m) {
       const r = await ITT.cola.borrador(m[1]);
@@ -563,6 +574,7 @@
 
   function enlazar() {
     $("cq-nuevo").addEventListener("click", nuevo);
+    $("cq-nuevo-vacio").addEventListener("click", nuevo);
     for (const e of raiz.querySelectorAll("[data-dato]")) e.addEventListener(e.tagName === "SELECT" ? "change" : "input", alEscribir);
     for (const b of document.querySelectorAll(".cq-modos [data-modo]")) b.addEventListener("click", () => ponerModo(b.dataset.modo));
     $("cq-ajustar").addEventListener("click", ajustar);
@@ -571,7 +583,8 @@
       const activa = raiz.dataset.completo !== "1";
       raiz.dataset.completo = activa ? "1" : "";
       $("cq-completa").setAttribute("aria-pressed", String(activa));
-      $("cq-completa").textContent = activa ? "Salir de pantalla completa" : "Pantalla completa";
+      const bc = $("cq-completa"), rotulo = activa ? "Salir de pantalla completa" : "Pantalla completa";
+      limpiar(bc); bc.append(icono(activa ? "minimize" : "maximize"), h("span", {}, rotulo)); bc.setAttribute("aria-label", rotulo); bc.title = rotulo;
       document.body.classList.toggle("cq-sin-desplazar", activa);
       if (mapa) setTimeout(() => mapa.resize(), 0);
     });
@@ -592,13 +605,20 @@
     $("salida-descargar").addEventListener("click", descargarSalida);
     for (const b of document.querySelectorAll("[data-cerrar]")) b.addEventListener("click", () => b.closest("dialog").close());
     addEventListener("hashchange", ruta);
-    const red = () => { $("cq-red").textContent = enLinea() ? "En línea" : "Sin conexión: puedes seguir editando; el mapa y la exportación necesitan señal."; $("cq-red").dataset.estado = enLinea() ? "en_linea" : "sin_conexion"; estadoGuardado(); };
+    const red = () => {
+      const e = $("cq-red");
+      limpiar(e);
+      if (!enLinea()) e.append(icono("cloud-off"), h("span", {}, "Sin conexión. Puedes seguir editando; el mapa y la exportación vuelven con la señal."));
+      e.hidden = enLinea();
+      e.dataset.estado = enLinea() ? "en_linea" : "sin_conexion";
+      estadoGuardado();
+    };
     addEventListener("online", red); addEventListener("offline", red); red();
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "croquis") return;
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
-        await confirmar("Este croquis cambió en otro dispositivo mientras lo editabas aquí. Tus cambios NO se perdieron: se guardaron como una copia nueva. Te llevamos a la copia.", { aceptar: "Ver la copia", soloAviso: true });
+        await confirmar("Este croquis cambió en otro dispositivo mientras lo editabas. Tus cambios están a salvo en una copia nueva.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/q/${d.copia}`;
       } else if (d.tipo_evento === "sincronizado") {
         if (raiz.dataset.vista === "lista") pintarLista();
@@ -619,7 +639,7 @@
     docs.iniciar(urls);
     enlazar();
     await asegurarCuenta();
-    try { ctx = await contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Vuelve a iniciar sesión para preparar los croquis." : "Abre esta pantalla una vez con conexión para preparar los croquis sin señal.", "error"); }
+    try { ctx = await contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Tu sesión terminó. Vuelve a iniciar sesión." : "Sin conexión. Abre Croquis una vez con señal para poder trabajar sin ella.", "error"); }
     if (ctx) await ruta(); else { mostrar("lista"); await pintarLista(); }
     docs.sincronizar();
     document.documentElement.dataset.cqLista = "1";

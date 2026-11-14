@@ -137,6 +137,8 @@ def test_cuarenta_fotos_sin_conexion_notas_cierre_subida_y_pdf(motor, tmp_path, 
         r = Reporte.objects.get()
         assert [f["sha256"] for f in r.datos["fotos"]] == [a[0] for a in antes] and r.fotos == 40
         # --- PDF: sin croquis (la primera foto en la portada) = 40 páginas ---
+        if not pagina.evaluate("document.getElementById('rep-paso-datos').open"):
+            pagina.locator("#rep-paso-datos summary").click()                                # con fotos, los datos del reporte abren plegados
         pagina.locator("#r-croquis").uncheck()
         pagina.locator("#rep-pdf").click()
         expect(pagina.locator("#dlg-pdf")).to_be_visible()

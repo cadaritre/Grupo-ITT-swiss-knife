@@ -1,38 +1,40 @@
 {% extends "herramientas/pwa/_pagina.html" %}
-{% load static %}
+{% load static tv %}
 {% block titulo %}Croquis de ubicación{% endblock %}
 {% block contenido %}
 {# HTML idéntico para todas las cuentas: así el service worker lo guarda y se abre sin conexión. Los datos llegan de IndexedDB y de la API. #}
 <div id="cq" class="cot cq" data-pdfjs="{% static 'herramientas/vendor/pdfjs/pdf.min.mjs' %}" data-pdfjs-worker="{% static 'herramientas/vendor/pdfjs/pdf.worker.min.mjs' %}"{% for nombre, ruta in urls.items %} data-url-{{ nombre }}="{{ ruta }}"{% endfor %}>
-  <p id="cq-red" class="tv-tenue cot-red" role="status"></p>
+  <p id="cq-red" class="cot-red" role="status" hidden></p>
   <p id="cq-mensaje" class="itt-aviso" role="alert" hidden></p>
 
   <section id="cq-vista-lista" aria-labelledby="cq-titulo-lista">
-    <div class="cot-encabezado"><h1 id="cq-titulo-lista">Croquis de ubicación</h1></div>
-    <div class="itt-acciones"><button type="button" id="cq-nuevo" class="tv-boton">Nuevo croquis</button></div>
-    <p id="cq-lista-vacia" class="tv-tenue" hidden>Aún no hay croquis. Crea el primero con «Nuevo croquis».</p>
+    <header class="tv-encabezado">
+      <div class="tv-encabezado__titulos"><h1 id="cq-titulo-lista">Croquis de ubicación</h1></div>
+      <div class="tv-acciones"><button type="button" id="cq-nuevo" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nuevo croquis</span></button></div>
+    </header>
+    <div id="cq-lista-vacia" class="itt-vacio" hidden>{% icono "map" %}<p>Aún no tienes croquis</p><button type="button" class="tv-boton" id="cq-nuevo-vacio">{% icono "plus" %}<span>Nuevo croquis</span></button></div>
     <ul id="cq-lista" class="cot-lista"></ul>
   </section>
 
   <section id="cq-vista-editor" aria-labelledby="cq-titulo-editor" hidden>
-    <div class="cot-encabezado">
-      <a href="#/" class="tv-boton tv-boton--secundario">‹ Croquis</a>
-      <span id="cq-estado-guardado" class="tv-tenue" role="status"></span>
+    <div class="cot-barra-sup">
+      <a href="#/" class="tv-boton tv-boton--secundario itt-boton-plano cot-volver">{% icono "arrow-left" %}<span>Croquis</span></a>
+      <span id="cq-estado-guardado" class="itt-estado" role="status"></span>
     </div>
     <h1 id="cq-titulo-editor" class="cot-titulo-doc">Croquis</h1>
     <p id="cq-aviso-doc" class="tv-alerta tv-alerta--aviso" hidden></p>
 
     <div class="cq-herramientas" role="toolbar" aria-label="Herramientas de dibujo">
       <div class="cq-modos" role="group" aria-label="Modo">
-        <button type="button" class="tv-boton tv-boton--secundario" data-modo="static" aria-pressed="true">Mover</button>
-        <button type="button" class="tv-boton tv-boton--secundario" data-modo="polygon" aria-pressed="false">Polígono</button>
-        <button type="button" class="tv-boton tv-boton--secundario" data-modo="rectangle" aria-pressed="false">Rectángulo</button>
-        <button type="button" class="tv-boton tv-boton--secundario" data-modo="select" aria-pressed="false">Editar</button>
+        <button type="button" class="tv-boton tv-boton--secundario" data-modo="static" aria-pressed="true">{% icono "hand" %}<span>Mover</span></button>
+        <button type="button" class="tv-boton tv-boton--secundario" data-modo="polygon" aria-pressed="false">{% icono "pentagon" %}<span>Polígono</span></button>
+        <button type="button" class="tv-boton tv-boton--secundario" data-modo="rectangle" aria-pressed="false">{% icono "square-dashed" %}<span>Rectángulo</span></button>
+        <button type="button" class="tv-boton tv-boton--secundario" data-modo="select" aria-pressed="false">{% icono "mouse-pointer-2" %}<span>Editar</span></button>
       </div>
       <div class="cq-acciones-mapa">
-        <button type="button" id="cq-ajustar" class="tv-boton tv-boton--secundario">Ajustar al área</button>
-        <button type="button" id="cq-ubicacion" class="tv-boton tv-boton--secundario">Mi ubicación</button>
-        <button type="button" id="cq-completa" class="tv-boton tv-boton--secundario" aria-pressed="false">Pantalla completa</button>
+        <button type="button" id="cq-ajustar" class="tv-boton tv-boton--secundario" aria-label="Ajustar al área" title="Ajustar al área">{% icono "scan" %}<span>Ajustar al área</span></button>
+        <button type="button" id="cq-ubicacion" class="tv-boton tv-boton--secundario" aria-label="Mi ubicación" title="Mi ubicación">{% icono "locate-fixed" %}<span>Mi ubicación</span></button>
+        <button type="button" id="cq-completa" class="tv-boton tv-boton--secundario" aria-pressed="false" aria-label="Pantalla completa" title="Pantalla completa">{% icono "maximize" %}<span>Pantalla completa</span></button>
       </div>
     </div>
     <div id="cq-area" class="cq-area" role="status" data-estado="vacia">Sin área</div>
@@ -40,7 +42,7 @@
     <p id="cq-mapa-info" class="tv-tenue"></p>
 
     <details class="cot-paso" id="cq-paso-datos" open>
-      <summary>Datos del croquis</summary>
+      <summary>{% icono "file-text" %}<span>Datos del croquis</span></summary>
       <div class="cot-paso__cuerpo">
         <div class="tv-campo"><label for="q-title">Título</label><input id="q-title" data-dato="title" type="text" maxlength="200" autocomplete="off"></div>
         <div class="tv-campo"><label for="q-client">Cliente</label><input id="q-client" data-dato="client" type="text" maxlength="200" autocomplete="organization"></div>
@@ -52,20 +54,20 @@
     </details>
 
     <details class="cot-paso" id="cq-paso-vertices">
-      <summary>Vértices del área <span class="cot-resumen-paso" id="cq-resumen-vertices"></span></summary>
+      <summary>{% icono "pentagon" %}<span>Vértices del área</span><span class="cot-resumen-paso" id="cq-resumen-vertices"></span></summary>
       <div class="cot-paso__cuerpo">
         <div class="itt-acciones">
-          <label class="tv-boton tv-boton--secundario">Importar CSV o KML/KMZ<input id="cq-importar" class="itt-ocultar-entrada" type="file" accept=".csv,.txt,.kml,.kmz"></label>
-          <button type="button" id="cq-agregar-vertice" class="tv-boton tv-boton--secundario">Agregar vértice</button>
-          <button type="button" id="cq-limpiar" class="tv-boton tv-boton--secundario">Borrar el área</button>
+          <label class="tv-boton tv-boton--secundario">{% icono "upload" %}<span>Importar CSV o KML/KMZ</span><input id="cq-importar" class="itt-ocultar-entrada" type="file" accept=".csv,.txt,.kml,.kmz"></label>
+          <button type="button" id="cq-agregar-vertice" class="tv-boton tv-boton--secundario">{% icono "plus" %}<span>Agregar vértice</span></button>
+          <button type="button" id="cq-limpiar" class="tv-boton tv-boton--secundario">{% icono "trash-2" %}<span>Borrar el área</span></button>
         </div>
-        <p id="cq-sin-vertices" class="tv-tenue">Dibuja el área sobre el mapa, o importa un CSV con Punto, Latitud, Longitud y Descripción, o un KML/KMZ del predio.</p>
+        <p id="cq-sin-vertices" class="tv-tenue">Dibuja el área en el mapa o importa un CSV (Punto, Latitud, Longitud, Descripción) o un KML/KMZ.</p>
         <ol id="cq-vertices" class="itt-lista cq-vertices"></ol>
       </div>
     </details>
 
     <details class="cot-paso" id="cq-paso-capas">
-      <summary>Mapa y capas <span class="cot-resumen-paso" id="cq-resumen-capas"></span></summary>
+      <summary>{% icono "layers" %}<span>Mapa y capas</span><span class="cot-resumen-paso" id="cq-resumen-capas"></span></summary>
       <div class="cot-paso__cuerpo">
         <div class="tv-campo"><label for="q-map_layer">Mapa base</label><select id="q-map_layer" data-dato="map_layer"></select></div>
         <div class="tv-campo" id="q-contornos-caja"><label for="q-contour_interval">Equidistancia de curvas de nivel</label><select id="q-contour_interval" data-dato="contour_interval"></select></div>
@@ -80,11 +82,11 @@
     <div class="cot-barra" id="cq-barra" role="region" aria-label="Acciones del croquis">
       <p id="cq-resumen-barra" class="rep-resumen" role="status"></p>
       <div class="cot-barra__acciones cq-barra__acciones" id="cq-acciones">
-        <button type="button" id="cq-vectorizar" class="tv-boton">Vectorizar mapa</button>
-        <button type="button" id="cq-pdf" class="tv-boton" hidden>PDF</button>
-        <button type="button" id="cq-dxf" class="tv-boton tv-boton--secundario" hidden>DXF</button>
-        <button type="button" id="cq-modulo" class="tv-boton" hidden>Exportar proyecto para el módulo local</button>
-        <button type="button" id="cq-mas" class="tv-boton tv-boton--secundario">Más</button>
+        <button type="button" id="cq-vectorizar" class="tv-boton">{% icono "wand-sparkles" %}<span>Vectorizar mapa</span></button>
+        <button type="button" id="cq-pdf" class="tv-boton" hidden>{% icono "file-text" %}<span>PDF</span></button>
+        <button type="button" id="cq-dxf" class="tv-boton tv-boton--secundario" hidden>{% icono "file-code" %}<span>DXF</span></button>
+        <button type="button" id="cq-modulo" class="tv-boton" hidden>{% icono "download" %}<span>Exportar para el módulo local</span></button>
+        <button type="button" id="cq-mas" class="tv-boton tv-boton--secundario itt-boton-icono" aria-haspopup="dialog" aria-label="Más acciones" title="Más acciones">{% icono "ellipsis" %}</button>
       </div>
     </div>
   </section>
@@ -101,8 +103,8 @@
     <div id="salida-paginas" class="cot-vp-paginas"></div>
     <div class="tv-formulario__acciones">
       <button type="button" id="salida-cancelar" class="tv-boton tv-boton--secundario" hidden>Cancelar</button>
-      <button type="button" id="salida-compartir" class="tv-boton" disabled hidden>Compartir</button>
-      <button type="button" id="salida-descargar" class="tv-boton tv-boton--secundario" disabled hidden>Descargar</button>
+      <button type="button" id="salida-compartir" class="tv-boton" disabled hidden>{% icono "share-2" %}<span>Compartir</span></button>
+      <button type="button" id="salida-descargar" class="tv-boton tv-boton--secundario" disabled hidden>{% icono "download" %}<span>Descargar</span></button>
     </div>
   </div>
 </dialog>
@@ -111,10 +113,10 @@
   <div class="tv-hoja__cuerpo">
     <div class="tv-hoja__asa" aria-hidden="true"></div>
     <div class="tv-hoja__cabecera"><h2 id="dlg-mas-titulo">Más acciones</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
-    <div class="tv-pila">
-      <button type="button" id="mas-vectorizar" class="tv-boton tv-boton--secundario">Vectorizar de nuevo</button>
-      <button type="button" id="mas-modulo" class="tv-boton tv-boton--secundario">Exportar proyecto (.json) para el módulo local</button>
-      <button type="button" id="mas-borrar" class="tv-boton tv-boton--peligro">Eliminar croquis</button>
+    <div class="cot-menu-acciones">
+      <button type="button" id="mas-vectorizar" class="cot-menu-accion">{% icono "refresh-cw" %}<span>Vectorizar de nuevo</span></button>
+      <button type="button" id="mas-modulo" class="cot-menu-accion">{% icono "download" %}<span>Exportar proyecto (.json) para el módulo local</span></button>
+      <button type="button" id="mas-borrar" class="cot-menu-accion cot-menu-accion--peligro">{% icono "trash-2" %}<span>Eliminar croquis</span></button>
     </div>
   </div>
 </dialog>
