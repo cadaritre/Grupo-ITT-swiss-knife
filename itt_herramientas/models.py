@@ -268,3 +268,37 @@ class Croquis(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_croquis_cliente")]
         ordering = ["-actualizada"]
+
+
+class Triangulacion(models.Model):
+    """Un DXF de triangulación (herramientas-web.md §4.6): su superficie, el análisis de pendientes y el de escurrimiento.
+
+    La superficie (puntos y triángulos) y los análisis viven en archivos `.npz`; aquí quedan solo los resúmenes y las
+    opciones con que se calcularon. Cambiar la superficie borra los análisis (dejarían de corresponder).
+    """
+
+    class Estado(models.TextChoices):
+        SUBIDO = "subido", "Subido"
+        ANALIZANDO = "analizando", "Leyendo"
+        LISTO = "listo", "Listo"
+        ERROR = "error", "Con error"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cuenta_id = models.BigIntegerField(db_index=True)
+    nombre = models.CharField(max_length=150)
+    bytes = models.BigIntegerField()
+    ruta_origen = models.CharField(max_length=300)
+    estado = models.CharField(max_length=12, choices=Estado.choices, default=Estado.SUBIDO)
+    error = models.TextField(blank=True)
+    resumen = models.JSONField(default=dict, blank=True)            # entidades, capas con triángulos, límites del origen
+    superficie = models.JSONField(default=dict, blank=True)         # {origen, opciones, puntos, triangulos, z, limites, estadisticas}
+    pendientes = models.JSONField(default=dict, blank=True)         # {opciones, rangos[], area_total}
+    escurrimiento = models.JSONField(default=dict, blank=True)      # {opciones, rangos[], flechas, longitud_base}
+    tarea_id = models.UUIDField(null=True, blank=True)
+    salida_ruta = models.CharField(max_length=300, blank=True)
+    salida_tipo = models.CharField(max_length=16, blank=True)       # tin | pendientes | escurrimiento
+    salida_nombre = models.CharField(max_length=200, blank=True)
+    creada = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-creada"]

@@ -4,6 +4,7 @@ from . import views
 from .convertidor import vistas as convertidor
 from .cotizaciones import vistas as cotizaciones
 from .croquis import vistas as croquis
+from .triangulacion import vistas as triangulacion
 from .reportes import vistas as reportes
 
 app_name = "herramientas"
@@ -64,6 +65,16 @@ urlpatterns = [
     path("croquis/api/<uuid:pk>/descargar/", croquis.descargar, name="croquis_descargar"),
     path("croquis/api/<uuid:pk>/vectores.geojson", croquis.vectores, name="croquis_vectores"),
     path("croquis/api/<uuid:pk>/editable.json", croquis.editable, name="croquis_editable"),
+    path("triangulacion/", triangulacion.inicio, name="triangulacion"),
+    path("triangulacion/<uuid:pk>/", triangulacion.banco, name="triangulacion_banco"),
+    path("triangulacion/<uuid:pk>/superficie/", triangulacion.superficie, name="triangulacion_superficie"),
+    path("triangulacion/<uuid:pk>/pendientes/", triangulacion.pendientes, name="triangulacion_pendientes"),
+    path("triangulacion/<uuid:pk>/escurrimiento/", triangulacion.escurrimiento, name="triangulacion_escurrimiento"),
+    path("triangulacion/<uuid:pk>/exportar/", triangulacion.exportar, name="triangulacion_exportar"),
+    path("triangulacion/<uuid:pk>/borrar/", triangulacion.borrar, name="triangulacion_borrar"),
+    path("triangulacion/<uuid:pk>/descargar/", triangulacion.descargar, name="triangulacion_descargar"),
+    path("triangulacion/<uuid:pk>/vista.png", triangulacion.vista, name="triangulacion_vista"),
+    path("triangulacion/<uuid:pk>/vector.json", triangulacion.vector, name="triangulacion_vector"),
     path("preferencias/", views.preferencias_, name="preferencias"),
     path("diccionario/", views.diccionario, name="diccionario"),
     path("perfiles/", views.perfiles_, name="perfiles"),

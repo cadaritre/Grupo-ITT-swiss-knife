@@ -21,6 +21,7 @@ class HerramientasConfig(AppConfig):
         osm_vector.OVERPASS_ENDPOINTS = tuple(ajustes.valor("TV_OVERPASS_URLS"))         # las instancias de Overpass las fija el contrato
         from . import checks  # noqa: F401  (registra las comprobaciones)
         from .convertidor import destinos as destinos_convertidor  # noqa: F401  (registra «herramientas.convertidor_entrada»)
+        from .triangulacion import destinos as destinos_triangulacion  # noqa: F401  (registra «herramientas.triangulacion_entrada»)
         from .offline import destinos  # noqa: F401  (registra el destino de subida «herramientas.captura»)
 
         post_migrate.connect(perfiles.sembrar_perfiles, sender=self, dispatch_uid="herramientas.sembrar_perfiles")

@@ -14,6 +14,14 @@ Triangle = tuple[Point3D, Point3D, Point3D]
 ProgressCallback = Callable[[float, str], None]
 
 
+class SuperaLimite(ValueError):
+    """Se superó un límite opcional de tamaño (la web lo fija; el escritorio no tiene límite)."""
+
+    def __init__(self, que: str, valor: int, maximo: int):
+        super().__init__(f"{que}: {valor:,} (máximo {maximo:,}).")
+        self.que, self.valor, self.maximo = que, valor, maximo
+
+
 def _progress(callback: ProgressCallback | None, value: float, message: str):
     if callback:
         callback(max(0.0, min(1.0, value)), message)
@@ -242,6 +250,7 @@ def create_tin_model(
     max_edge: float | None = None,
     min_area: float = 1e-9,
     progress: ProgressCallback | None = None,
+    max_points: int | None = None,
 ) -> TinModel:
     try:
         from shapely import delaunay_triangles
@@ -252,6 +261,8 @@ def create_tin_model(
     raw_points, stats = read_dxf_points(path, include_points, include_inserts, include_polyline_vertices)
     _progress(progress, 0.26, f"{len(raw_points):,} puntos leídos · eliminando duplicados XY…")
     points, stats.duplicates = deduplicate_xy(raw_points, dedup_decimals)
+    if max_points is not None and len(points) > max_points:
+        raise SuperaLimite("Puntos únicos tras eliminar duplicados", len(points), max_points)
     if len(points) < 3:
         raise ValueError("No hay al menos tres puntos XY únicos. Activa POINT, INSERT o vértices de polilínea según corresponda.")
     _progress(progress, 0.38, f"{len(points):,} puntos únicos · calculando Delaunay…")
@@ -362,7 +373,8 @@ def triangle_layers(path: str | Path) -> list[str]:
     }, key=str.casefold)
 
 
-def extract_triangles(path: str | Path, selected_layers: Iterable[str] | None = None, progress: ProgressCallback | None = None) -> list[Triangle]:
+def extract_triangles(path: str | Path, selected_layers: Iterable[str] | None = None, progress: ProgressCallback | None = None,
+                      max_triangles: int | None = None) -> list[Triangle]:
     try:
         import ezdxf
     except ImportError as exc:
@@ -388,6 +400,8 @@ def extract_triangles(path: str | Path, selected_layers: Iterable[str] | None = 
         for triangle in _fan_triangles(_entity_vertices(entity)):
             if triangle_area_2d(triangle) > 1e-9:
                 triangles.append(triangle)
+        if max_triangles is not None and len(triangles) > max_triangles:
+            raise SuperaLimite("Triángulos", len(triangles), max_triangles)
     if not triangles:
         raise ValueError("No se encontraron triángulos válidos en las capas seleccionadas.")
     _progress(progress, 1.0, f"{len(triangles):,} triángulos leídos")

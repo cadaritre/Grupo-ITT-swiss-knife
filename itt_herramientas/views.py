@@ -29,6 +29,7 @@ TTL_IMPORTACION = 3600
 HERRAMIENTAS_DE_INICIO = (
     ("cotizaciones", "Cotizaciones", "Crea y edita cotizaciones, también sin señal. Genera el PDF y compártelo.", "herramientas:cotizaciones"),
     ("croquis", "Croquis de ubicación", "Dibuja el área sobre el mapa, vectoriza OpenStreetMap y genera el PDF y el DXF.", "herramientas:croquis"),
+    ("triangulacion", "Triangulación y pendientes", "Genera un TIN desde puntos, zonifica pendientes y dibuja el escurrimiento; exporta DXF.", "herramientas:triangulacion"),
     ("convertidor", "Convertidor DXF ↔ KML/KMZ", "Convierte planos y polígonos entre DXF, KML y KMZ.", "herramientas:convertidor"),
     ("reportes", "Reportes fotográficos", "Toma fotos en campo con hora y ubicación, ordénalas y genera el PDF. Funciona sin señal.", "herramientas:reportes"),
 )
