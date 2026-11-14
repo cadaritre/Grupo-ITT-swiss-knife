@@ -27,13 +27,13 @@
     <div class="tri-lienzo-caja"><canvas id="tri-lienzo" class="tri-lienzo" aria-label="Superficie: arrastra para mover, pellizca o usa la rueda para acercar"></canvas><p id="tri-mensaje" class="tri-mensaje" role="status"></p></div>
     <p id="tri-info" class="tv-tenue" role="status">{% if sup %}{{ sup.puntos|stringformat:"d" }} puntos · {{ sup.triangulos|stringformat:"d" }} triángulos · elevación {{ sup.z.0|floatformat:3 }} a {{ sup.z.1|floatformat:3 }} m{% else %}Calcula la superficie para ver el resultado.{% endif %}</p>
     <div id="tri-leyenda-pendientes" class="tri-leyenda" hidden>
-      <table class="tv-tabla"><thead><tr><th>Rango</th><th>Triángulos</th><th>Área 2D (m²)</th><th>%</th></tr></thead><tbody>
-      {% for r in pen.rangos %}<tr><td><span class="tri-muestra" data-color="{{ r.color_hex }}"></span> {{ r.name }} · {{ r.etiqueta }}</td><td>{{ r.count|stringformat:"d" }}</td><td>{{ r.area_2d|floatformat:2 }}</td><td>{{ r.porcentaje|floatformat:1 }}</td></tr>{% endfor %}
+      <table class="tv-tabla tri-tabla"><thead><tr><th>Rango</th><th class="tv-num">Triángulos</th><th class="tv-num">Área 2D (m²)</th><th class="tv-num">%</th></tr></thead><tbody>
+      {% for r in pen.rangos %}<tr><td data-etiqueta="Rango"><span><span class="tri-muestra" data-color="{{ r.color_hex }}"></span> {{ r.name }} · {{ r.etiqueta }}</span></td><td class="tv-num" data-etiqueta="Triángulos">{{ r.count|stringformat:"d" }}</td><td class="tv-num" data-etiqueta="Área 2D (m²)">{{ r.area_2d|floatformat:2 }}</td><td class="tv-num" data-etiqueta="%">{{ r.porcentaje|floatformat:1 }}</td></tr>{% endfor %}
       </tbody></table>
     </div>
     <div id="tri-leyenda-flujo" class="tri-leyenda" hidden>
-      <table class="tv-tabla"><thead><tr><th>Rango</th><th>Flechas</th></tr></thead><tbody>
-      {% for r in flu.rangos %}<tr><td><span class="tri-muestra" data-color="{{ r.color_hex }}"></span> {{ r.name }} · {{ r.etiqueta }} · x{{ r.length_factor|floatformat:"-2" }} · {{ r.lineweight_mm|floatformat:"-2" }} mm</td><td>{{ r.count|stringformat:"d" }}</td></tr>{% endfor %}
+      <table class="tv-tabla tri-tabla"><thead><tr><th>Rango</th><th class="tv-num">Flechas</th></tr></thead><tbody>
+      {% for r in flu.rangos %}<tr><td data-etiqueta="Rango"><span><span class="tri-muestra" data-color="{{ r.color_hex }}"></span> {{ r.name }} · {{ r.etiqueta }} · x{{ r.length_factor|floatformat:"-2" }} · {{ r.lineweight_mm|floatformat:"-2" }} mm</span></td><td class="tv-num" data-etiqueta="Flechas">{{ r.count|stringformat:"d" }}</td></tr>{% endfor %}
       </tbody></table>
       <p class="tv-tenue">{{ flu.flechas|stringformat:"d" }} flechas · longitud base {{ flu.longitud_base|floatformat:2 }} m · pendiente mínima {{ flu.pendiente_min|floatformat:"-2" }}%</p>
     </div>
