@@ -15,9 +15,10 @@ from . import autoria
 
 
 def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, nuevos: dict, *,
-                aplicar: Callable, aplicar_copia: Callable, error: type[Exception]) -> dict:
+                aplicar: Callable, aplicar_copia: Callable, error: type[Exception], normalizar: Callable | None = None) -> dict:
     """`nuevos`: datos validados (se comparan con los guardados). `aplicar(obj)` los vuelca en el registro; `aplicar_copia(obj)`
-    hace lo mismo marcando que es una copia por conflicto. El registro necesita: cuenta_id, id_cliente, datos, revision, copia_de."""
+    hace lo mismo marcando que es una copia por conflicto. `normalizar(datos_guardados)` (opcional) los lleva al esquema actual
+    antes de compararlos. El registro necesita: cuenta_id, id_cliente, datos, revision, copia_de."""
     with transaction.atomic():
         propias = modelo.objects.select_for_update().filter(cuenta_id=usuario.pk)
         if servidor_id is not None:
@@ -34,7 +35,7 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
             if revision_base is None:                                     # reintento tras perder la respuesta de la creación
                 revision_base = 1
         resumen = lambda obj, **extra: {"servidor_id": str(obj.id), "revision": obj.revision, "folio": getattr(obj, "folio", ""), "autor": autoria.fila(obj), **extra}  # noqa: E731
-        if actual.datos == nuevos:
+        if (normalizar(actual.datos) if normalizar else actual.datos) == nuevos:
             return {"resultado": "sin_cambios", **resumen(actual)}
         if revision_base == actual.revision:
             aplicar(actual)

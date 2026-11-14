@@ -199,3 +199,16 @@ def generar_reporte_supervision(reporte_id):
     servicio.generar_copia(r)
     url = reverse("herramientas:supervision_reporte_descargar", args=[r.pk], urlconf=urlconf_de("herramientas")) + f"?revision={r.revision}"
     return {"mensaje": "PDF listo.", "url": url, "etiqueta": "Descargar PDF"}
+
+
+@tarea("herramientas")
+def armar_zip(token, cuenta_id, elementos, tipo, supervision=False):
+    """ZIP con los PDF de varios documentos (genera antes los reportes sin PDF al día). Hasta 50 por lote."""
+    from django.urls import reverse
+    from tvplataforma.middleware import urlconf_de
+
+    from .comun import zips
+
+    resultado = zips.armar(token, cuenta_id, elementos, tipo, supervision)
+    url = reverse("herramientas:zip_descargar", args=[token], urlconf=urlconf_de("herramientas"))
+    return {**resultado, "url": url, "etiqueta": "Descargar ZIP"}

@@ -12,8 +12,13 @@
     <select id="sup-autor" name="autor" data-tv-enviar-al-cambiar><option value="">Todos</option>{% for a in autores %}<option value="{{ a.cuenta_id }}"{% if a.cuenta_id == filtros.autor %} selected{% endif %}>{{ a.nombre|default:a.correo|default:"Sin nombre" }}{% if a.eliminada %} (cuenta eliminada){% endif %}</option>{% endfor %}</select></div>
   <div class="tv-campo"><label for="sup-tipo">Tipo</label>
     <select id="sup-tipo" name="tipo" data-tv-enviar-al-cambiar><option value="">Todos</option><option value="cotizacion"{% if filtros.tipo == "cotizacion" %} selected{% endif %}>Cotizaciones</option><option value="reporte"{% if filtros.tipo == "reporte" %} selected{% endif %}>Reportes</option></select></div>
+  <div class="tv-campo"><label for="sup-cliente">Cliente</label><input id="sup-cliente" type="text" name="cliente" value="{{ filtros.cliente }}" maxlength="160" autocomplete="off" spellcheck="false" placeholder="Todos" data-sup-clientes></div>
+  <div class="tv-campo"><label for="sup-estado">PDF del reporte</label>
+    <select id="sup-estado" name="estado" data-tv-enviar-al-cambiar><option value="">Todos</option>{% for k, v in estados.items %}<option value="{{ k }}"{% if filtros.estado == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
   <div class="tv-campo sup-filtros__fecha"><label for="sup-desde">Creado desde</label><input id="sup-desde" type="date" name="desde" value="{{ filtros.desde|date:'Y-m-d' }}"></div>
   <div class="tv-campo sup-filtros__fecha"><label for="sup-hasta">Hasta</label><input id="sup-hasta" type="date" name="hasta" value="{{ filtros.hasta|date:'Y-m-d' }}"></div>
+  <div class="tv-campo"><label for="sup-orden">Ordenar por</label>
+    <select id="sup-orden" name="orden" data-tv-enviar-al-cambiar>{% for k, v in ordenes.items %}<option value="{% if k != 'recientes' %}{{ k }}{% endif %}"{% if filtros.orden == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
   <div class="sup-filtros__acciones">
     <button class="tv-boton tv-boton--secundario" type="submit">{% icono "list-filter" %}<span>Filtrar</span></button>
     {% if filtros.activos %}<a class="tv-boton tv-boton--fantasma" href="{% url 'herramientas:supervision' %}">{% icono "x" %}<span>Quitar filtros</span></a>{% endif %}
@@ -24,10 +29,18 @@
 <section id="sup-resultados" class="sup-resultados" aria-labelledby="sup-cuantos" aria-live="polite">
   <h2 class="itt-seccion" id="sup-cuantos">{{ pagina.paginator.count }} documento{{ pagina.paginator.count|pluralize }}</h2>
   {% if filas %}
+  <div class="sup-seleccion" id="sup-seleccion" role="region" aria-label="Selección" data-total="{{ pagina.paginator.count }}" data-maximo="{{ maximo_zip }}" data-url-zip="{% url 'herramientas:supervision_zip' %}">
+    <span id="sup-sel-cuenta" class="sup-seleccion__cuenta">Elige documentos para descargarlos juntos</span>
+    <button type="button" class="tv-boton tv-boton--fantasma" id="sup-sel-todos" hidden>{% icono "list-checks" %}<span>Seleccionar los {{ pagina.paginator.count }} resultados</span></button>
+    <button type="button" class="tv-boton tv-boton--fantasma" id="sup-sel-quitar" hidden>{% icono "x" %}<span>Quitar selección</span></button>
+    <button type="button" class="tv-boton" id="sup-sel-zip" disabled>{% icono "download" %}<span>Descargar seleccionados</span></button>
+    <p id="sup-zip-estado" class="itt-estado sup-seleccion__estado" role="status" hidden></p>
+  </div>
   <div class="tv-tabla-envoltura"><table class="tv-tabla sup-tabla">
-    <thead><tr><th scope="col">Documento</th><th scope="col">Autor</th><th scope="col" class="tv-num">Total</th><th scope="col" class="tv-num">Fotos</th><th scope="col">Fechas</th><th scope="col"><span class="tv-solo-lectores">Acciones</span></th></tr></thead>
+    <thead><tr><th scope="col" class="sup-col-casilla"><label class="itt-casilla"><input type="checkbox" id="sup-sel-pagina" aria-label="Seleccionar los de esta página"></label></th><th scope="col">Documento</th><th scope="col">Autor</th><th scope="col" class="tv-num">Total</th><th scope="col" class="tv-num">Fotos</th><th scope="col">Fechas</th><th scope="col"><span class="tv-solo-lectores">Acciones</span></th></tr></thead>
     <tbody>{% for f in filas %}{% if f.tipo == "cotizacion" %}{% url 'herramientas:supervision_cotizacion' f.id as abrir %}{% else %}{% url 'herramientas:supervision_reporte' f.id as abrir %}{% endif %}
     <tr data-tipo="{{ f.tipo }}">
+      <td class="sup-col-casilla" data-etiqueta=""><label class="itt-casilla"><input type="checkbox" data-sup-sel="{{ f.tipo }}:{{ f.id }}" aria-label="Seleccionar «{{ f.titulo|default:'Sin título' }}»"></label></td>
       <td data-etiqueta="Documento"><a class="sup-doc" href="{{ abrir }}">
         <span class="sup-doc__icono" data-tipo="{{ f.tipo }}">{% if f.tipo == "cotizacion" %}{% icono "receipt" %}{% else %}{% icono "camera" %}{% endif %}</span>
         <span class="sup-doc__texto"><strong>{{ f.titulo|default:"Sin título" }}</strong><span class="tv-tenue">{{ f.tipo_nombre }}{% if f.folio %} · {{ f.folio }}{% endif %}{% if f.cliente %} · {{ f.cliente }}{% endif %}</span></span></a></td>
@@ -62,5 +75,7 @@
 {% endblock %}
 {% block scripts %}
 <link rel="stylesheet" href="{% static 'herramientas/supervision/supervision.css' %}">
+<script src="{% static 'herramientas/offline/combobox.js' %}"></script>
+{{ clientes|json_script:"sup-clientes" }}
 <script src="{% static 'herramientas/supervision/supervision.js' %}" data-url-tarea="{% url 'tvplataforma:tarea' '00000000-0000-0000-0000-000000000000' %}" id="sup-script"></script>
 {% endblock %}

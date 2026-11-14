@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import autoria, diccionarios, perfiles
+from ..comun import autoria, diccionarios, perfiles, zips
 from ..models import Cotizacion, MachoteCuenta
 from . import servicio
 
@@ -31,12 +31,13 @@ MARCA_ID = "00000000-0000-0000-0000-000000000000"
 
 def _urls() -> dict:
     """URL de la API para el editor. Las que llevan identificador usan una marca que el JS sustituye (nada escrito a mano)."""
-    fijas = ("contexto", "lista", "sincronizar", "pdf", "ortografia", "traducir", "palabra", "machotes", "machotes_exportar", "machotes_importar", "importar")
+    fijas = ("contexto", "lista", "sincronizar", "pdf", "ortografia", "traducir", "palabra", "machotes", "machotes_exportar", "machotes_importar", "importar", "zip")
     con_id = ("detalle", "duplicar", "editable", "machote", "machote_restaurar")
     urls = {n.replace("_", "-"): reverse(f"herramientas:cotizaciones_{n}") for n in fijas}
     urls.update({n.replace("_", "-"): reverse(f"herramientas:cotizaciones_{n}", kwargs={"pk": MARCA_ID}) for n in con_id})
     urls["foto"] = reverse("herramientas:cotizaciones_foto", kwargs={"sha256": "SHA"})
     urls["capturar"] = reverse("herramientas:capturar")
+    urls["tarea"] = reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA_ID})
     return urls
 
 
@@ -285,3 +286,14 @@ def foto(request, sha256):
     respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if ruta.suffix == ".png" else "image/jpeg")
     respuesta["Cache-Control"] = "private, max-age=86400"
     return respuesta
+
+
+@usuario_de_cotizaciones
+@require_POST
+def zip_lote(request):
+    """Varias cotizaciones propias en un ZIP de PDF: `{"elementos": [["cotizacion", id], …]}` (hasta 50)."""
+    try:
+        elementos = zips.cuerpo_json(request).get("elementos")
+    except zips.LoteInvalido as exc:
+        return _error(exc, 422)
+    return zips.responder(request, elementos, "cotizaciones")

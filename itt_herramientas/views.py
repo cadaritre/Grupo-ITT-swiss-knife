@@ -469,3 +469,22 @@ def buscar(request):
     respuesta = JsonResponse({"resultados": resultados[:20]})
     respuesta["Cache-Control"] = "private, no-store"
     return respuesta
+
+
+@usuario_de_herramientas
+@require_GET
+def zip_descargar(request, token):
+    """El ZIP que armó una tarea de ESTA cuenta (nadie más lo descarga). Se sirve por partes, sin cargarlo en memoria."""
+    from django.http import FileResponse
+    from django.utils.http import content_disposition_header
+
+    from .comun import zips
+
+    encontrado = zips.de_la_cuenta(request.user.pk, token)
+    if encontrado is None:
+        raise Http404
+    ruta, nombre = encontrado
+    respuesta = FileResponse(open(ruta, "rb"), content_type="application/zip")
+    respuesta["Content-Disposition"] = content_disposition_header(True, nombre)
+    respuesta["Cache-Control"] = "private, no-store"
+    return respuesta

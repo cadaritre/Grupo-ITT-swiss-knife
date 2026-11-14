@@ -123,21 +123,32 @@
   }
 
   // -- Lista -------------------------------------------------------------------------------------------------------------------
+  const controlLista = ITT.listas.crear({
+    prefijo: "cot", tipo: "cotizacion", zip: urls.zip, tarea: urls.tarea, mensaje: "cot-mensaje", alCambiar: () => pintarLista(),
+    campos: {
+      texto: (b) => [b.datos.quote_number, b.datos.client_name, b.datos.project_title, b.autor && b.autor.nombre, b.autor && b.autor.correo].join(" "),
+      cliente: (b) => b.datos.client_name || "", titulo: (b) => b.datos.project_title || "", fecha: (b) => ITT.ui.fechaAIso(b.datos.quote_date),
+      reciente: (b) => Number(b.actualizada || b.creada || 0),
+    },
+  });
+  let ultimaLista = "#/";
+
   async function pintarLista() {
     const lista = $("cot-lista");
-    const filtro = $("cot-buscar").value.trim().toLowerCase();
-    const todos = (await ITT.cot.listar()).sort((a, b) => String(b.actualizada || b.creada || "").localeCompare(String(a.actualizada || a.creada || "")));
-    const visibles = todos.filter((b) => !filtro || [b.datos.quote_number, b.datos.client_name, b.datos.project_title].join(" ").toLowerCase().includes(filtro));
+    controlLista.desdeUrl();
+    const todos = await ITT.cot.listar();
+    controlLista.ponerClientes(todos.slice().sort((a, b) => b.actualizada - a.actualizada).map((b) => b.datos.client_name));
+    const visibles = controlLista.aplicar(todos);
     limpiar(lista);
     $("cot-lista-vacia").hidden = todos.length > 0;
-    $("cot-buscador").hidden = todos.length === 0;
-    $("cot-sin-resultados").hidden = !(todos.length && !visibles.length);
+    $("cot-herramientas-lista").hidden = todos.length === 0;
     for (const b of visibles) {
       const t = T.totales(b.datos);
       const folio = b.datos.quote_number || "Sin folio";
       const estado = b.error ? h("span", { class: "itt-estado", "data-estado": "error" }, icono("triangle-alert"), h("span", {}, "No se pudo subir"))
         : b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("cloud-off"), h("span", {}, "Sin subir")) : null;
-      lista.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "" },
+      lista.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "", "data-seleccionada": controlLista.seleccion.has(b.id) ? "1" : "" },
+        controlLista.casilla(b, folio),
         h("a", { class: "cot-tarjeta__enlace", href: `#/c/${b.id}` },
           h("span", { class: "cot-tarjeta__folio" }, folio),
           h("strong", { class: "cot-tarjeta__titulo" }, b.datos.project_title || "Sin título"),
@@ -698,6 +709,7 @@
       const r = await ITT.cola.borrador(m[1]);
       if (!r || r.borrada) { location.hash = "#/"; return; }
       reg = r;
+      $("cot-volver").setAttribute("href", ultimaLista);
       mostrar("editor");
       pintarCampos();
       document.title = `${$("cot-titulo-editor").textContent} · Cotizaciones`;
@@ -707,6 +719,7 @@
     reg = null;
     if (hash === "#/nueva") { history.replaceState(null, "", "#/"); if (ctx) return nueva(); }
     if (hash === "#/machotes") { mostrar("machotes"); await pintarMachotes(); return; }
+    ultimaLista = controlLista.hashLista();
     mostrar("lista");
     await pintarLista();
   }
@@ -715,7 +728,6 @@
     for (const e of raiz.querySelectorAll("[data-dato]")) e.addEventListener(e.type === "checkbox" ? "change" : "input", alEscribir);
     $("f-idioma").addEventListener("change", (e) => cambiarIdioma(e.target.value));
     $("cot-nueva").addEventListener("click", nueva);
-    $("cot-buscar").addEventListener("input", pintarLista);
     $("cot-importar").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importarEditable(f); });
     $("cot-machotes-importar").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importarMachotes(f); });
     $("cot-agregar").addEventListener("click", () => { const i = conceptoNuevo(); abrirConcepto(i, true); });

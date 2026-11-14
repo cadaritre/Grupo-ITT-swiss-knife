@@ -233,7 +233,7 @@ class Cotizacion(ConAutor):
 class Reporte(ConAutor):
     """Reporte fotográfico de una cuenta (herramientas-web.md §4.2). Se arma en el teléfono y se sincroniza como borrador.
 
-    `datos` = {titulo, fecha, con_croquis, con_credenciales, fotos: [{sha256, nota, tomada, lat, lon, precision, sin_ubicacion,
+    `datos` = {titulo, cliente, fecha, con_croquis, con_credenciales, fotos: [{sha256, nota, tomada, lat, lon, precision, sin_ubicacion,
     nombre}]}: el orden de `fotos` es el orden del PDF. Las fotos viven en `Captura` (por sha256); aquí solo se referencian.
     """
 
@@ -244,6 +244,7 @@ class Reporte(ConAutor):
     revision = models.PositiveIntegerField(default=1)
     perfil = models.CharField(max_length=20, default="grupo_itt")
     titulo = models.CharField(max_length=200, blank=True)
+    cliente = models.CharField(max_length=160, blank=True, db_index=True)      # copia de `datos["cliente"]` para buscar y filtrar
     fotos = models.PositiveIntegerField(default=0)
     copia_de = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="copias")
     tarea_id = models.UUIDField(null=True, blank=True)

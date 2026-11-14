@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from tvplataforma.models import Tarea
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import autoria, capturas, perfiles
+from ..comun import autoria, capturas, clientes, perfiles, zips
 from ..models import Reporte
 from ..tareas import generar_reporte
 from . import servicio
@@ -29,7 +29,7 @@ def pagina(request):
 
 
 def _urls() -> dict:
-    fijas = ("contexto", "lista", "sincronizar")
+    fijas = ("contexto", "lista", "sincronizar", "zip")
     con_id = ("detalle", "pdf", "descargar")
     urls = {n: reverse(f"herramientas:reportes_{n}") for n in fijas}
     urls.update({n: reverse(f"herramientas:reportes_{n}", kwargs={"pk": MARCA_ID}) for n in con_id})
@@ -76,6 +76,7 @@ def contexto(request):
         "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
         "titulo": servicio.titulo_por_omision(perfil), "max_fotos": servicio.MAX_FOTOS,
         "credenciales": bool(perfil.firmante_reporte or perfil.cedula_profesional),
+        "clientes": clientes.sugerencias(request.user.pk),
     }))
 
 
@@ -155,3 +156,14 @@ def foto(request, sha256):
     respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if ruta.suffix == ".png" else "image/jpeg")
     respuesta["Cache-Control"] = "private, max-age=86400"
     return respuesta
+
+
+@usuario_de_reportes
+@require_POST
+def zip_lote(request):
+    """Varios reportes propios en un ZIP: `{"elementos": [["reporte", id], …]}` (hasta 50). Los PDF que falten se generan antes."""
+    try:
+        elementos = zips.cuerpo_json(request).get("elementos")
+    except zips.LoteInvalido as exc:
+        return _error(exc)
+    return zips.responder(request, elementos, "reportes")

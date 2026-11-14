@@ -16,9 +16,8 @@
         <button type="button" id="cot-nueva" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nueva cotización</span></button>
       </div>
     </header>
-    <div class="cot-buscador" id="cot-buscador">{% icono "search" %}<label for="cot-buscar" class="tv-solo-lectores">Buscar cotizaciones</label><input id="cot-buscar" type="search" autocomplete="off" placeholder="Buscar por folio, cliente o proyecto"></div>
+    <div id="cot-herramientas-lista" hidden>{% include "herramientas/pwa/_lista_herramientas.html" with p="cot" marcador="Buscar por folio, cliente, proyecto o autor" titulo="Proyecto" %}</div>
     <div id="cot-lista-vacia" class="itt-vacio" hidden>{% icono "file-text" %}<p>Aún no tienes cotizaciones</p><button type="button" class="tv-boton" id="cot-nueva-vacia">{% icono "plus" %}<span>Nueva cotización</span></button></div>
-    <p id="cot-sin-resultados" class="tv-tenue cot-sin-resultados" hidden>Sin resultados.</p>
     <ul id="cot-lista" class="cot-lista"></ul>
   </section>
 
@@ -262,6 +261,7 @@
 <script src="{% static 'herramientas/offline/ayudas.js' %}"></script>
 <script src="{% static 'herramientas/offline/documentos.js' %}"></script>
 <script src="{% static 'herramientas/offline/vista-pdf.js' %}"></script>
+<script src="{% static 'herramientas/offline/listas.js' %}"></script>
 <script src="{% static 'herramientas/cotizaciones/totales.js' %}"></script>
 <script src="{% static 'herramientas/cotizaciones/borradores.js' %}"></script>
 <script src="{% static 'herramientas/cotizaciones/ortografia.js' %}"></script>

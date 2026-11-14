@@ -244,3 +244,57 @@ body { padding-bottom: calc(var(--itt-banda) + env(safe-area-inset-bottom)); }
 .itt-autoria__correo { overflow-wrap: anywhere; }
 .itt-autoria[hidden] { display: none; }
 .cot-tarjeta__autor { display: block; margin-top: 2px; font-size: var(--tv-texto-xs, .75rem); color: var(--tv-tenue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Casilla de selección de 44 px (listas con descarga en ZIP). */
+.itt-casilla { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; margin: -10px; cursor: pointer; }
+.itt-casilla input { width: 20px; height: 20px; margin: 0; accent-color: var(--tv-primario, #0b5cad); cursor: pointer; }
+.itt-casilla input:disabled { cursor: not-allowed; opacity: .4; }
+
+/* Campo con sugerencias (combobox). */
+.itt-combobox { position: relative; }
+.itt-combobox > input { width: 100%; box-sizing: border-box; }
+.itt-sugerencias { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none; max-height: 18rem; overflow-y: auto; background: var(--tv-superficie); border: 1px solid var(--tv-separador, var(--tv-borde)); border-radius: var(--tv-radio, 8px); box-shadow: var(--tv-sombra-2, 0 8px 24px rgba(0,0,0,.12)); }
+.itt-sugerencias[hidden] { display: none; }
+.itt-sugerencias li { display: flex; align-items: center; min-height: 44px; padding: 0 var(--tv-espacio-3, 12px); border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.itt-sugerencias li:hover, .itt-sugerencias li[aria-selected="true"] { background: var(--tv-seleccion); color: var(--tv-sobre-seleccion); }
+
+/* Lista de documentos: búsqueda, filtros, orden y selección (reportes y cotizaciones). */
+.itt-lista-herr { display: grid; gap: var(--tv-espacio-3, 12px); margin: 0 0 var(--tv-espacio-4, 16px); }
+.itt-lista-busca { display: flex; gap: var(--tv-espacio-2, 8px); align-items: stretch; }
+.itt-lista-busca > .cot-buscador { flex: 1 1 auto; margin: 0; }
+.itt-lista-busca > .tv-boton { flex: none; }
+.itt-filtros-cuenta { display: inline-grid; place-items: center; min-width: 1.25rem; height: 1.25rem; padding: 0 4px; border-radius: 999px; background: var(--tv-primario, #0b5cad); color: #fff; font-size: .75rem; font-weight: 700; }
+.itt-filtros-cuenta[hidden] { display: none; }
+.itt-filtros { display: none; grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); gap: var(--tv-espacio-3, 12px); align-items: end; padding: var(--tv-espacio-3, 12px); border: 1px solid var(--tv-separador, var(--tv-borde)); border-radius: var(--tv-radio-grande, 12px); background: var(--tv-superficie); }
+.itt-filtros--abiertos { display: grid; }
+.itt-filtros .tv-campo { margin: 0; min-width: 0; }
+.itt-filtros .tv-campo select, .itt-filtros .tv-campo input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; }
+.itt-filtros__quitar[hidden] { display: none; }
+@media (min-width: 900px) {
+  .itt-filtros { display: grid; }
+  .itt-filtros-boton { display: none; }
+}
+.itt-seleccion { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); margin: 0 0 var(--tv-espacio-3, 12px); border: 1px solid var(--tv-primario, #0b5cad); border-radius: var(--tv-radio-grande, 12px); background: color-mix(in srgb, var(--tv-seleccion) 45%, var(--tv-superficie)); position: sticky; top: var(--tv-espacio-2, 8px); z-index: 6; box-shadow: var(--tv-sombra-2, none); }
+.itt-seleccion[hidden] { display: none; }
+.itt-seleccion__cuenta { flex: 1 1 auto; font-weight: 600; font-size: var(--tv-texto-sm, .875rem); }
+.itt-seleccion__estado { flex-basis: 100%; margin: 0; }
+.itt-seleccion__estado[hidden] { display: none; }
+@media (max-width: 599px) { .itt-seleccion > .tv-boton { flex: 1 1 auto; } }
+/* Casillas: siempre en escritorio; en el teléfono, en modo «Seleccionar». */
+.cot-tarjeta > .itt-casilla { display: none; }
+.itt-seleccionando .cot-tarjeta > .itt-casilla { display: inline-grid; }
+@media (min-width: 900px) { .cot-tarjeta > .itt-casilla { display: inline-grid; } .itt-boton-seleccionar { display: none; } }
+.cot-tarjeta[data-seleccionada="1"] { outline: 2px solid var(--tv-primario, #0b5cad); outline-offset: -2px; }
+.cot-tarjeta > .itt-casilla { position: absolute; top: 4px; right: 4px; margin: 0; z-index: 1; }
+.cot-tarjeta:has(> .itt-casilla) .cot-tarjeta__enlace { padding-right: 48px; }
+@media (max-width: 599px) {
+  .itt-lista-busca { flex-wrap: wrap; }
+  .itt-lista-busca > .cot-buscador { flex-basis: 100%; }
+  .itt-lista-busca > .tv-boton { flex: 1 1 0; min-width: 0; }
+}
+@media (min-width: 900px) { .cot .itt-lista-busca > button.itt-filtros-boton, .cot .itt-lista-busca > button.itt-boton-seleccionar { display: none; } }
+/* Sin la lupa propia de Safari: el campo ya lleva la suya. */
+.cot-buscador input[type="search"] { -webkit-appearance: none; appearance: none; border: 1px solid var(--tv-borde); border-radius: var(--tv-radio, 8px); background: var(--tv-superficie); color: var(--tv-texto); font: inherit; font-size: 1rem; padding-top: var(--tv-espacio-2, 8px); padding-bottom: var(--tv-espacio-2, 8px); padding-right: var(--tv-espacio-3, 12px); }
+.cot-buscador input[type="search"]:hover { border-color: var(--tv-texto); }
+.cot-buscador input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
+.itt-filtros__quitar { justify-self: start; align-self: end; }

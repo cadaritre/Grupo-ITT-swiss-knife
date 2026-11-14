@@ -18,6 +18,7 @@
   let observador = null;
   let ubicando = -1;                     // índice de la foto que se está ubicando a mano
   let pdfActual = null;
+  let ultimaLista = "#/";                // la lista con sus filtros, para volver a ella desde un reporte
   const MAX_FOTOS = () => (ctx && ctx.max_fotos) || 150;
   const dos = (n) => String(n).padStart(2, "0");
   const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`; };
@@ -81,22 +82,45 @@
     return items.length;
   }
 
+  // Clientes para sugerir y filtrar: los del servidor (también de las cotizaciones) y los escritos en este teléfono, recientes primero.
+  async function clientesConocidos(registros) {
+    const locales = (registros || (await docs.listar())).slice().sort((a, b) => b.actualizada - a.actualizada).map((b) => b.datos.cliente);
+    return ITT.listas.unicos([...locales, ...((ctx && ctx.clientes) || [])]);
+  }
+  let sugerencias = [];
+  const lista = ITT.listas.crear({
+    prefijo: "rep", tipo: "reporte", zip: urls.zip, tarea: urls.tarea, mensaje: "rep-mensaje", alCambiar: () => pintarLista(),
+    campos: {
+      texto: (b) => [b.datos.titulo, b.datos.cliente, b.autor && b.autor.nombre, b.autor && b.autor.correo].join(" "),
+      cliente: (b) => b.datos.cliente || "", titulo: (b) => b.datos.titulo || "", fecha: (b) => b.datos.fecha || "",
+      estado: (b) => (!b.sucio && b.servidor_id && b.pdf_revision != null && b.pdf_revision === b.revision_base ? "con_pdf" : "pendiente"),
+      reciente: (b) => b.actualizada || 0,
+    },
+  });
+
   async function pintarLista() {
     const ul = $("rep-lista");
+    lista.desdeUrl();
     const todos = await docs.listar();
+    sugerencias = await clientesConocidos(todos);
     const pendientes = new Map();
     for (const b of todos) pendientes.set(b.id, await pendientesDe(b.id));
     // Todo lo asíncrono ya pasó: limpiar y pintar es síncrono, así dos llamadas seguidas no se mezclan.
+    lista.ponerClientes(sugerencias);
+    const visibles = lista.aplicar(todos);
     limpiar(ul);
     $("rep-lista-vacia").hidden = todos.length > 0;
-    for (const b of todos) {
+    $("rep-herramientas-lista").hidden = todos.length === 0;
+    for (const b of visibles) {
       const por = pendientes.get(b.id);
       const d = b.datos;
-      ul.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "" },
+      const nombre = d.titulo || "Sin nombre";
+      ul.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "", "data-seleccionada": lista.seleccion.has(b.id) ? "1" : "" },
+        lista.casilla(b, nombre),
         h("a", { class: "cot-tarjeta__enlace", href: `#/r/${b.id}` },
           h("span", { class: "cot-tarjeta__folio" }, String(d.fecha || "").split("-").reverse().join("/")),
-          h("strong", { class: "cot-tarjeta__titulo" }, d.titulo || "Sin nombre"),
-          h("span", { class: "cot-tarjeta__cliente" }, `${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`),
+          h("strong", { class: "cot-tarjeta__titulo" }, nombre),
+          h("span", { class: "cot-tarjeta__cliente" }, [d.cliente, `${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")),
           h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor))),
         h("div", { class: "cot-tarjeta__pie" },
           por || b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono(enLinea() ? "cloud-upload" : "cloud-off"), h("span", {}, por ? `${por} foto${por === 1 ? "" : "s"} por subir` : "Sin subir"))
@@ -108,7 +132,7 @@
   }
   async function nuevo() {
     if (!ctx) return mensaje("Sin conexión. Abre Reportes una vez con señal para poder trabajar sin ella.", "error");
-    const r = await docs.crear({ titulo: ctx.titulo || "Reporte fotográfico", fecha: hoyISO(), con_croquis: true, con_credenciales: false, fotos: [] });
+    const r = await docs.crear({ titulo: ctx.titulo || "Reporte fotográfico", cliente: "", fecha: hoyISO(), con_croquis: true, con_credenciales: false, fotos: [] });
     location.hash = `#/r/${r.id}`;
   }
   async function borrarRegistro(b) {
@@ -130,6 +154,7 @@
   function pintarCampos() {
     const d = reg.datos;
     $("r-titulo").value = d.titulo;
+    $("r-cliente").value = d.cliente || "";
     $("r-fecha").value = d.fecha;
     $("r-croquis").checked = !!d.con_croquis;
     $("r-credenciales").checked = !!d.con_credenciales;
@@ -440,12 +465,16 @@
       const r = await ITT.cola.borrador(m[1]);
       if (!r || r.borrada || r.tipo !== "reporte") { location.hash = "#/"; return; }
       reg = r;
+      if (reg.datos.cliente == null) reg.datos.cliente = "";
+      sugerencias = await clientesConocidos();
+      $("rep-volver").setAttribute("href", ultimaLista);
       mostrar("editor");
       pintarCampos();
       document.title = `${r.datos.titulo || "Reporte"} · Reportes`;
       return;
     }
     reg = null;
+    ultimaLista = lista.hashLista();
     mostrar("lista");
     await pintarLista();
   }
@@ -454,6 +483,8 @@
     $("rep-nuevo").addEventListener("click", nuevo);
     $("rep-nuevo-vacio").addEventListener("click", nuevo);
     $("r-titulo").addEventListener("input", (e) => { reg.datos.titulo = e.target.value; $("rep-titulo-editor").textContent = reg.datos.titulo || "Reporte"; programarGuardado(); });
+    $("r-cliente").addEventListener("input", (e) => { reg.datos.cliente = e.target.value; programarGuardado(); });
+    ITT.combobox($("r-cliente"), () => sugerencias);
     $("r-fecha").addEventListener("input", (e) => { if (e.target.value) { reg.datos.fecha = e.target.value; programarGuardado(); } });
     $("r-croquis").addEventListener("change", (e) => { reg.datos.con_croquis = e.target.checked; programarGuardado(); });
     $("r-credenciales").addEventListener("change", (e) => { reg.datos.con_credenciales = e.target.checked; programarGuardado(); });

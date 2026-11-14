@@ -1,13 +1,13 @@
 /* «Documentos de todas las cuentas» (supervisión, solo lectura). Claro por omisión; los colores salen de los tokens del armazón. */
-.sup-filtros { display: grid; grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) auto; align-items: end; gap: var(--tv-espacio-3); margin: 0 0 var(--tv-espacio-4); }
+.sup-filtros { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); align-items: end; gap: var(--tv-espacio-3); margin: 0 0 var(--tv-espacio-4); }
+.sup-filtros__buscar { grid-column: 1 / -1; }
 .sup-filtros .tv-campo { margin: 0; min-width: 0; }
 .sup-filtros .tv-campo input, .sup-filtros .tv-campo select { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; }
 .sup-filtros__acciones { display: flex; gap: var(--tv-espacio-2); }
 .sup-buscador { position: relative; }
 .sup-buscador > .tv-icono { position: absolute; left: 12px; top: 50%; width: 1rem; height: 1rem; transform: translateY(-50%); color: var(--tv-tenue); pointer-events: none; }
 .sup-filtros .sup-buscador input#sup-q { padding-left: 40px; }
-@media (max-width: 1439px) { .sup-filtros { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; } .sup-filtros__buscar { grid-column: 1 / -1; } }
-@media (max-width: 899px) { .sup-filtros { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sup-filtros__buscar, .sup-filtros__acciones { grid-column: 1 / -1; } }
+@media (max-width: 599px) { .sup-filtros { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 599px) { .sup-filtros__acciones { grid-column: 1 / -1; } .sup-filtros__acciones > .tv-boton { flex: 1 1 auto; } }
 
 .sup-resultados { transition: opacity var(--tv-transicion); }
@@ -69,3 +69,20 @@
   .sup-tabla td.sup-acciones { padding-right: var(--tv-espacio-4); width: 1%; }
 }
 .sup-fechas { display: flex; flex-direction: column; font-size: var(--tv-texto-sm); }
+
+/* Selección y descarga en ZIP */
+.sup-seleccion { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2) var(--tv-espacio-3); margin: 0 0 var(--tv-espacio-3); padding: var(--tv-espacio-2) var(--tv-espacio-3); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); background: var(--tv-superficie); }
+.sup-seleccion[data-activa="1"] { border-color: var(--tv-primario, currentColor); background: color-mix(in srgb, var(--tv-seleccion) 45%, var(--tv-superficie)); position: sticky; top: var(--tv-espacio-2); z-index: 5; box-shadow: var(--tv-sombra-2); }
+.sup-seleccion__cuenta { flex: 1 1 auto; font-weight: 600; font-size: var(--tv-texto-sm); }
+.sup-seleccion__estado { flex-basis: 100%; }
+.sup-seleccion__estado[hidden] { display: none; }
+.sup-col-casilla { width: 1%; }
+.sup-tabla tr[data-seleccionada="1"] td { background: color-mix(in srgb, var(--tv-seleccion) 35%, transparent); }
+@media (max-width: 719px) {
+  .sup-seleccion > .tv-boton { flex: 1 1 auto; }
+  .sup-tabla tr { position: relative; }
+  .sup-tabla td.sup-col-casilla { position: absolute; top: var(--tv-espacio-2); right: var(--tv-espacio-2); width: auto; padding: 0; display: block; }
+  .sup-tabla td.sup-col-casilla::before { content: none; }
+  .sup-tabla td[data-etiqueta="Documento"] { padding-right: 56px; }
+  .sup-tabla thead .sup-col-casilla { display: none; }
+}

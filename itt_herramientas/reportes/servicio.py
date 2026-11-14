@@ -59,6 +59,7 @@ def validar(crudo) -> dict:
     if not isinstance(crudo, dict):
         raise ReporteInvalido("El reporte debe ser un objeto JSON.")
     titulo = _texto(crudo.get("titulo", ""), "título", 200).strip()
+    cliente = " ".join(_texto(crudo.get("cliente", ""), "cliente", 160).split())
     fecha = crudo.get("fecha") or timezone.localdate().isoformat()
     try:
         fecha = date.fromisoformat(str(fecha)).isoformat()
@@ -87,13 +88,13 @@ def validar(crudo) -> dict:
         salida.append({"sha256": sha, "nota": _texto(f.get("nota", ""), f"nota de la foto {n}", MAX_NOTA), "tomada": tomada, "lat": lat, "lon": lon,
                        "precision": None if precision is None else round(float(precision), 1), "sin_ubicacion": lat is None,
                        "nombre": _texto(f.get("nombre", ""), f"nombre de la foto {n}", 150)})
-    return {"titulo": titulo, "fecha": fecha, "con_croquis": bool(crudo.get("con_croquis", True)),
+    return {"titulo": titulo, "cliente": cliente, "fecha": fecha, "con_croquis": bool(crudo.get("con_croquis", True)),
             "con_credenciales": bool(crudo.get("con_credenciales", False)), "fotos": salida}
 
 
 def _aplicar(r: Reporte, datos: dict, perfil: str) -> None:
     r.datos, r.perfil = datos, perfil
-    r.titulo, r.fotos = datos["titulo"][:200], len(datos["fotos"])
+    r.titulo, r.cliente, r.fotos = datos["titulo"][:200], datos["cliente"][:160], len(datos["fotos"])
     r.actualizada = timezone.now()
 
 
@@ -105,13 +106,22 @@ def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, r
         _aplicar(obj, obj_datos, perfil)
 
     return sincronizacion.sincronizar(Reporte, usuario, id_cliente, servidor_id, revision_base, nuevos,
-                                      aplicar=lambda obj: _aplicar(obj, nuevos, perfil), aplicar_copia=copia, error=ReporteInvalido)
+                                      aplicar=lambda obj: _aplicar(obj, nuevos, perfil), aplicar_copia=copia, error=ReporteInvalido, normalizar=_normalizado)
+
+
+def _normalizado(datos) -> dict | None:
+    """Los datos guardados con el esquema de hoy (un reporte de antes no tiene «cliente»): así se comparan con los del teléfono."""
+    try:
+        return validar(datos)
+    except ReporteInvalido:
+        return None
 
 
 def resumen_fila(r: Reporte) -> dict:
     return {"id": str(r.id), "id_cliente": str(r.id_cliente) if r.id_cliente else None, "revision": r.revision, "titulo": r.titulo, "fotos": r.fotos,
             "actualizada": r.actualizada.isoformat(), "copia": r.copia_de_id is not None, "perfil": r.perfil,
-            "pdf": bool(r.salida_ruta), "pdf_al_dia": bool(r.salida_ruta) and r.salida_revision == r.revision, "autor": autoria.fila(r)}
+            "pdf": bool(r.salida_ruta), "pdf_al_dia": bool(r.salida_ruta) and r.salida_revision == r.revision, "pdf_revision": r.salida_revision,
+            "cliente": r.cliente, "autor": autoria.fila(r)}
 
 
 def titulo_por_omision(perfil: Perfil) -> str:
@@ -148,24 +158,24 @@ def verificar_listo(r: Reporte) -> None:
     _fotos_de(r.cuenta_id, datos)
 
 
-def _producir(r: Reporte, datos: dict, temporal: Path) -> None:
+def _producir(r: Reporte, datos: dict, temporal: Path, informar=progreso) -> None:
     """Escribe el PDF del reporte en `temporal` (mismo documento que el escritorio, con el perfil guardado en el reporte)."""
     perfil = Perfil.objects.get(clave=r.perfil)
     opciones = perfiles.opciones_reporte(
         perfil, datos["titulo"], date.fromisoformat(datos["fecha"]), _fotos_de(r.cuenta_id, datos), temporal,
         incluir_credenciales=datos["con_credenciales"], include_map=datos["con_croquis"])
-    progreso(0.05, "Preparando el documento…")
+    informar(0.05, "Preparando el documento…")
 
     def avance(hecho, total):
         if cancelada():
             raise InterruptedError("Cancelado")
-        progreso(0.1 + 0.88 * hecho / max(total, 1), f"Página {hecho} de {total}")
+        informar(0.1 + 0.88 * hecho / max(total, 1), f"Página {hecho} de {total}")
 
     with perfiles.activar(perfil):
         pdf_generator.generate_report(opciones, avance)
 
 
-def generar(r: Reporte) -> Path:
+def generar(r: Reporte, informar=progreso) -> Path:
     """Genera el PDF del reporte (se llama desde la tarea). Guarda el archivo y lo deja ligado al reporte."""
     datos = validar(r.datos)
     verificar_listo(r)
@@ -173,12 +183,12 @@ def generar(r: Reporte) -> Path:
     carpeta = capturas.raiz() / "reportes" / str(r.cuenta_id)
     carpeta.mkdir(parents=True, exist_ok=True)
     temporal = carpeta / f"{r.id}.tmp.pdf"
-    _producir(r, datos, temporal)
+    _producir(r, datos, temporal, informar)
     destino = carpeta / f"{r.id}.pdf"
     temporal.replace(destino)
     Reporte.objects.filter(pk=r.pk).update(salida_ruta=destino.relative_to(capturas.raiz()).as_posix(), salida_nombre=nombre_pdf(datos["titulo"]),
                                            salida_revision=revision, generado=timezone.now())
-    progreso(1.0, "Listo")
+    informar(1.0, "Listo")
     from ..drive import servicio as drive
 
     drive.encolar(r.cuenta_id, "reportes", nombre_pdf(datos["titulo"]), origen=destino, clave=drive.clave_de("reporte", r.pk, revision, r.perfil))           # a Drive si la persona lo conectó (no falla el reporte si no)
@@ -190,20 +200,30 @@ def ruta_copia(r: Reporte) -> Path:
     return capturas.raiz() / "supervision" / "reportes" / f"{r.id}-r{r.revision}-{r.perfil}.pdf"
 
 
-def generar_copia(r: Reporte) -> Path:
+def generar_copia(r: Reporte, informar=progreso) -> Path:
     """PDF de la revisión actual para quien supervisa: no cambia el reporte, su último PDF ni lo que va a su Google Drive."""
     datos = validar(r.datos)
     verificar_listo(r)
     destino = ruta_copia(r)
     if destino.is_file():
-        progreso(1.0, "Listo")
+        informar(1.0, "Listo")
         return destino
     destino.parent.mkdir(parents=True, exist_ok=True)
     temporal = destino.with_suffix(".tmp.pdf")
-    _producir(r, datos, temporal)
+    _producir(r, datos, temporal, informar)
     temporal.replace(destino)
     for vieja in destino.parent.glob(f"{r.id}-r*.pdf"):                       # solo se guarda la de la revisión más reciente
         if vieja != destino and not vieja.name.endswith(".tmp.pdf"):
             vieja.unlink(missing_ok=True)
-    progreso(1.0, "Listo")
+    informar(1.0, "Listo")
     return destino
+
+
+def pdf_vigente(r: Reporte, supervision: bool = False) -> Path | None:
+    """El PDF de la versión actual del reporte, si ya existe: el que generó su cuenta o (en supervisión) la copia aparte."""
+    if r.salida_ruta and r.salida_revision == r.revision and (capturas.raiz() / r.salida_ruta).is_file():
+        return capturas.raiz() / r.salida_ruta
+    if supervision:
+        copia = ruta_copia(r)
+        return copia if copia.is_file() else None
+    return None

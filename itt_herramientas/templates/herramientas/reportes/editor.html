@@ -12,13 +12,14 @@
       <div class="tv-encabezado__titulos"><h1 id="rep-titulo-lista">Reportes fotográficos</h1></div>
       <div class="tv-acciones"><button type="button" id="rep-nuevo" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
     </header>
+    <div id="rep-herramientas-lista" hidden>{% include "herramientas/pwa/_lista_herramientas.html" with p="rep" marcador="Buscar por nombre, cliente o autor" con_estado=True titulo="Nombre" %}</div>
     <div id="rep-lista-vacia" class="itt-vacio" hidden>{% icono "camera" %}<p>Aún no tienes reportes</p><span>Funciona sin señal: las fotos se suben solas.</span><button type="button" class="tv-boton" id="rep-nuevo-vacio">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
     <ul id="rep-lista" class="cot-lista"></ul>
   </section>
 
   <section id="rep-vista-editor" aria-labelledby="rep-titulo-editor" hidden>
     <div class="cot-barra-sup">
-      <a href="#/" class="tv-boton tv-boton--secundario itt-boton-plano cot-volver">{% icono "arrow-left" %}<span>Reportes</span></a>
+      <a href="#/" id="rep-volver" class="tv-boton tv-boton--secundario itt-boton-plano cot-volver">{% icono "arrow-left" %}<span>Reportes</span></a>
       <span id="rep-estado-guardado" class="itt-estado" role="status"></span>
     </div>
     <h1 id="rep-titulo-editor" class="cot-titulo-doc">Reporte</h1>
@@ -29,6 +30,7 @@
       <summary>{% icono "file-text" %}<span>Datos del reporte</span></summary>
       <div class="cot-paso__cuerpo">
         <div class="tv-campo"><label for="r-titulo">Nombre del reporte</label><input id="r-titulo" type="text" maxlength="200" autocomplete="off"></div>
+        <div class="tv-campo"><label for="r-cliente">Cliente</label><input id="r-cliente" type="text" maxlength="160" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Opcional"></div>
         <div class="tv-campo"><label for="r-fecha">Fecha</label><input id="r-fecha" type="date"></div>
         <div class="tv-campo tv-campo--casilla"><input id="r-croquis" type="checkbox"><label for="r-croquis">Portada con croquis de ubicación</label><p class="tv-campo__ayuda">Si no, la portada lleva la primera foto.</p></div>
         <div class="tv-campo tv-campo--casilla" id="r-credenciales-caja"><input id="r-credenciales" type="checkbox"><label for="r-credenciales">Agregar página de cédula y firma</label></div>
@@ -112,5 +114,7 @@
 <script src="{% static 'herramientas/offline/ayudas.js' %}"></script>
 <script src="{% static 'herramientas/offline/documentos.js' %}"></script>
 <script src="{% static 'herramientas/offline/vista-pdf.js' %}"></script>
+<script src="{% static 'herramientas/offline/listas.js' %}"></script>
+<script src="{% static 'herramientas/offline/combobox.js' %}"></script>
 <script src="{% static 'herramientas/reportes/reportes.js' %}"></script>
 {% endblock %}

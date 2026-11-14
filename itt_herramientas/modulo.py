@@ -11,7 +11,8 @@ MODULO = Modulo(
     descripcion="Reportes, cotizaciones, croquis y conversión de planos",
     # El service worker, el manifiesto, la guía de instalación y la página de captura (HTML sin datos de ninguna cuenta,
     # necesaria para arrancar sin conexión) se sirven sin sesión: el navegador los pide sin poder seguir un inicio de sesión.
-    limpiezas=("itt_herramientas.convertidor.servicio.limpiar", "itt_herramientas.drive.servicio.limpiar", "itt_herramientas.supervision.servicio.limpiar"),
+    limpiezas=("itt_herramientas.convertidor.servicio.limpiar", "itt_herramientas.drive.servicio.limpiar", "itt_herramientas.supervision.servicio.limpiar",
+               "itt_herramientas.comun.zips.limpiar"),
     rutas_publicas=("sw.js", "manifest.webmanifest", "capturar/", "instalar/", "cotizaciones/", "reportes/", "croquis/"),
     # Navegación como datos (contrato 1.5, §12): el armazón pinta con esto el lateral, el cajón del teléfono y la paleta, por rol.
     # Las páginas de campo (que abren sin conexión) pintan el mismo menú con `{% lateral_de_campo %}`.

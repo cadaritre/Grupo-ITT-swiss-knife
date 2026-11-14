@@ -90,7 +90,7 @@
     function aRegistro(fila, datos, cuenta, previo) {
       return Object.assign({ tipo, miniaturas: {}, aviso: "", creada: Date.parse(fila.actualizada) || Date.now() }, previo || {}, {
         id: previo ? previo.id : fila.id, cuenta, servidor_id: fila.id, revision_base: fila.revision, datos, sucio: false, borrada: false,
-        autor: fila.autor || (previo && previo.autor) || null,
+        autor: fila.autor || (previo && previo.autor) || null, pdf_revision: fila.pdf_revision == null ? null : fila.pdf_revision,
         actualizada: previo ? previo.actualizada : Date.parse(fila.actualizada) || Date.now(),
       });
     }
@@ -104,8 +104,11 @@
       for (const fila of filas) {
         const local = porServidor.get(fila.id);
         if (local && (local.sucio || local.revision_base >= fila.revision)) {
-          // Ya está al día (o con cambios propios): solo se completa quién lo hizo, que el servidor fija al crearlo.
-          if (fila.autor && JSON.stringify(local.autor || null) !== JSON.stringify(fila.autor)) await cola().actualizarBorrador(local.id, (x) => Object.assign(x, { autor: fila.autor }));
+          // Ya está al día (o con cambios propios): solo se completa lo que fija el servidor (quién lo hizo y de qué versión es su PDF).
+          const extra = { autor: fila.autor || local.autor || null, pdf_revision: fila.pdf_revision == null ? null : fila.pdf_revision };
+          if (JSON.stringify([local.autor || null, local.pdf_revision == null ? null : local.pdf_revision]) !== JSON.stringify([extra.autor, extra.pdf_revision])) {
+            await cola().actualizarBorrador(local.id, (x) => Object.assign(x, extra));
+          }
           continue;
         }
         const detalle = await pedir(url("detalle", fila.id));

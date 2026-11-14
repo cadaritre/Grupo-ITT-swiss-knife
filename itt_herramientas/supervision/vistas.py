@@ -15,7 +15,7 @@ from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET, require_POST
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import capturas
+from ..comun import capturas, zips
 from ..cotizaciones import servicio as cot
 from ..models import Cotizacion, Perfil, Reporte
 from ..reportes import servicio as rep
@@ -45,7 +45,8 @@ def lista(request):
     hay_documentos = filtros.activos or Cotizacion.objects.exists() or Reporte.objects.exists()
     return _privado(render(request, "herramientas/supervision/lista.html", {
         "filtros": filtros, "pagina": pagina, "filas": servicio.filas(pagina.object_list), "autores": servicio.autores(),
-        "parametros": filtros.como_parametros(), "hay_documentos": hay_documentos}))
+        "parametros": filtros.como_parametros(), "hay_documentos": hay_documentos, "clientes": servicio.clientes(),
+        "estados": servicio.ESTADOS, "ordenes": servicio.ORDENES, "maximo_zip": zips.MAXIMO}))
 
 
 def _cotizacion(pk) -> tuple[Cotizacion, object]:
@@ -103,11 +104,7 @@ def _foto(request, cuenta_id: int, sha256: str):
 
 
 def _pdf_listo(r: Reporte):
-    """Ruta del PDF de la versión actual, si ya existe: el que generó la cuenta autora o la copia de supervisión."""
-    if r.salida_ruta and r.salida_revision == r.revision and (capturas.raiz() / r.salida_ruta).is_file():
-        return capturas.raiz() / r.salida_ruta
-    copia = rep.ruta_copia(r)
-    return copia if copia.is_file() else None
+    return rep.pdf_vigente(r, supervision=True)
 
 
 @supervisor
@@ -164,3 +161,22 @@ def reporte_foto(request, pk, sha256):
     if not _SHA.match(sha256) or sha256 not in {f.get("sha256") for f in (r.datos or {}).get("fotos", []) if isinstance(f, dict)}:
         raise Http404
     return _foto(request, r.cuenta_id, sha256)
+
+
+@supervisor
+@require_POST
+def zip_lote(request):
+    """ZIP con los PDF de documentos de cualquier cuenta: `{"elementos": [[tipo, id], …]}` o `{"todos": true, "filtros": {…}}`
+    (todos los resultados de esos filtros). Hasta 50. Solo lee: los reportes sin PDF al día se generan aparte, como al descargar uno."""
+    try:
+        cuerpo = zips.cuerpo_json(request)
+    except zips.LoteInvalido as exc:
+        return _privado(JsonResponse({"error": str(exc)}, status=422))
+    elementos = cuerpo.get("elementos")
+    if cuerpo.get("todos"):
+        filtros = servicio.Filtros.de(cuerpo.get("filtros") if isinstance(cuerpo.get("filtros"), dict) else {})
+        elementos = servicio.elementos_de(filtros, zips.MAXIMO)
+        if len(elementos) > zips.MAXIMO:
+            total = servicio.consulta(filtros).count()
+            return _privado(JsonResponse({"error": f"Son {total} documentos; el máximo por descarga es {zips.MAXIMO}. Ajusta los filtros."}, status=422))
+    return zips.responder(request, elementos, "documentos", supervision=True)

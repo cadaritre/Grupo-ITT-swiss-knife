@@ -1,0 +1,24 @@
+{% load tv %}{# Búsqueda, filtros, orden y selección de una lista de documentos (reportes, cotizaciones). Lo maneja offline/listas.js. #}
+<div class="itt-lista-herr" id="{{ p }}-herr">
+  <div class="itt-lista-busca" role="search">
+    <div class="cot-buscador">{% icono "search" %}<label for="{{ p }}-q" class="tv-solo-lectores">Buscar</label><input id="{{ p }}-q" type="search" autocomplete="off" placeholder="{{ marcador }}"></div>
+    <button type="button" id="{{ p }}-filtros-boton" class="tv-boton tv-boton--secundario itt-filtros-boton" aria-expanded="false" aria-controls="{{ p }}-filtros">{% icono "list-filter" %}<span>Filtros</span><span class="itt-filtros-cuenta" id="{{ p }}-filtros-cuenta" hidden></span></button>
+    <button type="button" id="{{ p }}-seleccionar" class="tv-boton tv-boton--secundario itt-boton-seleccionar" aria-pressed="false">{% icono "list-checks" %}<span>Seleccionar</span></button>
+  </div>
+  <div class="itt-filtros" id="{{ p }}-filtros" role="group" aria-label="Filtros">
+    <div class="tv-campo"><label for="{{ p }}-f-cliente">Cliente</label><select id="{{ p }}-f-cliente"><option value="">Todos</option></select></div>
+    <div class="tv-campo"><label for="{{ p }}-f-desde">Desde</label><input id="{{ p }}-f-desde" type="date"></div>
+    <div class="tv-campo"><label for="{{ p }}-f-hasta">Hasta</label><input id="{{ p }}-f-hasta" type="date"></div>
+    {% if con_estado %}<div class="tv-campo"><label for="{{ p }}-f-estado">PDF</label><select id="{{ p }}-f-estado"><option value="">Todos</option><option value="con_pdf">Con PDF</option><option value="pendiente">Pendiente</option></select></div>{% endif %}
+    <div class="tv-campo"><label for="{{ p }}-f-orden">Ordenar por</label><select id="{{ p }}-f-orden"><option value="recientes">Más recientes</option><option value="cliente">Cliente</option><option value="titulo">{{ titulo|default:"Título" }}</option></select></div>
+    <button type="button" id="{{ p }}-f-quitar" class="tv-boton tv-boton--fantasma itt-filtros__quitar" hidden>{% icono "x" %}<span>Quitar filtros</span></button>
+  </div>
+</div>
+<div class="itt-seleccion" id="{{ p }}-seleccion" role="region" aria-label="Selección" hidden>
+  <span id="{{ p }}-sel-cuenta" class="itt-seleccion__cuenta" aria-live="polite">Elige documentos</span>
+  <button type="button" id="{{ p }}-sel-todos" class="tv-boton tv-boton--fantasma" hidden>{% icono "list-checks" %}<span>Seleccionar todos los resultados</span></button>
+  <button type="button" id="{{ p }}-sel-zip" class="tv-boton" disabled>{% icono "download" %}<span>Descargar seleccionados</span></button>
+  <button type="button" id="{{ p }}-sel-salir" class="tv-boton tv-boton--secundario">{% icono "x" %}<span>Cancelar</span></button>
+  <p id="{{ p }}-zip-estado" class="itt-estado itt-seleccion__estado" role="status" hidden></p>
+</div>
+<div id="{{ p }}-sin-resultados" hidden>{% vacio titulo="Nada coincide con estos filtros." icono="list-filter" %}<button type="button" class="tv-boton tv-boton--secundario" id="{{ p }}-sin-resultados-quitar">{% icono "x" %}<span>Quitar filtros</span></button>{% endvacio %}</div>
