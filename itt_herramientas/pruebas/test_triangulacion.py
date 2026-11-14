@@ -266,24 +266,48 @@ def test_el_limite_de_puntos_detiene_el_trabajo_y_manda_al_modulo_local(cliente_
     assert not t.superficie and "Puntos únicos tras eliminar duplicados" in t.error and "módulo local" in t.error
 
 
-def test_200001_puntos_se_rechazan_con_el_mensaje_correcto(cliente_de, topografa, tmp_path):
-    """El límite real del contrato: 200 000 puntos únicos."""
+def dxf_de_puntos(ruta, n):
     import ezdxf
 
     doc = ezdxf.new("R2010")
     msp = doc.modelspace()
-    for i in range(200_001):
-        msp.add_point((370000.0 + (i % 500) * 3.0, 3170000.0 + (i // 500) * 3.0, 1400.0 + (i % 17) * 0.1))
-    ruta = tmp_path / "enorme.dxf"
+    for i in range(n):
+        msp.add_point((370000.0 + (i % 400) * 3.0, 3170000.0 + (i // 400) * 3.0, 1400.0 + (i % 17) * 0.1))
     doc.saveas(ruta)
-    del doc
+
+
+def test_75001_puntos_se_rechazan_antes_del_trabajo_pesado(cliente_de, topografa, tmp_path):
+    """El límite de la web (memoria: 768 MB de cola): 75 000 puntos únicos. Pasarse corta ANTES de calcular el Delaunay."""
+    from unittest import mock
+
+    ruta = tmp_path / "justo_arriba.dxf"
+    dxf_de_puntos(ruta, 75_001)
     c = cliente_de(topografa)
     t = subir(c, ruta)
-    assert t.estado == Triangulacion.Estado.LISTO
-    c.post(url("triangulacion_superficie", pk=t.pk), {"modo": "puntos", "puntos": "on", "area_min": "0.000001", "decimales": "6"})
+    assert t.estado == Triangulacion.Estado.LISTO and t.resumen["puntos"] == 75_001
+    with mock.patch("shapely.delaunay_triangles", side_effect=AssertionError("no debía llegar al Delaunay")):
+        c.post(url("triangulacion_superficie", pk=t.pk), {"modo": "puntos", "puntos": "on", "area_min": "0.000001", "decimales": "6"})
     t.refresh_from_db()
     assert not t.superficie
-    assert "200,001" in t.error and "máximo 200,000" in t.error and "módulo local" in t.error
+    assert "75,001" in t.error and "máximo 75,000" in t.error and "módulo local" in t.error
+
+
+def test_75000_puntos_si_entran(cliente_de, topografa, tmp_path):
+    ruta = tmp_path / "en_el_limite.dxf"
+    dxf_de_puntos(ruta, 75_000)
+    c = cliente_de(topografa)
+    t = subir(c, ruta)
+    c.post(url("triangulacion_superficie", pk=t.pk), {"modo": "puntos", "puntos": "on", "area_min": "0.000001", "decimales": "6"})
+    t.refresh_from_db()
+    assert t.superficie["puntos"] == 75_000 and not t.error, t.error
+
+
+def test_el_contrato_mas_bajo_manda_y_uno_mas_alto_no_pasa_del_tope(settings):
+    from itt_herramientas.triangulacion import servicio
+
+    assert servicio.limites() == {"bytes": 100 * 1024 * 1024, "puntos": 75_000, "triangulos": 150_000}          # contrato 200 000 / 400 000: gana el tope de la web
+    settings.TV_HERRAMIENTAS_LIMITES = {"triangulacion": {"bytes": 1000, "puntos": 10, "triangulos": 20}}
+    assert servicio.limites() == {"bytes": 1000, "puntos": 10, "triangulos": 20}
 
 
 def test_borrar_quita_archivos_y_registro(cliente_de, topografa, entradas_geo):

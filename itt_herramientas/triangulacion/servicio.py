@@ -38,8 +38,15 @@ def ruta_origen(t: Triangulacion) -> Path:
     return raiz() / t.ruta_origen
 
 
+#: Tope de la web por la memoria medida (docs/pwa.md): con 768 MB de cola, 75 000 puntos y 150 000 triángulos es lo más que cabe. Si el contrato
+#: (`TV_HERRAMIENTAS_LIMITES`) trae un límite MÁS BAJO, manda el del contrato; uno más alto no pasa de este.
+LIMITES_WEB = {"puntos": 75_000, "triangulos": 150_000}
+
+
 def limites() -> dict:
-    return {k: ajustes.limite_herramienta("triangulacion", k) for k in ("bytes", "puntos", "triangulos")}
+    """Límites efectivos: el menor entre el contrato y el tope de memoria de la web."""
+    contrato = {k: ajustes.limite_herramienta("triangulacion", k) for k in ("bytes", "puntos", "triangulos")}
+    return {k: min(v, LIMITES_WEB.get(k, v)) for k, v in contrato.items()}
 
 
 def _msg_limite(exc: tri.SuperaLimite) -> str:

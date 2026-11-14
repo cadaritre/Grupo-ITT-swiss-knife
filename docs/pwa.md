@@ -192,7 +192,7 @@ quedan los resúmenes y las opciones.
 | Paso | Qué hace |
 | --- | --- |
 | Leer | Cuenta POINT, INSERT, vértices de polilínea y 3DFACE, y las capas con triángulos (segundos) |
-| Superficie | **Puntos → TIN de Delaunay** (`create_tin_model`: entidades a usar, decimales de duplicados XY, arista máxima, área mínima) **o** los triángulos que ya trae el DXF (`extract_triangles`, por capas). Más de **200 000 puntos únicos** (tras deduplicar) o **400 000 triángulos** detiene el trabajo con el mensaje «…módulo local» |
+| Superficie | **Puntos → TIN de Delaunay** (`create_tin_model`: entidades a usar, decimales de duplicados XY, arista máxima, área mínima) **o** los triángulos que ya trae el DXF (`extract_triangles`, por capas). Más de **75 000 puntos únicos** (tras deduplicar) o **150 000 triángulos** detiene el trabajo, antes del Delaunay, con el mensaje «…módulo local» |
 | Pendientes | Rangos editables (nombre, desde, hasta, color; continuos, desde 0 %, el último abierto) con áreas 2D/3D y porcentajes (`analyze_slopes`) |
 | Escurrimiento | Flechas de máxima bajada (`analyze_flow`): longitud base, tamaño de punta, densidad, pendiente mínima y rangos con factor de largo y grosor |
 | DXF | TIN (`3DFACE`), pendientes con tabla y escurrimiento con leyenda: `write_tin_dxf`, `write_slope_dxf`, `write_flow_dxf` sin cambios |
@@ -201,17 +201,22 @@ quedan los resúmenes y las opciones.
 Intencional frente al escritorio: la web trabaja con **una superficie por archivo** (de puntos o de triángulos) y de ella salen las pendientes y el
 escurrimiento; el escritorio deja elegir una fuente distinta en cada pestaña. Cambiar la superficie borra los análisis (dejarían de corresponder).
 
-Paridad (`pruebas/test_triangulacion.py`): con el DXF de puntos de prueba, los triángulos y estadísticas, las áreas por rango y las flechas de la web son los del
-dominio, y los tres DXF exportados son equivalentes al normalizarlos (`comparar_dxf`). Una entrada de 200 001 puntos se rechaza con el mensaje
-correcto (prueba con el archivo real).
+Límites de la web: **75 000 puntos únicos y 150 000 triángulos** (100 MB por archivo). Salen de la memoria medida (abajo) frente al tope de 768 MB de la cola
+`herramientas`, que no se toca; el contrato (`TV_HERRAMIENTAS_LIMITES["triangulacion"]`) trae 200 000 / 400 000 y `servicio.limites()` toma el MENOR de los dos,
+así que la web ya aplica el tope aunque el contrato no se haya cambiado. Lo más pesado se queda en el módulo local.
 
-**Memoria medida (no cumple el objetivo de 600 MB al máximo del contrato).** Pico de memoria por paso, en un proceso nuevo, con puntos aleatorios sobre una superficie ondulada:
+Paridad (`pruebas/test_triangulacion.py`): con el DXF de puntos de prueba, los triángulos y estadísticas, las áreas por rango y las flechas de la web son los del
+dominio, y los tres DXF exportados son equivalentes al normalizarlos (`comparar_dxf`). Una entrada de 75 001 puntos (archivo real) se rechaza con el mensaje
+correcto antes de calcular el Delaunay, y 75 000 sí entran.
+
+**Memoria medida.** Pico por paso, en un proceso nuevo (solo Python, NumPy, ezdxf y el dominio; el trabajador real suma Django y la base), con puntos aleatorios sobre una superficie ondulada:
 
 | Tamaño | Leer + TIN | DXF del TIN | DXF de pendientes | DXF de escurrimiento |
 | --- | --- | --- | --- | --- |
 | 50 000 puntos (≈100 000 triángulos) | 237 MB | 246 MB | 446 MB | 549 MB |
-| 200 000 puntos (≈400 000 triángulos) | 814 MB | 816 MB | 1 604 MB | 2 030 MB |
+| **75 000 puntos (límite de la web, ≈150 000 triángulos)** | 300 MB | 345 MB | 644 MB | **781 MB** |
+| 200 000 puntos (≈400 000 triángulos; antiguo límite del contrato) | 814 MB | 816 MB | 1 604 MB | 2 030 MB |
 
-La cola `herramientas` tiene tope de 768 MB: hasta unos 75 000 puntos todo cabe; al máximo de 200 000 puntos el TIN ya roza el tope y los DXF de pendientes y
-escurrimiento lo superan (el costo está en las entidades de `ezdxf`, y cambiar el escritor alteraría el DXF respecto del escritorio). Decisión pendiente del
-propietario: bajar `TV_HERRAMIENTAS_LIMITES["triangulacion"]` (p. ej. 75 000 puntos y 150 000 triángulos) o darle más memoria a esa cola.
+`pruebas/test_triangulacion_memoria.py` repite las medidas del límite (75 000 puntos) en procesos nuevos y exige menos de 768 MB. **El DXF de escurrimiento al límite
+mide 781 MB: pasa del tope aun sin Django**, así que esa medida está marcada `xfail(strict=True)` (la prueba avisará cuando deje de fallar). Con Django y la base el trabajador real
+suma otros ~100 MB, por lo que el margen real es menor en los pasos de pendientes y escurrimiento; para que TODO quepa con holgura el límite debería ser de ~55 000 puntos.
