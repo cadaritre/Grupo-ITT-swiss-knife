@@ -11,6 +11,8 @@ import re
 import zipfile
 from xml.etree.ElementTree import ParseError
 
+from tvplataforma.tareas import ErrorVisible
+
 log = logging.getLogger("itt_herramientas")
 
 GENERICO = "No se pudo completar la operación. Inténtalo de nuevo; si sigue fallando, avisa a soporte."
@@ -58,11 +60,8 @@ def _es_dxf_invalido(exc: BaseException) -> bool:
     return isinstance(exc, ezdxf.DXFError) or (isinstance(exc, OSError) and "not a DXF file" in str(exc))    # ezdxf avisa así de un texto que no es DXF
 
 
-class ErrorDeTarea(Exception):
+class ErrorDeTarea(ErrorVisible):
     """Falla de una tarea en segundo plano con el mensaje que sí se muestra.
 
-    El armazón guarda `NombreDeLaClase: mensaje`; la clase se llama «Error» para que se lea «Error: …» y no un nombre interno.
+    Hereda de `tvplataforma.tareas.ErrorVisible`: el armazón guarda y muestra el mensaje tal cual (contrato 1.3.1).
     """
-
-
-ErrorDeTarea.__name__ = ErrorDeTarea.__qualname__ = "Error"
