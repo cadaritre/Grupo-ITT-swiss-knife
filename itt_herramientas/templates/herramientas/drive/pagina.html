@@ -36,7 +36,7 @@
   <h2>Envíos</h2>
   <p>{{ resumen.enviado }} enviados · {{ resumen.pendiente }} pendientes · {{ resumen.error }} con error.</p>
   <form method="post" action="{% url 'herramientas:drive_reintentar' %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">Reintentar ahora</button></form>
-  {% if envios %}<ul class="itt-lista" id="drive-envios">{% for e in envios %}<li class="itt-captura" data-estado="{{ e.estado }}"><div><strong>{{ e.nombre }}</strong><br><span class="tv-tenue">{{ e.get_estado_display }}{% if e.drive_nombre and e.drive_nombre != e.nombre %} · quedó como «{{ e.drive_nombre }}»{% endif %}{% if e.error %} · {{ e.error }}{% endif %}</span>
+  {% if envios %}<ul class="itt-lista" id="drive-envios">{% for e in envios %}<li class="itt-captura itt-captura--texto" data-estado="{{ e.estado }}"><div><div class="itt-captura__texto"><strong>{{ e.nombre }}</strong><span class="tv-tenue">{{ e.get_estado_display }}{% if e.drive_nombre and e.drive_nombre != e.nombre %} · quedó como «{{ e.drive_nombre }}»{% endif %}{% if e.error %} · {{ e.error }}{% endif %}</span></div>
     {% if e.estado == "pendiente" or e.estado == "error" %}<form method="post" action="{% url 'herramientas:drive_descartar' e.pk %}">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">Descartar</button></form>{% endif %}</div></li>{% endfor %}</ul>
   {% else %}<p class="tv-tenue">Aún no hay envíos.</p>{% endif %}
 

@@ -1,5 +1,5 @@
-<nav class="tv-subnav" aria-label="Secciones del perfil">
-  <a href="{% url 'herramientas:perfil' perfil.clave %}">Identidad</a>
-  <a href="{% url 'herramientas:perfil_textos' perfil.clave %}">Textos</a>
-  <a href="{% url 'herramientas:perfil_paleta' perfil.clave %}">Paleta</a>
-</nav>
+{% with actual=request.resolver_match.url_name %}<nav class="tv-subnav" aria-label="Secciones del perfil">
+  <a href="{% url 'herramientas:perfil' perfil.clave %}"{% if actual == "perfil" %} aria-current="page"{% endif %}>Identidad</a>
+  <a href="{% url 'herramientas:perfil_textos' perfil.clave %}"{% if actual == "perfil_textos" %} aria-current="page"{% endif %}>Textos</a>
+  <a href="{% url 'herramientas:perfil_paleta' perfil.clave %}"{% if actual == "perfil_paleta" %} aria-current="page"{% endif %}>Paleta</a>
+</nav>{% endwith %}

@@ -9,7 +9,7 @@
 </div>
 <p id="itt-triangulacion-error" class="itt-aviso" role="alert" hidden></p>
 <h2>Recientes</h2>
-{% if recientes %}<ul class="itt-lista">{% for t in recientes %}<li class="itt-captura"><div><strong><a href="{% url 'herramientas:triangulacion_banco' t.pk %}">{{ t.nombre }}</a></strong><br><span class="tv-tenue">{{ t.get_estado_display }} · {{ t.creada|date:"d/m/Y H:i" }}</span></div></li>{% endfor %}</ul>
+{% if recientes %}<ul class="itt-lista">{% for t in recientes %}<li class="itt-captura itt-captura--texto"><div><div class="itt-captura__texto"><strong><a href="{% url 'herramientas:triangulacion_banco' t.pk %}">{{ t.nombre }}</a></strong><span class="tv-tenue">{{ t.get_estado_display }} · {{ t.creada|date:"d/m/Y H:i" }}</span></div></div></li>{% endfor %}</ul>
 {% else %}<p class="tv-tenue">Todavía no has subido archivos.</p>{% endif %}
 {% endblock %}
 {% block scripts %}<script src="{% static 'herramientas/triangulacion/inicio.js' %}"></script>{% endblock %}

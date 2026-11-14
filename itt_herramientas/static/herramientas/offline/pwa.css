@@ -29,3 +29,89 @@ body { padding-bottom: calc(var(--tv-tactil-min, 44px) + 16px + env(safe-area-in
 .itt-marca__texto strong { color: var(--tv-primario); }
 .itt-marca__cambio { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); align-items: center; }
 .itt-marca__cambio button { min-height: var(--tv-tactil-min, 44px); }
+
+/* --- Pulido visual (auditoría UX 13-11-2026). Solo presentación; mismos tokens. --- */
+/* Los botones nunca parten una palabra a la mitad (el cuerpo usa overflow-wrap: anywhere para textos largos). */
+.tv-boton { overflow-wrap: normal; word-break: normal; }
+/* Un aviso sin texto no deja una caja vacía. */
+.itt-aviso:empty { display: none; }
+/* Párrafos de explicación: renglones de largo cómodo en pantallas anchas. */
+.tv-principal > p { max-width: 75ch; }
+/* Aire antes de cada sección. */
+.tv-principal > h2, .tv-principal > form > h2 { margin-top: var(--tv-espacio-5, 24px); }
+.tv-campo + h2 { margin-top: var(--tv-espacio-5, 24px); }
+
+/* Banda de pendientes: una sola línea ordenada; el enlace nunca se parte. */
+.itt-pendientes { border-top-color: var(--tv-separador); font-size: .9375rem; line-height: 1.3; transition: background-color .2s ease; }
+.itt-pendientes [data-itt="texto"] { min-width: 0; flex: 1 1 auto; text-align: left; }
+.itt-pendientes a { flex: none; white-space: nowrap; }
+.itt-pendientes[data-estado="pendiente"], .itt-pendientes[data-estado="pausada"] { color: var(--tv-sobre-seleccion); border-top-color: var(--tv-foco); }
+.itt-pendientes[data-estado="error"] { background: var(--tv-estado-error-fondo); color: var(--tv-estado-error-texto); outline: 0; border-top: 2px solid var(--tv-estado-error-texto); }
+.itt-pendientes[data-estado="error"] a { color: inherit; }
+.itt-actualizar { color: var(--tv-sobre-primario); box-shadow: 0 2px 8px rgb(0 0 0 / .2); padding-top: calc(8px + env(safe-area-inset-top)); }
+
+/* Identidad corporativa: el perfil activo se ve elegido, no apagado. */
+.itt-marca__cambio { gap: 0 var(--tv-espacio-3, 12px); }
+.itt-marca__cambio button { border-radius: 0; margin: 0; }
+.itt-marca__cambio button:first-of-type { border-radius: var(--tv-radio, 8px) 0 0 var(--tv-radio, 8px); }
+.itt-marca__cambio button:last-of-type { border-radius: 0 var(--tv-radio, 8px) var(--tv-radio, 8px) 0; margin-left: -1px; }
+.itt-marca__cambio button[aria-pressed="true"] { opacity: 1; cursor: default; background: var(--tv-primario); color: var(--tv-sobre-primario); border-color: var(--tv-primario); }
+.itt-marca__cambio .tv-tenue { font-size: .8125rem; flex-basis: 100%; margin-top: var(--tv-espacio-1, 4px); }
+.itt-marca__texto a { font-size: .875rem; align-self: flex-start; min-height: 24px; }
+@media (min-width: 600px) { .itt-marca__cambio .tv-tenue { flex-basis: auto; margin-top: 0; order: -1; } }
+
+/* Listas de archivos y envíos (sin miniatura): una columna, con la acción a la derecha. */
+.itt-captura { border-color: var(--tv-separador); }
+.itt-captura--texto { grid-template-columns: minmax(0, 1fr); }
+.itt-captura--texto > div { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); }
+.itt-captura--texto > div > .itt-captura__texto { flex: 1 1 200px; min-width: 0; display: grid; gap: 2px; }
+.itt-captura--texto a { text-underline-offset: 2px; }
+.itt-captura--texto form { margin: 0; flex: none; }
+.itt-captura--texto[data-estado="enviado"] { border-left: 4px solid var(--tv-estado-exito-texto); }
+.itt-captura--texto[data-estado="pendiente"], .itt-captura--texto[data-estado="enviando"] { border-left: 4px solid var(--tv-estado-aviso-texto); }
+.itt-captura--texto[data-estado="error"] { border-color: var(--tv-separador); border-left: 4px solid var(--tv-estado-error-texto); }
+.itt-captura--texto[data-estado="error"] .tv-tenue { color: var(--tv-estado-error-texto); }
+
+/* Capturas sueltas: cada dato en su renglón y la nota con el mismo aspecto que los demás campos. */
+#itt-lista .itt-captura > div { min-width: 0; display: grid; gap: var(--tv-espacio-1, 4px); align-content: start; }
+#itt-lista .itt-captura input[type="text"] { padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); border: 1px solid var(--tv-borde); border-radius: var(--tv-radio, 8px); background: var(--tv-superficie); color: var(--tv-texto); font: inherit; font-size: 1rem; }
+#itt-lista .itt-captura > div > div { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); }
+.itt-captura[data-estado="error"] { border-color: var(--tv-estado-error-texto); }
+#itt-red { margin: 0 0 var(--tv-espacio-2, 8px); font-size: .875rem; color: var(--tv-tenue); }
+#itt-red:not([data-estado="en_linea"]) { color: var(--tv-estado-aviso-texto); background: var(--tv-estado-aviso-fondo); font-weight: 600; padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); border-radius: var(--tv-radio, 8px); }
+#itt-instalar-tip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2, 8px) var(--tv-espacio-4, 16px); border-color: var(--tv-estado-info-texto); background: var(--tv-estado-info-fondo); color: var(--tv-estado-info-texto); }
+#itt-instalar-tip[hidden] { display: none; }
+#itt-instalar-tip strong { flex-basis: 100%; }
+#itt-instalar-tip a { color: inherit; min-height: var(--tv-tactil-min, 44px); display: inline-flex; align-items: center; }
+#itt-instalar-tip button { margin-left: auto; }
+#itt-mensaje[data-tipo="error"] { border-color: var(--tv-estado-error-texto); background: var(--tv-estado-error-fondo); color: var(--tv-estado-error-texto); }
+
+/* Inicio: herramientas en rejilla y ajustes aparte. */
+.itt-inicio__titulo { font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; color: var(--tv-tenue); margin: var(--tv-espacio-5, 24px) 0 var(--tv-espacio-3, 12px); }
+.itt-inicio__titulo:first-of-type { margin-top: 0; }
+.itt-inicio .tv-tarjeta--enlace { transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+.itt-inicio .tv-tarjeta--enlace:hover { box-shadow: 0 2px 8px rgb(0 0 0 / .08); }
+.itt-inicio .tv-tarjeta__titulo { color: var(--tv-primario); }
+
+/* Navegación entre las secciones de un perfil. */
+.tv-subnav { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); margin-bottom: var(--tv-espacio-4, 16px); border-bottom: 1px solid var(--tv-separador); }
+.tv-subnav a { display: inline-flex; align-items: center; min-height: var(--tv-tactil-min, 44px); padding: 0 var(--tv-espacio-3, 12px); text-decoration: none; color: var(--tv-texto); font-weight: 600; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.tv-subnav a:hover { border-bottom-color: var(--tv-borde); }
+.tv-subnav a[aria-current="page"] { color: var(--tv-primario); border-bottom-color: var(--tv-primario); }
+
+/* Formularios sencillos (diccionario, importar): mismos campos que el resto del portal. */
+.itt-formulario-linea { display: grid; gap: var(--tv-espacio-3, 12px); align-items: end; margin-bottom: var(--tv-espacio-4, 16px); }
+@media (min-width: 600px) { .itt-formulario-linea { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; } }
+.itt-palabras { list-style: none; padding: 0; margin: 0 0 var(--tv-espacio-4, 16px); display: grid; gap: var(--tv-espacio-2, 8px); }
+.itt-palabras li { display: flex; align-items: center; justify-content: space-between; gap: var(--tv-espacio-3, 12px); padding: var(--tv-espacio-1, 4px) var(--tv-espacio-1, 4px) var(--tv-espacio-1, 4px) var(--tv-espacio-3, 12px); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); min-height: var(--tv-tactil-min, 44px); }
+.itt-palabras li.itt-palabras__vacio { border-style: dashed; color: var(--tv-tenue); padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); }
+.itt-palabras form { margin: 0; }
+.tv-campo input[type="file"] { width: 100%; min-height: var(--tv-tactil-min, 44px); padding: var(--tv-espacio-2, 8px) 0; font: inherit; }
+input[type="file"]::file-selector-button { min-height: 36px; margin-right: var(--tv-espacio-3, 12px); padding: 0 var(--tv-espacio-3, 12px); border: 1px solid var(--tv-borde); border-radius: var(--tv-radio, 8px); background: var(--tv-secundario); color: var(--tv-sobre-secundario); font: inherit; font-weight: 600; cursor: pointer; }
+.tv-formulario fieldset { border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); padding: var(--tv-espacio-4, 16px); margin: 0; display: grid; gap: var(--tv-espacio-4, 16px); min-width: 0; background: var(--tv-superficie); }
+.tv-formulario fieldset legend { font-weight: 700; padding: 0 var(--tv-espacio-2, 8px); }
+.itt-paleta-muestra { display: block; max-width: 100%; height: auto; margin-bottom: var(--tv-espacio-4, 16px); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); }
+.tv-principal > form { margin-bottom: var(--tv-espacio-4, 16px); }
+.tv-principal > .itt-lista { margin-bottom: var(--tv-espacio-5, 24px); }
+#drive-acciones form { margin: 0; display: grid; }
+#drive-acciones .tv-boton { line-height: 1.2; padding-top: var(--tv-espacio-1, 4px); padding-bottom: var(--tv-espacio-1, 4px); }

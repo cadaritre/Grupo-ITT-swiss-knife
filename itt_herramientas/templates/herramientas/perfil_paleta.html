@@ -4,12 +4,12 @@
 {% block encabezado %}<h1>Paleta de cotizaciones: {{ perfil.nombre }}</h1>{% endblock %}
 {% block cuerpo %}
 {% include "herramientas/_perfil_nav.html" %}
-<svg role="img" aria-label="Vista previa de la paleta" viewBox="0 0 300 90" width="300" height="90">
+<svg class="itt-paleta-muestra" role="img" aria-label="Vista previa de la paleta" viewBox="0 0 300 90" width="300" height="90">
   <rect width="300" height="90" fill="{{ muestra.pale }}"/><rect width="300" height="26" fill="{{ muestra.primary }}"/>
   <text x="10" y="18" font-size="13" fill="{{ muestra.bar_text }}">COTIZACIÓN</text>
   <text x="10" y="52" font-size="13" fill="{{ muestra.ink }}">Texto del documento</text><text x="10" y="76" font-size="13" fill="{{ muestra.accent }}">Concepto destacado</text>
 </svg>
-<table class="tv-tabla"><tbody>{% for nombre, ratio, minimo in contrastes %}<tr><td>{{ nombre }}</td><td>{{ ratio }}:1</td><td>{% if ratio < minimo %}bajo (mínimo recomendado {{ minimo }}:1){% else %}suficiente{% endif %}</td></tr>{% endfor %}</tbody></table>
+<div class="tv-tabla-envoltura"><table class="tv-tabla"><thead><tr><th>Combinación</th><th>Contraste</th><th>Resultado</th></tr></thead><tbody>{% for nombre, ratio, minimo in contrastes %}<tr><td data-etiqueta="Combinación">{{ nombre }}</td><td data-etiqueta="Contraste">{{ ratio }}:1</td><td data-etiqueta="Resultado">{% if ratio < minimo %}bajo (mínimo recomendado {{ minimo }}:1){% else %}suficiente{% endif %}</td></tr>{% endfor %}</tbody></table></div>
 {% for a in avisos %}{% alerta tipo="aviso" %}{{ a }}{% endalerta %}{% endfor %}
 <form method="post" class="tv-formulario">{% csrf_token %}
   {% if formulario.non_field_errors %}{% alerta tipo="error" %}{{ formulario.non_field_errors }}{% endalerta %}{% endif %}

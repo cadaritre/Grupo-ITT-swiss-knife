@@ -5,7 +5,7 @@
 {% block cuerpo %}
 <p>Sube un ZIP con <code>Configuracion/settings.json</code>, <code>Diccionarios/</code> y <code>Cotizaciones/Machotes/</code> de tu carpeta «Grupo ITT App». Antes de aplicar nada verás qué contiene.</p>
 <form method="post" enctype="multipart/form-data" class="tv-formulario">{% csrf_token %}
-  <label for="zip">ZIP de configuración</label><input id="zip" type="file" name="zip" accept=".zip,application/zip" required>
+  <div class="tv-campo"><label for="zip">ZIP de configuración</label><input id="zip" type="file" name="zip" accept=".zip,application/zip" required></div>
   <button type="submit" class="tv-boton">Revisar</button>
 </form>
 {% endblock %}
