@@ -2,23 +2,28 @@
 {% load static tv herramientas %}
 {% block titulo_pagina %}{{ t.nombre }}{% endblock %}
 {% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/triangulacion/triangulacion.css' %}">{% endblock %}
-{% block encabezado %}<h1>{{ t.nombre }}</h1>{% endblock %}
-{% block acciones_pagina %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:triangulacion' %}">Otro archivo</a>{% endblock %}
+{% block titulo_h1 %}<h1>{{ t.nombre }}</h1>{% endblock %}
+{% block acciones_pagina %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:triangulacion' %}">{% icono "file-up" %}<span>Otro archivo</span></a>{% endblock %}
 {% block cuerpo %}
 {% if en_curso and tarea %}<section aria-label="Avance">{% progreso tarea %}</section>
 {% elif en_curso %}<p class="itt-aviso" role="status">Leyendo el archivo…</p>
 {% elif t.estado == "error" %}
   {% alerta tipo="error" titulo="No se pudo leer el archivo" %}{{ t.error }}{% endalerta %}
-  <form method="post" action="{% url 'herramientas:triangulacion_borrar' t.pk %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">Quitar este archivo</button></form>
+  <form method="post" action="{% url 'herramientas:triangulacion_borrar' t.pk %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">{% icono "trash-2" %}<span>Quitar este archivo</span></button></form>
 {% elif lista %}
 {% if t.error %}{% alerta tipo="error" titulo="No se pudo completar el último cálculo" %}{{ t.error }}{% endalerta %}{% endif %}
-{% for aviso in resumen.avisos %}<p class="itt-aviso" role="status">⚠ {{ aviso }}</p>{% endfor %}
-<p class="tri-resumen">{{ resumen.puntos|floatformat:"0g" }} POINT · {{ resumen.inserts|floatformat:"0g" }} INSERT · {{ resumen.vertices_polilinea|floatformat:"0g" }} vértices de polilínea · {{ resumen.caras_3d|floatformat:"0g" }} 3DFACE</p>
+{% for aviso in resumen.avisos %}{% alerta tipo="aviso" %}{{ aviso }}{% endalerta %}{% endfor %}
+<dl class="tri-resumen tv-cifra">
+  <div><dt>Puntos</dt><dd>{{ resumen.puntos|floatformat:"0g" }}</dd></div>
+  <div><dt>Bloques</dt><dd>{{ resumen.inserts|floatformat:"0g" }}</dd></div>
+  <div><dt>Vértices de polilínea</dt><dd>{{ resumen.vertices_polilinea|floatformat:"0g" }}</dd></div>
+  <div><dt>Caras 3D</dt><dd>{{ resumen.caras_3d|floatformat:"0g" }}</dd></div>
+</dl>
 
 <div class="tri" id="tri" data-vista="{% url 'herramientas:triangulacion_vista' t.pk %}" data-vector="{% url 'herramientas:triangulacion_vector' t.pk %}"
      data-limites="{{ limites_txt }}" data-modo="{{ modo_inicial }}" data-pendientes="{% if pen %}1{% endif %}" data-flujo="{% if flu %}1{% endif %}" data-superficie="{% if sup %}1{% endif %}">
   <section class="tri-visor" aria-label="Vista previa">
-    <div class="tri-modos"><button type="button" class="tv-boton tv-boton--secundario" data-itt="ajustar">Ajustar a la pantalla</button></div>
+    <div class="tri-modos"><button type="button" class="tv-boton tv-boton--secundario" data-itt="ajustar">{% icono "scan" %}<span>Ajustar a la pantalla</span></button></div>
     <div class="tri-lienzo-caja"><canvas id="tri-lienzo" class="tri-lienzo" aria-label="Superficie: arrastra para mover, pellizca o usa la rueda para acercar"></canvas><p id="tri-mensaje" class="tri-mensaje" role="status"></p></div>
     <p id="tri-info" class="tv-tenue" role="status">{% if sup %}{{ sup.puntos|floatformat:"0g" }} puntos · {{ sup.triangulos|floatformat:"0g" }} triángulos · elevación {{ sup.z.0|floatformat:3 }} a {{ sup.z.1|floatformat:3 }} m{% else %}Calcula la superficie para ver el resultado.{% endif %}</p>
     <div id="tri-leyenda-pendientes" class="tri-leyenda" hidden>
@@ -52,14 +57,14 @@
         <div class="tri-fila"><div class="tv-campo"><label for="arista_max">Arista máxima (m, opcional)</label><input id="arista_max" name="arista_max" type="text" inputmode="decimal" value="{% if opciones.arista_max %}{{ opciones.arista_max|floatformat:'-9u' }}{% endif %}"></div>
           <div class="tv-campo"><label for="area_min">Área mínima (m²)</label><input id="area_min" name="area_min" type="text" inputmode="decimal" value="{% if opciones.area_min is not None %}{{ opciones.area_min|floatformat:'-9u' }}{% else %}0.000001{% endif %}"></div>
           <div class="tv-campo"><label for="decimales_dup">Decimales para duplicados XY</label><input id="decimales_dup" name="decimales" type="text" inputmode="numeric" value="{{ opciones.decimales|default:6 }}"></div></div>
-        <p class="tv-tenue">La arista máxima elimina puentes largos en huecos o límites irregulares; déjala vacía para no filtrar. Si hay más de {{ limites.puntos|floatformat:"0g" }} puntos únicos el trabajo se detiene y se ofrece el módulo local.</p>
+        <p class="tv-tenue">Arista máxima: quita triángulos largos en huecos o bordes irregulares; vacía, no filtra.</p>
       </div>
       <div data-modo-superficie="capas" hidden>
         <h3>Capas con triángulos</h3>
         <ul class="tri-capas">{% for c in resumen.capas %}<li><label><input type="checkbox" name="capa" value="{{ c.nombre }}"{% if c.nombre in capas_elegidas %} checked{% endif %}> {{ c.nombre }} <span class="tv-tenue">{{ c.entidades|floatformat:"0g" }}</span></label></li>{% empty %}<li class="tv-tenue">El DXF no trae triángulos.</li>{% endfor %}</ul>
         <p class="tv-tenue">Se admiten hasta {{ limites.triangulos|floatformat:"0g" }} triángulos.</p>
       </div>
-      <button class="tv-boton" type="submit">Calcular superficie</button>
+      <button class="tv-boton" type="submit">{% icono "triangle" %}<span>Calcular superficie</span></button>
     </form>
 
     <form method="post" action="{% url 'herramientas:triangulacion_pendientes' t.pk %}" class="tv-formulario tri-form" data-panel="pendientes" hidden>{% csrf_token %}
@@ -74,9 +79,9 @@
           <div class="tv-campo"><label>Color<input name="r_color" type="color" value="{{ r.color_hex|lower }}"></label></div>
           <button type="button" class="tv-boton tv-boton--secundario" data-itt="quitar-rango" aria-label="Quitar el rango {{ r.name }}">Quitar</button></div>{% endfor %}
       </div>
-      <button type="button" class="tv-boton tv-boton--secundario" data-itt="agregar-rango" data-tipo="pendientes">Agregar rango</button>
+      <button type="button" class="tv-boton tv-boton--secundario" data-itt="agregar-rango" data-tipo="pendientes">{% icono "plus" %}<span>Agregar rango</span></button>
       <div class="tv-campo"><label for="decimales_pen">Decimales en la tabla del DXF</label><input id="decimales_pen" name="decimales" type="text" inputmode="numeric" value="{{ decimales }}"></div>
-      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>Calcular pendientes</button>
+      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>{% icono "mountain" %}<span>Calcular pendientes</span></button>
     </form>
 
     <form method="post" action="{% url 'herramientas:triangulacion_escurrimiento' t.pk %}" class="tv-formulario tri-form" data-panel="escurrimiento" hidden>{% csrf_token %}
@@ -98,8 +103,8 @@
           <div class="tv-campo"><label>Grosor (mm)<input name="r_grosor" type="text" inputmode="decimal" value="{{ r.lineweight_mm|floatformat:'-3u' }}"></label></div>
           <button type="button" class="tv-boton tv-boton--secundario" data-itt="quitar-rango" aria-label="Quitar el rango {{ r.name }}">Quitar</button></div>{% endfor %}
       </div>
-      <button type="button" class="tv-boton tv-boton--secundario" data-itt="agregar-rango" data-tipo="flujo">Agregar rango</button>
-      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>Calcular escurrimiento</button>
+      <button type="button" class="tv-boton tv-boton--secundario" data-itt="agregar-rango" data-tipo="flujo">{% icono "plus" %}<span>Agregar rango</span></button>
+      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>{% icono "move" %}<span>Calcular escurrimiento</span></button>
     </form>
 
     <form method="post" action="{% url 'herramientas:triangulacion_exportar' t.pk %}" class="tv-formulario tri-exportar" id="tri-exportar">{% csrf_token %}
@@ -113,10 +118,10 @@
       <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="referencia_tin" name="referencia_tin" checked><label for="referencia_tin">Escurrimiento: incluir el TIN de referencia</label></div>
       <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="texto_pendiente" name="texto_pendiente"><label for="texto_pendiente">Escribir el texto de la pendiente en cada triángulo o flecha</label></div>
       <input type="hidden" name="decimales" value="{{ decimales }}">
-      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>Generar DXF</button>
-      {% if t.salida_ruta %}<p class="tri-salida" id="tri-salida" data-url="{% url 'herramientas:triangulacion_descargar' t.pk %}" data-nombre="{{ t.salida_nombre }}">Último DXF: <a href="{% url 'herramientas:triangulacion_descargar' t.pk %}">{{ t.salida_nombre }}</a> <button type="button" class="tv-boton tv-boton--secundario" data-itt="compartir">Compartir</button></p>{% endif %}
+      <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>{% icono "file-code" %}<span>Generar DXF</span></button>
+      {% if t.salida_ruta %}<p class="tri-salida" id="tri-salida" data-url="{% url 'herramientas:triangulacion_descargar' t.pk %}" data-nombre="{{ t.salida_nombre }}"><span class="itt-formato" data-formato="dxf">DXF</span> <a class="tv-boton" href="{% url 'herramientas:triangulacion_descargar' t.pk %}">{% icono "download" %}<span>Descargar {{ t.salida_nombre }}</span></a> <button type="button" class="tv-boton tv-boton--secundario" data-itt="compartir">{% icono "share-2" %}<span>Compartir</span></button></p>{% endif %}
     </form>
-    {% url 'herramientas:triangulacion_borrar' t.pk as u_borrar %}{% confirmar_accion id="eliminar-archivo" accion=u_borrar abrir="Eliminar este archivo y sus resultados" titulo="¿Eliminar este archivo y sus resultados?" texto="Se borran «"|add:t.nombre|add:"» y todo lo calculado con él: la superficie, las pendientes, el escurrimiento y los archivos DXF generados." detalle="Si ya descargaste algún DXF, tu copia no se toca. Para volver a calcular tendrás que subir el archivo otra vez." aceptar="Eliminar todo" clase="tv-boton tv-boton--peligro" %}
+    {% url 'herramientas:triangulacion_borrar' t.pk as u_borrar %}{% confirmar_accion id="eliminar-archivo" accion=u_borrar abrir="Eliminar archivo" titulo="¿Eliminar «"|add:t.nombre|add:"»?" texto="Se borran el archivo y todo lo calculado: superficie, pendientes, escurrimiento y los DXF generados." detalle="Lo que ya descargaste no cambia." icono="trash-2" aceptar="Eliminar todo" clase="tv-boton tv-boton--peligro" %}
   </section>
 </div>
 {% endif %}

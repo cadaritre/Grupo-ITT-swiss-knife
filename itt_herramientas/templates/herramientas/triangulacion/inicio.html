@@ -1,15 +1,25 @@
 {% extends "herramientas/base_comun.html" %}
-{% load static tv %}
+{% load static tv herramientas %}
 {% block titulo_pagina %}Triangulación, pendientes y escurrimiento{% endblock %}
-{% block encabezado %}<h1>Triangulación, pendientes y escurrimiento</h1>{% endblock %}
+{% block titulo_h1 %}<h1>Triangulación</h1><p class="tv-subtitulo">TIN, pendientes por rangos y flechas de escurrimiento a partir de un DXF.</p>{% endblock %}
 {% block cuerpo %}
-<p>Sube un DXF con puntos (POINT, INSERT o vértices de polilíneas) o con una triangulación (3DFACE). Genera el TIN, zonifica las pendientes por rangos y dibuja las flechas de escurrimiento; exporta DXF. Hasta {{ limite_mb }} MB, {{ limite_puntos|floatformat:"0g" }} puntos únicos y {{ limite_triangulos|floatformat:"0g" }} triángulos; si tu archivo es más grande, ábrelo en <strong>Herramientas Grupo ITT (módulo local)</strong>.</p>
-<div id="itt-subida-triangulacion" data-banco="{% url 'herramientas:triangulacion_banco' '00000000-0000-0000-0000-000000000000' %}">
-{% subida destino="herramientas.triangulacion_entrada" accept=".dxf" etiqueta="Elige un DXF" max_bytes=limite_bytes %}
-</div>
+<section class="itt-soltar" aria-labelledby="tri-subir">
+  <h2 class="tv-solo-lectores" id="tri-subir">Subir un DXF</h2>
+  <div class="itt-soltar__formatos" aria-hidden="true"><span class="itt-formato" data-formato="dxf">DXF</span></div>
+  <div id="itt-subida-triangulacion" data-banco="{% url 'herramientas:triangulacion_banco' '00000000-0000-0000-0000-000000000000' %}">
+  {% subida destino="herramientas.triangulacion_entrada" accept=".dxf" etiqueta="Arrastra un DXF con puntos o triángulos, o elígelo" max_bytes=limite_bytes %}
+  </div>
+  <p class="tv-tenue itt-soltar__limite">Puntos (POINT o bloques), vértices de polilínea o triángulos 3DFACE. Hasta {{ limite_mb }} MB, {{ limite_puntos|floatformat:"0g" }} puntos y {{ limite_triangulos|floatformat:"0g" }} triángulos.</p>
+</section>
 <p id="itt-triangulacion-error" class="itt-aviso" role="alert" hidden></p>
-<h2>Recientes</h2>
-{% if recientes %}<ul class="itt-lista">{% for t in recientes %}<li class="itt-captura itt-captura--texto"><div><div class="itt-captura__texto"><strong><a href="{% url 'herramientas:triangulacion_banco' t.pk %}">{{ t.nombre }}</a></strong><span class="tv-tenue">{{ t.get_estado_display }} · {{ t.creada|date:"d/m/Y H:i" }}</span></div></div></li>{% endfor %}</ul>
-{% else %}<p class="tv-tenue">Todavía no has subido archivos.</p>{% endif %}
+<section aria-labelledby="tri-recientes">
+<h2 class="itt-seccion" id="tri-recientes">Recientes</h2>
+{% if recientes %}<ul class="itt-archivos">{% for t in recientes %}<li><a href="{% url 'herramientas:triangulacion_banco' t.pk %}" class="itt-archivo">
+  <span class="itt-formato" data-formato="dxf">DXF</span>
+  <span class="itt-archivo__texto"><strong>{{ t.nombre }}</strong><span>{{ t.creada|date:"j M Y, H:i" }}{% if t.superficie %} · {{ t.superficie.triangulos|floatformat:"0g" }} triángulos{% endif %}</span></span>
+  <span class="itt-estado" data-estado="{% if t.estado == 'error' %}error{% elif t.estado == 'listo' %}{% else %}pendiente{% endif %}">{% if t.estado == 'error' %}{% icono "triangle-alert" %}{% elif t.estado == 'listo' %}{% icono "circle-check" %}{% else %}{% icono "loader-circle" %}{% endif %}<span>{{ t.get_estado_display }}</span></span>
+  {% icono "chevron-right" clase="itt-herramienta__flecha" %}</a></li>{% endfor %}</ul>
+{% else %}{% vacio titulo="Aún no has subido archivos" icono="triangle" %}{% endvacio %}{% endif %}
+</section>
 {% endblock %}
 {% block scripts %}<script src="{% static 'herramientas/triangulacion/inicio.js' %}"></script>{% endblock %}

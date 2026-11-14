@@ -46,3 +46,10 @@
 /* Una sola fila de pasos (abajo, en el panel) cambia la vista y el formulario a la vez; sobre el visor solo queda «Ajustar». */
 .tri-modos { justify-content: flex-end; }
 .tri-modos .tv-boton { flex: 0 0 auto; }
+
+/* Rediseño 14-11-2026: resumen del archivo como cifras con etiqueta. */
+dl.tri-resumen { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); margin: 0 0 var(--tv-espacio-4, 16px); }
+dl.tri-resumen > div { display: grid; gap: 2px; padding: var(--tv-espacio-2, 8px) var(--tv-espacio-3, 12px); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio, 8px); background: var(--tv-superficie); min-width: 7rem; }
+dl.tri-resumen dt { font-size: var(--tv-texto-xs, .75rem); color: var(--tv-tenue); }
+dl.tri-resumen dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tri-salida { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2, 8px); }

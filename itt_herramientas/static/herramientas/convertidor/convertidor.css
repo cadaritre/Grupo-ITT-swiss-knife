@@ -33,3 +33,11 @@
 .itt-capas input[type="checkbox"] { width: 20px; height: 20px; flex: none; margin: 0 var(--tv-espacio-1, 4px) 0 0; accent-color: var(--tv-boton); }
 .itt-capas label .tv-tenue { margin-left: auto; font-variant-numeric: tabular-nums; }
 .itt-swatch { border: 1px solid var(--tv-borde); }
+
+/* Rediseño 14-11-2026: el resultado se ve como resultado, con la descarga obvia. */
+.itt-resultado { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--tv-espacio-3, 12px); margin: var(--tv-espacio-4, 16px) 0; padding: var(--tv-espacio-4, 16px);
+  border: 1px solid color-mix(in srgb, var(--tv-estado-exito-texto) 35%, var(--tv-separador)); border-radius: var(--tv-radio-grande, 12px); background: var(--tv-superficie); box-shadow: var(--tv-sombra-1, none); }
+.itt-resultado h2 { margin: 0; font-size: var(--tv-texto-base, 1rem); }
+.itt-resultado__texto p { margin: 2px 0 0; font-size: var(--tv-texto-sm, .875rem); overflow-wrap: anywhere; }
+.itt-resultado__acciones { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); }
+.itt-resultado__acciones .tv-boton { flex: 1 1 160px; }

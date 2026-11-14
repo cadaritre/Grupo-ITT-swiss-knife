@@ -1,15 +1,26 @@
 {% extends "herramientas/base_comun.html" %}
-{% load static tv %}
+{% load static tv herramientas %}
 {% block titulo_pagina %}Convertidor DXF ↔ KML/KMZ{% endblock %}
-{% block encabezado %}<h1>Convertidor DXF ↔ KML/KMZ</h1>{% endblock %}
+{% block titulo_h1 %}<h1>Convertidor</h1><p class="tv-subtitulo">DXF a KML o KMZ para Google Earth, y KML o KMZ a DXF para AutoCAD.</p>{% endblock %}
 {% block cuerpo %}
-<p>Convierte un DXF a KML o KMZ para Google Earth, o un KML/KMZ a DXF para AutoCAD. Hasta {{ limite_mb }} MB y {{ limite_entidades|floatformat:"0g" }} entidades; si tu archivo es más grande, ábrelo en <strong>Herramientas Grupo ITT (módulo local)</strong>.</p>
-<div id="itt-subida-convertidor" data-banco="{% url 'herramientas:convertidor_banco' '00000000-0000-0000-0000-000000000000' %}">
-{% subida destino="herramientas.convertidor_entrada" accept=".dxf,.kml,.kmz" etiqueta="Elige un DXF, KML o KMZ" max_bytes=limite_bytes %}
-</div>
+<section class="itt-soltar" aria-labelledby="conv-subir">
+  <h2 class="tv-solo-lectores" id="conv-subir">Subir un archivo</h2>
+  <div class="itt-soltar__formatos" aria-hidden="true"><span class="itt-formato" data-formato="dxf">DXF</span><span class="itt-formato" data-formato="kml">KML</span><span class="itt-formato" data-formato="kmz">KMZ</span></div>
+  <div id="itt-subida-convertidor" data-banco="{% url 'herramientas:convertidor_banco' '00000000-0000-0000-0000-000000000000' %}">
+  {% subida destino="herramientas.convertidor_entrada" accept=".dxf,.kml,.kmz" etiqueta="Arrastra un DXF, KML o KMZ, o elígelo" max_bytes=limite_bytes %}
+  </div>
+  <p class="tv-tenue itt-soltar__limite">Hasta {{ limite_mb }} MB y {{ limite_entidades|floatformat:"0g" }} entidades.</p>
+</section>
 <p id="itt-convertidor-error" class="itt-aviso" role="alert" hidden></p>
-<h2>Recientes</h2>
-{% if recientes %}<ul class="itt-lista">{% for c in recientes %}<li class="itt-captura itt-captura--texto"><div><div class="itt-captura__texto"><strong><a href="{% url 'herramientas:convertidor_banco' c.pk %}">{{ c.nombre }}</a></strong><span class="tv-tenue">{{ c.get_estado_display }} · {{ c.creada|date:"d/m/Y H:i" }}</span></div></div></li>{% endfor %}</ul>
-{% else %}<p class="tv-tenue">Todavía no has convertido archivos. Se conservan 7 días.</p>{% endif %}
+<section aria-labelledby="conv-recientes">
+<h2 class="itt-seccion" id="conv-recientes">Recientes</h2>
+{% if recientes %}<ul class="itt-archivos">{% for c in recientes %}<li><a href="{% url 'herramientas:convertidor_banco' c.pk %}" class="itt-archivo">
+  <span class="itt-formato" data-formato="{{ c.formato }}">{{ c.formato|upper }}</span>
+  <span class="itt-archivo__texto"><strong>{{ c.nombre }}</strong><span>{{ c.creada|date:"j M Y, H:i" }}{% if c.salida_formato %} · convertido a {{ c.salida_formato|upper }}{% endif %}</span></span>
+  <span class="itt-estado" data-estado="{% if c.estado == 'error' %}error{% elif c.estado == 'listo' %}{% else %}pendiente{% endif %}">{% if c.estado == 'error' %}{% icono "triangle-alert" %}{% elif c.estado == 'listo' %}{% icono "circle-check" %}{% else %}{% icono "loader-circle" %}{% endif %}<span>{{ c.get_estado_display }}</span></span>
+  {% icono "chevron-right" clase="itt-herramienta__flecha" %}</a></li>{% endfor %}</ul>
+<p class="tv-tenue itt-nota">Los archivos se conservan 7 días.</p>
+{% else %}{% vacio titulo="Aún no has convertido archivos" icono="arrow-right-left" %}{% endvacio %}{% endif %}
+</section>
 {% endblock %}
 {% block scripts %}<script src="{% static 'herramientas/convertidor/inicio.js' %}"></script>{% endblock %}

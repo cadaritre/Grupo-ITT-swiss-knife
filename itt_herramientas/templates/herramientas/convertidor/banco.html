@@ -2,18 +2,18 @@
 {% load static tv herramientas %}
 {% block titulo_pagina %}{{ c.nombre }}{% endblock %}
 {% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/vendor/maplibre/maplibre-gl.css' %}"><link rel="stylesheet" href="{% static 'herramientas/convertidor/convertidor.css' %}">{% endblock %}
-{% block encabezado %}<h1>{{ c.nombre }}</h1>{% endblock %}
-{% block acciones_pagina %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:convertidor' %}">Otro archivo</a>{% endblock %}
+{% block titulo_h1 %}<h1>{{ c.nombre }}</h1>{% endblock %}
+{% block acciones_pagina %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:convertidor' %}">{% icono "file-up" %}<span>Otro archivo</span></a>{% endblock %}
 {% block cuerpo %}
 {% if en_curso and tarea %}<section aria-label="Avance">{% progreso tarea %}</section>
 {% elif c.estado == "error" %}
   {% alerta tipo="error" titulo="No se pudo leer el archivo" %}{{ c.error }}{% endalerta %}
-  <form method="post" action="{% url 'herramientas:convertidor_borrar' c.pk %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">Quitar este archivo</button></form>
+  <form method="post" action="{% url 'herramientas:convertidor_borrar' c.pk %}" class="tv-formulario">{% csrf_token %}<button class="tv-boton tv-boton--secundario" type="submit">{% icono "trash-2" %}<span>Quitar este archivo</span></button></form>
 {% elif lista %}
 <div class="itt-conv" id="itt-conv" data-vista="{% url 'herramientas:convertidor_vista' c.pk %}">
   <div class="itt-conv__panel">
     <p class="itt-resumen" data-itt="resumen">{{ resumen.elementos|floatformat:"0g" }} elemento{{ resumen.elementos|pluralize }} · {{ resumen.capas|length }} capa{{ resumen.capas|length|pluralize }}{% if resumen.geometrias.puntos %} · {{ resumen.geometrias.puntos }} punto{{ resumen.geometrias.puntos|pluralize }}{% endif %}{% if resumen.geometrias.lineas %} · {{ resumen.geometrias.lineas }} línea{{ resumen.geometrias.lineas|pluralize }}{% endif %}{% if resumen.geometrias.poligonos %} · {{ resumen.geometrias.poligonos }} polígono{{ resumen.geometrias.poligonos|pluralize }}{% endif %}</p>
-    {% for aviso in resumen.avisos %}<p class="itt-aviso" role="status">⚠ {{ aviso }}</p>{% endfor %}
+    {% for aviso in resumen.avisos %}{% alerta tipo="aviso" %}{{ aviso }}{% endalerta %}{% endfor %}
 
     <form method="post" action="{% url 'herramientas:convertidor_analizar' c.pk %}" class="tv-formulario itt-zona" id="itt-form-zona">{% csrf_token %}
       <h2>Proyección</h2>
@@ -21,8 +21,8 @@
         <div class="tv-campo"><label for="zona">Zona UTM</label><select id="zona" name="zona">{% for z in zonas %}<option value="{{ z }}"{% if z == c.zona %} selected{% endif %}>{{ z }}</option>{% endfor %}</select></div>
         <div class="tv-campo"><label for="hemisferio">Hemisferio</label><select id="hemisferio" name="hemisferio"><option value="N"{% if c.hemisferio == "N" %} selected{% endif %}>N</option><option value="S"{% if c.hemisferio == "S" %} selected{% endif %}>S</option></select></div>
       </div>
-      <p class="tv-tenue">{% if es_dxf %}Indica la zona original del levantamiento (Chihuahua usa 13N); cambia dónde cae en el mapa. Las unidades siempre son metros.{% else %}Para KML/KMZ esta es la zona del DXF de salida. Sugerida por el archivo: UTM {{ resumen.zona_sugerida.0 }}{{ resumen.zona_sugerida.1 }}.{% endif %}</p>
-      {% if es_dxf %}<button class="tv-boton tv-boton--secundario" type="submit">Volver a leer con esta zona</button>{% endif %}
+      <p class="tv-tenue">{% if es_dxf %}La zona del levantamiento (Chihuahua: 13N). Unidades en metros.{% else %}Zona del DXF de salida. Sugerida: UTM {{ resumen.zona_sugerida.0 }}{{ resumen.zona_sugerida.1 }}.{% endif %}</p>
+      {% if es_dxf %}<button class="tv-boton tv-boton--secundario" type="submit">{% icono "refresh-cw" %}<span>Volver a leer con esta zona</span></button>{% endif %}
     </form>
 
     <form method="post" action="{% url 'herramientas:convertidor_convertir' c.pk %}" class="tv-formulario" id="itt-form-convertir">{% csrf_token %}
@@ -30,23 +30,24 @@
       <h2>Salida</h2>
       <div class="tv-campo"><label for="formato">Formato</label><select id="formato" name="formato">{% for s in salidas %}<option value="{{ s }}"{% if s == formato %} selected{% endif %}>{{ s|upper }}</option>{% endfor %}</select></div>
       {% if es_dxf %}<div class="tv-campo"><label for="precision">Precisión de las curvas</label><select id="precision" name="precision">{% for clave, etiqueta in precisiones.items %}<option value="{{ clave }}"{% if clave == precision %} selected{% endif %}>{{ etiqueta }}</option>{% endfor %}</select>
-        <div class="tv-campo__ayuda">Error máximo entre una curva (círculo, arco, elipse, spline) y sus segmentos. Las líneas rectas nunca ganan vértices y los vértices originales no se mueven. Más precisión = más puntos.</div></div>{% endif %}
+        <div class="tv-campo__ayuda">Separación máxima entre arcos o curvas y sus segmentos. Los vértices originales no se mueven.</div></div>{% endif %}
       <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="etiquetas" name="etiquetas"{% if etiquetas %} checked{% endif %}><label for="etiquetas">Conservar nombres como etiquetas</label></div>
       {% if es_dxf %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" id="relieve" name="relieve"{% if relieve %} checked{% endif %}><label for="relieve">Pegar KML/KMZ al relieve de Google Earth</label></div>
-      {% else %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" id="rellenos" name="rellenos"{% if rellenos %} checked{% endif %}><label for="rellenos">Crear rellenos para polígonos en DXF</label><div class="tv-campo__ayuda">Cada relleno repite los vértices de su polígono: el DXF puede pesar casi el doble.</div></div>{% endif %}
-      <h2 class="itt-capas-titulo">Capas a exportar <span class="itt-capas-acciones"><button type="button" class="tv-boton tv-boton--secundario" data-itt="todas">Todas</button> <button type="button" class="tv-boton tv-boton--secundario" data-itt="ninguna">Ninguna</button></span></h2>
+      {% else %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" id="rellenos" name="rellenos"{% if rellenos %} checked{% endif %}><label for="rellenos">Crear rellenos para polígonos en DXF</label><div class="tv-campo__ayuda">El DXF puede pesar casi el doble.</div></div>{% endif %}
+      <h2 class="itt-capas-titulo">Capas a exportar <span class="itt-capas-acciones"><button type="button" class="tv-boton tv-boton--secundario" data-itt="todas">{% icono "check" %}<span>Todas</span></button> <button type="button" class="tv-boton tv-boton--secundario" data-itt="ninguna">{% icono "x" %}<span>Ninguna</span></button></span></h2>
       <ul class="itt-capas">{% for capa in resumen.capas %}<li><label><input type="checkbox" name="capa" value="{{ capa.nombre }}" data-itt="capa"{% if capa.nombre in capas_elegidas %} checked{% endif %}><span class="itt-swatch" data-color="{{ capa.color }}"></span> {{ capa.nombre }} <span class="tv-tenue">{{ capa.elementos|floatformat:"0g" }}</span></label></li>{% endfor %}</ul>
-      <button class="tv-boton" type="submit" id="itt-convertir">Convertir</button>
+      <button class="tv-boton" type="submit" id="itt-convertir">{% icono "arrow-right-left" %}<span>Convertir</span></button>
     </form>
-    {% if tiene_salida %}{% tarjeta titulo="Último archivo convertido" %}<p>{{ c.salida_formato|upper }} listo.</p>
-      <p><a class="tv-boton" href="{% url 'herramientas:convertidor_descargar' c.pk %}" data-itt="descargar">Descargar</a>
-      <button type="button" class="tv-boton tv-boton--secundario" id="itt-compartir" data-url="{% url 'herramientas:convertidor_descargar' c.pk %}" data-nombre="{{ c.nombre }}" hidden>Compartir</button></p>{% endtarjeta %}{% endif %}
-    {% url 'herramientas:convertidor_borrar' c.pk as u_borrar %}{% confirmar_accion id="eliminar-archivo" accion=u_borrar abrir="Eliminar este archivo del servidor" titulo="¿Eliminar este archivo?" texto="Se borra «"|add:c.nombre|add:"» del servidor, con su vista previa y el último archivo convertido." detalle="Si ya descargaste el resultado, tu copia no se toca. Para convertirlo de nuevo tendrás que subir el archivo otra vez." aceptar="Eliminar archivo" %}
+    {% if tiene_salida %}<section class="itt-resultado" aria-labelledby="conv-resultado"><span class="itt-formato" data-formato="{{ c.salida_formato }}">{{ c.salida_formato|upper }}</span>
+      <div class="itt-resultado__texto"><h2 id="conv-resultado">Archivo listo</h2><p class="tv-tenue">{{ c.nombre }} en {{ c.salida_formato|upper }}</p></div>
+      <div class="itt-resultado__acciones"><a class="tv-boton" href="{% url 'herramientas:convertidor_descargar' c.pk %}" data-itt="descargar">{% icono "download" %}<span>Descargar {{ c.salida_formato|upper }}</span></a>
+      <button type="button" class="tv-boton tv-boton--secundario" id="itt-compartir" data-url="{% url 'herramientas:convertidor_descargar' c.pk %}" data-nombre="{{ c.nombre }}" hidden>{% icono "share-2" %}<span>Compartir</span></button></div></section>{% endif %}
+    {% url 'herramientas:convertidor_borrar' c.pk as u_borrar %}{% confirmar_accion id="eliminar-archivo" accion=u_borrar abrir="Eliminar archivo" titulo="¿Eliminar «"|add:c.nombre|add:"»?" texto="Se borran el archivo, su vista previa y el último resultado." detalle="Lo que ya descargaste no cambia." aceptar="Eliminar archivo" icono="trash-2" %}
   </div>
   <div class="itt-conv__mapa">
     <div id="itt-mapa" role="img" aria-label="Vista previa geográfica de las capas"></div>
     <p class="tv-tenue" id="itt-mapa-info">Cargando la vista previa…</p>
-    <button type="button" class="tv-boton tv-boton--secundario" id="itt-ajustar">Ajustar geometría</button>
+    <button type="button" class="tv-boton tv-boton--secundario" id="itt-ajustar">{% icono "scan" %}<span>Ajustar al dibujo</span></button>
   </div>
 </div>
 {{ resumen.limites|json_script:"itt-limites" }}
