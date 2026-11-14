@@ -112,3 +112,10 @@ def entradas_geo(tmp_path_factory):
     from paridad import casos
 
     return casos.generar_entradas(tmp_path_factory.mktemp("entradas_geo"))
+
+
+@pytest.fixture
+def reportera(crear_usuario, roles):
+    u = crear_usuario("rita")
+    roles.conceder(u, "herramientas", "reportes")
+    return u

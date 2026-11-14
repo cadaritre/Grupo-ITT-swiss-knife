@@ -44,6 +44,7 @@ def test_cobertura_de_casos_del_dominio_movido():
     fuente = (ejecutor.AQUI / "casos.py").read_text(encoding="utf-8")
     assert len(casos.claves()) == 2 * len(casos.CASOS)
     sin_caso = {"almacenamiento": "no existe en el escritorio con esa forma (ver test_almacenamiento)", "fuentes": "nuevo en la web",
+                "teselas": "nuevo en la web (caché con la política de OSM, revalidación y agente): se prueba en pruebas/test_teselas.py; el escritorio no tiene equivalente",
                 "geometria": "nuevo en la web: se prueba en pruebas/test_geometria.py y paridad/test_convertidor_medidas.py (escritorio contra web)"}
     for archivo in sorted((ejecutor.RAIZ / "itt_herramientas" / "dominio").glob("*.py")):
         nombre = archivo.stem

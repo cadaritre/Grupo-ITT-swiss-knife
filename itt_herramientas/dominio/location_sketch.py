@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import date
@@ -16,8 +15,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen.canvas import Canvas
 
-from . import fuentes
-from .almacenamiento import agente_usuario, cache_dir
+from . import fuentes, teselas
 from .branding import active_profile
 from .osm_vector import CATEGORY_LABELS, OSMFeature, VectorPath, classify_osm_tags, feature_counts, road_width_m
 
@@ -271,22 +269,7 @@ def _tile(x: int, y: int, zoom: int, layer: str) -> Image.Image:
     if not template:
         raise ValueError("La capa seleccionada no usa teselas en línea.")
     layer_key = "".join(character if character.isalnum() else "_" for character in layer).strip("_")
-    cache = cache_dir("map_tiles") / layer_key / str(zoom) / str(x)
-    cache.mkdir(parents=True, exist_ok=True)
-    target = cache / f"{y}.png"
-    if target.exists():
-        try:
-            with Image.open(target) as cached:
-                return cached.convert("RGB").copy()
-        except Exception:
-            target.unlink(missing_ok=True)
-    request = urllib.request.Request(
-        template.format(z=zoom, x=x, y=y, s=("a", "b", "c")[(x + y) % 3]),
-        headers={"User-Agent": agente_usuario("ITTHerramientas/1.0")},
-    )
-    with urllib.request.urlopen(request, timeout=5) as response:
-        payload = response.read()
-    target.write_bytes(payload)
+    payload = teselas.obtener(layer_key, template.format(z=zoom, x=x, y=y, s=("a", "b", "c")[(x + y) % 3]), zoom, x, y)
     with Image.open(BytesIO(payload)) as downloaded:
         return downloaded.convert("RGB").copy()
 

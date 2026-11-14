@@ -16,13 +16,6 @@ from .conftest import url
 pytestmark = pytest.mark.django_db
 
 
-@pytest.fixture
-def reportera(crear_usuario, roles):
-    u = crear_usuario("rita")
-    roles.conceder(u, "herramientas", "reportes")
-    return u
-
-
 def crear_foto(cuenta, n, settings, tam=(640, 480)):
     """Una foto ya subida (fila + archivo), como la dejaría el destino de subida."""
     sha = f"{n:064x}"
@@ -160,22 +153,6 @@ def test_miniatura_y_original(cliente_de, reportera, settings):
     assert c.get(url("reportes_foto", sha256=sha) + "?original=1").status_code == 200
     assert c.get(url("reportes_foto", sha256="f" * 64)).status_code == 404
     assert c.get(url("reportes_foto", sha256="no-es-sha")).status_code == 404
-
-
-def test_teselas_con_cache_y_limites(cliente_de, reportera, settings, monkeypatch):
-    png = b"\x89PNG\r\n\x1a\n" + b"0" * 50
-    llamadas = []
-    monkeypatch.setattr(teselas.urllib.request, "urlopen", lambda *a, **k: llamadas.append(a[0].full_url) or mock.MagicMock(__enter__=lambda s: mock.MagicMock(read=lambda n=-1: png), __exit__=lambda *x: None))
-    c = cliente_de(reportera)
-    r = c.get(url("teselas", capa="osm", z=3, x=2, y=1))
-    assert r.status_code == 200 and r.content == png and r["Content-Type"] == "image/png"
-    assert c.get(url("teselas", capa="osm", z=3, x=2, y=1)).status_code == 200
-    assert len(llamadas) == 1 and llamadas[0] == "https://tile.openstreetmap.org/3/2/1.png"       # la segunda salió de la caché
-    assert c.get(url("teselas", capa="osm", z=3, x=9, y=1)).status_code == 404                     # fuera del mundo
-    assert c.get(url("teselas", capa="osm", z=25, x=0, y=0)).status_code == 404
-    assert c.get(url("teselas", capa="satelite", z=3, x=0, y=0)).status_code == 404
-    monkeypatch.setattr(teselas.urllib.request, "urlopen", mock.Mock(side_effect=OSError("sin red")))
-    assert c.get(url("teselas", capa="topo", z=3, x=0, y=0)).status_code == 404                    # sin red y sin caché: 404, no 500
 
 
 def test_teselas_piden_sesion_y_rol(client, cliente_de, convertidora):
