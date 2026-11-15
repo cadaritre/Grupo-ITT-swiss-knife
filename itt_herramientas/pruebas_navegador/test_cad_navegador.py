@@ -117,6 +117,7 @@ def test_abrir_dibujar_guardar_y_restaurar(cad, navegar, crear_usuario, roles, m
     esperar_estado(p, "sucio")
     p.locator("#cad-guardar").click()
     esperar_estado(p, "guardado")
+    expect(p.locator("#cad-subtitulo")).to_have_text("Agrícola Norte · Versión 2 · Ana López")
     v2 = VersionPlano.objects.get(plano=p0, numero=2)
     assert b"CIRCLE" in servicio.ruta_version(v2).read_bytes() and v2.autor_nombre == "Ana López"
     # Ctrl/⌘+S dentro del editor también guarda en la biblioteca (vía del propio editor)

@@ -300,7 +300,8 @@ def guardar(request, pk):
 
     def trabajo(temporal):
         p = servicio.guardar(pk, request.user, request.headers.get("X-TV-Sesion", ""), int(revision), temporal)
-        return _json({"revision": p.revision, "formato": p.formato, "bytes": p.bytes, "nombre": p.nombre, "versiones": _versiones(p)})
+        return _json({"revision": p.revision, "formato": p.formato, "bytes": p.bytes, "nombre": p.nombre, "versiones": _versiones(p),
+                      "proyecto": p.proyecto, "modificado_por": p.modificado_por_nombre})
     return _con_cuerpo(request, trabajo)
 
 
@@ -351,7 +352,7 @@ def restaurar_version(request, pk, numero):
     if request.content_type != "application/json":
         messages.success(request, f"La versión {numero} es otra vez la vigente (versión {p.revision}).")
         return redirect("herramientas:cad_plano", pk=pk)
-    return _json({"revision": p.revision, "versiones": _versiones(p)})
+    return _json({"revision": p.revision, "versiones": _versiones(p), "proyecto": p.proyecto, "modificado_por": p.modificado_por_nombre})
 
 
 @editar

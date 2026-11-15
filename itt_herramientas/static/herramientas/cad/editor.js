@@ -205,8 +205,10 @@
   }
 
   // Cambios sin guardar: la revisión del dibujo en el editor contra la que tenía al abrirlo o al guardarlo en la biblioteca.
+  let consultando = false;
   setInterval(async () => {
-    if (!e.cargado || !documento || !control || document.visibilityState === "hidden") return;
+    if (consultando || !e.cargado || !documento || !control || document.visibilityState === "hidden") return;
+    consultando = true;                                                    // nunca dos consultas a la vez: en un equipo lento se apilarían
     try {
       const est = await canal({ op: "state" }, 5000);
       const doc = (est.documents || []).find((d) => d.id === documento);
@@ -220,6 +222,7 @@
         refrescarEstado();
       }
     } catch (_) { /* el editor está ocupado: la próxima vuelta */ }
+    finally { consultando = false; }
   }, 1000);
 
   // -- Guardar ------------------------------------------------------------------------------------------------------------------
@@ -270,6 +273,7 @@
         responder(true, undefined, `${e.nombre}.${d.formato}`);
         $("cad-formato").textContent = d.formato.toUpperCase(); $("cad-formato").dataset.formato = d.formato;
         pintarVersiones(d.versiones);
+        pintarSubtitulo(d);
         ocultarBorrador();
         avisar(`Guardado · versión ${d.revision}`);
         anunciar("guardado", { revision: d.revision, formato: d.formato });
@@ -514,7 +518,12 @@
       return li;
     }));
   }
-  function boton(tag, href, nombreIcono, etiqueta) {
+  function pintarSubtitulo(d) {
+    const sub = $("cad-subtitulo");
+    if (!sub || C.version) return;
+    sub.textContent = [d.proyecto, `Versión ${d.revision}`, d.modificado_por].filter(Boolean).join(" · ");
+  }
+    function boton(tag, href, nombreIcono, etiqueta) {
     const b = document.createElement(tag);
     b.className = "tv-boton tv-boton--secundario tv-boton--icono";
     if (href) b.href = href; else b.type = "button";
@@ -535,6 +544,7 @@
       if (!r.ok) throw new Error(d.error || "No se pudo restaurar la versión.");
       e.revision = e.base = d.revision;
       pintarVersiones(d.versiones);
+      pintarSubtitulo(d);
       $("cad-versiones").close();
       avisar(`Versión ${b.dataset.cadRestaurar} restaurada como versión ${d.revision}`);
       if (e.editable) await abrir("vigente", false);

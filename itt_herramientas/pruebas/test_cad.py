@@ -254,6 +254,7 @@ def test_guardar_crea_una_version_nueva_con_quien_la_guardo(cliente_de, dibujant
     assert r.status_code == 200, r.content
     d = r.json()
     assert d["revision"] == 2 and d["formato"] == "dxf" and [v["numero"] for v in d["versiones"]] == [2, 1]
+    assert d["modificado_por"] == "Beto" and d["proyecto"] == "Agrícola Norte"
     plano.refresh_from_db()
     assert (plano.revision, plano.formato, plano.modificado_por_nombre, plano.autor_nombre) == (2, "dxf", "Beto", "Ana Dibujo")
 
