@@ -21,7 +21,7 @@
 .cad-filtros .tv-campo input, .cad-filtros .tv-campo select { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; }
 .cad-buscador { position: relative; }
 .cad-buscador > .tv-icono { position: absolute; left: 12px; top: 50%; width: 1rem; height: 1rem; transform: translateY(-50%); color: var(--tv-tenue); pointer-events: none; }
-.cad-filtros .cad-buscador input { padding-left: 40px; }
+.cad-filtros .tv-campo .cad-buscador input[type="search"] { padding-left: 40px; }
 .cad-filtros__avanzados { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: var(--tv-espacio-3); align-items: end;
   margin-top: var(--tv-espacio-3); padding: var(--tv-espacio-3); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); background: var(--tv-superficie); }
 .cad-filtros__avanzados[hidden] { display: none; }
@@ -77,11 +77,15 @@
 .cad-seleccion__cuenta { flex: 1 1 auto; font-weight: 600; font-size: var(--tv-texto-sm); }
 .cad-seleccion__estado { flex-basis: 100%; margin: 0; }
 .cad-seleccion__estado[hidden] { display: none; }
-@media (max-width: 599px) { .cad-seleccion > .tv-boton { flex: 1 1 auto; } }
+@media (max-width: 599px) {
+  .cad-seleccion > .tv-boton { flex: 1 1 auto; }
+  .cad-seleccion:not([data-activa="1"]) { display: none; }          /* en el teléfono aparece al elegir un plano */
+}
 
 /* -- Editor ----------------------------------------------------------------------------------------------------------------------- */
 .cad-titulo { display: flex; align-items: center; gap: var(--tv-espacio-2); min-width: 0; flex-wrap: wrap; }
-.cad-titulo h1 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.cad-titulo h1 { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: var(--tv-texto-xl); }
+.tv-encabezado__titulos:has(.cad-titulo) { flex: 1 1 18rem; min-width: 0; }
 .cad-estado { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; min-height: 26px; box-sizing: border-box; border-radius: 999px;
   font-size: var(--tv-texto-xs); font-weight: 600; color: var(--tv-tenue); background: var(--tv-secundario); white-space: nowrap; }
 .cad-estado[data-estado="sucio"] { color: var(--tv-estado-aviso-texto); background: var(--tv-estado-aviso-fondo); }

@@ -185,6 +185,7 @@
   window.addEventListener("message", (ev) => {
     if (ev.origin !== location.origin || ev.source !== frame.contentWindow) return;
     const m = ev.data || {};
+    if (m.source === "tresvizo-cad-editor" && m.type === "guardar") { if (C.puede_editar) pedirGuardado(e.perdido ? "copia" : "plano"); return; }
     if (m.source !== "opencadstudio-embed") return;
     if (m.type === "ocs:loaded") {
       canal({ op: "state" }).then((est) => {

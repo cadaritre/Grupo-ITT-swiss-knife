@@ -38,6 +38,15 @@ function vigilarLienzo() {
   observador.observe(document.body, { childList: true, subtree: true });
 }
 
+// ⌘S (Mac): el editor solo atiende Ctrl+S, y Safari abriría «Guardar página». Se le pide a la página de Herramientas que guarde.
+addEventListener("keydown", (ev) => {
+  if (ev.metaKey && !ev.ctrlKey && !ev.altKey && (ev.key === "s" || ev.key === "S")) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    try { parent.postMessage({ source: "tresvizo-cad-editor", type: "guardar" }, location.origin); } catch (_) { /* sin página contenedora */ }
+  }
+}, true);
+
 async function arrancar() {
   prepararAjustes();
   vigilarLienzo();
