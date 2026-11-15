@@ -33,12 +33,24 @@
         <div class="tv-campo"><label for="r-cliente">Cliente</label><input id="r-cliente" type="text" maxlength="160" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Opcional"></div>
         <div class="tv-campo"><label for="r-fecha">Fecha</label><input id="r-fecha" type="date"></div>
         <div class="tv-campo tv-campo--casilla"><input id="r-croquis" type="checkbox"><label for="r-croquis">Portada con croquis de ubicación</label><p class="tv-campo__ayuda">Si no, la portada lleva la primera foto.</p></div>
+        <fieldset class="tv-campo rep-por-pagina">
+          <legend>Fotos por página</legend>
+          <div class="rep-segmento">
+            <input type="radio" name="r-por-pagina" id="r-por-pagina-1" value="1" class="rep-segmento__radio"><label for="r-por-pagina-1" class="rep-segmento__opcion">{% icono "square" %}<span>1</span></label>
+            <input type="radio" name="r-por-pagina" id="r-por-pagina-2" value="2" class="rep-segmento__radio"><label for="r-por-pagina-2" class="rep-segmento__opcion">{% icono "rows-2" %}<span>2</span></label>
+            <input type="radio" name="r-por-pagina" id="r-por-pagina-4" value="4" class="rep-segmento__radio"><label for="r-por-pagina-4" class="rep-segmento__opcion">{% icono "grid-2x2" %}<span>4</span></label>
+            <input type="radio" name="r-por-pagina" id="r-por-pagina-6" value="6" class="rep-segmento__radio"><label for="r-por-pagina-6" class="rep-segmento__opcion rep-segmento__opcion--6">{% icono "grid-3x2" %}<span>6</span></label>
+          </div>
+        </fieldset>
         <div class="tv-campo tv-campo--casilla" id="r-credenciales-caja"><input id="r-credenciales" type="checkbox"><label for="r-credenciales">Agregar página de cédula y firma</label></div>
       </div>
     </details>
 
     <section class="rep-captura" aria-labelledby="rep-titulo-captura">
-      <h2 id="rep-titulo-captura">{% icono "images" %}<span>Fotos</span> <span id="rep-contador" class="cot-insignia"></span></h2>
+      <div class="rep-fotos-cabecera">
+        <h2 id="rep-titulo-captura">{% icono "images" %}<span>Fotos</span> <span id="rep-contador" class="cot-insignia"></span></h2>
+        <button type="button" id="rep-ordenar" class="tv-boton tv-boton--secundario" aria-pressed="false" hidden>{% icono "layout-grid" %}<span>Ordenar</span></button>
+      </div>
       <div class="rep-acciones-captura">
         <label class="tv-boton">{% icono "camera" %}<span>Tomar foto</span><input id="rep-camara" class="itt-ocultar-entrada" type="file" accept="image/*" capture="environment"></label>
         <label class="tv-boton tv-boton--secundario">{% icono "images" %}<span>Galería</span><input id="rep-galeria" class="itt-ocultar-entrada" type="file" accept="image/*" multiple></label>
@@ -49,6 +61,8 @@
       <div id="rep-soltar" class="rep-soltar" tabindex="0">{% icono "upload" %}<span>Arrastra aquí fotos o carpetas</span></div>
       <p id="rep-sin-fotos" class="tv-tenue">Sin fotos todavía.</p>
       <ol id="rep-fotos" class="itt-lista rep-fotos"></ol>
+      <div id="rep-rejilla" class="rep-rejilla" hidden></div>
+      <p id="rep-anuncio" class="tv-solo-lectores" aria-live="polite"></p>
     </section>
 
     <div class="cot-barra" id="rep-barra" role="region" aria-label="Acciones del reporte">
@@ -79,6 +93,22 @@
       <button type="submit" id="u-guardar" class="tv-boton" value="si">{% icono "check" %}<span>Guardar ubicación</span></button>
     </div>
   </form>
+</dialog>
+
+<dialog id="dlg-mover" class="tv-hoja" aria-labelledby="dlg-mover-titulo">
+  <div class="tv-hoja__cuerpo">
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <div class="tv-hoja__cabecera"><h2 id="dlg-mover-titulo">Mover la foto</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
+    <div class="cot-menu-acciones">
+      <button type="button" id="mover-principio" class="cot-menu-accion">{% icono "arrow-up-to-line" %}<span>Al principio</span></button>
+      <button type="button" id="mover-final" class="cot-menu-accion">{% icono "arrow-down-to-line" %}<span>Al final</span></button>
+    </div>
+    <form id="form-mover" class="rep-mover-posicion" novalidate>
+      <div class="tv-campo"><label for="mover-posicion">A la posición…</label><input id="mover-posicion" type="number" inputmode="numeric" min="1" step="1" autocomplete="off" aria-describedby="mover-error"></div>
+      <button type="submit" class="tv-boton">{% icono "move" %}<span>Mover</span></button>
+    </form>
+    <p id="mover-error" class="tv-campo__error" role="alert" hidden></p>
+  </div>
 </dialog>
 
 <dialog id="dlg-pdf" class="tv-hoja cot-hoja-pdf" aria-labelledby="dlg-pdf-titulo">
@@ -116,5 +146,6 @@
 <script src="{% static 'herramientas/offline/vista-pdf.js' %}"></script>
 <script src="{% static 'herramientas/offline/listas.js' %}"></script>
 <script src="{% static 'herramientas/offline/combobox.js' %}"></script>
+<script src="{% static 'herramientas/reportes/orden.js' %}"></script>
 <script src="{% static 'herramientas/reportes/reportes.js' %}"></script>
 {% endblock %}

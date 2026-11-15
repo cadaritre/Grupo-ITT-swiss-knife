@@ -98,7 +98,9 @@ def test_cuarenta_fotos_sin_conexion_notas_cierre_subida_y_pdf(motor, tmp_path, 
             pagina.fill(f"#nota-{i * 4}", f"Nota de la foto {i * 4 + 1}")
         # Reordenar: la última sube una posición; ubicar una de la galería a mano.
         sha_ultima = fotos_locales(pagina)[39]["sha256"]
-        pagina.locator("#rep-fotos > li").nth(39).locator("button[aria-label^='Subir']").click()
+        pagina.locator("#rep-fotos > li").nth(39).locator("[data-itt=mover]").click()
+        pagina.fill("#mover-posicion", "39")
+        pagina.locator("#form-mover button[type=submit]").click()
         esperar(pagina, f"ITT.cola.borradores().then(b => b.find(x => x.tipo === 'reporte').datos.fotos[38].sha256 === '{sha_ultima}')")
         pagina.locator("#rep-fotos > li").nth(20).locator("[data-itt=ubicar]").click()
         expect(pagina.locator("#dlg-ubicar")).to_be_visible()
@@ -251,7 +253,7 @@ def test_diseno_sin_desborde_y_objetivos_tactiles(motor, tmp_path, servidor, ses
         nuevo_reporte(pagina)
         elegir(pagina, range(1, 4))
         sin_desborde(pagina)
-        for selector in ("#rep-pdf", "#rep-mas", "#rep-fotos > li:first-child [data-itt=ubicar]", "#rep-fotos > li:first-child button[aria-label^='Bajar']"):
+        for selector in ("#rep-pdf", "#rep-mas", "#rep-fotos > li:first-child [data-itt=ubicar]", "#rep-fotos > li:first-child [data-itt=mover]", "#rep-fotos > li:first-child .rep-asa"):
             caja = pagina.locator(selector).bounding_box()
             assert caja and caja["height"] >= 43.5, selector
     finally:

@@ -1,5 +1,6 @@
 /* Reportes fotográficos en el teléfono (herramientas-web.md §4.2): captura con cámara o galería, hora y ubicación por foto, nota,
- * orden, cola local con subida reanudable y PDF en el servidor. Los borradores son los de offline/documentos.js.
+ * orden (arrastre, «Mover» y vista «Ordenar» por página del PDF, en orden.js), cola local con subida reanudable y PDF en el servidor.
+ * Los borradores son los de offline/documentos.js.
  * Rutas con hash: #/ lista · #/r/<id> reporte.
  */
 (function () {
@@ -19,6 +20,9 @@
   let ubicando = -1;                     // índice de la foto que se está ubicando a mano
   let pdfActual = null;
   let ultimaLista = "#/";                // la lista con sus filtros, para volver a ella desde un reporte
+  let ordenando = false;                 // vista «Ordenar»: miniaturas agrupadas por página del PDF
+  let moviendo = -1;                     // índice de la foto de la hoja «Mover»
+  const POR_PAGINA = [1, 2, 4, 6];
   const MAX_FOTOS = () => (ctx && ctx.max_fotos) || 150;
   const dos = (n) => String(n).padStart(2, "0");
   const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`; };
@@ -132,7 +136,7 @@
   }
   async function nuevo() {
     if (!ctx) return mensaje("Sin conexión. Abre Reportes una vez con señal para poder trabajar sin ella.", "error");
-    const r = await docs.crear({ titulo: ctx.titulo || "Reporte fotográfico", cliente: "", fecha: hoyISO(), con_croquis: true, con_credenciales: false, fotos: [] });
+    const r = await docs.crear({ titulo: ctx.titulo || "Reporte fotográfico", cliente: "", fecha: hoyISO(), con_croquis: true, con_credenciales: false, fotos_por_pagina: 1, fotos: [] });
     location.hash = `#/r/${r.id}`;
   }
   async function borrarRegistro(b) {
@@ -158,6 +162,7 @@
     $("r-fecha").value = d.fecha;
     $("r-croquis").checked = !!d.con_croquis;
     $("r-credenciales").checked = !!d.con_credenciales;
+    $(`r-por-pagina-${porPagina()}`).checked = true;
     $("r-credenciales-caja").hidden = !(ctx && ctx.credenciales);
     $("rep-titulo-editor").textContent = d.titulo || "Reporte";
     ITT.ui.autoria($("rep-autor"), reg, ctx && ctx.autor);
@@ -195,37 +200,128 @@
   }
   const horaCorta = (t) => (t ? `${t.slice(8, 10)}/${t.slice(5, 7)}/${t.slice(0, 4)} ${t.slice(11, 16)}` : "Sin hora");
 
+  // -- Fotos: lista, páginas del PDF y orden -----------------------------------------------------------------------------------------
+  const porPagina = () => (POR_PAGINA.includes(reg.datos.fotos_por_pagina) ? reg.datos.fotos_por_pagina : 1);
+  /** Fotos de cada página del PDF (la misma regla que el generador): [[portada], [página 2], …]. */
+  const paginasPdf = () => ITT.ordenFotos.paginas(reg.datos.fotos.length, porPagina(), !!reg.datos.con_croquis);
+  const nombrePagina = (p) => (p === 0 ? "Portada" : `Página ${p + 1}`);
+
   function pintarFotos() {
     const ol = $("rep-fotos");
     limpiar(ol);
     const fotos = reg.datos.fotos;
     $("rep-sin-fotos").hidden = fotos.length > 0;
+    if (fotos.length < 2) ordenando = false;
+    $("rep-ordenar").hidden = fotos.length < 2;
+    // Con varias fotos por página, la lista marca dónde empieza cada página del PDF.
+    const inicios = new Map();
+    if (porPagina() > 1) paginasPdf().forEach((g, p) => { if (g.length) inicios.set(g[0], nombrePagina(p)); });
     fotos.forEach((f, i) => {
-      ol.append(h("li", { class: "itt-captura rep-foto", "data-sha": f.sha256, "data-ubicada": f.lat == null ? "" : "1" },
+      const n = String(i + 1).padStart(2, "0");
+      ol.append(h("li", { class: "itt-captura rep-foto", "data-sha": f.sha256, "data-indice": i, "data-ubicada": f.lat == null ? "" : "1", "data-pagina": inicios.get(i) },
+        h("span", { class: "rep-asa", "aria-hidden": "true", title: "Arrastra para mover" }, icono("grip-vertical")),
         miniaturaDe(f),
         h("div", {},
-          h("strong", {}, `Foto ${String(i + 1).padStart(2, "0")}`),
+          h("strong", {}, `Foto ${n}`),
           h("span", { class: "tv-tenue rep-meta" }, ` · ${horaCorta(f.tomada)}`),
           h("div", { class: "tv-tenue rep-ubicacion" }, icono(f.lat == null ? "triangle-alert" : "map-pin"), h("span", {}, textoUbicacion(f))),
           h("div", { class: "tv-campo" },
             h("label", { for: `nota-${i}` }, `Nota de la foto ${i + 1}`),
             h("input", { id: `nota-${i}`, type: "text", maxLength: 1000, value: f.nota || "", autocomplete: "off", oninput: (e) => { f.nota = e.target.value.slice(0, 1000); programarGuardado(); } })),
           h("div", { class: "rep-botones" },
-            boton({ onclick: () => mover(i, -1), disabled: i === 0, etiqueta: `Subir la foto ${i + 1}` }, "chevron-up"),
-            boton({ onclick: () => mover(i, 1), disabled: i === fotos.length - 1, etiqueta: `Bajar la foto ${i + 1}` }, "chevron-down"),
+            fotos.length > 1 ? boton({ class: "tv-boton tv-boton--secundario", "data-itt": "mover", "aria-label": `Mover la foto ${i + 1}`, onclick: () => abrirMover(i) }, "move", "Mover") : null,
             boton({ class: "tv-boton tv-boton--secundario", "data-itt": "ubicar", onclick: () => abrirUbicar(i) }, "map-pin", f.lat == null ? "Ubicar" : "Cambiar ubicación"),
             boton({ class: "tv-boton tv-boton--secundario itt-boton-plano", onclick: () => quitarFoto(i), etiqueta: `Quitar la foto ${i + 1}` }, "trash-2")))));
     });
+    ol.dataset.arrastrable = fotos.length > 1 ? "1" : "";
+    pintarRejilla();
     pintarContador();
   }
 
-  function mover(i, delta) {
-    const f = reg.datos.fotos;
-    const j = i + delta;
-    if (j < 0 || j >= f.length) return;
-    [f[i], f[j]] = [f[j], f[i]];
-    pintarFotos(); programarGuardado();
+  /** Vista «Ordenar»: miniaturas numeradas, agrupadas como quedan en el PDF. Tocar una abre «Mover»; también se arrastran. */
+  function pintarRejilla() {
+    const caja = $("rep-rejilla");
+    limpiar(caja);
+    $("rep-fotos").hidden = ordenando;
+    caja.hidden = !ordenando;
+    $("rep-ordenar").setAttribute("aria-pressed", String(ordenando));
+    if (!ordenando) return;
+    const fotos = reg.datos.fotos;
+    const miniatura = (i) => h("li", { class: "rep-miniatura", "data-indice": i, "data-sha": fotos[i].sha256 },
+      h("button", { type: "button", class: "rep-miniatura__boton", "aria-label": `Foto ${i + 1}. Mover`, title: `Foto ${i + 1}` },
+        miniaturaDe(fotos[i]), h("span", { class: "rep-miniatura__numero", "aria-hidden": "true" }, String(i + 1))));
+    if (porPagina() === 1) {                                                // una por página: el número ya dice la página
+      caja.append(h("ol", { class: "rep-miniaturas" }, fotos.map((_, i) => miniatura(i))));
+      return;
+    }
+    paginasPdf().forEach((g, p) => {
+      if (!g.length) return;
+      caja.append(h("section", { class: "rep-grupo", "aria-label": nombrePagina(p) },
+        h("h3", { class: "rep-grupo__titulo" }, nombrePagina(p)),
+        h("ol", { class: "rep-miniaturas", start: g[0] + 1 }, g.map(miniatura))));
+    });
   }
+
+  function anunciar(texto) {
+    const e = $("rep-anuncio");
+    e.textContent = "";
+    setTimeout(() => { e.textContent = texto; }, 50);                           // vaciar y volver a escribir: se anuncia aunque se repita
+  }
+
+  /** Mueve la foto `desde` a la posición `hasta` (índices), guarda y deja la foto a la vista, resaltada y con el foco. */
+  function moverFoto(desde, hasta) {
+    const fotos = reg.datos.fotos;
+    hasta = Math.max(0, Math.min(fotos.length - 1, hasta));
+    if (desde === hasta || desde < 0 || desde >= fotos.length) return;
+    const [f] = fotos.splice(desde, 1);
+    fotos.splice(hasta, 0, f);
+    pintarFotos();
+    programarGuardado();
+    anunciar(`Foto ${desde + 1} movida a la posición ${hasta + 1}`);
+    const el = document.querySelector(ordenando ? `#rep-rejilla [data-sha="${f.sha256}"]` : `#rep-fotos > [data-sha="${f.sha256}"]`);
+    if (!el) return;
+    const quieto = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "center", behavior: quieto ? "auto" : "smooth" });
+    el.classList.add("rep-movida");
+    setTimeout(() => el.classList.remove("rep-movida"), 1600);
+    const foco = el.querySelector(ordenando ? ".rep-miniatura__boton" : "[data-itt=mover]");
+    if (foco) foco.focus({ preventScroll: true });
+  }
+
+  function abrirMover(i) {
+    const n = reg.datos.fotos.length;
+    moviendo = i;
+    $("dlg-mover-titulo").textContent = `Mover la foto ${String(i + 1).padStart(2, "0")}`;
+    $("mover-principio").disabled = i === 0;
+    $("mover-final").disabled = i === n - 1;
+    const campo = $("mover-posicion");
+    campo.value = ""; campo.max = String(n); campo.placeholder = `1 a ${n}`;
+    campo.removeAttribute("aria-invalid");
+    $("mover-error").hidden = true;
+    $("dlg-mover").showModal();
+  }
+  function moverDesdeHoja(hasta) {
+    const i = moviendo;
+    $("dlg-mover").close();
+    moviendo = -1;
+    if (i >= 0) moverFoto(i, hasta);
+  }
+  function moverAPosicion(e) {
+    e.preventDefault();
+    const n = reg.datos.fotos.length;
+    const campo = $("mover-posicion");
+    const texto = campo.value.trim();
+    const p = Number(texto);
+    if (!/^\d+$/.test(texto) || p < 1 || p > n) {
+      $("mover-error").textContent = `Escribe un número del 1 al ${n}.`;
+      $("mover-error").hidden = false;
+      campo.setAttribute("aria-invalid", "true");
+      campo.focus();
+      return;
+    }
+    moverDesdeHoja(p - 1);
+  }
+
   async function quitarFoto(i) {
     const f = reg.datos.fotos[i];
     if (!(await confirmar(`¿Quitar la foto ${String(i + 1).padStart(2, "0")} del reporte?`, { aceptar: "Quitar foto", peligro: true }))) return;
@@ -465,7 +561,9 @@
       const r = await ITT.cola.borrador(m[1]);
       if (!r || r.borrada || r.tipo !== "reporte") { location.hash = "#/"; return; }
       reg = r;
+      ordenando = false;
       if (reg.datos.cliente == null) reg.datos.cliente = "";
+      if (!POR_PAGINA.includes(reg.datos.fotos_por_pagina)) reg.datos.fotos_por_pagina = 1;
       sugerencias = await clientesConocidos();
       $("rep-volver").setAttribute("href", ultimaLista);
       mostrar("editor");
@@ -486,8 +584,15 @@
     $("r-cliente").addEventListener("input", (e) => { reg.datos.cliente = e.target.value; programarGuardado(); });
     ITT.combobox($("r-cliente"), () => sugerencias);
     $("r-fecha").addEventListener("input", (e) => { if (e.target.value) { reg.datos.fecha = e.target.value; programarGuardado(); } });
-    $("r-croquis").addEventListener("change", (e) => { reg.datos.con_croquis = e.target.checked; programarGuardado(); });
+    $("r-croquis").addEventListener("change", (e) => { reg.datos.con_croquis = e.target.checked; programarGuardado(); pintarFotos(); });
     $("r-credenciales").addEventListener("change", (e) => { reg.datos.con_credenciales = e.target.checked; programarGuardado(); });
+    for (const r of document.querySelectorAll("[name=r-por-pagina]")) r.addEventListener("change", (e) => { if (e.target.checked) { reg.datos.fotos_por_pagina = Number(e.target.value); programarGuardado(); pintarFotos(); } });
+    $("rep-ordenar").addEventListener("click", () => { ordenando = !ordenando; pintarFotos(); });
+    ITT.ordenFotos.arrastre($("rep-fotos"), { elementos: ".rep-foto", asa: ".rep-asa", alSoltar: moverFoto });
+    ITT.ordenFotos.arrastre($("rep-rejilla"), { elementos: ".rep-miniatura", mantener: ".rep-miniatura__boton", rejilla: true, alSoltar: moverFoto, alTocar: abrirMover });
+    $("mover-principio").addEventListener("click", () => moverDesdeHoja(0));
+    $("mover-final").addEventListener("click", () => moverDesdeHoja(reg.datos.fotos.length - 1));
+    $("form-mover").addEventListener("submit", moverAPosicion);
     $("rep-camara").addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; agregar(f, "camara"); });
     $("rep-galeria").addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; agregar(f, "galeria"); });
     $("rep-camara").addEventListener("click", iniciarUbicacion);
