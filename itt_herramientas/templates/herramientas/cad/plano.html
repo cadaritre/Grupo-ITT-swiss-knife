@@ -5,7 +5,8 @@
 {% block titulo_h1 %}<div class="cad-titulo"><span class="itt-formato cad-formato" data-formato="{{ p.formato }}" id="cad-formato">{{ p.formato|upper }}</span>
 <h1 id="cad-nombre">{{ p.nombre }}</h1>
 <span class="cad-estado" id="cad-estado" role="status" aria-live="polite" data-estado="cargando"><span class="tv-punto tv-punto--neutro" aria-hidden="true"></span><span id="cad-estado-texto">Abriendo…</span></span></div>
-<p class="tv-subtitulo" id="cad-subtitulo">{% if v %}Versión {{ v.numero }} · {{ v.creada|date:"j M Y, H:i"|lower }}{% if v.autor_nombre %} · {{ v.autor_nombre }}{% endif %}{% else %}{% if p.proyecto %}{{ p.proyecto }} · {% endif %}Versión {{ p.revision }}{% if p.modificado_por_nombre %} · {{ p.modificado_por_nombre }}{% endif %}{% endif %}</p>{% endblock %}
+<p class="tv-subtitulo" id="cad-subtitulo">{% if v %}Versión {{ v.numero }} · {{ v.creada|date:"j M Y, H:i"|lower }}{% if v.autor_nombre %} · {{ v.autor_nombre }}{% endif %}{% else %}{% if p.proyecto %}{{ p.proyecto }} · {% endif %}Versión {{ p.revision }}{% if p.modificado_por_nombre %} · {{ p.modificado_por_nombre }}{% endif %}{% endif %}</p>
+<p class="cad-autoria" id="cad-autoria">Guardado <time datetime="{{ p.actualizado|date:'c' }}">{{ p.actualizado|date:"j M Y, H:i"|lower }}</time>{% if p.modificado_por_nombre %} por {{ p.modificado_por_nombre }}{% endif %}{% if p.autor_nombre %} · creado por {{ p.autor_nombre }} el {{ p.creado|date:"j M Y"|lower }}{% endif %}</p>{% endblock %}
 {% block acciones_pagina %}
 <a class="tv-boton tv-boton--fantasma cad-volver" href="{% url 'herramientas:cad' %}" id="cad-volver">{% icono "arrow-left" %}<span>Planos</span></a>
 {% if puede_editar and not v %}<button type="button" class="tv-boton" id="cad-guardar" disabled>{% icono "save" %}<span>Guardar</span><kbd class="tv-tecla cad-tecla" data-tv-tecla-cmd>Ctrl S</kbd></button>{% endif %}
@@ -45,6 +46,8 @@
   <iframe id="cad-editor" title="Editor de planos" src="about:blank" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
   <div class="cad-lienzo__carga" id="cad-carga" role="status"><span class="cad-giro" aria-hidden="true"></span><span id="cad-carga-texto">Abriendo el editor…</span></div>
 </div>
+{% elif sin_archivo %}
+{% vacio titulo="El archivo de este plano no está en el servidor." icono="file-x" %}<p class="tv-tenue cad-sin-archivo">Los planos no tienen copia de seguridad fuera del servidor y este archivo se perdió (por ejemplo, al restaurar o cambiar de servidor). Si tienes una copia, súbela como plano nuevo.</p>{% if puede_eliminar %}<button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-eliminar">{% icono "trash-2" %}<span>Eliminar el plano</span></button>{% endif %}{% endvacio %}
 {% else %}
 {% vacio titulo="El editor no está disponible en este momento." icono="drafting-compass" %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1">{% icono "download" %}<span>Descargar el plano</span></a>{% endvacio %}
 {% endif %}
@@ -52,12 +55,12 @@
 {% hoja_inferior "cad-versiones" titulo="Versiones" %}
 <p class="tv-tenue cad-hoja-nota">Cada vez que guardas se crea una versión. Se conservan las 30 más recientes.</p>
 <ul class="cad-versiones" id="cad-versiones-lista">{% for x in versiones %}
-  <li data-numero="{{ x.numero }}"><div class="cad-versiones__texto"><strong>Versión {{ x.numero }}{% if x.vigente %} <span class="tv-insignia tv-insignia--exito">Vigente</span>{% endif %}</strong>
-    <span class="tv-tenue">{{ x.autor|default:"—" }}{% if x.nota %} · {{ x.nota }}{% endif %} · {{ x.formato|upper }} · {{ x.bytes|filesizeformat }}</span></div>
+  <li data-numero="{{ x.numero }}"{% if not x.disponible %} data-sin-archivo="1"{% endif %}><div class="cad-versiones__texto"><strong>Versión {{ x.numero }}{% if x.vigente %} <span class="tv-insignia tv-insignia--exito">Vigente</span>{% endif %}{% if not x.disponible %} <span class="tv-insignia tv-insignia--error">Archivo no disponible</span>{% endif %}</strong>
+    <span class="tv-tenue">Guardada por {{ x.autor|default:"—" }} · <time datetime="{{ x.creada }}">{{ x.fecha|date:"j M Y, H:i"|lower }}</time>{% if x.nota %} · {{ x.nota }}{% endif %} · {{ x.formato|upper }} · {{ x.bytes|filesizeformat }}</span></div>
     <div class="cad-versiones__acciones">
-      {% if not x.vigente %}<a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_plano' p.pk %}?version={{ x.numero }}" data-tv-tooltip="Abrir (solo lectura)">{% icono "eye" etiqueta="Abrir esta versión" %}</a>{% endif %}
-      <a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1&version={{ x.numero }}" data-tv-tooltip="Descargar">{% icono "download" etiqueta="Descargar la versión" %}</a>
-      {% if puede_editar and not x.vigente %}<button type="button" class="tv-boton tv-boton--secundario tv-boton--icono" data-cad-restaurar="{{ x.numero }}" data-tv-tooltip="Restaurar">{% icono "rotate-ccw" etiqueta="Restaurar esta versión" %}</button>{% endif %}
+      {% if not x.disponible %}{% elif not x.vigente %}<a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_plano' p.pk %}?version={{ x.numero }}" data-tv-tooltip="Abrir (solo lectura)">{% icono "eye" etiqueta="Abrir esta versión" %}</a>{% endif %}
+      {% if x.disponible %}<a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1&version={{ x.numero }}" data-tv-tooltip="Descargar">{% icono "download" etiqueta="Descargar la versión" %}</a>{% endif %}
+      {% if puede_editar and not x.vigente and x.disponible %}<button type="button" class="tv-boton tv-boton--secundario tv-boton--icono" data-cad-restaurar="{{ x.numero }}" data-tv-tooltip="Restaurar">{% icono "rotate-ccw" etiqueta="Restaurar esta versión" %}</button>{% endif %}
     </div></li>{% endfor %}
 </ul>
 <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cerrar</button></div>

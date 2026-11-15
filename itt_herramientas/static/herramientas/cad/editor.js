@@ -506,14 +506,17 @@
       const texto = document.createElement("div"); texto.className = "cad-versiones__texto";
       const fuerte = document.createElement("strong"); fuerte.textContent = `Versión ${x.numero} `;
       if (x.vigente) { const i = document.createElement("span"); i.className = "tv-insignia tv-insignia--exito"; i.textContent = "Vigente"; fuerte.append(i); }
+      if (x.disponible === false) { const i = document.createElement("span"); i.className = "tv-insignia tv-insignia--error"; i.textContent = "Archivo no disponible"; fuerte.append(" ", i); li.dataset.sinArchivo = "1"; }
       const tenue = document.createElement("span"); tenue.className = "tv-tenue";
-      tenue.textContent = [x.autor || "—", x.nota, x.formato.toUpperCase(), tamano(x.bytes)].filter(Boolean).join(" · ");
+      const cuando = x.creada ? new Date(x.creada).toLocaleString("es-MX", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+      tenue.textContent = [`Guardada por ${x.autor || "—"}`, cuando, x.nota, x.formato.toUpperCase(), tamano(x.bytes)].filter(Boolean).join(" · ");
       texto.append(fuerte, tenue);
       const acciones = document.createElement("div"); acciones.className = "cad-versiones__acciones";
       const base = `${C.urls.plano}`;
-      if (!x.vigente) acciones.append(boton("a", `${base}?version=${x.numero}`, "eye", "Abrir (solo lectura)"));
-      acciones.append(boton("a", `${C.urls.archivo}?descargar=1&version=${x.numero}`, "download", "Descargar"));
-      if (C.puede_editar && !x.vigente) { const b = boton("button", null, "rotate-ccw", "Restaurar"); b.dataset.cadRestaurar = x.numero; acciones.append(b); }
+      const hay = x.disponible !== false;
+      if (hay && !x.vigente) acciones.append(boton("a", `${base}?version=${x.numero}`, "eye", "Abrir (solo lectura)"));
+      if (hay) acciones.append(boton("a", `${C.urls.archivo}?descargar=1&version=${x.numero}`, "download", "Descargar"));
+      if (hay && C.puede_editar && !x.vigente) { const b = boton("button", null, "rotate-ccw", "Restaurar"); b.dataset.cadRestaurar = x.numero; acciones.append(b); }
       li.append(texto, acciones);
       return li;
     }));

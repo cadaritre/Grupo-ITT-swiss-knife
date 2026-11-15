@@ -38,9 +38,13 @@ TIPOS_MIME = {"dwg": "image/vnd.dwg", "dxf": "image/vnd.dxf"}
 #: Límites por omisión. Se cambian con `TV_HERRAMIENTAS_LIMITES["cad"]` (mismas claves).
 #: - bytes: un plano (subida, guardado o borrador). 50 MiB, como las demás herramientas; el editor del navegador abre bien hasta ahí.
 #: - versiones: las más recientes que se guardan por plano.
-#: - biblioteca_bytes: todo lo de CAD en disco (versiones y borradores). 3 GiB: la reserva de Herramientas es de 12 GB (arquitectura
-#:   §9.1) y el respaldo cifrado en R2 no puede pasar de 10 GB (los DWG casi no se deduplican entre versiones).
-LIMITES = {"bytes": 50 * 1024 * 1024, "versiones": 30, "biblioteca_bytes": 3 * 1024 ** 3}
+#: - biblioteca_bytes: todo lo de CAD en disco (versiones vigentes y anteriores, papelera y borradores). 20 GiB: CAD tiene su propia
+#:   reserva de 20 GB en el disco de 100 GB del servidor, aparte de los 12 GB de Herramientas (Portal, docs/arquitectura.md §9.1 y §13).
+#:   Por decisión del propietario (15-11-2026) los planos NO van al respaldo cifrado en R2: un desastre o un cambio de servidor puede
+#:   perderlos. Por eso la biblioteca tolera archivos que faltan (`reconciliar`, `archivo_disponible`) y nunca da error por ello.
+LIMITES = {"bytes": 50 * 1024 * 1024, "versiones": 30, "biblioteca_bytes": 20 * 1024 ** 3}
+#: Desde qué fracción del tope la línea de espacio de la biblioteca se vuelve aviso.
+AVISO_ESPACIO = 0.9
 #: Versiones que se conservan siempre de cada plano, aun si la biblioteca se llena (se recortan las más viejas primero).
 VERSIONES_MINIMAS = 5
 #: Segundos sin latido tras los cuales el bloqueo caduca (el editor late cada 30 s).
@@ -206,10 +210,73 @@ def recibir_cuerpo(request, maximo: int | None = None) -> Path:
 # -- Espacio -------------------------------------------------------------------------------------------------------------------
 
 def uso() -> int:
-    """Bytes de CAD en disco (versiones y borradores)."""
-    v = VersionPlano.objects.aggregate(t=Sum("bytes"))["t"] or 0
+    """Bytes de CAD en disco (versiones y borradores; las versiones sin archivo no cuentan)."""
+    v = VersionPlano.objects.filter(sin_archivo__isnull=True).aggregate(t=Sum("bytes"))["t"] or 0
     b = BorradorPlano.objects.aggregate(t=Sum("bytes"))["t"] or 0
     return int(v) + int(b)
+
+
+def uso_detalle() -> dict:
+    """Bytes de la biblioteca por parte: vigentes, versiones anteriores, papelera y borradores (las versiones sin archivo no ocupan)."""
+    vivas = VersionPlano.objects.filter(sin_archivo__isnull=True)
+    activos = vivas.filter(plano__eliminado__isnull=True)
+    vigentes = sum(b for b, n, r in activos.values_list("bytes", "numero", "plano__revision") if n == r)
+    anteriores = (activos.aggregate(t=Sum("bytes"))["t"] or 0) - vigentes
+    papelera = vivas.filter(plano__eliminado__isnull=False).aggregate(t=Sum("bytes"))["t"] or 0
+    borradores = BorradorPlano.objects.aggregate(t=Sum("bytes"))["t"] or 0
+    return {"vigentes": int(vigentes), "anteriores": int(anteriores), "papelera": int(papelera), "borradores": int(borradores)}
+
+
+def espacio() -> dict:
+    """Lo que muestra la biblioteca: usado, tope, fracción y si ya está cerca del tope."""
+    d = uso_detalle()
+    usado, tope = sum(d.values()), limites()["biblioteca_bytes"]
+    fraccion = usado / tope if tope else 0.0
+    return {"usado": usado, "tope": tope, "fraccion": fraccion, "porcentaje": min(100, round(fraccion * 100)), "aviso": fraccion >= AVISO_ESPACIO, "detalle": d}
+
+
+# -- Archivos que faltan (los planos no tienen respaldo) ----------------------------------------------------------------------
+
+def archivo_disponible(v: VersionPlano | None) -> bool:
+    return v is not None and v.sin_archivo is None and ruta_version(v).is_file()
+
+
+def reconciliar(simular: bool = False) -> dict:
+    """Compara la base con el disco (tras restaurar o cambiar de servidor). Idempotente.
+
+    - Una versión cuyo archivo no está se marca `sin_archivo` (y se desmarca si el archivo volvió).
+    - Un borrador sin archivo se borra (solo era una copia de recuperación).
+    Devuelve las cuentas: versiones y planos (cuya versión vigente falta) marcados ahora, los que ya estaban y los que se desmarcaron.
+    """
+    ahora = timezone.now()
+    marcadas = ya = desmarcadas = 0
+    planos_nuevos: set = set()
+    planos_ya: set = set()
+    for v in VersionPlano.objects.select_related("plano").iterator():
+        existe = ruta_version(v).is_file()
+        vigente = v.numero == v.plano.revision
+        if not existe and v.sin_archivo is None:
+            marcadas += 1
+            if vigente:
+                planos_nuevos.add(v.plano_id)
+            if not simular:
+                VersionPlano.objects.filter(pk=v.pk).update(sin_archivo=ahora)
+        elif not existe:
+            ya += 1
+            if vigente:
+                planos_ya.add(v.plano_id)
+        elif v.sin_archivo is not None:
+            desmarcadas += 1
+            if not simular:
+                VersionPlano.objects.filter(pk=v.pk).update(sin_archivo=None)
+    borradores = 0
+    for b in BorradorPlano.objects.all():
+        if not (raiz() / b.ruta).is_file():
+            borradores += 1
+            if not simular:
+                b.delete()
+    return {"versiones_marcadas": marcadas, "versiones_ya": ya, "versiones_desmarcadas": desmarcadas, "planos_marcados": len(planos_nuevos),
+            "planos_ya": len(planos_ya), "borradores_borrados": borradores}
 
 
 def asegurar_espacio(nuevos: int) -> None:
@@ -376,8 +443,10 @@ def restaurar_version(plano_id, numero: int, usuario, sesion: str = "") -> Plano
             raise ErrorUsuario("Este plano está abierto para editar en otra ventana tuya. Ciérrala primero." if otro == OTRA_VENTANA
                                else f"{otro} está editando este plano. Espera a que termine para restaurar una versión.")
         v = VersionPlano.objects.filter(plano=p, numero=numero).first()
-        if v is None or not ruta_version(v).is_file():
+        if v is None:
             raise ErrorUsuario("Esa versión ya no existe.")
+        if not archivo_disponible(v):
+            raise ErrorUsuario("El archivo de esa versión no está en el servidor: no se puede restaurar.")
         if v.numero == p.revision:
             raise ErrorUsuario("Esa ya es la versión vigente.")
         asegurar_espacio(v.bytes)

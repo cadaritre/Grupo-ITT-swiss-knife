@@ -2,7 +2,12 @@
 {% load static tv herramientas %}
 {% block titulo_pagina %}CAD{% endblock %}
 {% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">{% endblock %}
-{% block titulo_h1 %}<h1>Planos</h1><p class="tv-subtitulo">Biblioteca de planos DWG y DXF del equipo.</p>{% endblock %}
+{% block titulo_h1 %}<h1>Planos</h1><p class="tv-subtitulo">Biblioteca de planos DWG y DXF del equipo.</p>
+<p class="cad-espacio{% if espacio.aviso %} cad-espacio--aviso{% endif %}" id="cad-espacio">{% if espacio.aviso %}{% icono "triangle-alert" %}{% else %}{% icono "hard-drive" %}{% endif %}<span>Planos: {{ espacio.usado|gb }} de {{ espacio.tope|gb }} GB{% if espacio.aviso %} · casi lleno: vacía la papelera o elimina planos que ya no uses{% endif %}</span></p>
+{% if es_admin %}<details class="cad-espacio__detalle" id="cad-espacio-detalle"><summary>Ver en qué se usa</summary>
+  <dl><div><dt>Versiones vigentes</dt><dd>{{ espacio.detalle.vigentes|filesizeformat }}</dd></div><div><dt>Versiones anteriores</dt><dd>{{ espacio.detalle.anteriores|filesizeformat }}</dd></div>
+  <div><dt>Papelera</dt><dd>{{ espacio.detalle.papelera|filesizeformat }}</dd></div><div><dt>Cambios sin guardar</dt><dd>{{ espacio.detalle.borradores|filesizeformat }}</dd></div></dl>
+  <p class="tv-tenue">Los planos no tienen copia de seguridad fuera del servidor. Descarga los importantes.</p></details>{% endif %}{% endblock %}
 {% block acciones_pagina %}{% if puede_editar %}
 <button type="button" class="tv-boton" data-tv-abrir="cad-nuevo" id="cad-boton-nuevo">{% icono "file-plus-2" %}<span>Nuevo plano</span></button>
 <button type="button" class="tv-boton tv-boton--secundario" id="cad-boton-subir" aria-expanded="false" aria-controls="cad-subir">{% icono "file-up" %}<span>Subir</span></button>
@@ -59,18 +64,19 @@
   <ul class="cad-planos" id="cad-planos">
     {% for p in filas %}{% url 'herramientas:cad_plano' p.pk as abrir %}
     <li class="cad-plano" data-id="{{ p.pk }}">
-      <label class="itt-casilla cad-plano__casilla"><input type="checkbox" data-cad-sel="{{ p.pk }}" aria-label="Seleccionar «{{ p.nombre }}»"></label>
+      <label class="itt-casilla cad-plano__casilla"><input type="checkbox" data-cad-sel="{{ p.pk }}" aria-label="Seleccionar «{{ p.nombre }}»"{% if not p.disponible %} disabled{% endif %}></label>
       <a class="cad-plano__abrir" href="{{ abrir }}">
         <span class="itt-formato cad-formato" data-formato="{{ p.formato }}">{{ p.formato|upper }}</span>
         <span class="cad-plano__texto">
           <strong>{{ p.nombre }}</strong>
-          <span class="cad-plano__meta">{% if p.proyecto %}<span class="cad-plano__proyecto">{{ p.proyecto }}</span>{% endif %}<span>Modificado <time datetime="{{ p.actualizado|date:'c' }}" title="{{ p.actualizado|date:"j M Y, H:i"|lower }}">{{ p.actualizado|date:"j M Y, H:i"|lower }}</time>{% if p.modificado_por_nombre %} por {{ p.modificado_por_nombre }}{% endif %}</span></span>
+          <span class="cad-plano__meta">{% if p.proyecto %}<span class="cad-plano__proyecto">{{ p.proyecto }}</span>{% endif %}<span>Modificado <time datetime="{{ p.actualizado|date:'c' }}" title="{{ p.actualizado|date:"j M Y, H:i"|lower }}">{{ p.actualizado|date:"j M Y, H:i"|lower }}</time>{% if p.modificado_por_nombre %} por {{ p.modificado_por_nombre }}{% endif %}</span>{% if p.autor_nombre %}<span class="cad-plano__autor">Creado por {{ p.autor_nombre }}</span>{% endif %}</span>
         </span>
       </a>
       <span class="cad-plano__lado">
-        {% if p.en_edicion_por %}<span class="tv-insignia tv-insignia--aviso cad-plano__edicion" title="Abierto para editar">{% icono "pen-line" clase="tv-icono--sm" %}<span>{{ p.en_edicion_por }}</span></span>{% endif %}
+        {% if not p.disponible %}<span class="tv-insignia tv-insignia--error cad-plano__falta" title="El archivo de este plano ya no está en el servidor. Se puede eliminar.">{% icono "file-x" clase="tv-icono--sm" %}<span>Archivo no disponible</span></span>
+        {% elif p.en_edicion_por %}<span class="tv-insignia tv-insignia--aviso cad-plano__edicion" title="Abierto para editar">{% icono "pen-line" clase="tv-icono--sm" %}<span>{{ p.en_edicion_por }}</span></span>{% endif %}
         <span class="cad-plano__tamano tv-cifra">{{ p.bytes|filesizeformat }}</span>
-        <a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1" data-tv-tooltip="Descargar {{ p.formato|upper }}">{% icono "download" etiqueta="Descargar «"|add:p.nombre|add:"»" %}</a>
+        {% if p.disponible %}<a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1" data-tv-tooltip="Descargar {{ p.formato|upper }}">{% icono "download" etiqueta="Descargar «"|add:p.nombre|add:"»" %}</a>{% endif %}
       </span>
     </li>{% endfor %}
   </ul>

@@ -134,3 +134,13 @@ def con_parametros(context, **cambios) -> str:
             q[k] = str(v)
     texto = q.urlencode()
     return f"?{texto}" if texto else "?"
+
+
+@register.filter
+def gb(n) -> str:
+    """Bytes en GB con un decimal, sin «.0» de sobra: 4 509 715 660 → «4.2»; 20 GiB → «20»."""
+    try:
+        texto = f"{int(n) / 1024 ** 3:.1f}"
+    except (TypeError, ValueError):
+        return "0"
+    return texto[:-2] if texto.endswith(".0") else texto

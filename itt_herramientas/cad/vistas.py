@@ -125,8 +125,11 @@ def _autores() -> list[dict]:
 
 def _marcar_edicion(planos) -> None:
     ahora = timezone.now()
+    vigentes = {(v.plano_id, v.numero): v for v in VersionPlano.objects.filter(plano__in=planos)}
     for p in planos:
         p.en_edicion_por = p.bloqueo_nombre if servicio.bloqueo_activo(p, ahora) else ""
+        # Los planos no tienen respaldo: tras restaurar o cambiar de servidor el archivo puede faltar (nunca es un error).
+        p.disponible = servicio.archivo_disponible(vigentes.get((p.pk, p.revision)))
 
 
 @ver
@@ -145,7 +148,7 @@ def lista(request):
         "autores": _autores(), "proyectos": servicio.sugerencias_proyecto(usuario.pk), "ordenes": ORDENES,
         "puede_editar": servicio.puede_editar(usuario), "es_admin": servicio.es_admin(usuario), "papelera": papelera,
         "limite_bytes": servicio.limites()["bytes"], "limite_mb": servicio.limites()["bytes"] // (1024 * 1024), "maximo_zip": zips.MAXIMO,
-        "drive": _drive_disponible(usuario),
+        "drive": _drive_disponible(usuario), "espacio": servicio.espacio(),
         # Declara el campo para que la subida lo mande; el navegador lo llena con lo que se escriba en «Proyecto o cliente».
         "meta_subida": {"proyecto": ""}}))
 
@@ -184,7 +187,8 @@ def _version_pedida(request, p: Plano) -> VersionPlano | None:
 
 def _versiones(p: Plano) -> list[dict]:
     return [{"numero": v.numero, "formato": v.formato, "bytes": v.bytes, "autor": v.autor_nombre, "nota": v.nota, "creada": v.creada.isoformat(),
-             "vigente": v.numero == p.revision} for v in VersionPlano.objects.filter(plano=p).order_by("-numero")]
+             "fecha": v.creada, "vigente": v.numero == p.revision, "disponible": servicio.archivo_disponible(v)}
+            for v in VersionPlano.objects.filter(plano=p).order_by("-numero")]
 
 
 def _urls(p: Plano) -> dict:
@@ -207,6 +211,8 @@ def plano(request, pk):
     v = _version_pedida(request, p)
     usuario = request.user
     puede = servicio.puede_editar(usuario)
+    # Sin respaldo de planos: si el archivo que se pide no está, la página lo dice en lugar de abrir un editor vacío.
+    sin_archivo = not servicio.archivo_disponible(v or servicio.version_vigente(p))
     borrador = servicio.borrador_de(p, usuario.pk) if puede and v is None else None
     config = {
         "id": str(p.pk), "nombre": p.nombre, "formato": p.formato, "revision": p.revision, "proyecto": p.proyecto,
@@ -222,8 +228,9 @@ def plano(request, pk):
     return _privado(render(request, "herramientas/cad/plano.html", {
         "p": p, "v": v, "config": config, "versiones": _versiones(p), "puede_editar": puede, "es_admin": servicio.es_admin(usuario),
         "puede_eliminar": servicio.puede_eliminar(usuario, p), "papeles": nativo.PAPELES, "papel": nativo.PAPEL_POR_OMISION,
-        "orientaciones": nativo.ORIENTACIONES, "areas": nativo.AREAS, "escalas": nativo.ESCALAS, "nativo": nativo.disponible(),
-        "proyectos": servicio.sugerencias_proyecto(usuario.pk), "drive": _drive_disponible(usuario), "editor_listo": editor.disponible()}))
+        "orientaciones": nativo.ORIENTACIONES, "areas": nativo.AREAS, "escalas": nativo.ESCALAS, "nativo": nativo.disponible() and not sin_archivo,
+        "proyectos": servicio.sugerencias_proyecto(usuario.pk), "drive": _drive_disponible(usuario) and not sin_archivo,
+        "editor_listo": editor.disponible() and not sin_archivo, "sin_archivo": sin_archivo}))
 
 
 @ver

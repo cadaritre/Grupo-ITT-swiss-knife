@@ -440,6 +440,9 @@ class VersionPlano(models.Model):
     autor_nombre = models.CharField(max_length=150, blank=True)
     nota = models.CharField(max_length=200, blank=True)                      # p. ej. «Restaurada de la versión 3»
     creada = models.DateTimeField(default=timezone.now)
+    # Los planos no tienen respaldo (decisión del propietario): tras restaurar o cambiar de servidor el archivo puede faltar.
+    # `cad_reconciliar` lo marca aquí; la página la muestra como «Archivo no disponible» y nunca da error.
+    sin_archivo = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-numero"]
