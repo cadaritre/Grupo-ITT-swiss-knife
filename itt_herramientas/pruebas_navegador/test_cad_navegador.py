@@ -373,3 +373,19 @@ def test_capturas_de_todas_las_pantallas(cad, navegar, crear_usuario, roles, set
     p.locator("[data-tv-abrir=cad-vaciar]").click()
     foto("14-vaciar-papelera", completa=False)
     assert not n.errores, n.errores
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_salir_con_cambios_sin_aviso_del_navegador(cad, navegar, crear_usuario, roles, motor):
+    """El editor registraría «¿Abandonar el sitio?» al tener cambios (lo destapó el recorrido por la pila real); la página no lo permite."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Salir", "", "dxf")
+    n = navegar(ana, motor)
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    dibujar(p, "CIRCLE 2,2 2")
+    esperar_estado(p, "sucio")
+    p.locator("#cad-editor").click(position={"x": 600, "y": 420})          # una interacción: sin ella el navegador no muestra el aviso
+    p.reload(wait_until="domcontentloaded", timeout=30000)
+    esperar_estado(p, "guardado")
+    assert not n.dialogos, n.dialogos

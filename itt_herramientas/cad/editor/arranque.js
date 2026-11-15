@@ -2,6 +2,18 @@
 //
 // Sustituye la página de inicio de la compilación: sin scripts en línea (CSP), sin analítica de terceros y sin service worker.
 // La página que lo contiene (mismo origen) lo abre con ?embed=1 y le pasa los planos por postMessage.
+// Sin el aviso del navegador «¿Abandonar el sitio?» (decisión del propietario): lo pondría el editor al tener cambios. La página de
+// Herramientas guarda un borrador de recuperación y pregunta con su propia hoja; aquí el editor no puede registrar ese aviso.
+(() => {
+  const registrar = window.addEventListener;
+  window.addEventListener = function (tipo, ...resto) {
+    if (String(tipo).toLowerCase() === "beforeunload") return undefined;
+    return registrar.call(this, tipo, ...resto);
+  };
+  try { Object.defineProperty(window, "onbeforeunload", { configurable: false, get: () => null, set: () => {} }); } catch (_) { /* ya definido */ }
+  registrar.call(window, "beforeunload", (ev) => { ev.stopImmediatePropagation(); }, true);
+})();
+
 const meta = (nombre) => document.querySelector(`meta[name="${nombre}"]`).content;
 const carga = document.getElementById("carga");
 
