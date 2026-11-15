@@ -1,0 +1,112 @@
+{% extends "herramientas/base_comun.html" %}
+{% load static tv herramientas %}
+{% block titulo_pagina %}CAD{% endblock %}
+{% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">{% endblock %}
+{% block titulo_h1 %}<h1>Planos</h1><p class="tv-subtitulo">Biblioteca de planos DWG y DXF del equipo.</p>{% endblock %}
+{% block acciones_pagina %}{% if puede_editar %}
+<button type="button" class="tv-boton" data-tv-abrir="cad-nuevo" id="cad-boton-nuevo">{% icono "file-plus-2" %}<span>Nuevo plano</span></button>
+<button type="button" class="tv-boton tv-boton--secundario" id="cad-boton-subir" aria-expanded="false" aria-controls="cad-subir">{% icono "file-up" %}<span>Subir</span></button>
+<a class="tv-boton tv-boton--fantasma" href="{% url 'herramientas:cad_papelera' %}">{% icono "trash-2" %}<span>Papelera{% if papelera %} ({{ papelera }}){% endif %}</span></a>
+{% endif %}{% endblock %}
+{% block cuerpo %}
+<div class="cad" id="cad">
+{% if puede_editar %}
+<section class="cad-subir" id="cad-subir" aria-labelledby="cad-subir-titulo" hidden>
+  <h2 id="cad-subir-titulo" class="tv-solo-lectores">Subir planos</h2>
+  <div class="tv-campo cad-subir__proyecto"><label for="cad-subir-proyecto">Proyecto o cliente <span class="tv-tenue">(opcional)</span></label>
+    <input id="cad-subir-proyecto" type="text" maxlength="160" autocomplete="off" spellcheck="false" data-cad-proyectos></div>
+  <div id="cad-subida">{% subida destino="herramientas.cad_plano" accept=".dwg,.dxf" multiple=True etiqueta="Arrastra planos DWG o DXF, o elígelos" max_bytes=limite_bytes %}</div>
+  <p class="tv-tenue cad-subir__limite">Hasta {{ limite_mb }} MB por plano.</p>
+</section>
+<div class="cad-soltar" id="cad-soltar" hidden aria-hidden="true"><div>{% icono "file-up" clase="tv-icono--xl" %}<strong>Suelta los planos para subirlos</strong></div></div>
+{% endif %}
+
+{% if hay_planos %}
+<form method="get" class="cad-filtros" id="cad-filtros" role="search" aria-label="Buscar planos" data-tv-una-vez>
+  <div class="cad-filtros__fila">
+    <div class="tv-campo cad-filtros__buscar"><label for="cad-q" class="tv-solo-lectores">Buscar</label>
+      <div class="cad-buscador">{% icono "search" %}<input id="cad-q" type="search" name="q" value="{{ filtros.q }}" autocomplete="off" spellcheck="false" placeholder="Buscar por nombre, proyecto o persona"></div></div>
+    <div class="tv-campo cad-filtros__proyecto"><label for="cad-proyecto" class="tv-solo-lectores">Proyecto o cliente</label>
+      <input id="cad-proyecto" type="text" name="proyecto" value="{{ filtros.proyecto }}" maxlength="160" autocomplete="off" spellcheck="false" placeholder="Proyecto o cliente" data-cad-proyectos data-cad-filtrar></div>
+    <button type="button" class="tv-boton tv-boton--secundario cad-filtros__mas" id="cad-mas" aria-expanded="{% if filtros.avanzados %}true{% else %}false{% endif %}" aria-controls="cad-avanzados">{% icono "sliders-horizontal" %}<span>Filtros</span></button>
+  </div>
+  <div class="cad-filtros__avanzados" id="cad-avanzados"{% if not filtros.avanzados %} hidden{% endif %}>
+    <div class="tv-campo"><label for="cad-autor">Creado por</label>
+      <select id="cad-autor" name="autor" data-tv-enviar-al-cambiar><option value="">Todos</option>{% for a in autores %}<option value="{{ a.cuenta_id }}"{% if a.cuenta_id == filtros.autor %} selected{% endif %}>{{ a.nombre }}</option>{% endfor %}</select></div>
+    <div class="tv-campo"><label for="cad-formato">Formato</label>
+      <select id="cad-formato" name="formato" data-tv-enviar-al-cambiar><option value="">Todos</option><option value="dwg"{% if filtros.formato == "dwg" %} selected{% endif %}>DWG</option><option value="dxf"{% if filtros.formato == "dxf" %} selected{% endif %}>DXF</option></select></div>
+    <div class="tv-campo"><label for="cad-desde">Modificado desde</label><input id="cad-desde" type="date" name="desde" value="{{ filtros.desde|date:'Y-m-d' }}"></div>
+    <div class="tv-campo"><label for="cad-hasta">Hasta</label><input id="cad-hasta" type="date" name="hasta" value="{{ filtros.hasta|date:'Y-m-d' }}"></div>
+    <div class="tv-campo"><label for="cad-orden">Ordenar por</label>
+      <select id="cad-orden" name="orden" data-tv-enviar-al-cambiar>{% for k, v in ordenes.items %}<option value="{% if k != 'recientes' %}{{ k }}{% endif %}"{% if filtros.orden == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div class="cad-filtros__acciones">
+      <button class="tv-boton tv-boton--secundario" type="submit">{% icono "list-filter" %}<span>Aplicar</span></button>
+      {% if filtros.activos or filtros.orden != "recientes" %}<a class="tv-boton tv-boton--fantasma" href="{% url 'herramientas:cad' %}">{% icono "x" %}<span>Quitar filtros</span></a>{% endif %}
+    </div>
+  </div>
+</form>
+{% for aviso in filtros.avisos %}{% alerta "aviso" %}{{ aviso }}{% endalerta %}{% endfor %}
+
+<section id="cad-resultados" class="cad-resultados" aria-labelledby="cad-cuantos" aria-live="polite">
+  <h2 class="itt-seccion" id="cad-cuantos">{{ pagina.paginator.count }} plano{{ pagina.paginator.count|pluralize }}</h2>
+  {% if filas %}
+  <div class="cad-seleccion" id="cad-seleccion" role="region" aria-label="Selección" data-maximo="{{ maximo_zip }}" data-url-zip="{% url 'herramientas:cad_zip' %}">
+    <span id="cad-sel-cuenta" class="cad-seleccion__cuenta">Elige planos para descargarlos juntos</span>
+    <button type="button" class="tv-boton tv-boton--fantasma" id="cad-sel-quitar" hidden>{% icono "x" %}<span>Quitar selección</span></button>
+    <button type="button" class="tv-boton" id="cad-sel-zip" disabled>{% icono "download" %}<span>Descargar en ZIP</span></button>
+    <p id="cad-zip-estado" class="itt-estado cad-seleccion__estado" role="status" hidden></p>
+  </div>
+  <ul class="cad-planos" id="cad-planos">
+    {% for p in filas %}{% url 'herramientas:cad_plano' p.pk as abrir %}
+    <li class="cad-plano" data-id="{{ p.pk }}">
+      <label class="itt-casilla cad-plano__casilla"><input type="checkbox" data-cad-sel="{{ p.pk }}" aria-label="Seleccionar «{{ p.nombre }}»"></label>
+      <a class="cad-plano__abrir" href="{{ abrir }}">
+        <span class="itt-formato cad-formato" data-formato="{{ p.formato }}">{{ p.formato|upper }}</span>
+        <span class="cad-plano__texto">
+          <strong>{{ p.nombre }}</strong>
+          <span class="cad-plano__meta">{% if p.proyecto %}<span class="cad-plano__proyecto">{{ p.proyecto }}</span>{% endif %}<span>Modificado <time datetime="{{ p.actualizado|date:'c' }}" title="{{ p.actualizado|date:"j M Y, H:i"|lower }}">{{ p.actualizado|date:"j M Y, H:i"|lower }}</time>{% if p.modificado_por_nombre %} por {{ p.modificado_por_nombre }}{% endif %}</span></span>
+        </span>
+      </a>
+      <span class="cad-plano__lado">
+        {% if p.en_edicion_por %}<span class="tv-insignia tv-insignia--aviso cad-plano__edicion" title="Abierto para editar">{% icono "pen-line" clase="tv-icono--sm" %}<span>{{ p.en_edicion_por }}</span></span>{% endif %}
+        <span class="cad-plano__tamano tv-cifra">{{ p.bytes|filesizeformat }}</span>
+        <a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1" data-tv-tooltip="Descargar {{ p.formato|upper }}">{% icono "download" etiqueta="Descargar «"|add:p.nombre|add:"»" %}</a>
+      </span>
+    </li>{% endfor %}
+  </ul>
+  {% if pagina.paginator.num_pages > 1 %}
+  <nav class="tv-paginas" aria-label="Paginación">
+    {% if pagina.has_previous %}<a class="tv-boton tv-boton--secundario" href="{% con_parametros pagina=pagina.previous_page_number %}" data-cad-pagina>{% icono "chevron-left" %}<span>Anterior</span></a>{% else %}<span></span>{% endif %}
+    <span class="tv-tenue">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
+    {% if pagina.has_next %}<a class="tv-boton tv-boton--secundario" href="{% con_parametros pagina=pagina.next_page_number %}" data-cad-pagina><span>Siguiente</span>{% icono "chevron-right" %}</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
+  {% else %}
+  {% vacio titulo="Ningún plano coincide." icono="search-x" %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad' %}">{% icono "x" %}<span>Quitar filtros</span></a>{% endvacio %}
+  {% endif %}
+</section>
+{% else %}
+{% if puede_editar %}{% vacio titulo="Todavía no hay planos." icono="drafting-compass" %}<button type="button" class="tv-boton" data-tv-abrir="cad-nuevo">{% icono "file-plus-2" %}<span>Nuevo plano</span></button>{% endvacio %}
+{% else %}{% vacio titulo="Todavía no hay planos." icono="drafting-compass" %}{% endvacio %}{% endif %}
+{% endif %}
+</div>
+
+{% if puede_editar %}
+{% hoja_inferior "cad-nuevo" titulo="Nuevo plano" %}
+<form method="post" action="{% url 'herramientas:cad_nuevo' %}" class="tv-formulario cad-nuevo" data-tv-una-vez>{% csrf_token %}
+  <div class="tv-campo"><label for="cad-nuevo-nombre">Nombre</label><input id="cad-nuevo-nombre" name="nombre" type="text" maxlength="150" required autocomplete="off" placeholder="Levantamiento predio Norte"></div>
+  <div class="tv-campo"><label for="cad-nuevo-proyecto">Proyecto o cliente <span class="tv-tenue">(opcional)</span></label><input id="cad-nuevo-proyecto" name="proyecto" type="text" maxlength="160" autocomplete="off" spellcheck="false" data-cad-proyectos></div>
+  <fieldset class="tv-campo"><legend>Formato</legend>
+    <div class="tv-segmentado"><label><input type="radio" name="formato" value="dwg" checked><span>DWG</span></label><label><input type="radio" name="formato" value="dxf"><span>DXF</span></label></div>
+  </fieldset>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "file-plus-2" %}<span>Crear y abrir</span></button></div>
+</form>
+{% endhoja_inferior %}
+{% endif %}
+{% csrf_token %}
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'herramientas/offline/combobox.js' %}"></script>
+{{ proyectos|json_script:"cad-proyectos" }}
+<script src="{% static 'herramientas/cad/lista.js' %}" id="cad-script" data-url-tarea="{% url 'tvplataforma:tarea' '00000000-0000-0000-0000-000000000000' %}"></script>
+{% endblock %}

@@ -298,3 +298,8 @@ body { padding-bottom: calc(var(--itt-banda) + env(safe-area-inset-bottom)); }
 .cot-buscador input[type="search"]:hover { border-color: var(--tv-texto); }
 .cot-buscador input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
 .itt-filtros__quitar { justify-self: start; align-self: end; }
+
+/* Entrada de CAD sin conexión (solo en las páginas de campo, que abren sin señal) */
+.itt-nav-sin-red { margin-left: auto; font-size: var(--tv-texto-xs, .75rem); font-weight: 600; color: var(--tv-estado-aviso-texto); }
+.itt-nav-sin-red[hidden] { display: none; }
+a[data-itt-nav][aria-disabled="true"] { opacity: .7; }

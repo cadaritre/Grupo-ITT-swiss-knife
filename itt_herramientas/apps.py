@@ -23,5 +23,6 @@ class HerramientasConfig(AppConfig):
         from .convertidor import destinos as destinos_convertidor  # noqa: F401  (registra «herramientas.convertidor_entrada»)
         from .triangulacion import destinos as destinos_triangulacion  # noqa: F401  (registra «herramientas.triangulacion_entrada»)
         from .offline import destinos  # noqa: F401  (registra el destino de subida «herramientas.captura»)
+        from .cad import destinos as destinos_cad  # noqa: F401  (registra «herramientas.cad_plano»)
 
         post_migrate.connect(perfiles.sembrar_perfiles, sender=self, dispatch_uid="herramientas.sembrar_perfiles")

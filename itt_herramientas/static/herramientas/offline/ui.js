@@ -97,7 +97,7 @@
         await ITT.cola.guardarAjuste("cuenta", d.cuenta);
         await ITT.cola.guardarAjuste("csrf", d.csrf);
         await ITT.cola.guardarAjuste("menu", { nombre: d.nombre, herramientas: d.herramientas || [], nav: d.nav || [], tema: d.tema || "claro" });
-        document.dispatchEvent(new CustomEvent("itt:sesion", { detail: { activa: true, nombre: d.nombre, herramientas: d.herramientas || [], nav: d.nav || [], tema: d.tema || "claro", csrf: d.csrf } }));
+        document.dispatchEvent(new CustomEvent("itt:sesion", { detail: { activa: true, nombre: d.nombre, herramientas: d.herramientas || [], nav: d.nav || [], tema: d.tema || "claro", csrf: d.csrf, cad: !!d.cad } }));
         await ITT.cola.guardarAjuste("sesion_caducada", false);
         if (estado.pausada === "sesion") estado.pausada = "";
       } else if (r.status === 401 || r.type === "opaqueredirect") {

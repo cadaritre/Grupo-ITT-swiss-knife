@@ -119,8 +119,11 @@
       <div class="tv-campo tv-campo--casilla"><input type="checkbox" id="texto_pendiente" name="texto_pendiente"><label for="texto_pendiente">Escribir el texto de la pendiente en cada triángulo o flecha</label></div>
       <input type="hidden" name="decimales" value="{{ decimales }}">
       <button class="tv-boton" type="submit"{% if not sup %} disabled{% endif %}>{% icono "file-code" %}<span>Generar DXF</span></button>
-      {% if t.salida_ruta %}<p class="tri-salida" id="tri-salida" data-url="{% url 'herramientas:triangulacion_descargar' t.pk %}" data-nombre="{{ t.salida_nombre }}"><span class="itt-formato" data-formato="dxf">DXF</span> <a class="tv-boton" href="{% url 'herramientas:triangulacion_descargar' t.pk %}">{% icono "download" %}<span>Descargar {{ t.salida_nombre }}</span></a> <button type="button" class="tv-boton tv-boton--secundario" data-itt="compartir">{% icono "share-2" %}<span>Compartir</span></button></p>{% endif %}
+      {% if t.salida_ruta %}<p class="tri-salida" id="tri-salida" data-url="{% url 'herramientas:triangulacion_descargar' t.pk %}" data-nombre="{{ t.salida_nombre }}"><span class="itt-formato" data-formato="dxf">DXF</span> <a class="tv-boton" href="{% url 'herramientas:triangulacion_descargar' t.pk %}">{% icono "download" %}<span>Descargar {{ t.salida_nombre }}</span></a> <button type="button" class="tv-boton tv-boton--secundario" data-itt="compartir">{% icono "share-2" %}<span>Compartir</span></button>
+        {% if abrir_en_cad %}<button type="submit" class="tv-boton tv-boton--secundario" form="tri-abrir-en-cad" data-itt="abrir-en-cad">{% icono "drafting-compass" %}<span>Abrir en CAD</span></button>{% endif %}</p>
+{% endif %}
     </form>
+    {% if abrir_en_cad %}<form method="post" action="{% url 'herramientas:cad_desde_triangulacion' t.pk %}" id="tri-abrir-en-cad" data-tv-una-vez hidden>{% csrf_token %}</form>{% endif %}
     {% url 'herramientas:triangulacion_borrar' t.pk as u_borrar %}{% confirmar_accion id="eliminar-archivo" accion=u_borrar abrir="Eliminar archivo" titulo="¿Eliminar «"|add:t.nombre|add:"»?" texto="Se borran el archivo y todo lo calculado: superficie, pendientes, escurrimiento y los DXF generados." detalle="Lo que ya descargaste no cambia." icono="trash-2" aceptar="Eliminar todo" clase="tv-boton tv-boton--peligro" %}
   </section>
 </div>

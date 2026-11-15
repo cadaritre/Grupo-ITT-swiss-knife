@@ -82,7 +82,24 @@
     const sin = !navigator.onLine;
     $("itt-salir-aviso").hidden = !sin;
     $("itt-salir-boton").setAttribute("aria-disabled", sin ? "true" : "false");
+    // CAD necesita conexión (el editor no se guarda en el teléfono): sin señal, su entrada lo dice y no navega.
+    for (const a of document.querySelectorAll('a[data-itt-nav="cad"]')) {
+      a.setAttribute("aria-disabled", sin ? "true" : "false");
+      let nota = a.querySelector("[data-itt-sin-red]");
+      if (sin && !nota) {
+        nota = document.createElement("span");
+        nota.className = "tv-lateral__texto itt-nav-sin-red";
+        nota.dataset.ittSinRed = "";
+        nota.textContent = "Necesita conexión";
+        a.append(nota);
+      }
+      if (nota) nota.hidden = !sin;
+    }
   }
+  document.addEventListener("click", (ev) => {
+    const a = ev.target.closest('a[data-itt-nav="cad"]');
+    if (a && !navigator.onLine) { ev.preventDefault(); if (window.tvAviso) window.tvAviso("CAD necesita conexión. Ábrelo cuando vuelva la señal.", "error"); }
+  });
   addEventListener("online", actualizarRed);
   addEventListener("offline", actualizarRed);
   actualizarRed();

@@ -381,3 +381,81 @@ class EnvioDrive(models.Model):
     class Meta:
         ordering = ["creada"]
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "categoria", "nombre", "sha256"], name="herramientas_enviodrive_unico")]
+
+
+class Plano(ConAutor):
+    """Un plano de la biblioteca compartida de CAD (DWG o DXF). Todo el equipo con la herramienta ve todos los planos.
+
+    El contenido vive en sus versiones (`VersionPlano`): la vigente es la de número `revision`. `cuenta_id` es quien lo creó (con la foto de
+    su nombre y correo en `autor_*`); «Modificado por» es la foto de quien guardó la versión vigente. Eliminar lo manda a la papelera
+    (`eliminado`), que se vacía sola a los 30 días. El bloqueo de edición es de una sola página del editor (`bloqueo_sesion`) y caduca si su
+    latido deja de llegar.
+    """
+
+    class Formato(models.TextChoices):
+        DWG = "dwg", "DWG"
+        DXF = "dxf", "DXF"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cuenta_id = models.BigIntegerField(db_index=True)
+    nombre = models.CharField(max_length=150)                                # sin extensión
+    proyecto = models.CharField(max_length=160, blank=True, db_index=True)  # proyecto o cliente
+    formato = models.CharField(max_length=3, choices=Formato.choices)        # el de la versión vigente
+    bytes = models.BigIntegerField(default=0)                                # tamaño de la versión vigente
+    revision = models.PositiveIntegerField(default=1)                        # número de la versión vigente
+    origen = models.JSONField(default=dict, blank=True)                      # {tipo: subida|nuevo|copia|convertidor|triangulacion|croquis, nombre, id}
+    modificado_por_id = models.BigIntegerField(null=True, blank=True)
+    modificado_por_nombre = models.CharField(max_length=150, blank=True)
+    bloqueo_cuenta_id = models.BigIntegerField(null=True, blank=True)
+    bloqueo_nombre = models.CharField(max_length=150, blank=True)
+    bloqueo_sesion = models.CharField(max_length=64, blank=True)
+    bloqueo_latido = models.DateTimeField(null=True, blank=True)
+    eliminado = models.DateTimeField(null=True, blank=True, db_index=True)
+    eliminado_por_id = models.BigIntegerField(null=True, blank=True)
+    eliminado_por_nombre = models.CharField(max_length=150, blank=True)
+    creado = models.DateTimeField(default=timezone.now)
+    actualizado = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-actualizado"]
+
+    def __str__(self):
+        return self.nombre
+
+    @property
+    def archivo_nombre(self) -> str:
+        return f"{self.nombre}.{self.formato}"
+
+
+class VersionPlano(models.Model):
+    """Una versión guardada de un plano. Cada guardado crea una; se conservan las más recientes (`cad.servicio.VERSIONES`)."""
+
+    plano = models.ForeignKey(Plano, on_delete=models.CASCADE, related_name="versiones")
+    numero = models.PositiveIntegerField()
+    formato = models.CharField(max_length=3)
+    ruta = models.CharField(max_length=300)                                  # relativa a TV_HERRAMIENTAS_ARCHIVOS
+    bytes = models.BigIntegerField()
+    sha256 = models.CharField(max_length=64)
+    cuenta_id = models.BigIntegerField(null=True, blank=True)
+    autor_nombre = models.CharField(max_length=150, blank=True)
+    nota = models.CharField(max_length=200, blank=True)                      # p. ej. «Restaurada de la versión 3»
+    creada = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-numero"]
+        constraints = [models.UniqueConstraint(fields=["plano", "numero"], name="herramientas_versionplano_numero")]
+
+
+class BorradorPlano(models.Model):
+    """Cambios sin guardar de una persona en un plano (recuperación): NO es una versión. Uno por plano y cuenta; se borra al guardar."""
+
+    plano = models.ForeignKey(Plano, on_delete=models.CASCADE, related_name="borradores")
+    cuenta_id = models.BigIntegerField(db_index=True)
+    formato = models.CharField(max_length=3)
+    ruta = models.CharField(max_length=300)
+    bytes = models.BigIntegerField()
+    revision_base = models.PositiveIntegerField()                            # versión sobre la que se hicieron los cambios
+    actualizado = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["plano", "cuenta_id"], name="herramientas_borradorplano_unico")]

@@ -18,3 +18,4 @@
 *.kml binary
 *.kmz binary
 
+*.dwg binary

@@ -64,7 +64,14 @@ def banco(request, pk):
         "opciones_flujo": flu.get("opciones") or {"longitud_base": -1, "punta": 28, "densidad": 1, "pendiente_min": 0.10},
         "capas_elegidas": set(opciones.get("capas") or ([c["nombre"] for c in t.resumen.get("capas", [])] if "TIN_3DFACE" not in [c["nombre"] for c in t.resumen.get("capas", [])] else ["TIN_3DFACE"])),
         "decimales": pen.get("decimales", 2), "con_puntos": bool(t.resumen.get("puntos") or t.resumen.get("inserts") or t.resumen.get("vertices_polilinea")),
-        "con_capas": bool(t.resumen.get("capas")), "modo_inicial": "flujo" if flu else "pendientes" if pen else "tin", "limites_txt": ",".join(repr(float(x)) for x in sup.get("limites", []))})
+        "con_capas": bool(t.resumen.get("capas")), "modo_inicial": "flujo" if flu else "pendientes" if pen else "tin", "limites_txt": ",".join(repr(float(x)) for x in sup.get("limites", [])),
+        "abrir_en_cad": bool(t.salida_ruta) and _con_cad(request.user)})
+
+
+def _con_cad(usuario) -> bool:
+    from ..cad import servicio as cad
+
+    return cad.puede_editar(usuario)
 
 
 def _encolar(request, t: Triangulacion, funcion, *args):

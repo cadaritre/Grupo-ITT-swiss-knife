@@ -212,3 +212,35 @@ def armar_zip(token, cuenta_id, elementos, tipo, supervision=False):
     resultado = zips.armar(token, cuenta_id, elementos, tipo, supervision)
     url = reverse("herramientas:zip_descargar", args=[token], urlconf=urlconf_de("herramientas"))
     return {**resultado, "url": url, "etiqueta": "Descargar ZIP"}
+
+
+# -- CAD: impresión a PDF y conversión con el motor nativo, en su propia cola («cad», un trabajador con su propio tope de memoria) ---------
+
+@tarea("cad")
+def imprimir_plano(plano_id, numero, cuenta_id, opciones):
+    """PDF de una versión de un plano (5 s a 2 min). El archivo es de quien lo pidió y se borra al día siguiente."""
+    from django.urls import reverse
+    from tvplataforma.middleware import urlconf_de
+
+    from .cad import salidas
+
+    token, nombre = salidas.imprimir(plano_id, numero, cuenta_id, opciones)
+    url = reverse("herramientas:cad_salida", args=[token], urlconf=urlconf_de("herramientas"))
+    return {"mensaje": "PDF listo.", "url": url, "etiqueta": "Descargar PDF", "nombre": nombre}
+
+
+@tarea("cad")
+def convertir_plano(plano_id, numero, cuenta_id, formato, permitir_perdida):
+    """El plano en el otro formato (DWG ↔ DXF). Si se perderían elementos y no se permitió, el resultado lo dice y no hay archivo."""
+    from django.urls import reverse
+    from tvplataforma.middleware import urlconf_de
+
+    from .cad import nativo, salidas
+
+    try:
+        token, nombre, perdidos = salidas.convertir(plano_id, numero, cuenta_id, formato, permitir_perdida)
+    except nativo.Perdida as exc:
+        return {"mensaje": str(exc), "perdida": True}
+    url = reverse("herramientas:cad_salida", args=[token], urlconf=urlconf_de("herramientas"))
+    aviso = f" Se dejaron fuera {perdidos} elemento{'s' if perdidos != 1 else ''} que {formato.upper()} no admite." if perdidos else ""
+    return {"mensaje": f"{formato.upper()} listo.{aviso}", "url": url, "etiqueta": f"Descargar {formato.upper()}", "nombre": nombre}

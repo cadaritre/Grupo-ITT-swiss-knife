@@ -50,7 +50,13 @@ def banco(request, pk):
         "etiquetas": op.get("etiquetas", prefs["labels"]), "rellenos": op.get("rellenos", prefs["hatches"]), "relieve": op.get("relieve", True),   # cada archivo nuevo empieza pegado al relieve (decisión del propietario, 14-11-2026); apagarlo no se hereda
         "capas_elegidas": set(op.get("capas") or [x["nombre"] for x in c.resumen.get("capas", [])]),
         "precisiones": servicio.PRECISIONES, "precision": op.get("precision", "topografica"), "es_dxf": c.formato == "dxf", "lista": c.estado == Conversion.Estado.LISTO and not en_curso,
-        "tiene_salida": bool(c.salida_ruta)})
+        "tiene_salida": bool(c.salida_ruta), "abrir_en_cad": c.salida_formato == "dxf" and _con_cad(request.user)})
+
+
+def _con_cad(usuario) -> bool:
+    from ..cad import servicio as cad
+
+    return cad.puede_editar(usuario)
 
 
 def _zona(post, c):

@@ -20,8 +20,8 @@ from . import capturas
 from .errores import ErrorUsuario
 
 MAXIMO = 50
-TIPOS = ("reporte", "cotizacion")
-PREFIJOS = {"reportes": "Reportes", "cotizaciones": "Cotizaciones", "documentos": "Documentos"}
+TIPOS = ("reporte", "cotizacion", "plano")
+PREFIJOS = {"reportes": "Reportes", "cotizaciones": "Cotizaciones", "documentos": "Documentos", "planos": "Planos"}
 _TOKEN = re.compile(r"^[0-9a-f]{32}$")
 VIDA_HORAS = 24
 
@@ -108,6 +108,19 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
                 progreso(0.02 + 0.95 * (i + min(1.0, max(0.0, fraccion))) / total, f"Documento {i + 1} de {total}" + (f" · {mensaje}" if mensaje else ""))
 
             informar(0)
+            if (clase == "plano") != (tipo == "planos"):           # un lote de CAD lleva solo planos y los demás lotes nunca llevan planos
+                continue
+            if clase == "plano":                                   # biblioteca compartida de CAD: cada plano en su versión vigente
+                from ..cad import servicio as cad
+                from ..models import Plano
+
+                p = Plano.objects.filter(pk=pk, eliminado__isnull=True).first()
+                v = cad.version_vigente(p) if p else None
+                if v is None or not cad.ruta_version(v).is_file():
+                    continue
+                zf.write(cad.ruta_version(v), _unico(f"{p.nombre}.{v.formato}", usados))
+                incluidos += 1
+                continue
             if clase == "cotizacion":
                 consulta = Cotizacion.objects.filter(pk=pk) if supervision else Cotizacion.objects.filter(pk=pk, cuenta_id=cuenta_id)
                 c = consulta.first()
@@ -143,7 +156,8 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
         raise LoteInvalido("No se pudo incluir ningún documento. " + (omitidos[0] if omitidos else "Ya no existen."))
     temporal.replace(destino)
     progreso(1.0, "Listo")
-    mensaje = f"ZIP listo: {incluidos} PDF." + (f" Sin incluir: {len(omitidos)}." if omitidos else "")
+    que = "plano" + ("s" if incluidos != 1 else "") if tipo == "planos" else "PDF"
+    mensaje = f"ZIP listo: {incluidos} {que}." + (f" Sin incluir: {len(omitidos)}." if omitidos else "")
     return {"mensaje": mensaje, "incluidos": incluidos, "omitidos": omitidos[:MAXIMO]}
 
 

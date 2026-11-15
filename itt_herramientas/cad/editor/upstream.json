@@ -1,0 +1,28 @@
+{
+  "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile.",
+  "version": "v2026.45",
+  "publicada": "2026-11-08",
+  "puente": false,
+  "fuente": {
+    "tipo": "publica",
+    "repo": "HakanSeven12/OpenCADStudio",
+    "tag": "v2026.45"
+  },
+  "web": {
+    "archivo": "OpenCADStudio-v2026.45-web.zip",
+    "sha256": "f320f91e89abc7a3f4a57c8f6d5bfb9565d01a91abc83b6b10d105b3bb7a3df4",
+    "bytes": 62961095
+  },
+  "nativo": {
+    "x86_64": {
+      "archivo": "OpenCADStudio-v2026.45-linux-x86_64.AppImage",
+      "sha256": "85ee7838059eebc1c913bd2fbab42c579983f4281464cbb3b190fc06f4077ec2",
+      "bytes": 53467640
+    },
+    "aarch64": {
+      "archivo": "OpenCADStudio-v2026.45-linux-aarch64.AppImage",
+      "sha256": "04d3302f2b8016cd21b5484ba6fe2a7432fdedc803951880264390e4055327b7",
+      "bytes": 50342408
+    }
+  }
+}

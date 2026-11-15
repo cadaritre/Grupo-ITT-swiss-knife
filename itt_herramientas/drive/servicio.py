@@ -1,7 +1,7 @@
 """Envío a Google Drive (herramientas-web.md §3): conexión por cuenta, jerarquía y cola de pendientes con reintentos.
 
 Mismo contrato que el escritorio (`cloud_sync.py`): `GRUPO ITT REPORTES/<persona>/{Cotizaciones, Reportes fotograficos, Poligonos KML}`, solo estos
-tipos de archivo (DXF, croquis y triangulaciones no se envían) y nombres que no pisan un archivo distinto: si ya existe el mismo contenido no se
+tipos de archivo (los DXF del convertidor, croquis y triangulaciones no se envían solos). La web agrega `Planos CAD`, solo con «Enviar a Google Drive» de CAD. Los nombres no pisan un archivo distinto: si ya existe el mismo contenido no se
 vuelve a subir; si existe otro con ese nombre, se agrega una marca de fecha. Con el permiso `drive.file` la app solo ve lo que ella creó o lo que la
 persona le abrió con el selector de Google, por eso la carpeta compartida se elige con Picker y de ahí en adelante todo cuelga de ella.
 """
@@ -25,8 +25,13 @@ from ..models import ConexionDrive, EnvioDrive
 from . import cifrado, google
 
 CARPETA_RAIZ = "GRUPO ITT REPORTES"
-CATEGORIAS = {"cotizaciones": ("Cotizaciones", {".pdf", ".json"}), "reportes": ("Reportes fotograficos", {".pdf"}), "poligonos": ("Poligonos KML", {".kml", ".kmz"})}
-TIPOS = {".pdf": "application/pdf", ".json": "application/json", ".kml": "application/vnd.google-earth.kml+xml", ".kmz": "application/vnd.google-earth.kmz"}
+#: «Planos CAD» la agregó la web (no existe en el escritorio): solo recibe planos que la persona manda a mano desde CAD («Enviar a Google Drive»).
+CATEGORIAS = {"cotizaciones": ("Cotizaciones", {".pdf", ".json"}), "reportes": ("Reportes fotograficos", {".pdf"}), "poligonos": ("Poligonos KML", {".kml", ".kmz"}),
+              "planos": ("Planos CAD", {".dwg", ".dxf"})}
+#: Las carpetas que se crean al conectar (las del escritorio); las demás, la primera vez que se envía algo de esa categoría.
+CATEGORIAS_FIJAS = ("cotizaciones", "reportes", "poligonos")
+TIPOS = {".pdf": "application/pdf", ".json": "application/json", ".kml": "application/vnd.google-earth.kml+xml", ".kmz": "application/vnd.google-earth.kmz",
+         ".dwg": "image/vnd.dwg", ".dxf": "image/vnd.dxf"}
 MAX_INTENTOS = 12
 #: Tiempo límite para revocar el token en Google al eliminar una cuenta (corre al confirmar la eliminación, en la petición de la consola).
 REVOCAR_TIMEOUT = 5
@@ -203,7 +208,7 @@ def _buscar_o_crear(token: str, nombre: str, padre: str) -> str:
     return g.crear_carpeta(token, nombre, padre)["id"]
 
 
-def asegurar_jerarquia(c: ConexionDrive) -> dict:
+def asegurar_jerarquia(c: ConexionDrive, extra: tuple = ()) -> dict:
     """Garantiza `<raíz>/<persona>/<3 categorías>` y guarda sus ids. Si la raíz ya no existe, la conexión queda con «carpeta perdida»."""
     if not c.carpeta_raiz_id:
         raise google.NoDisponible("Todavía no eliges la carpeta de Drive donde se guardan los archivos.", 404, "sin_carpeta")
@@ -218,8 +223,8 @@ def asegurar_jerarquia(c: ConexionDrive) -> dict:
             raise
         persona = _buscar_o_crear(token, nombre_carpeta(c.persona), c.carpeta_raiz_id)
         ids = {"persona": persona}
-        for clave, (carpeta, _) in CATEGORIAS.items():
-            ids[clave] = _buscar_o_crear(token, carpeta, persona)
+        for clave in (*CATEGORIAS_FIJAS, *[x for x in extra if x in CATEGORIAS and x not in CATEGORIAS_FIJAS]):
+            ids[clave] = _buscar_o_crear(token, CATEGORIAS[clave][0], persona)
         return ids
 
     ids = con_acceso(c, trabajo)
@@ -403,7 +408,7 @@ def enviar_uno(e: EnvioDrive, c: ConexionDrive) -> bool:
         if not ruta.is_file():
             raise google.ErrorGoogle("La copia local del archivo ya no existe.")
         if not c.carpetas.get(e.categoria):
-            asegurar_jerarquia(c)
+            asegurar_jerarquia(c, (e.categoria,))
         md5 = _md5(ruta)
 
         def trabajo(token):
@@ -412,7 +417,7 @@ def enviar_uno(e: EnvioDrive, c: ConexionDrive) -> bool:
                 cliente().archivo(token, carpeta_id)                                 # ¿sigue ahí (y fuera de la papelera)? si no, se rehace la jerarquía
                 nombre, igual = _nombre_libre(token, carpeta_id, e.nombre, md5)
             except google.NoDisponible:                                              # la carpeta de la categoría ya no está: se rehace la jerarquía
-                asegurar_jerarquia(c)
+                asegurar_jerarquia(c, (e.categoria,))
                 carpeta_id = c.carpetas[e.categoria]
                 nombre, igual = _nombre_libre(token, carpeta_id, e.nombre, md5)
             if igual is not None:

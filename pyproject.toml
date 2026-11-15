@@ -51,6 +51,11 @@ itt_herramientas = [
     "templates/**/*",
     "static/**/*",
     "offline/*.tpl",
+    "cad/editor/*.json",
+    "cad/editor/*.html",
+    "cad/editor/*.js",
+    "cad/editor/*.css",
+    "cad/plantillas/*",
 ]
 
 [tool.pytest.ini_options]

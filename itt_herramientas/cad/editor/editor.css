@@ -1,0 +1,14 @@
+/* Página del editor CAD dentro de Herramientas (marco del mismo origen). Los estilos van en este archivo; la página no trae estilos en línea. */
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #f4f5f7; }
+canvas { display: block; }
+#carga {
+  position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  background: #f4f5f7; color: #5b6170; font: 500 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  transition: opacity .2s ease;
+}
+#carga.oculto { opacity: 0; pointer-events: none; }
+#carga .giro { width: 32px; height: 32px; border: 3px solid #d9dce3; border-top-color: #07356f; border-radius: 50%; animation: giro .8s linear infinite; }
+#carga.error .giro { display: none; }
+#carga.error { color: #a1241b; }
+@keyframes giro { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #carga .giro { animation-duration: 2.4s; } #carga { transition: none; } }

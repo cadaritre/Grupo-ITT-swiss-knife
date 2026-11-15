@@ -37,6 +37,7 @@ def _urls() -> dict:
     urls.update({n: reverse(f"herramientas:croquis_{n}", kwargs={"pk": MARCA_ID}) for n in con_id})
     urls["teselas"] = reverse("herramientas:teselas", kwargs={"capa": "osm", "z": 0, "x": 0, "y": 0}).replace("/osm/0/0/0.png", "/{capa}/{z}/{x}/{y}.png")
     urls["tarea"] = reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA_ID})
+    urls["cad"] = reverse("herramientas:cad_desde_croquis", kwargs={"pk": MARCA_ID})
     return urls
 
 

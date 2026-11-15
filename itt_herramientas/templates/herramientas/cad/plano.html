@@ -1,0 +1,142 @@
+{% extends "herramientas/base_comun.html" %}
+{% load static tv herramientas %}
+{% block titulo_pagina %}{{ p.nombre }}{% endblock %}
+{% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">{% endblock %}
+{% block titulo_h1 %}<div class="cad-titulo"><span class="itt-formato cad-formato" data-formato="{{ p.formato }}" id="cad-formato">{{ p.formato|upper }}</span>
+<h1 id="cad-nombre">{{ p.nombre }}</h1>
+<span class="cad-estado" id="cad-estado" role="status" aria-live="polite" data-estado="cargando"><span class="tv-punto tv-punto--neutro" aria-hidden="true"></span><span id="cad-estado-texto">Abriendo…</span></span></div>
+<p class="tv-subtitulo" id="cad-subtitulo">{% if v %}Versión {{ v.numero }} · {{ v.creada|date:"j M Y, H:i"|lower }}{% if v.autor_nombre %} · {{ v.autor_nombre }}{% endif %}{% else %}{% if p.proyecto %}{{ p.proyecto }} · {% endif %}Versión {{ p.revision }}{% if p.modificado_por_nombre %} · {{ p.modificado_por_nombre }}{% endif %}{% endif %}</p>{% endblock %}
+{% block acciones_pagina %}
+<a class="tv-boton tv-boton--fantasma cad-volver" href="{% url 'herramientas:cad' %}" id="cad-volver">{% icono "arrow-left" %}<span>Planos</span></a>
+{% if puede_editar and not v %}<button type="button" class="tv-boton" id="cad-guardar" disabled>{% icono "save" %}<span>Guardar</span><kbd class="tv-tecla cad-tecla" data-tv-tecla-cmd>Ctrl S</kbd></button>{% endif %}
+<button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-versiones" id="cad-boton-versiones">{% icono "history" %}<span>Versiones</span></button>
+<button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-imprimir" id="cad-boton-imprimir"{% if not nativo %} hidden{% endif %}>{% icono "printer" %}<span>Imprimir PDF</span></button>
+<details class="cad-menu" id="cad-menu">
+  <summary class="tv-boton tv-boton--secundario tv-boton--icono" data-tv-tooltip="Más acciones">{% icono "ellipsis" etiqueta="Más acciones" %}</summary>
+  <div class="cad-menu__lista" role="menu">
+    <a role="menuitem" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1{% if v %}&version={{ v.numero }}{% endif %}" id="cad-descargar">{% icono "download" %}<span>Descargar {% if v %}{{ v.formato|upper }}{% else %}{{ p.formato|upper }}{% endif %}</span></a>
+    {% if nativo %}<button type="button" role="menuitem" id="cad-convertir" data-formato="{% if v %}{% if v.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% else %}{% if p.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% endif %}">{% icono "file-output" %}<span>Descargar como {% if v %}{% if v.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% else %}{% if p.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% endif %}</span></button>{% endif %}
+    {% if drive %}<button type="button" role="menuitem" id="cad-drive">{% icono "hard-drive-upload" %}<span>Enviar a Google Drive</span></button>{% endif %}
+    {% if puede_editar %}
+    <button type="button" role="menuitem" data-tv-abrir="cad-renombrar">{% icono "pencil" %}<span>Renombrar</span></button>
+    <form method="post" action="{% url 'herramientas:cad_duplicar' p.pk %}">{% csrf_token %}<button type="submit" role="menuitem">{% icono "copy" %}<span>Duplicar</span></button></form>
+    {% endif %}
+    {% if puede_eliminar %}<button type="button" role="menuitem" class="cad-menu__peligro" data-tv-abrir="cad-eliminar">{% icono "trash-2" %}<span>Eliminar</span></button>{% endif %}
+  </div>
+</details>
+{% endblock %}
+{% block cuerpo %}
+<div class="cad-avisos" id="cad-avisos">
+  {% if v %}<div class="cad-aviso" data-tipo="info">{% icono "history" %}<p>Estás viendo la versión {{ v.numero }}. Solo lectura.</p>
+    <div class="cad-aviso__acciones"><a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_plano' p.pk %}">Ir a la vigente</a>
+    {% if puede_editar and v.numero != p.revision %}<form method="post" action="{% url 'herramientas:cad_restaurar_version' p.pk v.numero %}">{% csrf_token %}<button type="submit" class="tv-boton">{% icono "rotate-ccw" %}<span>Restaurar esta versión</span></button></form>{% endif %}</div></div>{% endif %}
+  <div class="cad-aviso" data-tipo="info" id="cad-aviso-lectura" hidden>{% icono "eye" %}<p id="cad-aviso-lectura-texto"></p>
+    <div class="cad-aviso__acciones"><button type="button" class="tv-boton tv-boton--secundario" id="cad-tomar" hidden>{% icono "lock-open" %}<span>Tomar el control</span></button>
+    <button type="button" class="tv-boton tv-boton--secundario" id="cad-reintentar" hidden>{% icono "rotate-ccw" %}<span>Editar ahora</span></button></div></div>
+  <div class="cad-aviso" data-tipo="aviso" id="cad-aviso-borrador" hidden>{% icono "file-clock" %}<p id="cad-aviso-borrador-texto">Tienes cambios sin guardar de la última vez.</p>
+    <div class="cad-aviso__acciones"><button type="button" class="tv-boton" id="cad-recuperar">{% icono "rotate-ccw" %}<span>Recuperar cambios sin guardar</span></button>
+    <button type="button" class="tv-boton tv-boton--fantasma" id="cad-descartar-borrador">Descartar</button></div></div>
+  <div class="cad-aviso" data-tipo="error" id="cad-aviso-error" role="alert" hidden>{% icono "triangle-alert" %}<p id="cad-aviso-error-texto"></p></div>
+</div>
+{% if editor_listo %}
+{# Lugar para las extensiones de la página (p. ej. «Civil»): lo llenan con window.TVCad.barra() (static/herramientas/cad/control.js). #}
+<div class="cad-extensiones" id="cad-extensiones" role="toolbar" aria-label="Herramientas adicionales" hidden></div>
+<div class="cad-lienzo" id="cad-lienzo">
+  <iframe id="cad-editor" title="Editor de planos" src="about:blank" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+  <div class="cad-lienzo__carga" id="cad-carga" role="status"><span class="cad-giro" aria-hidden="true"></span><span id="cad-carga-texto">Abriendo el editor…</span></div>
+</div>
+{% else %}
+{% vacio titulo="El editor no está disponible en este momento." icono="drafting-compass" %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1">{% icono "download" %}<span>Descargar el plano</span></a>{% endvacio %}
+{% endif %}
+
+{% hoja_inferior "cad-versiones" titulo="Versiones" %}
+<p class="tv-tenue cad-hoja-nota">Cada vez que guardas se crea una versión. Se conservan las 30 más recientes.</p>
+<ul class="cad-versiones" id="cad-versiones-lista">{% for x in versiones %}
+  <li data-numero="{{ x.numero }}"><div class="cad-versiones__texto"><strong>Versión {{ x.numero }}{% if x.vigente %} <span class="tv-insignia tv-insignia--exito">Vigente</span>{% endif %}</strong>
+    <span class="tv-tenue">{{ x.autor|default:"—" }}{% if x.nota %} · {{ x.nota }}{% endif %} · {{ x.formato|upper }} · {{ x.bytes|filesizeformat }}</span></div>
+    <div class="cad-versiones__acciones">
+      {% if not x.vigente %}<a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_plano' p.pk %}?version={{ x.numero }}" data-tv-tooltip="Abrir (solo lectura)">{% icono "eye" etiqueta="Abrir esta versión" %}</a>{% endif %}
+      <a class="tv-boton tv-boton--secundario tv-boton--icono" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1&version={{ x.numero }}" data-tv-tooltip="Descargar">{% icono "download" etiqueta="Descargar la versión" %}</a>
+      {% if puede_editar and not x.vigente %}<button type="button" class="tv-boton tv-boton--secundario tv-boton--icono" data-cad-restaurar="{{ x.numero }}" data-tv-tooltip="Restaurar">{% icono "rotate-ccw" etiqueta="Restaurar esta versión" %}</button>{% endif %}
+    </div></li>{% endfor %}
+</ul>
+<div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cerrar</button></div>
+{% endhoja_inferior %}
+
+{% if nativo %}
+{% hoja_inferior "cad-imprimir" titulo="Imprimir PDF" %}
+<form class="tv-formulario cad-imprimir" id="cad-form-imprimir">
+  {% if v %}<input type="hidden" name="version" value="{{ v.numero }}">{% endif %}
+  <div class="cad-imprimir__fila">
+    <div class="tv-campo"><label for="cad-papel">Papel</label><select id="cad-papel" name="papel">{% for k, e in papeles.items %}<option value="{{ k }}"{% if k == papel %} selected{% endif %}>{{ e }}</option>{% endfor %}</select></div>
+    <fieldset class="tv-campo"><legend>Orientación</legend><div class="tv-segmentado">{% for k, e in orientaciones.items %}<label><input type="radio" name="orientacion" value="{{ k }}"{% if k == "landscape" %} checked{% endif %}><span>{{ e }}</span></label>{% endfor %}</div></fieldset>
+  </div>
+  <fieldset class="tv-campo"><legend>Qué imprimir</legend><div class="tv-segmentado cad-segmentado-ancho">{% for k, e in areas.items %}<label><input type="radio" name="area" value="{{ k }}"{% if k == "modelo" %} checked{% endif %}><span>{% if k == "modelo" %}Espacio modelo{% else %}Presentaciones{% endif %}</span></label>{% endfor %}</div></fieldset>
+  <div class="cad-imprimir__fila">
+    <div class="tv-campo"><label for="cad-escala">Escala</label><select id="cad-escala" name="escala">{% for e in escalas %}<option value="{{ e }}">{% if e == "ajustar" %}Ajustar al papel{% else %}{{ e }}{% endif %}</option>{% endfor %}<option value="otra">Otra…</option></select></div>
+    <div class="tv-campo" id="cad-escala-otra-campo" hidden><label for="cad-escala-otra">Escala</label><input id="cad-escala-otra" name="escala_otra" type="text" inputmode="decimal" placeholder="1:750" autocomplete="off"></div>
+  </div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="cad-grosores" name="grosores" value="1" checked><label for="cad-grosores">Grosores de línea</label></div>
+  <p class="itt-estado" id="cad-imprimir-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton" id="cad-imprimir-ir">{% icono "printer" %}<span>Generar PDF</span></button></div>
+</form>
+{% endhoja_inferior %}
+{% endif %}
+
+{% if puede_editar %}
+{% hoja_inferior "cad-renombrar" titulo="Renombrar" %}
+<form method="post" action="{% url 'herramientas:cad_renombrar' p.pk %}" class="tv-formulario" id="cad-form-renombrar" data-tv-una-vez>{% csrf_token %}
+  <div class="tv-campo"><label for="cad-ren-nombre">Nombre</label><input id="cad-ren-nombre" name="nombre" type="text" maxlength="150" required value="{{ p.nombre }}" autocomplete="off"></div>
+  <div class="tv-campo"><label for="cad-ren-proyecto">Proyecto o cliente</label><input id="cad-ren-proyecto" name="proyecto" type="text" maxlength="160" value="{{ p.proyecto }}" autocomplete="off" spellcheck="false" data-cad-proyectos></div>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "check" %}<span>Guardar</span></button></div>
+</form>
+{% endhoja_inferior %}
+{% endif %}
+{% if puede_eliminar %}
+<dialog id="cad-eliminar" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-eliminar-titulo">
+  <form method="post" action="{% url 'herramientas:cad_eliminar' p.pk %}" class="tv-hoja__cuerpo">{% csrf_token %}
+    <div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="cad-eliminar-titulo">¿Eliminar «{{ p.nombre }}»?</h2>
+    <p>Se mueve a la papelera con todas sus versiones. Se puede restaurar durante 30 días.</p>
+    <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton tv-boton--peligro">{% icono "trash-2" %}<span>Mover a la papelera</span></button></div>
+  </form>
+</dialog>
+{% endif %}
+
+<dialog id="cad-conflicto" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-conflicto-titulo">
+  <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="cad-conflicto-titulo">No se guardó sobre el plano</h2>
+    <p id="cad-conflicto-texto"></p>
+    <p class="tv-tenue">Tus cambios no se pierden: guárdalos como un plano nuevo.</p>
+    <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Ahora no</button><button type="button" class="tv-boton" id="cad-guardar-copia">{% icono "copy" %}<span>Guardar como copia</span></button></div>
+  </div>
+</dialog>
+<dialog id="cad-salir" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-salir-titulo">
+  <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="cad-salir-titulo">Tienes cambios sin guardar</h2>
+    <p>Guárdalos como versión nueva antes de salir.</p>
+    <div class="tv-hoja__acciones cad-salir__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Seguir editando</button>
+      <button type="button" class="tv-boton tv-boton--fantasma" id="cad-salir-sin">Salir sin guardar</button>
+      <button type="button" class="tv-boton" id="cad-salir-guardar">{% icono "save" %}<span>Guardar y salir</span></button></div>
+  </div>
+</dialog>
+<dialog id="cad-perdida" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-perdida-titulo">
+  <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="cad-perdida-titulo">Se perderían elementos</h2>
+    <p id="cad-perdida-texto"></p>
+    <p class="tv-tenue">El plano en la biblioteca no cambia: solo la copia que descargas.</p>
+    <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton" id="cad-perdida-seguir">{% icono "file-output" %}<span>Descargar de todos modos</span></button></div>
+  </div>
+</dialog>
+<div id="cad-iconos" hidden><span data-cad-icono="eye">{% icono "eye" %}</span><span data-cad-icono="download">{% icono "download" %}</span><span data-cad-icono="rotate-ccw">{% icono "rotate-ccw" %}</span></div>
+{% csrf_token %}
+{% endblock %}
+{% block pie %}{% endblock %}
+{% block scripts %}
+<script src="{% static 'herramientas/offline/combobox.js' %}"></script>
+{{ proyectos|json_script:"cad-proyectos" }}
+{{ config|json_script:"cad-config" }}
+<script src="{% static 'herramientas/cad/control.js' %}"></script>
+<script src="{% static 'herramientas/cad/editor.js' %}"></script>
+{% block extensiones_cad %}{% endblock %}
+{% endblock %}

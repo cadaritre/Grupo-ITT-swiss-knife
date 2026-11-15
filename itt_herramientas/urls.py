@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import views
 from .convertidor import vistas as convertidor
+from .cad import vistas as cad
 from .cotizaciones import vistas as cotizaciones
 from .croquis import vistas as croquis
 from .drive import vistas as drive
@@ -81,6 +82,33 @@ urlpatterns = [
     path("triangulacion/<uuid:pk>/descargar/", triangulacion.descargar, name="triangulacion_descargar"),
     path("triangulacion/<uuid:pk>/vista.png", triangulacion.vista, name="triangulacion_vista"),
     path("triangulacion/<uuid:pk>/vector.json", triangulacion.vector, name="triangulacion_vector"),
+    path("cad/", cad.lista, name="cad"),
+    path("cad/nuevo/", cad.nuevo, name="cad_nuevo"),
+    path("cad/papelera/", cad.papelera, name="cad_papelera"),
+    path("cad/papelera/vaciar/", cad.vaciar, name="cad_vaciar"),
+    path("cad/zip/", cad.zip_lote, name="cad_zip"),
+    path("cad/salidas/<str:token>/", cad.salida, name="cad_salida"),
+    path("cad/desde/convertidor/<uuid:pk>/", cad.desde_convertidor, name="cad_desde_convertidor"),
+    path("cad/desde/triangulacion/<uuid:pk>/", cad.desde_triangulacion, name="cad_desde_triangulacion"),
+    path("cad/desde/croquis/<uuid:pk>/", cad.desde_croquis, name="cad_desde_croquis"),
+    path("cad/editor/<str:version>/<path:ruta>", cad.editor_archivo, name="cad_editor_archivo"),
+    path("cad/<uuid:pk>/", cad.plano, name="cad_plano"),
+    path("cad/<uuid:pk>/archivo/", cad.archivo, name="cad_archivo"),
+    path("cad/<uuid:pk>/estado/", cad.estado, name="cad_estado"),
+    path("cad/<uuid:pk>/bloqueo/", cad.bloqueo, name="cad_bloqueo"),
+    path("cad/<uuid:pk>/guardar/", cad.guardar, name="cad_guardar"),
+    path("cad/<uuid:pk>/copia/", cad.copia, name="cad_copia"),
+    path("cad/<uuid:pk>/borrador/", cad.borrador, name="cad_borrador"),
+    path("cad/<uuid:pk>/borrador/descartar/", cad.borrador_descartar, name="cad_borrador_descartar"),
+    path("cad/<uuid:pk>/versiones/<int:numero>/restaurar/", cad.restaurar_version, name="cad_restaurar_version"),
+    path("cad/<uuid:pk>/renombrar/", cad.renombrar, name="cad_renombrar"),
+    path("cad/<uuid:pk>/duplicar/", cad.duplicar, name="cad_duplicar"),
+    path("cad/<uuid:pk>/eliminar/", cad.eliminar, name="cad_eliminar"),
+    path("cad/<uuid:pk>/restaurar/", cad.restaurar, name="cad_restaurar"),
+    path("cad/<uuid:pk>/destruir/", cad.destruir, name="cad_destruir"),
+    path("cad/<uuid:pk>/imprimir/", cad.imprimir, name="cad_imprimir"),
+    path("cad/<uuid:pk>/convertir/", cad.convertir, name="cad_convertir"),
+    path("cad/<uuid:pk>/drive/", cad.drive, name="cad_drive"),
     path("drive/", drive.pagina, name="drive"),
     path("drive/conectar/", drive.autorizar, name="drive_autorizar"),
     path("drive/oauth/callback/", drive.callback, name="drive_callback"),

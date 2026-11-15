@@ -8,13 +8,14 @@ MODULO = Modulo(
     urlconf="itt_herramientas.urls",
     icono="herramientas/img/modulo.png",
     orden=20,
-    descripcion="Reportes, cotizaciones, croquis y conversión de planos",
+    descripcion="Reportes, cotizaciones, croquis, conversión de planos y CAD",
     # El service worker, el manifiesto, la guía de instalación y la página de captura (HTML sin datos de ninguna cuenta,
     # necesaria para arrancar sin conexión) se sirven sin sesión: el navegador los pide sin poder seguir un inicio de sesión.
     limpiezas=("itt_herramientas.convertidor.servicio.limpiar", "itt_herramientas.drive.servicio.limpiar", "itt_herramientas.supervision.servicio.limpiar",
-               "itt_herramientas.comun.zips.limpiar"),
+               "itt_herramientas.comun.zips.limpiar", "itt_herramientas.cad.servicio.limpiar"),
     # Al eliminar una cuenta (contrato 1.8) se quita su conexión con Google Drive y se cancela su cola; sus documentos se quedan.
-    al_eliminar_cuenta=("itt_herramientas.drive.servicio.al_eliminar_cuenta",),
+    # CAD: se sueltan los planos que tenía abiertos para editar y se borran sus borradores de recuperación (los planos se quedan).
+    al_eliminar_cuenta=("itt_herramientas.drive.servicio.al_eliminar_cuenta", "itt_herramientas.cad.servicio.al_eliminar_cuenta"),
     rutas_publicas=("sw.js", "manifest.webmanifest", "capturar/", "instalar/", "cotizaciones/", "reportes/", "croquis/"),
     # Navegación como datos (contrato 1.5, §12): el armazón pinta con esto el lateral, el cajón del teléfono y la paleta, por rol.
     # Las páginas de campo (que abren sin conexión) pintan el mismo menú con `{% lateral_de_campo %}`.
@@ -26,6 +27,7 @@ MODULO = Modulo(
         Entrada("Capturar fotos", "images", "herramientas:capturar", roles=("reportes", "cotizaciones", "admin"), grupo="Campo", clave="capturar"),
         Entrada("Convertidor", "arrow-right-left", "herramientas:convertidor", roles=("convertidor", "admin"), grupo="Gabinete", atajo="g v", clave="convertidor"),
         Entrada("Triangulación", "triangle", "herramientas:triangulacion", roles=("triangulacion", "admin"), grupo="Gabinete", atajo="g t", clave="triangulacion"),
+        Entrada("CAD", "drafting-compass", "herramientas:cad", roles=("cad", "admin", "supervision"), grupo="Gabinete", atajo="g d", clave="cad"),
         Entrada("Todas las cuentas", "users-round", "herramientas:supervision", roles=("supervision",), grupo="Supervisión", atajo="g s", clave="supervision"),
         Entrada("Ajustes", "settings", "herramientas:preferencias", grupo="Cuenta", atajo="g a", clave="ajustes"),
     ],
@@ -35,19 +37,24 @@ MODULO = Modulo(
         Accion("Nuevo reporte fotográfico", "camera", "/reportes/#/nuevo", roles=("reportes", "admin")),
         Accion("Nuevo croquis", "map-pin-plus", "/croquis/#/nuevo", roles=("croquis", "admin")),
         Accion("Convertir un archivo", "file-up", "herramientas:convertidor", roles=("convertidor", "admin")),
+        Accion("Nuevo plano", "file-plus-2", "/cad/#nuevo", roles=("cad", "admin")),
+        Accion("Subir un plano", "file-up", "/cad/#subir", roles=("cad", "admin")),
+        Accion("Papelera de planos", "trash-2", "herramientas:cad_papelera", roles=("cad", "admin")),
         Accion("Conectar Google Drive", "hard-drive-upload", "herramientas:drive"),
         Accion("Ver documentos de todas las cuentas", "users-round", "herramientas:supervision", roles=("supervision",)),
     ],
-    busqueda=Busqueda("herramientas:buscar", "Buscar documentos", icono="file-text", roles=("cotizaciones", "reportes", "croquis", "admin")),
+    busqueda=Busqueda("herramientas:buscar", "Buscar documentos y planos", icono="file-text", roles=("cotizaciones", "reportes", "croquis", "cad", "admin", "supervision")),
     roles=[
         Rol("reportes", "Reportes fotográficos", "Toma fotos en campo y genera el reporte en PDF."),
         Rol("cotizaciones", "Cotizaciones", "Crea cotizaciones, también sin señal, y genera su PDF."),
         Rol("croquis", "Croquis de ubicación", "Dibuja el área sobre el mapa y genera el croquis en PDF y DXF."),
         Rol("convertidor", "Convertidor DXF ↔ KML/KMZ", "Convierte planos y polígonos entre DXF, KML y KMZ."),
         Rol("triangulacion", "Triangulación, pendientes y escurrimiento", "Genera un TIN, zonifica pendientes y dibuja el escurrimiento."),
+        Rol("cad", "CAD", "Abre, crea, sube y edita los planos DWG y DXF de la biblioteca compartida; elimina los suyos."),
         # «Cuadros de construcción a DXF» (IT-10) no se ofrece hasta que exista la herramienta.
-        Rol("admin", "Administrador de herramientas", "Perfiles corporativos (identidad, textos, paleta, imágenes) y diccionario técnico."),
-        Rol("supervision", "Supervisión", "Ve las cotizaciones y los reportes de todas las cuentas, con su autor. Solo lectura."),
+        Rol("admin", "Administrador de herramientas", "Perfiles corporativos (identidad, textos, paleta, imágenes) y diccionario técnico. En CAD, además: "
+            "elimina cualquier plano, vacía la papelera y toma el control de un plano que otra persona edita."),
+        Rol("supervision", "Supervisión", "Ve las cotizaciones, los reportes y los planos de todas las cuentas, con su autor. Solo lectura."),
         Rol("cambiar_perfil", "Cambiar perfil corporativo", "Puede cambiar entre los perfiles Grupo ITT y TresVizo. Solo lo concede el propietario."),
     ],
 )

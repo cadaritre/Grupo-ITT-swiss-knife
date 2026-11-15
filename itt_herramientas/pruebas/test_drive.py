@@ -432,7 +432,7 @@ def _eliminar_como_el_portal(cuenta, capturar):
 def test_el_modulo_registra_su_funcion_al_eliminar_una_cuenta():
     from tvplataforma import modulos
 
-    assert modulos.modulo("herramientas").al_eliminar_cuenta == ("itt_herramientas.drive.servicio.al_eliminar_cuenta",)
+    assert "itt_herramientas.drive.servicio.al_eliminar_cuenta" in modulos.modulo("herramientas").al_eliminar_cuenta
 
 
 def test_eliminar_la_cuenta_quita_su_drive_y_cancela_su_cola_pero_conserva_sus_documentos(cliente_de, persona, falso, django_capture_on_commit_callbacks):

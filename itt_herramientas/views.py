@@ -32,7 +32,10 @@ HERRAMIENTAS_DE_INICIO = (
     ("croquis", "Croquis de ubicación", "Dibuja el predio sobre el mapa y genera PDF y DXF.", "herramientas:croquis"),
     ("convertidor", "Convertidor DXF ↔ KML/KMZ", "Lleva planos a Google Earth y polígonos a AutoCAD.", "herramientas:convertidor"),
     ("triangulacion", "Triangulación y pendientes", "TIN, pendientes y escurrimiento a partir de un DXF.", "herramientas:triangulacion"),
+    ("cad", "CAD", "Planos DWG y DXF del equipo: abre, dibuja, guarda e imprime.", "herramientas:cad"),
 )
+#: Además de su propio rol y de `admin`, quien supervisa abre CAD (solo lectura).
+_INICIO_EXTRA = {"cad": ("supervision",)}
 
 
 def _es_admin(request) -> bool:
@@ -42,7 +45,7 @@ def _es_admin(request) -> bool:
 @usuario_de_herramientas
 def inicio(request):
     herramientas = [(titulo, descripcion, reverse(nombre), f"herramientas/img/herramientas/{rol}.png") for rol, titulo, descripcion, nombre in HERRAMIENTAS_DE_INICIO
-                    if permisos.tiene_rol(request.user, "herramientas", rol) or permisos.tiene_rol(request.user, "herramientas", "admin")]
+                    if any(permisos.tiene_rol(request.user, "herramientas", r) for r in (rol, "admin", *_INICIO_EXTRA.get(rol, ())))]
     return render(request, "herramientas/inicio.html", {"es_admin": _es_admin(request), "puede_cambiar": perfiles.puede_cambiar(request.user), "herramientas": herramientas, "mostrar_banda": "si", "mostrar_marca": True,
                                                     "supervision": permisos.tiene_rol(request.user, "herramientas", "supervision")})
 
@@ -315,6 +318,13 @@ def _navegacion(usuario) -> list[str]:
     return [e.clave for e in MODULO.menu if not e.roles or any(tiene(r) for r in e.roles)]
 
 
+def _puede_cad(usuario) -> bool:
+    """¿Puede abrir en CAD lo que genera (el DXF del croquis)? Lo usan las páginas de campo, que no reciben datos de la cuenta en su HTML."""
+    from .cad import servicio as cad
+
+    return cad.puede_editar(usuario)
+
+
 def _tema(usuario) -> str:
     """Tema elegido por la cuenta (claro por omisión; nunca el del sistema)."""
     from tvplataforma.models import Preferencias
@@ -331,7 +341,7 @@ def sesion(request):
     if not (u.is_authenticated and u.is_active) or not any(permisos.tiene_rol(u, "herramientas", r) for r in (*ROLES_DE_HERRAMIENTAS, "admin")):
         return HttpResponse(status=401)
     respuesta = JsonResponse({"cuenta": u.pk, "nombre": u.get_full_name() or u.get_username(), "csrf": get_token(request), "herramientas": _herramientas_de_campo(u), "nav": _navegacion(u),
-                              "tema": _tema(u)})
+                              "tema": _tema(u), "cad": _puede_cad(u)})
     respuesta["Cache-Control"] = "no-store"
     return respuesta
 
@@ -441,10 +451,11 @@ def teselas(request, capa, z, x, y):
     return respuesta
 
 
-@requiere_rol("herramientas", "cotizaciones", "reportes", "croquis", "admin")
+@requiere_rol("herramientas", "cotizaciones", "reportes", "croquis", "cad", "admin", "supervision")
 @require_GET
 def buscar(request):
-    """Búsqueda de la paleta (contrato 1.5, §12.1): los documentos de ESTA cuenta, solo de las herramientas que tiene. Hasta 20."""
+    """Búsqueda de la paleta (contrato 1.5, §12.1): los documentos de ESTA cuenta, solo de las herramientas que tiene, y los planos de la
+    biblioteca compartida de CAD (son del equipo). Hasta 20."""
     from django.db.models import Q
     from django.http import JsonResponse
 
@@ -466,6 +477,14 @@ def buscar(request):
         if tiene("croquis"):
             for k in Croquis.objects.filter(titulo__icontains=q, **propio).order_by("-actualizada")[:10]:
                 resultados.append({"titulo": k.titulo or "Croquis", "subtitulo": "Croquis de ubicación", "url": f"{reverse('herramientas:croquis')}#/s/{k.pk}"})
+        from .cad import servicio as cad
+
+        if cad.puede_ver(request.user):
+            from .models import Plano
+
+            for p in Plano.objects.filter(Q(nombre__icontains=q) | Q(proyecto__icontains=q), eliminado__isnull=True).order_by("-actualizado")[:10]:
+                resultados.append({"titulo": p.nombre, "subtitulo": " · ".join(x for x in (f"Plano {p.formato.upper()}", p.proyecto) if x),
+                                   "url": reverse("herramientas:cad_plano", args=[p.pk])})
     respuesta = JsonResponse({"resultados": resultados[:20]})
     respuesta["Cache-Control"] = "private, no-store"
     return respuesta

@@ -438,6 +438,7 @@
     const e = $("salida-estado"), barra = $("salida-progreso"), err = $("salida-error"), res = $("salida-resumen");
     err.hidden = true; res.hidden = true; barra.hidden = false; barra.value = 0;
     for (const id of ["salida-compartir", "salida-descargar"]) { $(id).hidden = true; $(id).disabled = true; }
+    $("salida-cad").hidden = true;
     $("salida-cancelar").hidden = false;
     limpiar($("salida-paginas"));
     salida = null;
@@ -506,8 +507,21 @@
       } else {
         $("salida-resumen").hidden = false;
         $("salida-resumen").textContent = "DXF R2010 en metros, proyectado a WGS84 / UTM.";
+        $("salida-cad").hidden = !puedeCad;
       }
     }, formato === "pdf" ? "PDF del croquis" : "DXF del croquis");
+  }
+  // «Abrir en CAD»: el DXF recién generado entra a la biblioteca de planos y se abre en el editor (necesita conexión y el rol de CAD).
+  let puedeCad = false;
+  document.addEventListener("itt:sesion", (ev) => { puedeCad = !!(ev.detail && ev.detail.activa && ev.detail.cad); });
+  async function abrirEnCad() {
+    if (!enLinea()) return mensaje("CAD necesita conexión. Ábrelo cuando vuelva la señal; el croquis ya está guardado.", "error");
+    const b = $("salida-cad");
+    b.setAttribute("aria-busy", "true"); b.disabled = true;
+    try {
+      const r = await docs.pedir(docs.url("cad", reg.servidor_id), { metodo: "POST" });
+      location.assign(r.url);
+    } catch (e) { mensaje(e.mensaje || "No se pudo abrir en CAD. Inténtalo de nuevo.", "error"); b.removeAttribute("aria-busy"); b.disabled = false; }
   }
   async function compartirSalida() {
     if (!salida) return;
@@ -605,6 +619,7 @@
     $("mas-borrar").addEventListener("click", async () => { $("dlg-mas").close(); const b = reg; await borrarRegistro(b); if (!(await ITT.cola.borrador(b.id))) { reg = null; location.hash = "#/"; } });
     $("salida-compartir").addEventListener("click", compartirSalida);
     $("salida-descargar").addEventListener("click", descargarSalida);
+    $("salida-cad").addEventListener("click", abrirEnCad);
     for (const b of document.querySelectorAll("[data-cerrar]")) b.addEventListener("click", () => b.closest("dialog").close());
     addEventListener("hashchange", ruta);
     const red = () => {
