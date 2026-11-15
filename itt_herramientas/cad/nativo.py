@@ -58,6 +58,19 @@ class Perdida(ErrorUsuario):
     """Convertir dejaría fuera elementos que el otro formato no admite: hay que confirmarlo (`allow_lossy`)."""
 
 
+def _primero_en_caer() -> None:
+    """Si falta memoria, el núcleo mata primero al motor y no al trabajador ni a otro servicio (Linux; subir el valor no pide permisos).
+
+    Lo destapó el ensayo con un plano de 50 000 textos en la VM: sin esto el núcleo mataba a los trabajadores de Python (mismo ajuste que el
+    motor) y el motor seguía hasta agotar su tiempo.
+    """
+    try:
+        with open("/proc/self/oom_score_adj", "w") as f:
+            f.write("1000")
+    except OSError:
+        pass
+
+
 def binario() -> Path | None:
     ruta = getattr(settings, "HERRAMIENTAS_CAD_NATIVO", "") or ""
     if not ruta:
@@ -95,7 +108,7 @@ class Sesion:
         entorno = {"HOME": str(self._hogar), "XDG_CONFIG_HOME": str(self._hogar / "config"), "XDG_CACHE_HOME": str(self._hogar / "cache"),
                    "XDG_DATA_HOME": str(self._hogar / "data"), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": str(self._hogar)}
         self._proc = subprocess.Popen([str(b), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                      env=entorno, cwd=self._hogar, start_new_session=True)
+                                      env=entorno, cwd=self._hogar, start_new_session=True, preexec_fn=_primero_en_caer)
         self._resto = b""
         self._n = 0
         banner = self._leer(TIEMPO_ARRANQUE)

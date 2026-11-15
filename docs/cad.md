@@ -95,9 +95,11 @@ Carta, Oficio, Doble carta y A0–A5, en espacio modelo o una página por presen
 | 50 000 polilíneas | — | 0.58 s | 0.60 GB |
 | 50 000 textos | — | 4.0 s | 2.49 GB |
 
-Los textos dominan (~50 kB cada uno). De ahí el trabajador propio `tv-tareas-cad` (cola `cad`, una tarea a la vez, `MemoryHigh` 1.5 GB,
-`MemoryMax` 2 GB): un plano que no cabe mata solo al proceso del motor y la tarea dice «demasiado grande». Un proceso por trabajo: la memoria
-se libera completa. El AppImage se extrae al desplegar (sin FUSE). El de x86_64 se comprueba al desplegar (`tvctl` lo arranca sin pantalla).
+Los textos dominan (~50 kB cada uno). De ahí el trabajador propio `tv-tareas-cad` (cola `cad`, una tarea a la vez, `MemoryMax` 2 GB,
+`OOMPolicy=continue`). Por la pila real en la VM: 15 000 textos se imprimen en 2 s; 50 000 (~2.5 GB) fallan en 5 s con «demasiado grande», el
+núcleo mata solo al motor (que se marca primero con `oom_score_adj` 1000) y el siguiente trabajo sale bien sin reiniciar el trabajador. Con
+`MemoryHigh` el motor solo se frenaba hasta agotar su tiempo (5 min), y sin marcarse primero el núcleo de la VM mataba a los trabajadores de
+Python. Un proceso por trabajo: la memoria se libera completa. El AppImage se extrae al desplegar (sin FUSE). El de x86_64 se comprueba al desplegar (`tvctl` lo arranca sin pantalla).
 
 ## Pruebas
 
