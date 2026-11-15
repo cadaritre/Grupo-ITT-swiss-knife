@@ -1,6 +1,6 @@
 {
   "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile. «base»: la versión oficial sobre la que está hecha la compilación; «version» nombra la ruta servida (/cad/editor/<version>/), así un cambio de compilación nunca reusa la caché del navegador.",
-  "version": "tv-v2026.45-4",
+  "version": "tv-v2026.45-5",
   "base": "v2026.45",
   "publicada": "2026-11-15",
   "puente": false,
@@ -10,15 +10,15 @@
     "tag": "v2026.45"
   },
   "web": {
-    "archivo": "OpenCADStudio-tv-v2026.45-4-web.zip",
-    "sha256": "19371b1ceb76b703973a127b7f64cf269ea3f129773a8620d183c7c15b21470b",
-    "bytes": 62948296,
+    "archivo": "OpenCADStudio-tv-v2026.45-5-web.zip",
+    "sha256": "450d1ce69956032f185cc7a9fb12ce79bf490f1e4c62c457f48fffb36fb03bdb",
+    "bytes": 63044415,
     "fuente": {
       "tipo": "gh",
       "repo": "cadaritre/OpenCADStudio-TresVizo",
-      "tag": "tv-v2026.45-4"
+      "tag": "tv-v2026.45-5"
     },
-    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web y `batch` atómico (un solo paso de deshacer)."
+    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico y registro de fuentes SHX (`font_register`)."
   },
   "nativo": {
     "x86_64": {
