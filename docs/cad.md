@@ -70,6 +70,7 @@ La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` d
 | `await TVCad.pedir(peticion, {tiempoMs})` | manda una petición del canal (API-SPEC de Open CAD Studio) y completa `protocol`, `request_id` y `document_id` |
 | `await TVCad.ejecutar("LINE 0,0 10,10")` | atajo de `{op: "run", cmd}` |
 | `TVCad.barra()` | el elemento `#cad-extensiones` (`role="toolbar"`), ya visible |
+| `TVCad.ocupar()` / `soltar()` / `ocupado()` | una extensión avisa que trabaja con el editor (espera una elección en el dibujo, inserta un resultado): mientras tanto no se guarda el borrador de recuperación y «Guardar» pide esperar, porque el editor rechaza guardar a media operación |
 | `TVCad.on(evento, fn)` / `off` | `listo`, `cargado`, `cambio` (`{sucio}`), `guardado` (`{revision, formato}`) |
 
 `pedir` rechaza con `TVCad.ErrorEditor` y su `codigo`: `no_listo` (aún no abre el plano), `sin_canal`, `tiempo` o `rechazada` (respuesta
@@ -77,6 +78,33 @@ La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` d
 
 El canal (`?automation=1`) solo se alcanza desde el mismo origen: el editor vive en un marco de `tools.tresvizo.com`, su CSP pone
 `frame-ancestors 'self'` y el navegador no deja que otro origen toque el marco.
+
+## Espacio, archivos que faltan y autoría
+
+- **Espacio:** la biblioteca tiene su propia reserva de **20 GiB** (`cad/servicio.py`, `LIMITES["biblioteca_bytes"]`), que cuenta versiones
+  vigentes y anteriores, papelera y borradores, aparte de los 12 GB de Herramientas (Portal, `docs/arquitectura.md` §9.1 y §13). Al
+  llenarse se recortan las versiones más viejas (siempre quedan `VERSIONES_MINIMAS` = 5 por plano); si aun así no cabe, se dice claro.
+  CAD **no** cuenta en la cuota de 5 GB por cuenta de Herramientas (`TV_HERRAMIENTAS_CUOTA`), que solo mide las fotos de campo.
+- La biblioteca muestra «Planos: x de 20 GB» (aviso desde el 90 %); quien administra ve además el desglose.
+- **Sin respaldo:** por decisión del propietario (15-11-2026) los planos no van al respaldo en R2 (`/srv/tresvizo/herramientas/cad` está
+  excluido). Tras restaurar o cambiar de servidor puede haber renglones sin archivo: la lista los muestra como «Archivo no disponible», el
+  plano lo explica en vez de abrir el editor, se pueden eliminar y nunca hay un error. `manage.py cad_reconciliar` (sin argumentos;
+  `--simular` opcional; idempotente) marca las versiones sin archivo (`VersionPlano.sin_archivo`), desmarca las que volvieron y quita los
+  borradores sin archivo; `tvctl cad-reconciliar` lo corre.
+- **Autoría:** la lista dice quién creó cada plano y quién lo guardó y cuándo; el plano, su línea de guardado y creación; cada versión,
+  «Guardada por … · fecha».
+
+## Fuentes SHX
+
+Los planos mexicanos usan txt, romans, simplex, isocp y bigfonts. El editor web no las trae; quien administra las sube desde su AutoCAD en
+**CAD → Fuentes** (`/cad/fuentes/`, solo `admin`): una o varias `.shx` (se revisa el encabezado «AutoCAD-86 shapes/unifont/bigfont»), hasta
+2 MB cada una y 50 MB en total; subir una con el mismo nombre la reemplaza.
+
+- **Dónde:** `TV_HERRAMIENTAS_ARCHIVOS/fuentes/<sha256>.shx` y la tabla `FuenteCad`, fuera de `cad/`: entran en el respaldo normal (son pocos
+  kB) y no hay que volver a subirlas tras un cambio de servidor. Nunca se publican: solo las bajan cuentas con CAD.
+- **Al abrir un plano:** `editor.js` las baja (dirección con su huella, `Cache-Control: private, immutable` y `ETag`) y las registra con
+  `font_register` (compilación tv-v2026.45-5) antes de abrir el plano; el editor las tiene solo en memoria. Una que falla no detiene nada:
+  quien administra ve un aviso discreto, y la página «Fuentes» marca «El editor no la pudo usar». El editor informa cuántas letras tiene.
 
 ## Imprimir a PDF y convertir: prueba de factibilidad (15-11-2026)
 

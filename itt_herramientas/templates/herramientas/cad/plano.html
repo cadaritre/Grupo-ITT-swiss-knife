@@ -37,6 +37,8 @@
   <div class="cad-aviso" data-tipo="aviso" id="cad-aviso-borrador" hidden>{% icono "file-clock" %}<p id="cad-aviso-borrador-texto">Tienes cambios sin guardar de la última vez.</p>
     <div class="cad-aviso__acciones"><button type="button" class="tv-boton" id="cad-recuperar">{% icono "rotate-ccw" %}<span>Recuperar cambios sin guardar</span></button>
     <button type="button" class="tv-boton tv-boton--fantasma" id="cad-descartar-borrador">Descartar</button></div></div>
+  <div class="cad-aviso" data-tipo="aviso" id="cad-aviso-fuentes" hidden>{% icono "type" %}<p id="cad-aviso-fuentes-texto"></p>
+    <div class="cad-aviso__acciones"><a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_fuentes' %}">Revisar fuentes</a></div></div>
   <div class="cad-aviso" data-tipo="error" id="cad-aviso-error" role="alert" hidden>{% icono "triangle-alert" %}<p id="cad-aviso-error-texto"></p></div>
 </div>
 {% if editor_listo %}

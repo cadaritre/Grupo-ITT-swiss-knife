@@ -12,7 +12,7 @@
 <button type="button" class="tv-boton" data-tv-abrir="cad-nuevo" id="cad-boton-nuevo">{% icono "file-plus-2" %}<span>Nuevo plano</span></button>
 <button type="button" class="tv-boton tv-boton--secundario" id="cad-boton-subir" aria-expanded="false" aria-controls="cad-subir">{% icono "file-up" %}<span>Subir</span></button>
 <a class="tv-boton tv-boton--fantasma" href="{% url 'herramientas:cad_papelera' %}">{% icono "trash-2" %}<span>Papelera{% if papelera %} ({{ papelera }}){% endif %}</span></a>
-{% endif %}{% endblock %}
+{% endif %}{% if es_admin %}<a class="tv-boton tv-boton--fantasma" href="{% url 'herramientas:cad_fuentes' %}" id="cad-boton-fuentes">{% icono "type" %}<span>Fuentes</span></a>{% endif %}{% endblock %}
 {% block cuerpo %}
 <div class="cad" id="cad">
 {% if puede_editar %}

@@ -26,7 +26,7 @@ from tvplataforma.permisos import requiere_rol
 from ..comun import zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
-from . import editor, nativo, salidas, servicio
+from . import editor, fuentes, nativo, salidas, servicio
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
 editar = requiere_rol("herramientas", "cad", "admin")
@@ -224,6 +224,7 @@ def plano(request, pk):
         # Borrador de recuperación cada 2 minutos con cambios; latido del bloqueo cada 30 s (caduca a los 90). Las pruebas los acortan.
         "autoguardado_s": int(getattr(settings, "HERRAMIENTAS_CAD_AUTOGUARDADO_S", 120)), "latido_s": int(getattr(settings, "HERRAMIENTAS_CAD_LATIDO_S", 30)),
         "nativo": nativo.disponible(), "puente": bool(editor.upstream().get("puente")),
+        "fuentes": fuentes.para_editor(),
     }
     return _privado(render(request, "herramientas/cad/plano.html", {
         "p": p, "v": v, "config": config, "versiones": _versiones(p), "puede_editar": puede, "es_admin": servicio.es_admin(usuario),
@@ -642,3 +643,101 @@ def editor_archivo(request, version, ruta):
     for k, v in editor.cabeceras(archivo).items():
         r[k] = v
     return r
+
+
+# -- Fuentes SHX (las sube quien administra; la página del plano las registra en el editor) ------------------------------------
+
+administrar = requiere_rol("herramientas", "admin")
+
+
+def _fuente(nombre) -> "FuenteCad":
+    from ..models import FuenteCad
+
+    f = FuenteCad.objects.filter(nombre=str(nombre).lower()).first()
+    if f is None:
+        raise Http404
+    return f
+
+
+@administrar
+@require_GET
+def fuentes_lista(request):
+    from ..models import FuenteCad
+    from . import fuentes
+
+    request.tv_seccion = "cad"
+    lista = list(FuenteCad.objects.all())
+    for f in lista:
+        f.disponible = fuentes.ruta(f).is_file()
+    return _privado(render(request, "herramientas/cad/fuentes.html", {
+        "fuentes": lista, "total": sum(f.bytes for f in lista), "max_mb": fuentes.MAX_BYTES // (1024 * 1024), "max_total_mb": fuentes.MAX_TOTAL // (1024 * 1024)}))
+
+
+@administrar
+@require_POST
+def fuentes_subir(request):
+    from . import fuentes
+
+    archivos = request.FILES.getlist("archivos")
+    reemplazar = request.POST.get("reemplazar", "")
+    if not archivos:
+        messages.error(request, "Elige uno o más archivos .shx.")
+        return redirect("herramientas:cad_fuentes")
+    hechas = []
+    for a in archivos[:50]:
+        nombre = reemplazar if (reemplazar and len(archivos) == 1) else a.name
+        try:
+            if a.size > fuentes.MAX_BYTES:
+                raise ErrorUsuario(f"«{a.name}» pasa de {fuentes.MAX_BYTES // (1024 * 1024)} MB.")
+            hechas.append(fuentes.guardar(nombre, a.read(), request.user).nombre)
+        except ErrorUsuario as exc:
+            messages.error(request, str(exc))
+    if hechas:
+        messages.success(request, ("Fuente lista: " if len(hechas) == 1 else "Fuentes listas: ") + ", ".join(hechas) + ". Los planos que se abran desde ahora ya la usan.")
+    return redirect("herramientas:cad_fuentes")
+
+
+@administrar
+@require_POST
+def fuente_eliminar(request, nombre):
+    from . import fuentes
+
+    f = _fuente(nombre)
+    fuentes.eliminar(f)
+    messages.success(request, f"Se eliminó {f.nombre}. Los textos que la usaban se verán con la fuente de reemplazo.")
+    return redirect("herramientas:cad_fuentes")
+
+
+@ver
+@require_GET
+def fuente_archivo(request, nombre):
+    """El archivo de la fuente, para la página del plano. Privado (solo cuentas con CAD); su dirección lleva la huella, así se guarda en caché."""
+    from . import fuentes
+
+    f = _fuente(nombre)
+    etiqueta = f'"{f.sha256}"'
+    if request.headers.get("If-None-Match") == etiqueta:
+        r = HttpResponse(status=304)
+    else:
+        archivo = fuentes.ruta(f)
+        if not archivo.is_file():
+            raise Http404
+        r = FileResponse(open(archivo, "rb"), content_type="application/octet-stream")
+    r["ETag"] = etiqueta
+    r["Cache-Control"] = "private, max-age=31536000, immutable"
+    return r
+
+
+@ver
+@require_POST
+def fuente_informe(request, nombre):
+    """Lo que respondió el editor al registrarla: glifos, o por qué la rechazó (se muestra a quien administra)."""
+    from . import fuentes
+
+    try:
+        d = json.loads(request.body or b"{}")
+    except ValueError:
+        return _error("Datos no válidos.")
+    f = _fuente(nombre)
+    fuentes.informar(f.nombre, bool(d.get("ok")), d.get("glifos"), str(d.get("error") or ""))
+    return _json({"ok": True})

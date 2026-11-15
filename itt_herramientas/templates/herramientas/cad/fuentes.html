@@ -1,0 +1,38 @@
+{% extends "herramientas/base_comun.html" %}
+{% load static tv %}
+{% block titulo_pagina %}Fuentes de CAD{% endblock %}
+{% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">{% endblock %}
+{% block titulo_h1 %}<h1>Fuentes</h1><p class="tv-subtitulo">Las fuentes SHX de tu AutoCAD (txt, romans, simplex, isocp…) para que los textos de los planos se vean igual que allá.</p>{% endblock %}
+{% block acciones_pagina %}<a class="tv-boton tv-boton--fantasma" href="{% url 'herramientas:cad' %}">{% icono "arrow-left" %}<span>Planos</span></a>{% endblock %}
+{% block cuerpo %}
+<form method="post" action="{% url 'herramientas:cad_fuentes_subir' %}" enctype="multipart/form-data" class="cad-fuentes-subir" id="cad-fuentes-subir" data-tv-una-vez>{% csrf_token %}
+  <label class="cad-fuentes-subir__zona" for="cad-fuentes-archivos">{% icono "file-up" clase="tv-icono--lg" %}
+    <span><strong>Elige los archivos .shx</strong><span class="tv-tenue">Están en la carpeta «Fonts» de AutoCAD. Hasta {{ max_mb }} MB cada uno.</span></span>
+    <input id="cad-fuentes-archivos" name="archivos" type="file" accept=".shx" multiple required></label>
+  <button type="submit" class="tv-boton">{% icono "upload" %}<span>Subir fuentes</span></button>
+</form>
+{% if fuentes %}
+<h2 class="itt-seccion">{{ fuentes|length }} fuente{{ fuentes|length|pluralize }} · {{ total|filesizeformat }} de {{ max_total_mb }} MB</h2>
+<div class="tv-tabla-envoltura"><table class="tv-tabla cad-fuentes">
+  <thead><tr><th>Fuente</th><th>Tipo</th><th class="tv-num">Letras</th><th class="tv-num">Tamaño</th><th>Subida</th><th><span class="tv-solo-lectores">Acciones</span></th></tr></thead>
+  <tbody>{% for f in fuentes %}
+    <tr id="fuente-{{ forloop.counter }}"{% if f.error or not f.disponible %} data-con-aviso="1"{% endif %}>
+      <td data-etiqueta="Fuente"><strong>{{ f.nombre }}</strong>{% if not f.disponible %}<span class="tv-insignia tv-insignia--error">Archivo no disponible</span>{% elif f.error %}<span class="tv-insignia tv-insignia--aviso" title="{{ f.error }}">El editor no la pudo usar</span>{% endif %}</td>
+      <td data-etiqueta="Tipo">{{ f.get_tipo_display }}</td>
+      <td class="tv-num" data-etiqueta="Letras">{{ f.glifos|default_if_none:"—" }}</td>
+      <td class="tv-num" data-etiqueta="Tamaño">{{ f.bytes|filesizeformat }}</td>
+      <td data-etiqueta="Subida">{{ f.subida_por_nombre|default:"—" }} · {{ f.actualizada|date:"j M Y"|lower }}</td>
+      <td class="cad-fuentes__acciones">
+        <form method="post" action="{% url 'herramientas:cad_fuentes_subir' %}" enctype="multipart/form-data" class="cad-fuentes__reemplazar">{% csrf_token %}
+          <input type="hidden" name="reemplazar" value="{{ f.nombre }}">
+          <label class="tv-boton tv-boton--secundario"><input type="file" name="archivos" accept=".shx" class="tv-solo-lectores" aria-label="Reemplazar {{ f.nombre }}">{% icono "replace" %}<span>Reemplazar</span></label>
+        </form>
+        <form method="post" action="{% url 'herramientas:cad_fuente_eliminar' f.nombre %}">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--fantasma cad-menu__peligro" aria-label="Eliminar {{ f.nombre }}">{% icono "trash-2" %}<span>Eliminar</span></button></form>
+      </td>
+    </tr>{% endfor %}
+  </tbody></table></div>
+{% else %}
+{% vacio titulo="Todavía no hay fuentes. Mientras tanto los textos se ven con una fuente de reemplazo." icono="type" %}{% endvacio %}
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{% static 'herramientas/cad/fuentes.js' %}"></script>{% endblock %}

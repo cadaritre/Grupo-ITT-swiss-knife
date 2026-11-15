@@ -26,6 +26,10 @@
  *   await TVCad.ejecutar("CIRCLE 0,0 5")  atajo de `pedir({op: "run", cmd})`.
  *   TVCad.barra()                      el elemento `#cad-extensiones` (role="toolbar"), ya visible. Pon ahí tus menús y botones con las
  *                                      clases del armazón (`tv-boton`, `tv-boton--secundario`, `{% icono %}` desde la plantilla).
+ *   TVCad.ocupar() / soltar()          una extensión avisa que está trabajando con el editor (p. ej. esperando que la persona elija en el
+ *                                      dibujo, o insertando un resultado): mientras tanto la página no guarda el borrador de recuperación
+ *                                      y «Guardar» pide esperar, porque el editor rechaza guardar a media operación. Se cuentan: cada
+ *                                      ocupar() lleva su soltar(). `TVCad.ocupado()` dice si alguna extensión está trabajando.
  *   TVCad.on(evento, fn) / off(...)    eventos: "listo" (estado), "cambio" ({ sucio }), "guardado" ({ revision, formato }),
  *                                      "cargado" (estado; también al reabrir el plano, p. ej. tras tomar el control o restaurar).
  *
@@ -46,6 +50,7 @@
   }
 
   const oyentes = new Map();
+  let ocupaciones = 0;
   const estado = { listo: false, editable: false, plano: null, documento: null };
   let n = 0;
   let cumplir;
@@ -115,6 +120,9 @@
     pedir,
     ejecutar: (cmd, opciones) => pedir({ op: "run", cmd: String(cmd) }, opciones),
     barra,
+    ocupar() { ocupaciones += 1; },
+    soltar() { ocupaciones = Math.max(0, ocupaciones - 1); },
+    ocupado: () => ocupaciones > 0,
     on(evento, fn) { if (!oyentes.has(evento)) oyentes.set(evento, new Set()); oyentes.get(evento).add(fn); },
     off(evento, fn) { (oyentes.get(evento) || new Set()).delete(fn); },
   });

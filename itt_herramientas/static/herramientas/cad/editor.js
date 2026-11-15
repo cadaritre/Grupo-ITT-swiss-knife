@@ -135,6 +135,37 @@
       const est = await canal({ op: "state" });
       if (est.modal) await canal({ op: "action", name: "close_modal", document_id: est.document_id });
     } catch (_) { /* sin diálogo que cerrar */ }
+    await registrarFuentes();
+  }
+
+  // -- Fuentes SHX de la empresa (las sube quien administra en «Fuentes»): el editor las guarda solo en memoria, así que se registran
+  // cada vez que se abre, antes del plano. Una que falla no detiene la apertura; quien administra ve un aviso discreto.
+  const bytesFuente = new Map();                                          // por dirección (lleva la huella): un solo viaje por página
+  async function registrarFuentes() {
+    const lista = C.fuentes || [];
+    if (!lista.length) return;
+    const fallas = [];
+    await Promise.all(lista.map(async (f) => {
+      if (bytesFuente.has(f.url)) return;
+      try { const r = await fetch(f.url, { credentials: "same-origin" }); if (r.ok) bytesFuente.set(f.url, base64(await r.arrayBuffer())); } catch (_) { /* abajo cuenta como falla */ }
+    }));
+    for (const f of lista) {
+      const datos = bytesFuente.get(f.url);
+      let res = null;
+      if (datos) { try { res = await canal({ op: "font_register", file_name: f.nombre, data_base64: datos }, 15000); } catch (_) { res = null; } }
+      const ok = !!(res && res.ok !== false && res.result);
+      if (!ok) fallas.push(f.nombre);
+      const glifos = ok ? res.result.shapes : null;
+      if (ok ? (glifos !== f.glifos || f.error) : !f.error) {
+        fetch(f.informe, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() },
+          body: JSON.stringify({ ok, glifos, error: ok ? "" : (res && (res.error || res.code)) || "No se pudo cargar." }) }).catch(() => {});
+      }
+    }
+    const aviso = $("cad-aviso-fuentes");
+    if (aviso && C.es_admin && fallas.length) {
+      $("cad-aviso-fuentes-texto").textContent = `${fallas.length === 1 ? "Una fuente no se pudo usar" : `${fallas.length} fuentes no se pudieron usar`} (${fallas.join(", ")}): sus textos se ven con la de reemplazo.`;
+      aviso.hidden = false;
+    }
   }
 
   async function bytesDe(url) {
@@ -236,8 +267,13 @@
   async function pedirGuardado(destino) {
     if (!e.cargado || e.guardando) return false;
     if (destino !== "borrador" && !e.editable && !e.perdido) { avisar(e.lecturaMotivo || "Este plano está abierto en solo lectura.", "error"); return false; }
-    const revision = revEditor;
+    if (destino !== "borrador" && extensionOcupada()) { avisar("Espera a que termine lo que estás haciendo en Civil y vuelve a guardar.", "error"); return false; }
     if (destino !== "borrador") { e.guardando = true; refrescarEstado(); }
+    // La revisión que se guarda es la de este momento, no la de la última consulta (cada segundo): un cambio hecho por el canal justo antes
+    // de «Guardar» (p. ej. Civil) dejaba el plano en «Sin guardar» aunque sí se guardó.
+    let revision = revEditor;
+    try { const est = await canal({ op: "state" }, 5000); const doc = (est.documents || []).find((d) => d.id === documento); if (doc) revision = revEditor = doc.revision || 0; }
+    catch (_) { /* se usa la última conocida */ }
     try {
       const buffer = await bytesDelEditor();
       if (destino === "borrador") await guardarBorrador(buffer);
@@ -337,8 +373,10 @@
       if (r.ok) e.ultimoBorrador = Date.now();
     } catch (_) { /* sin red: se intenta en la siguiente vuelta */ }
   }
+  const extensionOcupada = () => !!(window.TVCad && window.TVCad.ocupado && window.TVCad.ocupado());
   async function borrador() {
-    if (borradorEnCurso || !(e.sucio || e.recuperado) || !e.cargado || e.guardando || !(e.editable || e.perdido)) return;
+    // Una extensión (Civil) trabajando con el editor: el editor rechazaría guardar a media operación; se intenta en la siguiente vuelta.
+    if (extensionOcupada() || borradorEnCurso || !(e.sucio || e.recuperado) || !e.cargado || e.guardando || !(e.editable || e.perdido)) return;
     borradorEnCurso = true;
     try { await pedirGuardado("borrador"); } finally { borradorEnCurso = false; }
   }

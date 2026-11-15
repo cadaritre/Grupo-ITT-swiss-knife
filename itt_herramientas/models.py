@@ -462,3 +462,32 @@ class BorradorPlano(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["plano", "cuenta_id"], name="herramientas_borradorplano_unico")]
+
+
+class FuenteCad(models.Model):
+    """Una fuente SHX de la empresa para CAD (txt, romans, simplex, isocp, bigfonts…), subida por quien administra desde su AutoCAD.
+
+    El editor web no trae las SHX: la página del plano las registra en el editor cada vez que lo abre. El archivo vive en
+    `TV_HERRAMIENTAS_ARCHIVOS/fuentes/` (fuera de `cad/`, así entra en el respaldo normal: son pocos kB y no se vuelven a subir tras un
+    cambio de servidor). Son de la empresa: solo se sirven a cuentas con CAD, nunca públicas.
+    """
+
+    class Tipo(models.TextChoices):
+        FORMAS = "shapes", "Fuente de trazos"
+        UNIFONT = "unifont", "Fuente Unicode"
+        BIGFONT = "bigfont", "Fuente asiática (bigfont)"
+
+    nombre = models.CharField(max_length=64, unique=True)                   # «txt.shx», en minúsculas: el que usan los estilos de texto
+    tipo = models.CharField(max_length=8, choices=Tipo.choices)
+    glifos = models.PositiveIntegerField(null=True, blank=True)              # lo que dice el editor al registrarla
+    bytes = models.PositiveIntegerField()
+    sha256 = models.CharField(max_length=64)
+    subida_por_nombre = models.CharField(max_length=150, blank=True)
+    actualizada = models.DateTimeField(default=timezone.now)
+    error = models.CharField(max_length=200, blank=True)                     # si el editor la rechazó en la última carga
+
+    class Meta:
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre

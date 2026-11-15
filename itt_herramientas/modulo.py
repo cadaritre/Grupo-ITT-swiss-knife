@@ -40,6 +40,7 @@ MODULO = Modulo(
         Accion("Nuevo plano", "file-plus-2", "/cad/#nuevo", roles=("cad", "admin")),
         Accion("Subir un plano", "file-up", "/cad/#subir", roles=("cad", "admin")),
         Accion("Papelera de planos", "trash-2", "herramientas:cad_papelera", roles=("cad", "admin")),
+        Accion("Fuentes de CAD", "type", "herramientas:cad_fuentes", roles=("admin",)),
         Accion("Conectar Google Drive", "hard-drive-upload", "herramientas:drive"),
         Accion("Ver documentos de todas las cuentas", "users-round", "herramientas:supervision", roles=("supervision",)),
     ],

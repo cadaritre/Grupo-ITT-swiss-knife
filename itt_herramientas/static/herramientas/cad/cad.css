@@ -170,3 +170,18 @@
 .cad-autoria { margin: 2px 0 0; font-size: var(--tv-texto-sm); color: var(--tv-tenue); overflow-wrap: anywhere; }
 .cad-sin-archivo { max-width: 34rem; margin: 0 auto var(--tv-espacio-3); text-align: center; }
 .cad-versiones li[data-sin-archivo] .cad-versiones__texto { opacity: .75; }
+
+/* Fuentes SHX (administración) */
+.cad-fuentes-subir { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-3); margin: 0 0 var(--tv-espacio-5); padding: var(--tv-espacio-4);
+  border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); background: var(--tv-superficie); box-shadow: var(--tv-sombra-1); }
+.cad-fuentes-subir__zona { flex: 1 1 18rem; display: flex; align-items: center; gap: var(--tv-espacio-3); min-height: 56px; padding: var(--tv-espacio-2) var(--tv-espacio-3);
+  border: 2px dashed var(--tv-separador); border-radius: var(--tv-radio-grande); cursor: pointer; }
+.cad-fuentes-subir__zona:hover, .cad-fuentes-subir__zona:focus-within { border-color: var(--tv-primario); }
+.cad-fuentes-subir__zona > .tv-icono { color: var(--tv-primario); flex: none; }
+.cad-fuentes-subir__zona > span { display: grid; gap: 2px; min-width: 0; }
+.cad-fuentes-subir__zona .tv-tenue { font-size: var(--tv-texto-sm); }
+.cad-fuentes-subir__zona input { max-width: 100%; font-size: var(--tv-texto-sm); }
+.cad-fuentes td strong { margin-right: var(--tv-espacio-2); }
+.cad-fuentes__acciones { display: flex; gap: var(--tv-espacio-1); justify-content: flex-end; flex-wrap: wrap; }
+.cad-fuentes__acciones form { margin: 0; }
+.cad-fuentes__reemplazar label { cursor: pointer; }
