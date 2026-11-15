@@ -398,6 +398,19 @@ def test_eliminar_lo_propio_si_lo_ajeno_no(cliente_de, dibujante, otro, plano):
     assert "Predio Norte" not in cliente_de(dibujante).get(url("cad")).content.decode()
 
 
+def test_eliminar_el_plano_que_uno_mismo_tiene_abierto(cliente_de, dibujante, otro, plano):
+    """Desde la página del editor (que tiene el bloqueo) se puede eliminar; si lo edita otra persona, no (lo destapó la pila real)."""
+    bloqueo(cliente_de(dibujante), plano, "tomar")
+    cliente_de(dibujante).post(url("cad_eliminar", pk=plano.pk))
+    plano.refresh_from_db()
+    assert plano.eliminado is not None and plano.bloqueo_sesion == ""
+    servicio.restaurar(plano, dibujante)
+    bloqueo(cliente_de(otro), plano, "tomar", SESION_B)
+    cliente_de(dibujante).post(url("cad_eliminar", pk=plano.pk))
+    plano.refresh_from_db()
+    assert plano.eliminado is None
+
+
 def test_quien_administra_elimina_cualquiera_y_vacia_la_papelera(cliente_de, administradora, otro, plano):
     cl = cliente_de(administradora)
     cl.post(url("cad_eliminar", pk=plano.pk))

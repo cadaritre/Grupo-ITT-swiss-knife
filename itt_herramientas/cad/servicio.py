@@ -509,9 +509,9 @@ def eliminar(plano: Plano, usuario) -> None:
     if not puede_eliminar(usuario, plano):
         raise SinPermiso("Solo quien creó el plano o quien administra las herramientas puede eliminarlo.")
     otro = _bloqueo_de_otro(plano, usuario, "", timezone.now())
-    if otro and not es_admin(usuario):
-        raise ErrorUsuario("Este plano está abierto para editar en otra ventana tuya. Ciérrala primero." if otro == OTRA_VENTANA
-                           else f"{otro} está editando este plano. Espera a que termine para eliminarlo.")
+    # Si lo tiene abierto la misma cuenta (esta u otra ventana), eliminar es su decisión; si lo edita otra persona, solo quien administra.
+    if otro and otro != OTRA_VENTANA and not es_admin(usuario):
+        raise ErrorUsuario(f"{otro} está editando este plano. Espera a que termine para eliminarlo.")
     plano.eliminado, plano.eliminado_por_id = timezone.now(), usuario.pk
     plano.eliminado_por_nombre = autoria.de_usuario(usuario)[0]
     plano.bloqueo_cuenta_id, plano.bloqueo_nombre, plano.bloqueo_sesion, plano.bloqueo_latido = None, "", "", None
