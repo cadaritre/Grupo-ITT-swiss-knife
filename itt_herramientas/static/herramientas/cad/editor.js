@@ -345,7 +345,7 @@
   setInterval(() => {
     const desde = Math.max(e.sucioDesde, e.ultimoBorrador);
     if (Date.now() - desde >= C.autoguardado_s * 1000) borrador();
-  }, Math.min(15000, C.autoguardado_s * 500));
+  }, Math.min(5000, C.autoguardado_s * 500));
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden" && Date.now() - e.ultimoBorrador > 20000) borrador();
   });
