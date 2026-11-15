@@ -15,7 +15,7 @@
   <h2 id="cad-subir-titulo" class="tv-solo-lectores">Subir planos</h2>
   <div class="tv-campo cad-subir__proyecto"><label for="cad-subir-proyecto">Proyecto o cliente <span class="tv-tenue">(opcional)</span></label>
     <input id="cad-subir-proyecto" type="text" maxlength="160" autocomplete="off" spellcheck="false" data-cad-proyectos></div>
-  <div id="cad-subida">{% subida destino="herramientas.cad_plano" accept=".dwg,.dxf" multiple=True etiqueta="Arrastra planos DWG o DXF, o elígelos" max_bytes=limite_bytes %}</div>
+  <div id="cad-subida">{% subida destino="herramientas.cad_plano" accept=".dwg,.dxf" multiple=True etiqueta="Arrastra planos DWG o DXF, o elígelos" max_bytes=limite_bytes meta=meta_subida %}</div>
   <p class="tv-tenue cad-subir__limite">Hasta {{ limite_mb }} MB por plano.</p>
 </section>
 <div class="cad-soltar" id="cad-soltar" hidden aria-hidden="true"><div>{% icono "file-up" clase="tv-icono--xl" %}<strong>Suelta los planos para subirlos</strong></div></div>

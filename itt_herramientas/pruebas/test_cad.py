@@ -143,6 +143,12 @@ def test_subir_un_dwg_por_tus_lo_agrega_a_la_biblioteca(cliente_de, dibujante):
     assert (p.nombre, p.formato, p.proyecto, p.origen["tipo"]) == ("Plano del predio", "dwg", "Agrícola Norte", "subida")
 
 
+def test_la_zona_de_subida_declara_el_proyecto(cliente_de, dibujante):
+    """Sin declararlo, la subida no manda el campo y el plano quedaba sin proyecto (lo destapó el ensayo por la pila real)."""
+    html = cliente_de(dibujante).get(url("cad")).content.decode()
+    assert "data-meta=" in html and "&quot;proyecto&quot;" in html
+
+
 def test_subir_un_archivo_que_no_es_cad_o_con_extension_falsa_se_rechaza(cliente_de, dibujante):
     cl = cliente_de(dibujante)
     r, _ = subir_tus(cl, b"%PDF-1.7 hola", "herramientas.cad_plano", "plano.dwg")

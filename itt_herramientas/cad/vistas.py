@@ -145,7 +145,9 @@ def lista(request):
         "autores": _autores(), "proyectos": servicio.sugerencias_proyecto(usuario.pk), "ordenes": ORDENES,
         "puede_editar": servicio.puede_editar(usuario), "es_admin": servicio.es_admin(usuario), "papelera": papelera,
         "limite_bytes": servicio.limites()["bytes"], "limite_mb": servicio.limites()["bytes"] // (1024 * 1024), "maximo_zip": zips.MAXIMO,
-        "drive": _drive_disponible(usuario)}))
+        "drive": _drive_disponible(usuario),
+        # Declara el campo para que la subida lo mande; el navegador lo llena con lo que se escriba en «Proyecto o cliente».
+        "meta_subida": {"proyecto": ""}}))
 
 
 def _drive_disponible(usuario) -> bool:
