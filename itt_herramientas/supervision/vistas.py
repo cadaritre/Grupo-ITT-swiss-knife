@@ -115,7 +115,7 @@ def reporte(request, pk):
     try:
         datos = rep.validar(r.datos)
     except rep.ReporteInvalido:
-        datos = {"titulo": r.titulo, "fecha": "", "fotos": [], "con_croquis": False, "con_credenciales": False}
+        datos = {"titulo": r.titulo, "fecha": "", "fotos": [], "con_croquis": False, "con_credenciales": False, "fotos_por_pagina": 1}
     fotos = [{**f, "url": reverse("herramientas:supervision_reporte_foto", kwargs={"pk": r.pk, "sha256": f["sha256"]})} for f in datos["fotos"]]
     return _privado(render(request, "herramientas/supervision/reporte.html", {
         "r": r, "datos": datos, "fotos": fotos, "autor": _autor(r), "pdf_listo": _pdf_listo(r) is not None,

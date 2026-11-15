@@ -20,6 +20,7 @@ from ..models import Captura, Perfil, Reporte
 
 MAX_FOTOS = 150
 MAX_NOTA = 1000
+FOTOS_POR_PAGINA = pdf_generator.PHOTOS_PER_PAGE                      # 1, 2, 4 o 6; sin la llave (reportes de antes), 1
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _HORA = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
 
@@ -88,8 +89,11 @@ def validar(crudo) -> dict:
         salida.append({"sha256": sha, "nota": _texto(f.get("nota", ""), f"nota de la foto {n}", MAX_NOTA), "tomada": tomada, "lat": lat, "lon": lon,
                        "precision": None if precision is None else round(float(precision), 1), "sin_ubicacion": lat is None,
                        "nombre": _texto(f.get("nombre", ""), f"nombre de la foto {n}", 150)})
+    por_pagina = crudo.get("fotos_por_pagina", 1)
+    if not isinstance(por_pagina, int) or isinstance(por_pagina, bool) or por_pagina not in FOTOS_POR_PAGINA:
+        raise ReporteInvalido("«Fotos por página» debe ser 1, 2, 4 o 6.")
     return {"titulo": titulo, "cliente": cliente, "fecha": fecha, "con_croquis": bool(crudo.get("con_croquis", True)),
-            "con_credenciales": bool(crudo.get("con_credenciales", False)), "fotos": salida}
+            "con_credenciales": bool(crudo.get("con_credenciales", False)), "fotos_por_pagina": por_pagina, "fotos": salida}
 
 
 def _aplicar(r: Reporte, datos: dict, perfil: str) -> None:
@@ -163,13 +167,14 @@ def _producir(r: Reporte, datos: dict, temporal: Path, informar=progreso) -> Non
     perfil = Perfil.objects.get(clave=r.perfil)
     opciones = perfiles.opciones_reporte(
         perfil, datos["titulo"], date.fromisoformat(datos["fecha"]), _fotos_de(r.cuenta_id, datos), temporal,
-        incluir_credenciales=datos["con_credenciales"], include_map=datos["con_croquis"])
+        incluir_credenciales=datos["con_credenciales"], include_map=datos["con_croquis"], photos_per_page=datos["fotos_por_pagina"])
     informar(0.05, "Preparando el documento…")
+    extra = 1 + (1 if datos["con_credenciales"] else 0)                   # portada y, si va, la página de cédula y firma
 
-    def avance(hecho, total):
+    def avance(hecho, total):                                                # `hecho` de `total` páginas de fotos
         if cancelada():
             raise InterruptedError("Cancelado")
-        informar(0.1 + 0.88 * hecho / max(total, 1), f"Página {hecho} de {total}")
+        informar(0.1 + 0.88 * hecho / max(total, 1), f"Página {hecho + 1} de {total + extra}")
 
     with perfiles.activar(perfil):
         pdf_generator.generate_report(opciones, avance)

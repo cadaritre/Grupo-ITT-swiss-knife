@@ -14,6 +14,7 @@
     <div><dt>Fecha</dt><dd>{% if datos.fecha %}{{ datos.fecha|slice:"8:10" }}/{{ datos.fecha|slice:"5:7" }}/{{ datos.fecha|slice:":4" }}{% else %}—{% endif %}</dd></div>
     <div><dt>Fotos</dt><dd>{{ fotos|length }}</dd></div>
     <div><dt>Portada</dt><dd>{% if datos.con_croquis %}Croquis de ubicación{% else %}Primera foto{% endif %}</dd></div>
+    <div><dt>Fotos por página</dt><dd>{{ datos.fotos_por_pagina|default:1 }}</dd></div>
     <div><dt>Cédula y firma</dt><dd>{% if datos.con_credenciales %}Sí{% else %}No{% endif %}</dd></div>
     <div><dt>PDF</dt><dd>{% if pdf_listo %}<span class="tv-insignia tv-insignia--exito">{% icono "circle-check" %}Al día</span>{% else %}<span class="tv-insignia tv-insignia--aviso">{% icono "clock" %}Se genera al descargar</span>{% endif %}</dd></div>
   </dl>

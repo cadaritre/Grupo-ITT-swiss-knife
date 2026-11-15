@@ -22,6 +22,7 @@ ACCENT = HexColor("#0B7FAB")
 TEXT = HexColor("#263746")
 MUTED = HexColor("#6B7C8C")
 LIGHT = HexColor("#E8EFF4")
+CELL = HexColor("#F4F7FA")               # background of a photo's box in the 2, 4 and 6 per page layouts
 
 
 @dataclass
@@ -40,6 +41,24 @@ class ReportOptions:
     license_card: Path | None = None
     signer: str = ""                    # los pone el perfil corporativo (`comun.perfiles.opciones_reporte`)
     professional_license: str = ""
+    photos_per_page: int = 1            # 1 (the desktop layout), 2, 4 or 6
+
+
+#: photos per page -> (columns, rows) of the grid; 1 keeps the original full-page layout
+PHOTO_GRIDS = {1: (1, 1), 2: (1, 2), 4: (2, 2), 6: (2, 3)}
+PHOTOS_PER_PAGE = tuple(PHOTO_GRIDS)
+
+
+def photo_pages(count: int, per_page: int = 1, include_map: bool = True) -> list[list[int]]:
+    """Which photos (0-based indices) go on each page: the first list is the cover, then one list per photo page.
+
+    Without the location sketch the first photo goes alone on the cover; the rest follow `per_page` at a time.
+    The web editor mirrors this exact rule to show the page breaks (`reportes/orden.js`, `paginas`).
+    """
+    if per_page not in PHOTO_GRIDS:
+        raise ValueError(f"photos_per_page must be one of {PHOTOS_PER_PAGE}")
+    first = 0 if include_map else min(1, count)
+    return [list(range(first))] + [list(range(i, min(i + per_page, count))) for i in range(first, count, per_page)]
 
 
 def _fit_text(canvas, text: str, max_width: float, size: float, font="Helvetica-Bold") -> float:
@@ -104,6 +123,117 @@ def _draw_contain(c: Canvas, image: Image.Image, box: tuple[float, float, float,
     image.save(stream, format="JPEG", quality=88, optimize=True, progressive=True)
     stream.seek(0)
     c.drawImage(ImageReader(stream), x + (bw - iw) / 2, y + (bh - ih) / 2, iw, ih, preserveAspectRatio=True)
+
+
+def _ellipsize(text: str, max_width: float, font: str, size: float, force: bool = False) -> str:
+    """`text` cut to `max_width` with an ellipsis (always ends with one when `force`)."""
+    if not force and stringWidth(text, font, size) <= max_width:
+        return text
+    while text and stringWidth(text + "…", font, size) > max_width:
+        text = text[:-1]
+    return text.rstrip() + "…"
+
+
+def _wrap_lines(text: str, max_width: float, font: str, size: float, max_lines: int) -> list[str]:
+    """Word-wrap `text` to at most `max_lines` lines; the last one ends with an ellipsis when text is left over."""
+    words, lines, line = text.split(), [], ""
+    while words and len(lines) < max_lines:
+        word = words[0]
+        candidate = f"{line} {word}" if line else word
+        if stringWidth(candidate, font, size) <= max_width:
+            line = candidate
+            words.pop(0)
+        elif line:
+            lines.append(line)
+            line = ""
+        else:                                   # a single word wider than the cell: cut it
+            cut = len(word)
+            while cut > 1 and stringWidth(word[:cut], font, size) > max_width:
+                cut -= 1
+            lines.append(word[:cut])
+            words[0] = word[cut:]
+    if line and len(lines) < max_lines:
+        lines.append(line)
+    if words:                                   # text left over: the last line says so
+        lines[-1] = _ellipsize(f"{lines[-1]} {words[0][:80]}", max_width, font, size, force=True)
+    return lines
+
+
+#: per grid layout: label size, metadata size, metadata lines, note size, note lines, image resolution
+_CELL_STYLES = {
+    2: {"label": 11, "meta": 7.5, "meta_lines": 1, "note": 9, "note_lines": 2, "pixels": (1800, 1800)},
+    4: {"label": 10, "meta": 7, "meta_lines": 2, "note": 8, "note_lines": 3, "pixels": (1400, 1400)},
+    6: {"label": 9.5, "meta": 7, "meta_lines": 2, "note": 7.5, "note_lines": 2, "pixels": (1200, 1200)},
+}
+_GRID_LEFT, _GRID_TOP_OFFSET, _GRID_BOTTOM = 52, 100, 62
+_GUTTER_X, _GUTTER_Y = 16, 18
+
+
+def grid_cells(per_page: int) -> list[tuple[float, float, float, float]]:
+    """Cells (x, y, width, height; y is the bottom edge) of a photo page, in reading order. Same cells on every page."""
+    w, h = A4
+    cols, rows = PHOTO_GRIDS[per_page]
+    top = h - _GRID_TOP_OFFSET
+    cell_w = (w - 2 * _GRID_LEFT - _GUTTER_X * (cols - 1)) / cols
+    cell_h = (top - _GRID_BOTTOM - _GUTTER_Y * (rows - 1)) / rows
+    return [(_GRID_LEFT + col * (cell_w + _GUTTER_X), top - (row + 1) * cell_h - row * _GUTTER_Y, cell_w, cell_h)
+            for row in range(rows) for col in range(cols)]
+
+
+def _photo_metadata(photo: PhotoInfo, texts: dict[str, str]) -> list[str]:
+    metadata = []
+    if photo.taken_at:
+        metadata.append(f"{texts['captured_label']}: {photo.taken_at.strftime('%d/%m/%Y %H:%M')}")
+    if photo.has_gps:
+        metadata.append(f"{texts['gps_label']}: {photo.latitude:.6f}, {photo.longitude:.6f}")
+    return metadata
+
+
+def image_box(per_page: int, cell: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """The part of a cell that holds the image: below the label, the metadata and the space reserved for the note."""
+    style = _CELL_STYLES[per_page]
+    x, y, cw, ch = cell
+    text_h = style["label"] + 4 + (style["meta_lines"] - 1) * (style["meta"] + 3) + style["note_lines"] * (style["note"] * 1.25) + 6
+    return x, y, cw, ch - text_h
+
+
+def _photo_cell(c: Canvas, photo: PhotoInfo, number: int, cell, per_page: int, texts: dict[str, str]):
+    """One photo of a grid page: label and metadata, the note (wrapped, with an ellipsis) and the image contained in its box."""
+    style = _CELL_STYLES[per_page]
+    x, y, cw, ch = cell
+    top = y + ch
+    label = f"{texts['photo_label']} {number:02d}"
+    baseline = top - style["label"] * .8
+    c.setFillColor(BLUE)
+    c.setFont("Helvetica-Bold", style["label"])
+    c.drawString(x, baseline, label)
+    label_w = stringWidth(label, "Helvetica-Bold", style["label"]) + 10
+    metadata = _photo_metadata(photo, texts) or [photo.path.name]
+    c.setFillColor(MUTED)
+    c.setFont("Helvetica", style["meta"])
+    if style["meta_lines"] == 1:
+        c.drawRightString(x + cw, baseline, _ellipsize("  |  ".join(metadata), cw - label_w, "Helvetica", style["meta"]))
+    else:
+        c.drawRightString(x + cw, baseline, _ellipsize(metadata[0], cw - label_w, "Helvetica", style["meta"]))
+        if len(metadata) > 1:
+            c.drawString(x, baseline - style["meta"] - 3, _ellipsize("  |  ".join(metadata[1:]), cw, "Helvetica", style["meta"]))
+    baseline -= (style["meta_lines"] - 1) * (style["meta"] + 3)
+    description = photo.description.strip()
+    if description:
+        c.setFillColor(TEXT)
+        c.setFont("Helvetica", style["note"])
+        for k, line in enumerate(_wrap_lines(description, cw, "Helvetica", style["note"], style["note_lines"])):
+            c.drawString(x, baseline - 4 - style["note"] - k * style["note"] * 1.25, line)
+    box = image_box(per_page, cell)
+    c.setFillColor(CELL)
+    c.setStrokeColor(LIGHT)
+    c.setLineWidth(.6)
+    c.rect(*box, stroke=1, fill=1)
+    image = _safe_image(photo.path, max_pixels=style["pixels"])
+    try:
+        _draw_contain(c, image, box)
+    finally:
+        image.close()
 
 
 def _credentials_page(c: Canvas, opts: ReportOptions, page: int, texts: dict[str, str]):
@@ -181,6 +311,38 @@ def generate_report(opts: ReportOptions, progress=None) -> Path:
     _footer(c, opts, page, texts)
     c.showPage()
 
+    if opts.photos_per_page != 1:
+        page = _grid_pages(c, opts, page, texts, progress)
+    else:
+        page = _single_pages(c, opts, page, texts, first_photo_on_cover, progress)
+    if opts.include_credentials:
+        page += 1
+        _credentials_page(c, opts, page, texts)
+        c.showPage()
+    c.save()
+    return opts.output
+
+
+def _grid_pages(c: Canvas, opts: ReportOptions, page: int, texts: dict[str, str], progress) -> int:
+    """Photo pages with 2, 4 or 6 photos each: the same cells on every page, a short last page keeps them, top-left first."""
+    per_page = opts.photos_per_page
+    pages = photo_pages(len(opts.photos), per_page, opts.include_map)[1:]
+    cells = grid_cells(per_page)
+    for done, indices in enumerate(pages, 1):
+        page += 1
+        _header(c, opts, page, texts)
+        for cell, index in zip(cells, indices):
+            _photo_cell(c, opts.photos[index], index + 1, cell, per_page, texts)
+        _footer(c, opts, page, texts)
+        if progress:
+            progress(done, len(pages))
+        c.showPage()
+    return page
+
+
+def _single_pages(c: Canvas, opts: ReportOptions, page: int, texts: dict[str, str], first_photo_on_cover: bool, progress) -> int:
+    """One photo per page: the original layout, byte for byte the desktop app's."""
+    w, h = A4
     report_photos = opts.photos[1:] if first_photo_on_cover else opts.photos
     total = len(report_photos)
     for index, photo in enumerate(report_photos, 2 if first_photo_on_cover else 1):
@@ -209,9 +371,4 @@ def generate_report(opts: ReportOptions, progress=None) -> Path:
         if progress:
             progress(index - (1 if first_photo_on_cover else 0), total)
         c.showPage()
-    if opts.include_credentials:
-        page += 1
-        _credentials_page(c, opts, page, texts)
-        c.showPage()
-    c.save()
-    return opts.output
+    return page
