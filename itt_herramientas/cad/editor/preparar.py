@@ -195,8 +195,10 @@ def preparar_nativo(arch: str, destino: Path, cache: Path, local: Path | None) -
     if final.resolve() != origen.resolve():
         shutil.copyfile(origen, final)
     os.chmod(final, 0o755)
-    (destino / "nativo.json").write_text(json.dumps({"version": d["version"], "arch": arch, "archivo": n["archivo"], "sha256": n["sha256"]}), encoding="utf-8")
-    print(f"OK    motor nativo {d['version']} {arch} en {final}")
+    # El motor nativo es el oficial de la versión base (la compilación corregida es solo la web).
+    base = d.get("base", d["version"])
+    (destino / "nativo.json").write_text(json.dumps({"version": base, "arch": arch, "archivo": n["archivo"], "sha256": n["sha256"]}), encoding="utf-8")
+    print(f"OK    motor nativo {base} {arch} en {final}")
     return final
 
 

@@ -1,7 +1,8 @@
 {
-  "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile.",
-  "version": "v2026.45",
-  "publicada": "2026-11-08",
+  "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile. «base»: la versión oficial sobre la que está hecha la compilación; «version» nombra la ruta servida (/cad/editor/<version>/), así un cambio de compilación nunca reusa la caché del navegador.",
+  "version": "tv-v2026.45-3",
+  "base": "v2026.45",
+  "publicada": "2026-11-15",
   "puente": false,
   "fuente": {
     "tipo": "publica",
@@ -9,9 +10,15 @@
     "tag": "v2026.45"
   },
   "web": {
-    "archivo": "OpenCADStudio-v2026.45-web.zip",
-    "sha256": "f320f91e89abc7a3f4a57c8f6d5bfb9565d01a91abc83b6b10d105b3bb7a3df4",
-    "bytes": 62961095
+    "archivo": "OpenCADStudio-tv-v2026.45-3-web.zip",
+    "sha256": "ba4e257cb22b5df9bb525c16d6e75a47fd2011bb606a1fd67442be63d273fef4",
+    "bytes": 62996439,
+    "fuente": {
+      "tipo": "gh",
+      "repo": "cadaritre/OpenCADStudio-TresVizo",
+      "tag": "tv-v2026.45-3"
+    },
+    "_nota": "Nuestra compilación corregida (repositorio privado, commit a84475a79 sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, y getpoint/user_select en el lienzo web."
   },
   "nativo": {
     "x86_64": {

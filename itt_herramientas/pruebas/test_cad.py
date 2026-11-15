@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import os
 import stat
 import sys
@@ -605,8 +606,14 @@ def test_sin_editor_preparado_la_pagina_lo_dice_y_ofrece_descargar(cliente_de, d
 
 def test_upstream_fijado_con_sha256():
     d = editor.upstream()
-    assert d["version"].startswith("v20") and len(d["web"]["sha256"]) == 64
+    assert re.fullmatch(r"(tv-)?v20\d\d\.\d+(-\d+)?", d["version"]) and len(d["web"]["sha256"]) == 64
+    assert d.get("base", d["version"]).startswith("v20")
     assert all(len(n["sha256"]) == 64 for n in d["nativo"].values())
+    # la web corregida viene del repositorio privado (gh); los motores nativos, de la publicación oficial
+    fuente_web = d["web"].get("fuente") or d["fuente"]
+    if d["version"].startswith("tv-"):
+        assert fuente_web == {"tipo": "gh", "repo": "cadaritre/OpenCADStudio-TresVizo", "tag": d["version"]}
+    assert all("fuente" not in n for n in d["nativo"].values()) and d["fuente"]["tipo"] == "publica"
 
 
 def test_el_service_worker_no_guarda_el_editor_en_cache():
