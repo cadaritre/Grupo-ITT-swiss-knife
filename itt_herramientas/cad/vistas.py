@@ -632,10 +632,14 @@ def desde_triangulacion(request, pk):
 @editar
 @require_POST
 def desde_croquis(request, pk):
-    from ..comun import capturas
+    from ..comun import capturas, documentos
     from ..models import Croquis
 
-    k = Croquis.objects.filter(pk=pk, cuenta_id=request.user.pk).first()
+    # Los croquis son de la empresa (documentos compartidos): cualquiera con el rol de croquis abre en CAD el de un compañero; nunca
+    # uno de la papelera, y sin el rol de croquis no hay croquis que abrir.
+    if not documentos.puede_editar(request.user, "croquis"):
+        raise Http404
+    k = documentos.visibles(Croquis).filter(pk=pk).first()
     if k is None:
         raise Http404
     volver = reverse("herramientas:croquis")

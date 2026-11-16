@@ -588,6 +588,30 @@ def test_abrir_en_cad_desde_triangulacion_y_croquis(cliente_de, crear_usuario, r
     assert (p.nombre, p.proyecto, p.origen["tipo"]) == ("CROQUIS_LOTE_3", "Rancho Sur", "croquis")
 
 
+def test_abrir_en_cad_el_croquis_de_un_companero(cliente_de, crear_usuario, roles):
+    """Los croquis son de la empresa: el de otra persona del equipo se abre en CAD; sin el rol de croquis o en la papelera, no."""
+    from django.utils import timezone
+
+    from itt_herramientas.comun import capturas
+    from itt_herramientas.models import Croquis
+
+    autora, companero, solo_cad = crear_usuario("ana"), crear_usuario("beto"), crear_usuario("caro")
+    roles.conceder(autora, "herramientas", "croquis", "cad")
+    roles.conceder(companero, "herramientas", "croquis", "cad")
+    roles.conceder(solo_cad, "herramientas", "cad")
+    k = Croquis.objects.create(cuenta_id=autora.pk, datos={"cliente": "Rancho Sur"}, titulo="Croquis lote 4")
+    ruta = capturas.raiz() / "croquis" / "c4.dxf"
+    ruta.parent.mkdir(parents=True)
+    ruta.write_bytes(DXF)
+    k.salida_ruta, k.salida_formato, k.salida_nombre = str(ruta.relative_to(capturas.raiz())), "dxf", "CROQUIS_LOTE_4.dxf"
+    k.save()
+    r = cliente_de(companero).post(url("cad_desde_croquis", pk=k.pk), HTTP_ACCEPT="application/json")
+    assert r.status_code == 201 and Plano.objects.get(pk=r.json()["id"]).cuenta_id == companero.pk
+    assert cliente_de(solo_cad).post(url("cad_desde_croquis", pk=k.pk), HTTP_ACCEPT="application/json").status_code == 404
+    Croquis.objects.filter(pk=k.pk).update(eliminado=timezone.now())
+    assert cliente_de(companero).post(url("cad_desde_croquis", pk=k.pk), HTTP_ACCEPT="application/json").status_code == 404
+
+
 def test_abrir_en_cad_sin_salida_lo_explica(cliente_de, crear_usuario, roles):
     from itt_herramientas.models import Croquis
 
