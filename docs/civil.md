@@ -16,7 +16,7 @@ Código: `itt_herramientas/civil/` (servidor y motor fijado), `templates/herrami
 | Curvas | Curvas de nivel (intervalo, maestras, suavizado sin cruces, etiquetas) · Actualizar curvas (desde los triángulos que hay en el dibujo) · Etiquetar curvas (donde se señala o a lo largo, cortando la curva bajo el texto) · Suavizar curvas (las elegidas, sin tocar a las demás) |
 | Cuadros | Cuadro de construcción (rumbos N 45°30'15" E, lados curvos, ha-a-ca; formatos normal, RAN —coordenadas UTM y geográficas— y UTM-GPS —además factor de escala y convergencia por vértice y la superficie sobre el terreno—; también «Descargar DXF», el antiguo IT-10) · Cuadro de curvas · Rumbo y distancia de lados · Numerar vértices · Memoria descriptiva (PDF o Word, con colindancias lado por lado) |
 | Plano | Cuadrícula UTM (todo el plano o dos esquinas; líneas o cruces; marco; coordenadas al margen y latitud y longitud en las esquinas; reemplaza la anterior) · Lotificar manzana (lotes iguales, de una superficie o de un frente, con cortes perpendiculares al lado de la calle; número y superficie en cada lote y cuadro de áreas) |
-| Perfiles y secciones | Perfil del eje (cadenamiento, rasante con curvas verticales) · Secciones transversales (plantilla sencilla o de carretera: carriles y acotamientos con su pendiente, cuneta en corte, pavimento —terracerías a la subrasante— y despalme; taludes; áreas) |
+| Perfiles y secciones | Perfil del eje (cadenamiento, rasante con curvas verticales) · Secciones transversales (plantilla sencilla o de carretera: carriles y acotamientos con su pendiente, cuneta en corte, pavimento —terracerías a la subrasante— y despalme; sobreelevación y ampliación en las curvas del eje según la SCT; taludes; áreas) |
 | Volúmenes | Por secciones (áreas medias) · Entre superficies (exacto, línea de ceros opcional, resultado en la hoja o también en el plano) · Curva masa (línea compensadora la mejor —menor momento de acarreo— o en una ordenada; puntos de compensación, volumen y distancia media de cada tramo, sobreacarreo en m³·hm sobre el acarreo libre, préstamo y desperdicio) |
 | 1:1000 (botón) | Escala del plano, zona UTM y altura de los textos en mm de papel |
 
@@ -117,3 +117,28 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor uv run pytest itt_herramienta
 - **Memoria descriptiva y reporte de puntos:** el motor da el contenido (título, datos, párrafos, tabla, notas) y el servidor lo entrega
   como PDF (ReportLab con Liberation Sans) o como DOCX escrito a mano (Office Open XML mínimo: abre en Word, LibreOffice, Pages y Google
   Docs, sin otra dependencia). Nada se guarda en el servidor: el archivo vuelve en la respuesta y la página lo descarga.
+
+## Carreteras: sobreelevación, ampliación y despalme
+
+**Fuente:** *Manual de Proyecto Geométrico de Carreteras*, Secretaría de Comunicaciones y Transportes, Dirección General de Servicios
+Técnicos, tercera edición, julio de 2018 (el archivo oficial `MPGC_2018_16_11_18.pdf` del sitio de la SCT, `micrs.sct.gob.mx`,
+SHA-256 `a4ce0801…72b09`). Solo de ahí; las normas N·PRY·CAR vigentes publicadas en `normas.imt.mx` no tienen un título de proyecto
+geométrico.
+
+| Qué | Dónde en el manual | Cómo lo usa Civil |
+| --- | --- | --- |
+| Sobreelevación máxima | cap. III, H.1 | 10 % en carreteras, 8 % con heladas o nevadas, 6 % en vialidades urbanas (se elige) |
+| Coeficiente de fricción μ | tabla III.3 | por velocidad de proyecto, 30 a 110 km/h (interpolado entre las velocidades de la tabla) |
+| Grado máximo | H.2: Gmáx = 146 000 (μ + Smáx) / Vp² | rechaza una curva más cerrada, con su motivo |
+| Sobreelevación de cada curva | H.1, pasos 1 a 3 y figura III.16 | la línea c: parábola asimétrica tangente a la línea b (S = G·Vp²/146 000) en G = 0 y horizontal en Gmáx; G = 1145.92/R |
+| Longitud de transición | H.3: Le = 8·Vp·S | el doble con cuatro carriles y el triple con seis (cap. II, C.2) |
+| Reparto de la transición | figura III.17 | 60 % en la tangente (se elige 50, 60 o 70 %); antes, el bombeo del lado exterior se quita en N = b·Le/S; aviso si la sobreelevación completa dura menos de Lc/3 o si la tangente entre dos curvas no alcanza |
+| Ampliación | H.4 a H.6: acc = N(U + C) + (N − 1)FA + Z, ac = acc − act | del lado interior, crece con la transición; menos de 0.50 m no se amplía y lo demás va al decímetro superior |
+| Vehículos de proyecto | tablas III.5 (tipo B, DE-2434, C3R3) y III.7 (tipo D, DE-790, C3) | sus coeficientes reproducen esas tablas a ±0.005 m (el redondeo de la tabla): C3 ΣLi² = 66 m², A(2L+A) = 14 m²; C3R3 ΣLi² + A(2L+A)/2 = 147 m². Las tablas III.4 (tipo ET y A) y III.6 (tipo C) están impresas como imagen: para esos vehículos se escriben sus medidas («Otro…»: entrevía, distancias entre ejes, vuelo delantero y distancia entre ejes del camión) |
+
+Las curvas del eje son circulares simples (sin espirales). Las secciones se calculan además en el inicio y el fin de cada transición y
+de la sobreelevación completa; cada sección dibujada dice su sobreelevación y su ampliación, y la hoja trae la tabla de las curvas.
+
+**Despalme:** el espesor de despalme bajo toda la obra (entre chaflanes) se reporta como despalme. Bajo el terraplén ese hueco se
+vuelve a llenar, así que se **suma al terraplén**; en el corte ese espesor ya salió como despalme y se **resta del corte**, para no
+contarlo dos veces. La tabla de volúmenes trae la columna de despalme y sus totales.

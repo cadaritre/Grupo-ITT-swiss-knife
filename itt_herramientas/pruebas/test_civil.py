@@ -178,6 +178,15 @@ def test_curva_masa_por_la_cola_y_lotificar(cliente_de, dibujante):
     assert d["estado"] == "completada", d
     r = cl.get(d["resultado"]["url"]).json()
     assert r["resumen"]["estaciones"] == 11 and r["resumen"]["despalme"] > 0 and r["lazos"] is not None
+    import math
+
+    b = math.tan(math.radians(90) / 4)
+    d = mandar(cl, "secciones", {"caras": caras_de(tri["dxf"]), "eje": {"vertices": [[X0, Y0 - 20], [X0 + 100, Y0 - 20], [X0 + 200, Y0 + 80]], "combas": [0, 0.2, 0]},
+                                 "intervalo": 20, "izquierda": 20, "derecha": 20, "rasante": [[0, 105], [300, 105]],
+                                 "plantilla": {"tipo": "carretera", "curvas": {"velocidad": 60, "vehiculo": "C3R3"}}}, comprimir=True).json()
+    r = cl.get(d["resultado"]["url"]).json()
+    c, = r["curvas"]
+    assert c["lado"] == "izquierda" and 0.03 < c["sobreelevacion"] <= 0.10 and c["ampliacion"] >= 0.5
     r = mandar(cl, "lotificar", {"poligono": {"vertices": CUADRADO}, "lado_frente": 0, "metodo": "por_cantidad", "valor": 5}).json()["resultado"]
     assert r["resumen"]["lotes"] == 5 and r["resumen"]["superficie"] == pytest.approx(10000)
 
@@ -212,7 +221,7 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
     for nuevo in ("Renumerar puntos", "Revisar triangulación", "Cuadro de curvas", "Los que elija", "Localizar punto", "Reporte de puntos",
                   "Insertar puntos", "Rumbo y distancia de lados", "Numerar vértices", "Memoria descriptiva", "Cuadrícula UTM", "UTM-GPS", "Zona UTM",
                   "Dibujar punto", "Editar punto", "Etiquetas de puntos", "Convertir puntos", "Etiquetar curvas", "Suavizar curvas",
-                  "Curva masa", "Lotificar manzana", "Carretera", "Despalme"):
+                  "Curva masa", "Lotificar manzana", "Carretera", "Despalme", "Sobreelevación y ampliación en las curvas (SCT)", "C3R3"):
         assert nuevo in html, nuevo
     cfg = json.loads(html.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
     assert cfg["capas"]["tin"]["terreno"] == "TRIANGULACION" and cfg["bloques"]["terreno"] == "PT_TERRENO"

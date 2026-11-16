@@ -712,7 +712,9 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     p.locator('[data-civil-form="triangular"] button[type=submit]').click()
     esperar(p, "!document.getElementById('civil-hoja-triangular').open", LARGO * 2)
     apagar(p, "TRIANGULACION", "PUNTOS_TERRENO", "PUNTOS_NUMERO", "PUNTOS_ELEVACION", "PUNTOS_DESCRIPCION")
-    pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 20, Y0 + 150], [X0 + 280, Y0 + 160]], "closed": False, "layer": "EJE"}]})
+    # un eje con una curva: tangente de 130 m y un arco de unos 180 m de radio (comba 0.2)
+    eje = pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 20, Y0 + 150], [X0 + 150, Y0 + 150], [X0 + 280, Y0 + 200]], "closed": False, "layer": "EJE"}]})["result"]["handles"][0]
+    pedir(p, {"op": "set_properties", "collection": "entities", "handle": eje, "updates": [{"path": "/vertices/1/bulge", "value": 0.2}]})
 
     # lotificar una manzana de 30 × 100 m en lotes de 20 m de frente sobre su lado sur
     pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 50, Y0 + 20], [X0 + 150, Y0 + 20], [X0 + 150, Y0 + 50], [X0 + 50, Y0 + 50]], "closed": True, "layer": "MANZANA"}]})
@@ -735,15 +737,15 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     p.locator("#civil-hoja-lotes [data-tv-cerrar]").first.click()
     assert cuenta(p, None, "LOTES") == 5 and "TOTAL" in [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "LOTES_TABLA", "detail": "geometry"})["entities"]]
     # curva masa con plantilla de carretera
-    mapa = enfocar(p, (X0 + 20, Y0 + 150, X0 + 280, Y0 + 160))
+    mapa = enfocar(p, (X0 + 20, Y0 + 140, X0 + 280, Y0 + 200))
     menu(p, "volumenes", "masa")
     p.locator('[data-civil-form="masa"] [data-civil-elegir="eje"]').click()
-    elegir_en_dibujo(p, [(X0 + 150, Y0 + 155)], mapa)
+    elegir_en_dibujo(p, [(X0 + 85, Y0 + 150)], mapa)
     esperar(p, "document.querySelector('[data-civil-form=masa] [data-civil-cuenta=eje]').classList.contains('civil-elegido')", LARGO)
     filas = p.locator('[data-civil-form="masa"] [data-civil-pivs] tr')
     filas.nth(0).locator("[name=piv_z]").fill("108")
     p.locator('[data-civil-form="masa"] [data-civil-agregar-piv]').click()
-    filas.nth(1).locator("[name=piv_e]").fill("0+260.19")
+    filas.nth(1).locator("[name=piv_e]").fill("0+300.00")
     filas.nth(1).locator("[name=piv_z]").fill("111")
     p.locator('[data-civil-form="masa"] input[name=plantilla_tipo][value=carretera]').check()
     foto(p, "29-curva-masa", 1280)
@@ -751,6 +753,8 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     esperar(p, "!document.querySelector('[data-civil-form=masa] [data-civil-resultado]').hidden", LARGO * 3)
     texto = p.locator('[data-civil-form="masa"] [data-civil-resultado]').inner_text().lower()
     assert "sobreacarreo" in texto and "préstamo" in texto and "despalme" in texto, texto
+    # la curva del eje, con su sobreelevación y su ampliación según el manual de la SCT
+    assert "izquierda" in texto and "sobreelev." in texto and "ampliación" in texto, texto
     foto(p, "29b-curva-masa-resultado", 1280)
     p.locator("#civil-hoja-masa [data-tv-cerrar]").first.click()
     assert cuenta(p, None, "MASA_CURVA") == 1 and cuenta(p, None, "MASA_COMPENSADORA") == 1 and cuenta(p, "Text", "MASA_TEXTOS") > 4

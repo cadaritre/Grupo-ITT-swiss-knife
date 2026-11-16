@@ -39,7 +39,7 @@ class RenglonVolumen:
     acum_corte: float
     acum_terraplen: float
     ordenada: float  # curva masa: corte·abundamiento − terraplén, acumulado
-    vol_despalme: float = 0.0  # del tramo anterior (plantilla de carretera)
+    vol_despalme: float = 0.0  # del tramo anterior (plantilla de carretera); ya va sumado al terraplén donde está bajo él
     acum_despalme: float = 0.0
 
 
@@ -229,14 +229,26 @@ def dibujar_tabla_volumenes(renglones: Sequence[RenglonVolumen], esquina: tuple[
     d.estilo(EstiloTexto(estilo, "romans.shx", 0.85))
     f = float(esc.denominador) / 1000.0
     h = esc.altura("cuadro_dato")
+    con_despalme = any(r.vol_despalme for r in renglones)
     titulos = ["ESTACIÓN", "ÁREA CORTE", "ÁREA TERRAPLÉN", "VOL. CORTE", "VOL. TERRAPLÉN", "ACUM. CORTE", "ACUM. TERRAPLÉN", "ORDENADA"]
     anchos = [22, 20, 24, 20, 24, 22, 26, 22]
+    if con_despalme:
+        titulos[3:3] = ["VOL. DESPALME"]
+        anchos[3:3] = [24]
     xs = [esquina[0]]
     for a in anchos:
         xs.append(xs[-1] + a * f)
     alto = 2 * h
     capa = CAPAS_VOLUMEN["tabla"].nombre
-    filas = [titulos] + [[formato_estacion(r.estacion), *(f"{v:,.{decimales}f}" for v in (r.area_corte, r.area_terraplen, r.vol_corte, r.vol_terraplen, r.acum_corte, r.acum_terraplen, r.ordenada))] for r in renglones]
+    def valores(r):
+        v = [r.area_corte, r.area_terraplen, r.vol_corte, r.vol_terraplen, r.acum_corte, r.acum_terraplen, r.ordenada]
+        if con_despalme:
+            v[2:2] = [r.vol_despalme]
+        return v
+    filas = [titulos] + [[formato_estacion(r.estacion), *(f"{v:,.{decimales}f}" for v in valores(r))] for r in renglones]
+    if con_despalme:
+        filas.append(["TOTALES", "", "", f"{renglones[-1].acum_despalme:,.{decimales}f}", f"{renglones[-1].acum_corte:,.{decimales}f}",
+                      f"{renglones[-1].acum_terraplen:,.{decimales}f}", "", "", ""])
     y = esquina[1]
     for k, fila in enumerate(filas):
         d.agregar(Linea(capa, inicio=(xs[0], y, 0.0), fin=(xs[-1], y, 0.0)))

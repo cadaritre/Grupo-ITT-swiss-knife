@@ -859,10 +859,29 @@
     if (valor(f, "plantilla_tipo") === "carretera") {
       return { tipo: "carretera", ...comun, carriles_por_lado: parseInt(valor(f, "carriles_por_lado"), 10) || 1, ancho_carril: numero(f, "ancho_carril", 3.5),
         pendiente_carril: -Math.abs(numero(f, "pendiente_carril", 2)), acotamiento: numero(f, "acotamiento", 2.5), pendiente_acotamiento: -Math.abs(numero(f, "pendiente_acotamiento", 4)),
-        cuneta_ancho: numero(f, "cuneta_ancho", 1), cuneta_profundidad: numero(f, "cuneta_profundidad", 0.5), espesor_pavimento: numero(f, "espesor_pavimento", 0.3), despalme: numero(f, "despalme", 0.2) };
+        cuneta_ancho: numero(f, "cuneta_ancho", 1), cuneta_profundidad: numero(f, "cuneta_profundidad", 0.5), espesor_pavimento: numero(f, "espesor_pavimento", 0.3), despalme: numero(f, "despalme", 0.2),
+        curvas: valor(f, "sct") ? curvasSCT(f) : null };
     }
     return { ...comun, ancho_izq: numero(f, "ancho_izq", 3.5), ancho_der: numero(f, "ancho_der", 3.5), bombeo: numero(f, "bombeo", 2) };
   }
+
+  /** Sobreelevación y ampliación en curvas (manual SCT): velocidad, Smáx, vehículo de proyecto y reparto de la transición. */
+  function curvasSCT(f) {
+    const c = { velocidad: +valor(f, "velocidad"), smax: +valor(f, "smax"), vehiculo: valor(f, "vehiculo"), reparto_tangente: +valor(f, "reparto_tangente") };
+    if (c.vehiculo === "otro") {
+      const li = String(valor(f, "veh_li") || "").split(/[,;\s]+/).map((x) => parseFloat(x.replace(",", "."))).filter((x) => x > 0);
+      if (!li.length) throw new ErrorCivil("Escribe las distancias entre ejes del vehículo.");
+      const a = numero(f, "veh_a", 0), l = numero(f, "veh_l", li[0]);
+      Object.assign(c, { u: numero(f, "veh_u", 2.6), ev: numero(f, "veh_u", 2.6), suma_li2: li.reduce((t, x) => t + x * x, 0), q_vuelo: a * (2 * l + a) });
+    }
+    return c;
+  }
+  function tablaCurvas(curvas) {
+    if (!curvas || !curvas.length) return "";
+    const filas = curvas.map((c) => `<tr><td>${esc(estacion(c.pc))}</td><td>${esc(estacion(c.pt))}</td><td class="tv-num">${mil(c.radio, 2)}</td><td class="tv-num">${mil(c.grado, 2)}°</td><td>${c.lado}</td><td class="tv-num">${mil(c.sobreelevacion * 100, 1)} %</td><td class="tv-num">${mil(c.transicion, 1)}</td><td class="tv-num">${c.ampliacion ? mil(c.ampliacion, 1) : "—"}</td></tr>`).join("");
+    return `<div class="tv-tabla-envoltura"><table class="tv-tabla civil-tabla"><thead><tr><th>PC</th><th>PT</th><th class="tv-num">Radio</th><th class="tv-num">Grado</th><th>Hacia</th><th class="tv-num">Sobreelev.</th><th class="tv-num">Transición (m)</th><th class="tv-num">Ampliación (m)</th></tr></thead><tbody>${filas}</tbody></table></div>`;
+  }
+  const estacion = (m) => { const km = Math.floor(Math.abs(m) / 1000), r = Math.abs(m) - km * 1000; return `${m < 0 ? "-" : ""}${km}+${r.toFixed(2).padStart(6, "0")}`; };
 
   function prepararMasa() {
     const f = document.querySelector('[data-civil-form="masa"]');
@@ -887,7 +906,7 @@
         res.hidden = false;
         res.innerHTML = `<dl class="civil-cifras"><div><dt>Compensado</dt><dd>${mil(s.compensado, 0)} m³</dd></div><div><dt>Sobreacarreo</dt><dd>${mil(s.sobreacarreo, 1)} m³·hm</dd></div>
           <div><dt>Préstamo</dt><dd>${mil(s.prestamo, 0)} m³</dd></div><div><dt>Desperdicio</dt><dd>${mil(s.desperdicio, 0)} m³</dd></div></dl>
-          <p class="civil-nota">Línea compensadora en ${mil(s.linea, 0)} m³ · ${s.puntos} puntos de compensación · corte ${mil(s.corte, 0)} m³, terraplén ${mil(s.terraplen, 0)} m³${s.despalme ? `, despalme ${mil(s.despalme, 0)} m³` : ""}</p>`;
+          <p class="civil-nota">Línea compensadora en ${mil(s.linea, 0)} m³ · ${s.puntos} puntos de compensación · corte ${mil(s.corte, 0)} m³, terraplén ${mil(s.terraplen, 0)} m³${s.despalme ? ` (con el relleno del despalme), despalme ${mil(s.despalme, 0)} m³` : ""}</p>${tablaCurvas(r.curvas)}`;
         for (const a of (r.avisos || []).slice(0, 3)) avisar(a);
       });
     });
@@ -932,7 +951,7 @@
         decir("Calculando las secciones…");
         const r = await calcular("secciones", datos, decir);
         await insertarDxf(r.dxf, "secciones.dxf");
-        if (r.resumen.corte !== undefined) { res.hidden = false; res.innerHTML = `<p>Corte <strong>${mil(r.resumen.corte)} m³</strong> · Terraplén <strong>${mil(r.resumen.terraplen)} m³</strong>${r.resumen.despalme ? ` · Despalme <strong>${mil(r.resumen.despalme)} m³</strong>` : ""}</p>`; }
+        if (r.resumen.corte !== undefined) { res.hidden = false; res.innerHTML = `<p>Corte <strong>${mil(r.resumen.corte)} m³</strong> · Terraplén <strong>${mil(r.resumen.terraplen)} m³</strong>${r.resumen.despalme ? ` · Despalme <strong>${mil(r.resumen.despalme)} m³</strong>` : ""}</p>${tablaCurvas(r.curvas)}`; }
         avisar(`${r.resumen.secciones} secciones`);
         for (const a of (r.avisos || []).slice(0, 3)) avisar(a);
         if (r.resumen.corte === undefined) cerrarHoja();

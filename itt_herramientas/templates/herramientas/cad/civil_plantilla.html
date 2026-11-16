@@ -20,6 +20,19 @@
     <div class="tv-campo"><label for="civil-{{ pre }}-cp">Cuneta, profundidad</label><div class="civil-unidad"><input id="civil-{{ pre }}-cp" name="cuneta_profundidad" type="number" min="0" step="any" value="0.5" inputmode="decimal"><span>m</span></div></div>
     <div class="tv-campo"><label for="civil-{{ pre }}-dp">Despalme</label><div class="civil-unidad"><input id="civil-{{ pre }}-dp" name="despalme" type="number" min="0" step="0.01" value="0.20" inputmode="decimal"><span>m</span></div></div>
   </div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-sct" name="sct" value="1" checked><label for="civil-{{ pre }}-sct">Sobreelevación y ampliación en las curvas (SCT)</label></div>
+  <div class="civil-fila civil-fila--4" data-civil-si="sct=1">
+    <div class="tv-campo"><label for="civil-{{ pre }}-vp">Velocidad de proyecto</label><div class="civil-unidad"><select id="civil-{{ pre }}-vp" name="velocidad"><option value="30">30</option><option value="40">40</option><option value="50">50</option><option value="60" selected>60</option><option value="70">70</option><option value="80">80</option><option value="90">90</option><option value="100">100</option><option value="110">110</option></select><span>km/h</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-smax">Sobreelevación máxima</label><select id="civil-{{ pre }}-smax" name="smax"><option value="10" selected>10 % (carreteras)</option><option value="8">8 % (heladas o nevadas)</option><option value="6">6 % (vialidades urbanas)</option></select></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-veh">Vehículo de proyecto</label><select id="civil-{{ pre }}-veh" name="vehiculo"><option value="C3" selected>C3 de 12.50 m (camino tipo D)</option><option value="C3R3">C3R3 de 28.50 m (camino tipo B)</option><option value="otro">Otro…</option></select></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-rep">En la tangente</label><div class="civil-unidad"><select id="civil-{{ pre }}-rep" name="reparto_tangente"><option value="0.5">50</option><option value="0.6" selected>60</option><option value="0.7">70</option></select><span>% de la transición</span></div></div>
+  </div>
+  <div class="civil-fila civil-fila--4" data-civil-si="vehiculo=otro" hidden>
+    <div class="tv-campo"><label for="civil-{{ pre }}-u">Entrevía</label><div class="civil-unidad"><input id="civil-{{ pre }}-u" name="veh_u" type="number" min="1.5" max="3.5" step="0.01" value="2.60" inputmode="decimal"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-li">Distancias entre ejes</label><input id="civil-{{ pre }}-li" name="veh_li" autocomplete="off" placeholder="8.55, 3.26, 8.33"></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-va">Vuelo delantero</label><div class="civil-unidad"><input id="civil-{{ pre }}-va" name="veh_a" type="number" min="0" step="0.01" value="1.25" inputmode="decimal"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-vl">Entre ejes del camión</label><div class="civil-unidad"><input id="civil-{{ pre }}-vl" name="veh_l" type="number" min="0" step="0.01" value="8.55" inputmode="decimal"><span>m</span></div></div>
+  </div>
 </div>
 <div class="civil-fila">
   <div class="tv-campo"><label for="civil-{{ pre }}-tc">Talud de corte</label><div class="civil-unidad"><input id="civil-{{ pre }}-tc" name="talud_corte" type="number" min="0.01" step="any" value="1" inputmode="decimal"><span>: 1</span></div></div>

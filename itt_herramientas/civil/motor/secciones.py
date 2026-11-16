@@ -11,7 +11,9 @@ de terraplén si queda abajo. El talud se da como horizontal por 1 vertical (1.5
 Plantilla de carretera (`PlantillaCarretera`): carriles y acotamientos con su pendiente transversal, cuneta en corte, espesor de
 pavimento y despalme. Las terracerías se miden a la **subrasante** (la corona bajada el espesor del pavimento); la cuneta solo va en
 corte, del borde del acotamiento hacia abajo hasta su profundidad, y de su fondo sale el talud de corte. El despalme es el espesor de
-terreno vegetal que se quita bajo todo el ancho de la obra (entre los chaflanes): se reporta aparte.
+terreno vegetal que se quita bajo todo el ancho de la obra (entre los chaflanes). Bajo el terraplén ese hueco se vuelve a llenar, así
+que su volumen se **suma al terraplén**; en el corte ese espesor ya salió como despalme, así que se **resta del corte** (no se cuenta
+dos veces). El despalme se reporta aparte, y por zona (bajo terraplén y en corte).
 
 Áreas: la integral exacta (el terreno y el proyecto son poligonales) de la diferencia
 terreno − proyecto entre los dos puntos de chaflán: lo positivo es corte, lo negativo terraplén.
@@ -67,6 +69,7 @@ class PlantillaCarretera:
     despalme: float = 0.20
     talud_corte: float = 1.0
     talud_terraplen: float = 1.5
+    sct: object | None = None  # ParametrosSCT: sobreelevación y ampliación en curvas (tvcivil.sobreelevacion)
 
     def __post_init__(self):
         if self.carriles_por_lado < 1 or self.ancho_carril <= 0:
@@ -82,16 +85,24 @@ class PlantillaCarretera:
     def semiancho(self) -> float:
         return self.carriles_por_lado * self.ancho_carril + self.acotamiento
 
-    def corona(self, z_eje: float) -> list[tuple[float, float]]:
-        """Rasante (superficie terminada) de un lado, del eje hacia afuera: [(desplazamiento ≥ 0, z)]."""
+    def corona(self, z_eje: float, pendiente_carril: float | None = None, ampliacion: float = 0.0) -> list[tuple[float, float]]:
+        """Rasante (superficie terminada) de un lado, del eje hacia afuera: [(desplazamiento ≥ 0, z)].
+
+        `pendiente_carril`: la del lado en esa estación (sobreelevación en curva); el acotamiento la sigue cuando es más fuerte que la
+        suya hacia el mismo lado. `ampliacion`: ancho que se agrega a la calzada de ese lado (interior de la curva)."""
+        pc = self.pendiente_carril if pendiente_carril is None else pendiente_carril
+        pa = self.pendiente_acotamiento
+        if pendiente_carril is not None and (pc > 0 or pc < pa):
+            pa = pc                                      # en curva el acotamiento sigue a la calzada
         o, z = 0.0, z_eje
         pts = [(0.0, z_eje)]
-        o += self.carriles_por_lado * self.ancho_carril
-        z += self.pendiente_carril * self.carriles_por_lado * self.ancho_carril
+        ancho = self.carriles_por_lado * self.ancho_carril + ampliacion
+        o += ancho
+        z += pc * ancho
         pts.append((o, z))
         if self.acotamiento > 0:
             o += self.acotamiento
-            z += self.pendiente_acotamiento * self.acotamiento
+            z += pa * self.acotamiento
             pts.append((o, z))
         return pts
 
@@ -105,7 +116,10 @@ class Seccion:
     terraplen: float = 0.0
     avisos: list[str] = field(default_factory=list)
     rasante: list[tuple[float, float]] = field(default_factory=list)  # superficie terminada (plantilla de carretera)
+    peralte: dict | None = None  # pendientes y ampliación de la estación (curvas con sobreelevación)
     despalme: float = 0.0  # área de despalme, m²
+    despalme_terraplen: float = 0.0  # parte bajo el terraplén (se suma al terraplén)
+    despalme_corte: float = 0.0  # parte en el corte (se resta del corte)
 
     def z_terreno(self, o: float) -> float | None:
         return _interp(self.terreno, o)
@@ -189,15 +203,22 @@ def aplicar_plantilla(s: Seccion, z_eje: float, p: Plantilla) -> Seccion:
     return s
 
 
-def aplicar_plantilla_carretera(s: Seccion, z_eje: float, p: PlantillaCarretera) -> Seccion:
-    """Sección de carretera: subrasante con cuneta y taludes hasta el terreno, rasante terminada, áreas y despalme."""
+def aplicar_plantilla_carretera(s: Seccion, z_eje: float, p: PlantillaCarretera, peralte: dict | None = None) -> Seccion:
+    """Sección de carretera: subrasante con cuneta y taludes hasta el terreno, rasante terminada, áreas y despalme.
+
+    `peralte` (de `Peraltes.en`): pendiente de cada lado y ampliación en esa estación; sin él, el bombeo de la plantilla."""
     if len(s.terreno) < 2:
         s.avisos.append(f"{formato_estacion(s.estacion)}: sin terreno.")
         return s
-    lado = p.corona(z_eje)
-    sub = [(o, z - p.espesor_pavimento) for o, z in lado]    # subrasante, paralela a la rasante
+    lados_corona = {}
+    for sentido, clave in ((-1, "izq"), (1, "der")):
+        if peralte is None:
+            lados_corona[sentido] = p.corona(z_eje)
+        else:
+            lados_corona[sentido] = p.corona(z_eje, peralte[clave], peralte["amp_" + clave])
     lados, chaflanes = [], []
     for sentido in (-1, 1):
+        sub = [(o, z - p.espesor_pavimento) for o, z in lados_corona[sentido]]    # subrasante, paralela a la rasante
         pts = [(sentido * o, z) for o, z in sub]
         o_b, z_b = pts[-1]
         zt = s.z_terreno(o_b)
@@ -228,10 +249,40 @@ def aplicar_plantilla_carretera(s: Seccion, z_eje: float, p: PlantillaCarretera)
     izq, der = lados
     proyecto = list(reversed(izq[1:])) + der
     s.proyecto = [q for k, q in enumerate(sorted(proyecto)) if k == 0 or q[0] > sorted(proyecto)[k - 1][0] + 1e-12]
-    s.rasante = sorted({(-o, z) for o, z in lado} | {(o, z) for o, z in lado})
+    s.rasante = sorted({(-o, z) for o, z in lados_corona[-1]} | {(o, z) for o, z in lados_corona[1]})
     s.corte, s.terraplen = areas_entre(s.terreno, s.proyecto)
-    s.despalme = p.despalme * (chaflanes[1] - chaflanes[0])
+    s.peralte = {k: v for k, v in (peralte or {}).items() if k != "curva"} or None
+    if p.despalme > 0:
+        a_corte, a_terraplen = anchos_entre(s.terreno, s.proyecto, chaflanes[0], chaflanes[1])
+        s.despalme_corte, s.despalme_terraplen = p.despalme * a_corte, p.despalme * a_terraplen
+        s.despalme = s.despalme_corte + s.despalme_terraplen
+        s.terraplen += s.despalme_terraplen
+        s.corte = max(0.0, s.corte - s.despalme_corte)
     return s
+
+
+def anchos_entre(terreno, proyecto, o0: float, o1: float) -> tuple[float, float]:
+    """Ancho horizontal, entre o0 y o1, donde el terreno queda arriba del proyecto (corte) y donde queda abajo (terraplén)."""
+    a, b = max(o0, terreno[0][0], proyecto[0][0]), min(o1, terreno[-1][0], proyecto[-1][0])
+    if b <= a:
+        return 0.0, 0.0
+    cortes = sorted({a, b, *(o for o, _ in terreno if a < o < b), *(o for o, _ in proyecto if a < o < b)})
+    w_c = w_t = 0.0
+    for x0, x1 in zip(cortes, cortes[1:]):
+        d0 = _interp(terreno, x0) - _interp(proyecto, x0)
+        d1 = _interp(terreno, x1) - _interp(proyecto, x1)
+        ancho = x1 - x0
+        if d0 >= 0 and d1 >= 0:
+            if d0 > 0 or d1 > 0:
+                w_c += ancho
+            else:
+                w_t += ancho           # terreno y proyecto juntos: el despalme se rellena
+        elif d0 <= 0 and d1 <= 0:
+            w_t += ancho
+        else:
+            t = d0 / (d0 - d1)
+            (w_c, w_t) = (w_c + t * ancho, w_t + (1 - t) * ancho) if d0 > 0 else (w_c + (1 - t) * ancho, w_t + t * ancho)
+    return w_c, w_t
 
 
 def areas_entre(terreno: Sequence[tuple[float, float]], proyecto: Sequence[tuple[float, float]]) -> tuple[float, float]:
@@ -268,11 +319,19 @@ def secciones(tin, eje: Eje, estaciones: Sequence[float], izq: float, der: float
               plantilla: Plantilla | PlantillaCarretera | None = None) -> list[Seccion]:
     m = Muestreador(tin)
     salida = []
+    peraltes = None
+    if isinstance(plantilla, PlantillaCarretera) and plantilla.sct is not None:
+        from .sobreelevacion import Peraltes
+
+        peraltes = Peraltes(eje, plantilla.sct, plantilla.pendiente_carril, 2 * plantilla.carriles_por_lado, 2 * plantilla.carriles_por_lado * plantilla.ancho_carril)
+        # las estaciones donde cambia la sección (inicio y fin de transiciones y de la sobreelevación completa) también van
+        extra = [x for c in peraltes.curvas for x in (c.inicio, c.inicio + c.n, c.completa_desde, c.completa_hasta, c.fin - c.n, c.fin)]
+        estaciones = sorted({round(x, 6) for x in list(estaciones) + extra if eje.inicio - 1e-9 <= x <= eje.fin + 1e-9})
     for e in estaciones:
         s = seccion_terreno(m, eje, e, izq, der)
         if rasante is not None:
             if isinstance(plantilla, PlantillaCarretera):
-                aplicar_plantilla_carretera(s, rasante.elevacion(e), plantilla)
+                aplicar_plantilla_carretera(s, rasante.elevacion(e), plantilla, peraltes.en(e) if peraltes else None)
             else:
                 aplicar_plantilla(s, rasante.elevacion(e), plantilla or Plantilla())
         salida.append(s)
@@ -323,7 +382,9 @@ def dibujar_secciones(
             d.agregar(Polilinea(CAPAS_SECCION["rasante"].nombre, vertices=[(X(o), Y(z)) for o, z in s.rasante]))
         d.agregar(Texto(txt, valor=formato_estacion(s.estacion), posicion=(cx, top - 1.5 * h), altura=h * 1.2, estilo=estilo, alineacion_h="centro", alineacion_v="medio"))
         if s.proyecto:
-            d.agregar(Texto(txt, valor=f"Corte {s.corte:.{decimales}f} m²   Terraplén {s.terraplen:.{decimales}f} m²" + (f"   Despalme {s.despalme:.{decimales}f} m²" if s.despalme else ""), posicion=(cx, base - 2.5 * h), altura=h * 0.9, estilo=estilo, alineacion_h="centro", alineacion_v="medio"))
+            d.agregar(Texto(txt, valor=f"Corte {s.corte:.{decimales}f} m²   Terraplén {s.terraplen:.{decimales}f} m²" + (f"   Despalme {s.despalme:.{decimales}f} m²" if s.despalme else "")
+                            + (f"   S {s.peralte['izq'] * 100:+.1f} % / {s.peralte['der'] * 100:+.1f} %" if s.peralte else "")
+                            + (f"   Amp. {max(s.peralte['amp_izq'], s.peralte['amp_der']):.2f} m" if s.peralte and max(s.peralte['amp_izq'], s.peralte['amp_der']) > 0 else ""), posicion=(cx, base - 2.5 * h), altura=h * 0.9, estilo=estilo, alineacion_h="centro", alineacion_v="medio"))
             ze = _interp(s.proyecto, 0.0)
             if ze is not None:
                 d.agregar(Texto(txt, valor=f"{ze:.{decimales}f}", posicion=(cx + h * 0.5, Y(ze) + h), altura=h * 0.8, estilo=estilo, alineacion_h="izquierda", alineacion_v="abajo"))

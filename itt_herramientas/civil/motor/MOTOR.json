@@ -1,10 +1,10 @@
 {
  "_nota": "Copia fijada de tvcivil. No se edita aquí: se cambia en el repositorio del motor y se vuelve a copiar con actualizar_motor.py.",
  "repo": "cadaritre/TresVizo-Civil",
- "commit": "58cf80ee677a6fbf669aeff6208dda48b9e26f62",
- "version": "0.5.0",
+ "commit": "68e7b68ef273a3a12b9bb3883c770b274da38d45",
+ "version": "0.6.0",
  "archivos": {
-  "__init__.py": "9f6c6de4a046fc1654c7fb2703e0e828ad4c6fc3b93a790cdf2c43f07adb0c84",
+  "__init__.py": "c1d2a1bae43ba6da0253782bcf4a3d82a2898104e2fe878bd14359080b51e48d",
   "angulos.py": "cab30267cd2b09bbb734d0e1af038158b3112ed1f3c25fc1c9ff352637aa2618",
   "anotacion.py": "4da0cdf09d8a02718446257146ecb062890c18069b1402ac3a332378c82ad255",
   "cuadro.py": "9e46fde1d15ca5aa2e68f011ec037e8dfbe4e18a59755f570154bcf58e60edbb",
@@ -20,12 +20,13 @@
   "lotificacion.py": "f006e97e8ee1963af73fc45ad6365c1667186cbbe054d36a074c12aeacc0abad",
   "masa.py": "796e2c5b7add6155b806bef53cae01a000d28d1449b7287d7d482dca65db5f77",
   "memoria.py": "b7862bed86ad1b249e526c03b5575e28d882b66fb5d1015b3a0403e0405af854",
-  "ordenes.py": "1824df3686487a4da05ddd0e3e8b352bdec52c126e600bc1bf69bf5f38534dd9",
+  "ordenes.py": "7eee1993b33e6d524c4dbabcde1575432bb7f9cb66b7a2fef03bb8dbcd2a87ca",
   "perfiles.py": "114e9c6cbe573605cd5c1241bb9adc8a1d10cbf9f46876ce1ab2f8e7ff3e7b77",
   "puntos.py": "e5b9047bf0659e659ccc1f633e90766219b6a8bb452d07f5769963fb408e7491",
-  "secciones.py": "edf61268ffcb1c6c8acedab15295458077a606f7bfaa8aaccea467166937f064",
+  "secciones.py": "44bec5543d80f481c291ed00162962c5107f3f75c36d75e5fa8b0ad2041c895e",
+  "sobreelevacion.py": "6ebc9d576bf38888712fcbed45197fbddf91f237e84891b3ee7f1afe10fb7166",
   "superficie.py": "c2d9519d02dce32c3078acbfb0c8b55639ecda194d36cb1686864a8d8609c37a",
   "tin.py": "6f0c84d3b8fcca5551793c418fc04c32542b831523bde92567281cd5bfd0dc07",
-  "volumenes.py": "80834df9212572c037ca76899d14ea16ed0a809bddfe1c7d097e25240ec05957"
+  "volumenes.py": "0d6e067805af1479503a6be0ad339072df7f9b5d1048dc7c859b579df8726367"
  }
 }

@@ -625,15 +625,41 @@ def _plantilla(pl: dict):
     """La plantilla de la sección: «sencilla» (corona con bombeo) o «carretera» (carriles, acotamientos, cuneta, pavimento, despalme)."""
     try:
         if pl.get("tipo") == "carretera":
+            sct = None
+            c = pl.get("curvas")
+            if c:
+                from .sobreelevacion import ParametrosSCT, Vehiculo
+
+                veh = c.get("vehiculo", "C3")
+                if veh == "otro":
+                    veh = Vehiculo("Vehículo de proyecto", _num(c, "u", 2.60, minimo=1.5, maximo=3.5), _num(c, "ev", 2.60, minimo=1.5, maximo=3.5),
+                                   _num(c, "suma_li2", 66.0, minimo=0.0), _num(c, "q_vuelo", 14.0, minimo=0.0))
+                sct = ParametrosSCT(_num(c, "velocidad", 60.0), _num(c, "smax", 10.0, minimo=2, maximo=12) / 100.0, veh,
+                                    _num(c, "reparto_tangente", 0.6, minimo=0.5, maximo=0.7), bool(c.get("ampliar", True)))
             return PlantillaCarretera(int(_num(pl, "carriles_por_lado", 1, minimo=1, maximo=6)), _num(pl, "ancho_carril", 3.5, minimo=0.5),
                                       _num(pl, "pendiente_carril", -2.0) / 100.0, _num(pl, "acotamiento", 2.5, minimo=0),
                                       _num(pl, "pendiente_acotamiento", -4.0) / 100.0, _num(pl, "cuneta_ancho", 1.0, minimo=0),
                                       _num(pl, "cuneta_profundidad", 0.5, minimo=0), _num(pl, "espesor_pavimento", 0.30, minimo=0),
-                                      _num(pl, "despalme", 0.20, minimo=0), _num(pl, "talud_corte", 1.0, minimo=0.01), _num(pl, "talud_terraplen", 1.5, minimo=0.01))
+                                      _num(pl, "despalme", 0.20, minimo=0), _num(pl, "talud_corte", 1.0, minimo=0.01), _num(pl, "talud_terraplen", 1.5, minimo=0.01),
+                                      sct)
         return Plantilla(_num(pl, "ancho_izq", 3.5, minimo=0), _num(pl, "ancho_der", 3.5, minimo=0), _num(pl, "bombeo", 2.0) / 100.0,
                          _num(pl, "talud_corte", 1.0, minimo=0.01), _num(pl, "talud_terraplen", 1.5, minimo=0.01))
     except ValueError as exc:
         raise ErrorOrden(str(exc)) from None
+
+
+def _curvas_sct(eje, plantilla) -> tuple[list[dict], list[str]]:
+    """Datos de cada curva horizontal (sobreelevación, transición, ampliación) cuando la plantilla los pide."""
+    if not isinstance(plantilla, PlantillaCarretera) or plantilla.sct is None:
+        return [], []
+    from .sobreelevacion import Peraltes
+
+    try:
+        pe = Peraltes(eje, plantilla.sct, plantilla.pendiente_carril, 2 * plantilla.carriles_por_lado, 2 * plantilla.carriles_por_lado * plantilla.ancho_carril)
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+    return [{"pc": c.pc, "pt": c.pt, "radio": c.radio, "grado": c.grado, "lado": "izquierda" if c.izquierda else "derecha", "sobreelevacion": c.sobreelevacion,
+             "transicion": c.transicion, "ampliacion": c.ampliacion} for c in pe.curvas], pe.avisos
 
 
 def secciones_orden(d: dict) -> dict:
@@ -643,7 +669,11 @@ def secciones_orden(d: dict) -> dict:
     izq, der = _num(d, "izquierda", 20.0, minimo=0.1), _num(d, "derecha", 20.0, minimo=0.1)
     ras = _rasante(d)
     plantilla = _plantilla(d.get("plantilla") or {})
-    lista = secciones(tin, eje, eje.estaciones(intervalo), izq, der, ras, plantilla)
+    curvas_h, avisos_h = _curvas_sct(eje, plantilla)
+    try:
+        lista = secciones(tin, eje, eje.estaciones(intervalo), izq, der, ras, plantilla)
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
     esc = _escala(d)
     origen = d.get("origen")
     if not origen:
@@ -652,7 +682,7 @@ def secciones_orden(d: dict) -> dict:
         origen = (max(xs) + 20 * esc.altura("cuadro_dato"), max(ys))
     dib = dibujar_secciones(lista, (float(origen[0]), float(origen[1])), esc, _num(d, "exageracion", 1.0, minimo=0.1, maximo=20), int(d.get("columnas", 4)))
     resumen: dict[str, Any] = {"secciones": len(lista)}
-    avisos = [a for s in lista for a in s.avisos][:30]
+    avisos = avisos_h + [a for s in lista for a in s.avisos][:30]
     if ras is not None:
         renglones = volumenes_por_secciones(lista, _num(d, "abundamiento", 1.0, minimo=0.01))
         resumen.update(corte=renglones[-1].acum_corte, terraplen=renglones[-1].acum_terraplen, ordenada_final=renglones[-1].ordenada,
@@ -663,7 +693,7 @@ def secciones_orden(d: dict) -> dict:
             ys = [e.inicio[1] for e in dib.entidades if hasattr(e, "inicio")] or [float(origen[1])]
             dib.unir(dibujar_tabla_volumenes(renglones, (float(origen[0]), min(ys) - 6 * h), esc))
     _colocar(dib, d.get("esquina_superior"))
-    return {"dxf": _dxf(dib), "resumen": resumen, "avisos": avisos}
+    return {"dxf": _dxf(dib), "resumen": resumen, "curvas": curvas_h, "avisos": avisos}
 
 
 def volumen_superficies(d: dict) -> dict:
@@ -790,8 +820,13 @@ def curva_masa(d: dict) -> dict:
     ras = _rasante(d)
     if ras is None:
         raise ErrorOrden("La curva masa necesita la rasante de proyecto.")
-    lista = secciones(tin, eje, eje.estaciones(_num(d, "intervalo", 20.0, minimo=0.1)), _num(d, "izquierda", 30.0, minimo=0.1),
-                      _num(d, "derecha", 30.0, minimo=0.1), ras, _plantilla(d.get("plantilla") or {}))
+    plantilla = _plantilla(d.get("plantilla") or {})
+    curvas_h, avisos_h = _curvas_sct(eje, plantilla)
+    try:
+        lista = secciones(tin, eje, eje.estaciones(_num(d, "intervalo", 20.0, minimo=0.1)), _num(d, "izquierda", 30.0, minimo=0.1),
+                          _num(d, "derecha", 30.0, minimo=0.1), ras, plantilla)
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
     ren = volumenes_por_secciones(lista, _num(d, "abundamiento", 1.0, minimo=0.01))
     linea = None if d.get("linea") in (None, "", "auto") else _num(d, "linea", 0.0)
     try:
@@ -802,12 +837,12 @@ def curva_masa(d: dict) -> dict:
     dib = dibujar_curva_masa([r.estacion for r in ren], [r.ordenada for r in ren], comp, (float(origen[0]), float(origen[1])), _escala(d),
                              _num(d, "m3_por_mm", 0.0, minimo=0.0) or None)
     _colocar(dib, d.get("esquina_superior"))
-    avisos = [a for s_ in lista for a in s_.avisos][:20] + comp.avisos
+    avisos = avisos_h + [a for s_ in lista for a in s_.avisos][:20] + comp.avisos
     return {"dxf": _dxf(dib), "resumen": {"estaciones": len(ren), "corte": ren[-1].acum_corte, "terraplen": ren[-1].acum_terraplen,
                                          "despalme": ren[-1].acum_despalme, "linea": comp.linea, "puntos": len(comp.puntos), "compensado": comp.compensado,
                                          "sobreacarreo": comp.sobreacarreo, "prestamo": comp.prestamo, "desperdicio": comp.desperdicio},
             "lazos": [{"desde": l.desde, "hasta": l.hasta, "volumen": l.volumen, "distancia": l.distancia_media, "sentido": l.sentido,
-                       "sobreacarreo": l.sobreacarreo} for l in comp.lazos], "avisos": avisos}
+                       "sobreacarreo": l.sobreacarreo} for l in comp.lazos], "curvas": curvas_h, "avisos": avisos}
 
 
 def lotificar_orden(d: dict) -> dict:
