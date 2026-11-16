@@ -173,6 +173,8 @@ def test_puntero_con_referencias_polilinea_y_un_deshacer(tactil, navegar, crear_
     assert puntos[0] == [X0, Y0] and puntos[1] == [X0 + 20, Y0] and puntos[2] == [X0 + 10, Y0 + 10]
     p.locator("#tt-terminar").click()
     expect(p.locator("#tt-pestanas")).to_be_visible()
+    # Sin herramienta no queda la marca de la referencia en la pantalla (iOS: el cuadro magenta se quedaba tras «Terminar»).
+    assert p.locator("#tt-marca").get_attribute("visibility") == "hidden" and p.locator("#tt-lectura-snap").is_hidden()
     assert entidades(p) == antes + 1
     p.locator("#tt-deshacer").click()
     p.wait_for_timeout(400)

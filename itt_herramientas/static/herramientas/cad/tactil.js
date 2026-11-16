@@ -317,6 +317,10 @@
   function ocultarPuntero() {
     puntero.visible = false; puntero.snap = null;
     $("tt-puntero").setAttribute("visibility", "hidden");
+    // La marca de la referencia es hija del puntero, pero en SVG un hijo con visibility="visible" se sigue viendo aunque el grupo esté
+    // oculto: se apaga aparte (si no, quedaba en su lugar de la pantalla tras «Terminar» o al guardar).
+    $("tt-marca").setAttribute("visibility", "hidden");
+    $("tt-lectura-snap").hidden = true;
     $("tt-lectura").hidden = true;
     pintar();
   }
@@ -426,7 +430,7 @@
       for (const p of herr.puntos) { const [x, y] = P(p); el("circle", { class: "tt-vertice", r: 5, cx: x, cy: y }, vert); }
       if (herr.def.previa) { try { herr.def.previa(previa, herr.puntos, cursor, herr); } catch (_) { /* previa incompleta */ } }
     }
-    if (!puntero.visible) return;
+    if (!puntero.visible) { $("tt-marca").setAttribute("visibility", "hidden"); return; }
     const [px, py] = posPunta(), [ax, ay] = posAsa();
     const ang = Math.atan2(py - ay, px - ax);
     $("tt-astil").setAttribute("x1", ax + Math.cos(ang) * 26); $("tt-astil").setAttribute("y1", ay + Math.sin(ang) * 26);
