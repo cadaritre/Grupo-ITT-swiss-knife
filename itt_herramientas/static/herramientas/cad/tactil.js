@@ -887,7 +887,7 @@
     const n = seleccion.size;
     $("tt-seleccion").hidden = !n || !!herr;
     $("tt-pestanas").hidden = (!!n || !!herr);
-    $("tt-seleccion-cuenta").textContent = n === 1 ? `${NOMBRE_TIPO[[...seleccion.values()][0].tipo] || "Objeto"} elegido` : `${n} objetos elegidos`;
+    $("tt-seleccion-cuenta").textContent = n === 1 ? `1 objeto elegido · ${NOMBRE_TIPO[[...seleccion.values()][0].tipo] || "Objeto"}` : `${n} objetos elegidos`;
     for (const b of document.querySelectorAll("#tt-seleccion-fila [data-editar]")) {
       const unico = b.dataset.editar === "desfasar" || b.dataset.editar === "info";
       b.disabled = !n || (unico && n !== 1) || (!est.editable && !["info"].includes(b.dataset.editar));
@@ -999,6 +999,13 @@
     if (c.Rgb) return `RGB ${c.Rgb.r}, ${c.Rgb.g}, ${c.Rgb.b}`;
     return "Por capa";
   }
+  // Una muestra de color como SVG con `fill` (atributo de presentación): la CSP de la página no deja estilos en línea y WebKit los
+  // rechaza también cuando se ponen desde el script.
+  function muestra(color, clase = "tt-color") {
+    const s = document.createElementNS(NS, "svg"); s.setAttribute("class", clase); s.setAttribute("viewBox", "0 0 10 10"); s.setAttribute("aria-hidden", "true");
+    const r = document.createElementNS(NS, "rect"); r.setAttribute("width", "10"); r.setAttribute("height", "10"); r.setAttribute("rx", "2"); r.setAttribute("fill", color);
+    s.append(r); return s;
+  }
   let colorNuevo = null;                  // color de lo que se dibuja (null = por capa)
   function paleta(actual, alElegir) {
     const cont = nodo("div");
@@ -1011,7 +1018,7 @@
     const p = nodo("div", "tt-paleta");
     const indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 250, ...Array.from({ length: 24 }, (_, i) => 10 + i * 10), ...Array.from({ length: 24 }, (_, i) => 14 + i * 10), 251, 252, 253, 254, 255, 30, 40, 50, 60, 70, 80].slice(0, 70);
     for (const i of [...new Set(indices)]) {
-      const b = nodo("button"); b.type = "button"; b.style.background = aciRGB(i); b.setAttribute("aria-label", `Color ${i}`); b.title = `Color ${i}`;
+      const b = nodo("button"); b.type = "button"; b.append(muestra(aciRGB(i))); b.setAttribute("aria-label", `Color ${i}`); b.title = `Color ${i}`;
       b.setAttribute("aria-pressed", String(actual === i));
       b.addEventListener("click", () => alElegir(i)); p.append(b);
     }
@@ -1039,7 +1046,7 @@
     const ul = nodo("ul", "tt-lista");
     for (const c of capas) {
       const li = nodo("li", "tt-fila"); if (c.actual) li.setAttribute("aria-current", "true");
-      const m = nodo("span", "tt-muestra"); m.style.background = aciRGB(c.color);
+      const m = muestra(aciRGB(c.color), "tt-muestra");
       const txt = nodo("button", "tt-fila__texto tt-fila--boton"); txt.type = "button";
       txt.append(nodo("strong", "", c.nombre), nodo("span", "", c.actual ? "Capa actual: lo nuevo se dibuja aquí" : (c.encendida ? "Toca para dibujar en esta capa" : "Apagada")));
       txt.disabled = !est.editable;
@@ -1093,7 +1100,7 @@
     for (const c of capas) {
       const li = nodo("li", "tt-fila");
       const b = nodo("button", "tt-fila__texto tt-fila--boton"); b.type = "button";
-      const m = nodo("span", "tt-muestra"); m.style.background = aciRGB(c.color);
+      const m = muestra(aciRGB(c.color), "tt-muestra");
       b.append(nodo("strong", "", c.nombre));
       b.addEventListener("click", async () => {
         try { await propiedad(handles, "layer", c.nombre); aviso(`Ahora en la capa ${c.nombre}`); cerrarHojas(); await refrescarSeleccion(); }
