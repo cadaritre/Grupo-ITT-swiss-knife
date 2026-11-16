@@ -12,9 +12,11 @@
       <div class="tv-encabezado__titulos"><h1 id="rep-titulo-lista">Reportes fotográficos</h1></div>
       <div class="tv-acciones"><button type="button" id="rep-nuevo" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
     </header>
+    <ul id="rep-avisos" class="itt-avisos-doc" hidden></ul>
     <div id="rep-herramientas-lista" hidden>{% include "herramientas/pwa/_lista_herramientas.html" with p="rep" marcador="Buscar por nombre, cliente o autor" con_estado=True titulo="Nombre" %}</div>
-    <div id="rep-lista-vacia" class="itt-vacio" hidden>{% icono "camera" %}<p>Aún no tienes reportes</p><span>Funciona sin señal: las fotos se suben solas.</span><button type="button" class="tv-boton" id="rep-nuevo-vacio">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
+    <div id="rep-lista-vacia" class="itt-vacio" hidden>{% icono "camera" %}<p>Aún no hay reportes del equipo</p><span>Funciona sin señal: las fotos se suben solas.</span><button type="button" class="tv-boton" id="rep-nuevo-vacio">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
     <ul id="rep-lista" class="cot-lista"></ul>
+    <p class="itt-papelera-enlace"><a href="{{ urls.papelera }}" id="rep-papelera">{% icono "trash-2" %}<span>Papelera</span></a></p>
   </section>
 
   <section id="rep-vista-editor" aria-labelledby="rep-titulo-editor" hidden>
@@ -24,9 +26,11 @@
     </div>
     <h1 id="rep-titulo-editor" class="cot-titulo-doc">Reporte</h1>
     <p id="rep-autor" class="itt-autoria" hidden></p>
+    <p id="rep-bloqueo" class="itt-bloqueo" role="status" hidden></p>
+    <p id="rep-recuperacion" class="itt-recuperacion" role="status" hidden></p>
     <p id="rep-aviso-doc" class="tv-alerta tv-alerta--aviso" hidden></p>
 
-    <details class="cot-paso" id="rep-paso-datos" open>
+    <details class="cot-paso" id="rep-paso-datos" open data-editable>
       <summary>{% icono "file-text" %}<span>Datos del reporte</span></summary>
       <div class="cot-paso__cuerpo">
         <div class="tv-campo"><label for="r-titulo">Nombre del reporte</label><input id="r-titulo" type="text" maxlength="200" autocomplete="off"></div>
@@ -46,7 +50,7 @@
       </div>
     </details>
 
-    <section class="rep-captura" aria-labelledby="rep-titulo-captura">
+    <section class="rep-captura" aria-labelledby="rep-titulo-captura" data-editable>
       <div class="rep-fotos-cabecera">
         <h2 id="rep-titulo-captura">{% icono "images" %}<span>Fotos</span> <span id="rep-contador" class="cot-insignia"></span></h2>
         <button type="button" id="rep-ordenar" class="tv-boton tv-boton--secundario" aria-pressed="false" hidden>{% icono "layout-grid" %}<span>Ordenar</span></button>
@@ -131,6 +135,7 @@
     <div class="tv-hoja__asa" aria-hidden="true"></div>
     <div class="tv-hoja__cabecera"><h2 id="dlg-mas-titulo">Más acciones</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
     <div class="cot-menu-acciones">
+      <button type="button" id="mas-historial" class="cot-menu-accion">{% icono "history" %}<span>Historial de versiones</span></button>
       <button type="button" id="mas-borrar" class="cot-menu-accion cot-menu-accion--peligro">{% icono "trash-2" %}<span>Eliminar reporte</span></button>
     </div>
   </div>
@@ -143,6 +148,7 @@
 <link rel="stylesheet" href="{% static 'herramientas/reportes/reportes.css' %}">
 <script src="{% static 'herramientas/offline/ayudas.js' %}"></script>
 <script src="{% static 'herramientas/offline/documentos.js' %}"></script>
+<script src="{% static 'herramientas/offline/compartido.js' %}"></script>
 <script src="{% static 'herramientas/offline/vista-pdf.js' %}"></script>
 <script src="{% static 'herramientas/offline/listas.js' %}"></script>
 <script src="{% static 'herramientas/offline/combobox.js' %}"></script>

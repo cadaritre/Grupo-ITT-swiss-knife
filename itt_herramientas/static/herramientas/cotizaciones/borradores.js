@@ -1,20 +1,21 @@
 /* Capa de datos de las cotizaciones en el teléfono (arquitectura §18.3, herramientas-web.md §4.1).
  *
  * Los borradores y su sincronización (idempotente, con copia ante un conflicto) son los de offline/documentos.js; aquí queda lo
- * propio de una cotización: el contexto en caché (machotes, valores del perfil, folio), cotización nueva o duplicada y las fotos.
+ * propio de una cotización: el contexto en caché (machotes, valores del perfil), cotización nueva o duplicada y las fotos.
+ * El folio lo asigna el servidor al sincronizar (es único en la empresa): una cotización nueva muestra «Folio al sincronizar».
  */
 (function (global) {
   "use strict";
   const ITT = (global.ITT = global.ITT || {});
   const cola = () => ITT.cola;
   const docs = ITT.crearDocumentos({ tipo: "cotizacion", lista: "cotizaciones",
-    avisoCopia: "Se guardó como copia porque esta cotización cambió en otro dispositivo mientras la editabas aquí." });
+    avisoCopia: "Esta cotización cambió mientras la editabas sin conexión: tu versión quedó aparte, con su propio folio." });
   const { pedir, url, copiar } = docs;
   const dos = (n) => String(n).padStart(2, "0");
   const hoy = () => { const d = new Date(); return `${dos(d.getDate())}/${dos(d.getMonth() + 1)}/${d.getFullYear()}`; };
   const iguales = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-  // -- Contexto (machotes, valores del perfil, siguiente folio): se guarda para trabajar sin conexión -----------------------
+  // -- Contexto (machotes, valores del perfil): se guarda para trabajar sin conexión ------------------------------------------
   async function contexto() {
     const cuenta = await cola().ajuste("cuenta", null);
     try {
@@ -28,31 +29,18 @@
     }
   }
 
-  function folioSiguiente(ctx, locales) {
-    const ano = new Date().getFullYear();
-    const patron = new RegExp(`^COT-${ano}-(\\d{1,6})$`);
-    let mayor = 0;
-    const m0 = patron.exec(ctx.folio || "");
-    if (m0) mayor = Number(m0[1]) - 1;
-    for (const b of locales) { const m = patron.exec((b.datos && b.datos.quote_number) || ""); if (m) mayor = Math.max(mayor, Number(m[1])); }
-    return `COT-${ano}-${String(mayor + 1).padStart(4, "0")}`;
-  }
-
   // -- Registros --------------------------------------------------------------------------------------------------------------
   const listar = docs.listar;
 
   async function nuevo(ctx, base) {
-    const locales = await listar();
-    const datos = Object.assign(copiar(ctx.base), base || {}, { items: [], images: [], spelling_checked: false });
-    if (!base || !base.quote_number) datos.quote_number = folioSiguiente(ctx, locales);
+    const datos = Object.assign(copiar(ctx.base), base || {}, { items: [], images: [], spelling_checked: false, quote_number: "" });
     if (!base || !base.quote_date) datos.quote_date = hoy();
     return docs.crear(datos);
   }
 
   async function duplicar(ctx, origen) {
-    const locales = await listar();
     const datos = copiar(origen.datos);
-    datos.quote_number = folioSiguiente(ctx, locales);
+    datos.quote_number = "";
     datos.quote_date = hoy();
     datos.spelling_checked = false;
     return docs.crear(datos, { miniaturas: copiar(origen.miniaturas || {}) });
@@ -84,5 +72,5 @@
     return { sha256: r.sha256, miniatura: await miniatura(r.blob) };
   }
 
-  ITT.cot = { iniciar: docs.iniciar, pedir, url, contexto, listar, nuevo, guardar: docs.guardar, duplicar, borrar: docs.borrar, agregarFoto, sincronizar: docs.sincronizar, localDe: docs.localDe, folioSiguiente, copiar, iguales, hoy, get urls() { return docs.urls; } };
+  ITT.cot = { docs, iniciar: docs.iniciar, pedir, url, contexto, listar, nuevo, guardar: docs.guardar, duplicar, borrar: docs.borrar, agregarFoto, sincronizar: docs.sincronizar, localDe: docs.localDe, refrescar: docs.refrescar, copiar, iguales, hoy, get urls() { return docs.urls; } };
 })(typeof self !== "undefined" ? self : this);

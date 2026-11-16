@@ -107,7 +107,7 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
 
     def resumen(obj, **extra):
         return {"servidor_id": str(obj.id), "revision": obj.revision, "folio": getattr(obj, "folio", ""), "autor": autoria.fila(obj),
-                "conflicto": obj.conflicto, **extra}
+                "conflicto": obj.conflicto, "modificado": {"nombre": obj.modificado_por_nombre or obj.autor_nombre, "fecha": obj.actualizada.isoformat()}, **extra}
 
     with transaction.atomic():
         if servidor_id is not None:
@@ -133,6 +133,8 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
         if guardados == nuevos:
             return {"resultado": "sin_cambios", **resumen(actual)}
         otro = documentos.bloqueado_por_otro(actual, usuario, sesion)
+        if otro == "Tú, en otra ventana" and not sesion:
+            otro = ""                                                     # lo editado sin conexión en este teléfono, con la misma cuenta editando: se fusiona
         if otro:
             if sesion:                                                    # tomaron el control: sus cambios, a recuperación
                 documentos.guardar_recuperacion(actual, usuario, nuevos, revision_base)

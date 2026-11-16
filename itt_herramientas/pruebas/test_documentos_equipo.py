@@ -410,3 +410,24 @@ def test_al_eliminar_una_cuenta_sus_documentos_se_quedan(cliente_de, ana, beto):
     c = Cotizacion.objects.get(pk=a["servidor_id"])
     assert c.autor_nombre == "Ana López" and c.bloqueo_sesion == "" and not AvisoDocumento.objects.filter(cuenta_id=c.cuenta_id).exists()
     assert cliente_de(beto).get(url("cotizaciones_detalle", pk=c.pk)).json()["autor"]["nombre"] == "Ana López"
+
+
+def test_lo_editado_sin_conexion_con_la_misma_cuenta_editando_se_fusiona(cliente_de, ana, beto):
+    """Ana editó sin señal; al volver, su propia página ya tomó el bloqueo: no es «otra persona», se fusiona."""
+    ca = cliente_de(ana)
+    a = sinc_cot(ca, uuid.uuid4(), _datos_cot(ana, project_title="Deslinde", client_name="Agrícola"))
+    sinc_cot(cliente_de(beto), uuid.uuid4(), {**Cotizacion.objects.get(pk=a["servidor_id"]).datos, "project_title": "Deslinde norte"}, a["servidor_id"], 1)
+    bloqueo(ca, a["servidor_id"], "tomar", SESION_A)
+    r = sinc_cot(ca, uuid.uuid4(), {**Cotizacion.objects.get(pk=a["servidor_id"]).datos, "project_title": "Deslinde", "client_name": "Agrícola del Norte"},
+                 a["servidor_id"], 1)
+    assert r["resultado"] == "fusionada" and Cotizacion.objects.count() == 1
+
+
+@pytest.mark.parametrize("pagina,prefijo", [("cotizaciones", "cot"), ("reportes", "rep"), ("croquis", "cq")])
+def test_las_paginas_de_campo_traen_lo_del_trabajo_en_equipo(cliente_de, ana, pagina, prefijo):
+    """El HTML (el mismo para todas las cuentas) trae las URL del bloqueo, el historial y la recuperación, las zonas editables y el script."""
+    html = cliente_de(ana).get(url(pagina)).content.decode()
+    for nombre in ("bloqueo", "versiones", "version", "restaurar-version", "recuperacion", "avisos", "papelera"):
+        assert f'data-url-{nombre}="' in html, nombre
+    assert f'id="{prefijo}-bloqueo"' in html and f'id="{prefijo}-recuperacion"' in html and f'id="{prefijo}-avisos"' in html
+    assert "data-editable" in html and 'id="mas-historial"' in html and "offline/compartido." in html

@@ -3,7 +3,9 @@
  *
  * Es «sucio» mientras el servidor no tenga su última versión; ese contador entra en «N pendientes» y en el aviso antes de
  * cerrar. La sincronización es idempotente (llave `id_cliente`) y NUNCA pisa: si el servidor cambió desde la revisión en que
- * se basó el teléfono, la versión del teléfono se guarda como copia.
+ * se basó el teléfono, se fusiona si no choca («fusionada») y si choca queda como copia en conflicto. Los documentos son del equipo:
+ * si esta página editaba con el bloqueo y otra persona tomó el control, lo que no se había subido queda en el servidor como borrador
+ * de recuperación («recuperacion») y aquí se vuelve a la versión del servidor.
  *
  *   const docs = ITT.crearDocumentos({ tipo: "reporte", urls: {sincronizar, lista, detalle, …}, aviso: "…" });
  */
@@ -75,6 +77,7 @@
     const avisar = (detalle) => document.dispatchEvent(new CustomEvent("itt:doc", { detail: Object.assign({ tipo }, detalle) }));
     let sincronizando = false;
     let repetir = false;
+    let esperando = [];                                          // quienes esperan a que termine el ciclo en curso (p. ej. `localDe`)
 
     async function listar() {
       const cuenta = await cola().ajuste("cuenta", null);
@@ -107,12 +110,36 @@
       ITT.refrescarCola && ITT.refrescarCola();
     }
 
+    /** Lo que fija el servidor de cada documento: autor, «modificada por», bloqueo, copia en conflicto, permisos y PDF. */
+    function delServidor(fila, previo) {
+      return { autor: fila.autor || (previo && previo.autor) || null, pdf_revision: fila.pdf_revision == null ? null : fila.pdf_revision,
+        modificado: fila.modificado || null, bloqueo: fila.bloqueo || null, conflicto: fila.conflicto || "", puede_borrar: fila.puede_borrar !== false };
+    }
+
     function aRegistro(fila, datos, cuenta, previo) {
       return Object.assign({ tipo, miniaturas: {}, aviso: "", creada: Date.parse(fila.actualizada) || Date.now() }, previo || {}, {
-        id: previo ? previo.id : fila.id, cuenta, servidor_id: fila.id, revision_base: fila.revision, datos, sucio: false, borrada: false,
-        autor: fila.autor || (previo && previo.autor) || null, pdf_revision: fila.pdf_revision == null ? null : fila.pdf_revision,
+        id: previo ? previo.id : fila.id, cuenta, servidor_id: fila.id, revision_base: fila.revision, datos, sucio: false, borrada: false, error: "",
         actualizada: previo ? previo.actualizada : Date.parse(fila.actualizada) || Date.now(),
-      });
+      }, delServidor(fila, previo));
+    }
+
+    /** Vuelve a traer un documento del servidor (si aquí no tiene cambios sin subir). Devuelve el registro, actualizado o no. */
+    async function refrescar(id) {
+      const local = await cola().borrador(id);
+      if (!local || !local.servidor_id || local.sucio) return local;
+      const detalle = await pedir(url("detalle", local.servidor_id));
+      const cuenta = await cola().ajuste("cuenta", null);
+      const nuevo = aRegistro(detalle, detalle.datos, cuenta, { id: local.id, miniaturas: local.miniaturas, aviso: local.aviso, creada: local.creada });
+      nuevo.recuperacion = detalle.recuperacion || null;
+      await cola().guardarBorrador(nuevo);
+      return nuevo;
+    }
+
+    /** Guarda en el teléfono lo que respondió el servidor tras restaurar o recuperar (la fila con sus datos). */
+    async function guardarDelServidor(id, fila) {
+      const local = await cola().borrador(id);
+      const cuenta = await cola().ajuste("cuenta", null);
+      await cola().guardarBorrador(aRegistro(fila, fila.datos, cuenta, local ? { id: local.id, miniaturas: local.miniaturas, creada: local.creada } : { id }));
     }
 
     /** Trae del servidor lo que el teléfono no tiene o tiene desactualizado (y no tiene cambios propios sin subir). */
@@ -124,11 +151,11 @@
       for (const fila of filas) {
         const local = porServidor.get(fila.id);
         if (local && (local.sucio || local.revision_base >= fila.revision)) {
-          // Ya está al día (o con cambios propios): solo se completa lo que fija el servidor (quién lo hizo y de qué versión es su PDF).
-          const extra = { autor: fila.autor || local.autor || null, pdf_revision: fila.pdf_revision == null ? null : fila.pdf_revision };
-          if (JSON.stringify([local.autor || null, local.pdf_revision == null ? null : local.pdf_revision]) !== JSON.stringify([extra.autor, extra.pdf_revision])) {
-            await cola().actualizarBorrador(local.id, (x) => Object.assign(x, extra));
-          }
+          // Ya está al día (o con cambios propios): solo se completa lo que fija el servidor (autor, quién lo modificó, bloqueo, PDF).
+          const extra = delServidor(fila, local);
+          const antes = { autor: local.autor || null, pdf_revision: local.pdf_revision == null ? null : local.pdf_revision, modificado: local.modificado || null,
+            bloqueo: local.bloqueo || null, conflicto: local.conflicto || "", puede_borrar: local.puede_borrar !== false };
+          if (JSON.stringify(antes) !== JSON.stringify(extra)) await cola().actualizarBorrador(local.id, (x) => Object.assign(x, extra));
           continue;
         }
         const detalle = await pedir(url("detalle", fila.id));
@@ -144,22 +171,51 @@
     async function subirUno(b, cuenta) {
       if (b.borrada) {
         try { await pedir(url("detalle", b.servidor_id), { metodo: "DELETE" }); }
-        catch (e) { if (e.estado !== 404) throw e; }
+        catch (e) {
+          if (e.estado === 409) {                                     // sin permiso o alguien lo edita: vuelve a la lista, con el motivo
+            await cola().actualizarBorrador(b.id, (x) => Object.assign(x, { borrada: false, sucio: false, error: e.mensaje }));
+            avisar({ tipo_evento: "no_borrado", id: b.id, mensaje: e.mensaje });
+            return;
+          }
+          if (e.estado !== 404) throw e;
+        }
         await cola().actualizarBorrador(b.id, (x) => (x.borrada ? null : x));
         return;
       }
       const enviado = b.actualizada;
       const datosEnviados = copiar(b.datos);
-      const r = await pedir(urls.sincronizar, { metodo: "POST", json: { id_cliente: b.id, servidor_id: b.servidor_id, revision_base: b.revision_base, datos: datosEnviados } });
+      const r = await pedir(urls.sincronizar, { metodo: "POST", json: { id_cliente: b.id, servidor_id: b.servidor_id, revision_base: b.revision_base, datos: datosEnviados, sesion: b.sesion || "" } });
+      if (r.resultado === "recuperacion") {
+        // Otra persona tomó el control: lo de aquí quedó en el servidor como borrador de recuperación; el teléfono vuelve a la versión vigente.
+        const detalle = await pedir(url("detalle", r.servidor_id));
+        const actual = await cola().borrador(b.id);
+        const nuevo = aRegistro(detalle, detalle.datos, cuenta, actual ? { id: actual.id, miniaturas: actual.miniaturas, creada: actual.creada } : { id: b.id });
+        nuevo.recuperacion = detalle.recuperacion || null;
+        await cola().guardarBorrador(nuevo);
+        avisar({ tipo_evento: "recuperacion", id: b.id, quien: r.quien });
+        return;
+      }
+      if (r.resultado === "fusionada") {
+        // El servidor cambió y no chocaba: guardó la fusión. Si aquí no se editó mientras tanto, se toma la fusión.
+        await cola().actualizarBorrador(b.id, (x) => {
+          x.servidor_id = r.servidor_id; x.revision_base = r.revision; x.error = ""; x.sesion = "";
+          if (r.modificado) x.modificado = r.modificado;
+          if (x.actualizada === enviado) { x.datos = r.datos; x.sucio = false; }
+          return x;
+        });
+        avisar({ tipo_evento: "fusionada", id: b.id });
+        return;
+      }
       if (r.resultado === "copia") {
         // El servidor cambió desde la revisión del teléfono: la versión del teléfono quedó como copia (nada se perdió ni se pisó).
         const original = await pedir(url("detalle", r.copia_de));
         const servidorCopia = await pedir(url("detalle", r.servidor_id));
         const actual = await cola().borrador(b.id);
         const cambioDespues = actual && actual.actualizada !== enviado;
-        const copia = { id: r.servidor_id, tipo, cuenta, servidor_id: r.servidor_id, revision_base: r.revision, datos: cambioDespues ? actual.datos : servidorCopia.datos, autor: servidorCopia.autor || r.autor || null,
+        const copia = Object.assign({ id: r.servidor_id, tipo, cuenta, servidor_id: r.servidor_id, revision_base: r.revision, datos: cambioDespues ? actual.datos : servidorCopia.datos,
           sucio: !!cambioDespues, borrada: false, creada: Date.now(), actualizada: Date.now(), miniaturas: actual ? actual.miniaturas : {},
-          aviso: config.avisoCopia || "Se guardó como copia porque este documento cambió en otro dispositivo mientras lo editabas aquí." };
+          aviso: `${r.conflicto || "Copia en conflicto"}. ${config.avisoCopia || "Este documento cambió mientras lo editabas sin conexión: tu versión quedó aparte, nada se perdió."}` },
+        delServidor(servidorCopia));
         await cola().guardarBorrador(copia);
         await cola().guardarBorrador(aRegistro(original, original.datos, cuenta, actual ? { id: actual.id, miniaturas: actual.miniaturas } : { id: b.id }));
         avisar({ tipo_evento: "copia", id: b.id, copia: copia.id });
@@ -168,14 +224,17 @@
       await cola().actualizarBorrador(b.id, (x) => {
         x.servidor_id = r.servidor_id; x.revision_base = r.revision; x.error = "";
         if (r.autor) x.autor = r.autor;
+        if (r.modificado) x.modificado = r.modificado;
+        if (r.folio && x.datos && tipo === "cotizacion" && x.datos.quote_number !== r.folio) x.datos.quote_number = r.folio;     // el folio lo asigna el servidor
         if (x.actualizada === enviado) x.sucio = false;       // si se editó mientras se subía, sigue pendiente
         return x;
       });
     }
 
-    /** Ciclo de sincronización: sube los borradores sucios y baja lo nuevo. Lo llama ui.js con cada disparador de subida. */
+    /** Ciclo de sincronización: sube los borradores sucios y baja lo nuevo. Lo llama ui.js con cada disparador de subida.
+     * Si ya hay un ciclo en curso, se repite al terminar y la promesa se cumple cuando acaba (así `localDe` encuentra lo que se bajó). */
     async function sincronizar() {
-      if (sincronizando) { repetir = true; return; }                // hubo cambios durante el ciclo: se repite al terminar
+      if (sincronizando) { repetir = true; return new Promise((listo) => esperando.push(listo)); }
       if (!navigator.onLine || !urls.sincronizar) return;
       if (await cola().ajuste("sesion_caducada", false)) return;
       sincronizando = true;
@@ -194,7 +253,10 @@
       } finally { sincronizando = false; }
       ITT.refrescarCola && ITT.refrescarCola();
       avisar({ tipo_evento: "sincronizado" });
-      if (repetir) { repetir = false; return sincronizar(); }
+      if (repetir) { repetir = false; await sincronizar(); }
+      const listos = esperando;
+      esperando = [];
+      for (const listo of listos) listo();
     }
 
     function iniciar(direcciones) {
@@ -210,7 +272,7 @@
       return id;
     }
 
-    return { tipo, iniciar, pedir, url, listar, crear, guardar, borrar, sincronizar, copiar, localDe, get urls() { return urls; } };
+    return { tipo, iniciar, pedir, url, listar, crear, guardar, borrar, sincronizar, copiar, localDe, refrescar, guardarDelServidor, get urls() { return urls; } };
   }
 
   ITT.crearDocumentos = crearDocumentos;

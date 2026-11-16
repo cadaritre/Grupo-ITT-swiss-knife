@@ -95,7 +95,7 @@
     if (propio) return { nombre: propio.nombre || "", correo: propio.correo || "", creada: reg ? reg.creada : Date.now() };
     return null;
   }
-  /** Pinta la línea de autoría (nombre, correo y fecha de creación) en `nodo`; la oculta si no se sabe. */
+  /** Pinta la línea de autoría (nombre, correo, fecha de creación y «Modificado por») en `nodo`; la oculta si no se sabe. */
   function autoria(nodo, reg, propio) {
     if (!nodo) return;
     limpiar(nodo);
@@ -104,12 +104,16 @@
     if (!a) return;
     nodo.append(icono("user-round"), h("span", {}, h("strong", {}, a.nombre || a.correo || "Cuenta eliminada"), a.correo && a.nombre ? " " : null,
       a.correo && a.nombre ? h("span", { class: "itt-autoria__correo" }, a.correo) : null),
-      h("span", { class: "itt-autoria__fecha" }, `Creado ${fechaCorta(a.creada)}`));
+      h("span", { class: "itt-autoria__fecha" }, `Creado ${fechaCorta(a.creada)}`),
+      reg && reg.modificado && reg.modificado.nombre ? h("span", { class: "itt-autoria__fecha", "data-modificado": "1" }, `Modificad${reg.tipo === "cotizacion" ? "a" : "o"} por ${reg.modificado.nombre} · ${fechaCorta(reg.modificado.fecha)}`) : null);
   }
-  /** Texto corto de autoría para una tarjeta de la lista: «Ana López · 14 nov 2026». */
+  /** Texto corto de autoría para una tarjeta de la lista: «Ana López · modificado por Beto · 16 nov 2026» (fecha del último cambio). */
   function autoriaCorta(reg, propio) {
     const a = autorDe(reg, propio);
-    return a ? [a.nombre || a.correo, fechaCorta(a.creada)].filter(Boolean).join(" · ") : "";
+    if (!a) return "";
+    const m = reg && reg.modificado;
+    const otro = m && m.nombre && m.nombre !== a.nombre ? `modificad${reg.tipo === "cotizacion" ? "a" : "o"} por ${m.nombre}` : "";
+    return [a.nombre || a.correo, otro, fechaCorta(m && m.fecha ? m.fecha : a.creada)].filter(Boolean).join(" · ");
   }
 
   ITT.ui = { h, limpiar, mensaje, confirmar, fechaAIso, fechaAEs, fechaCorta, icono, boton, autoria, autoriaCorta };

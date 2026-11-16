@@ -27,6 +27,21 @@
 
   const mensaje = (texto, tipo) => ITT.ui.mensaje("cot-mensaje", texto, tipo);
 
+  // Cotizaciones de la empresa: bloqueo de edición, historial y recuperación (offline/compartido.js).
+  const comp = ITT.compartido.crear({
+    tipo: "cotizacion", prefijo: "cot", docs: ITT.cot.docs, articulo: "la", nombre: "cotización", alMensaje: (t, tipo) => mensaje(t, tipo),
+    alRecargar: async (nuevo) => { if (reg && nuevo.id === reg.id) { reg = nuevo; pintarCampos(); programarVistaPrevia(); } },
+    resumen: resumenVersion,
+    pdfVersion: (id, vid) => (urls["version-pdf"] || "").replace("00000000-0000-0000-0000-000000000000", id).replace("999999999", String(vid)),
+  });
+  function resumenVersion(d) {
+    const t = T.totales(d);
+    const fila = (k, v) => h("div", {}, h("dt", {}, k), h("dd", {}, v || "—"));
+    return [h("dl", { class: "itt-historial__datos" }, fila("Folio", d.quote_number), fila("Fecha", d.quote_date), fila("Cliente", d.client_name), fila("Contacto", d.contact),
+      fila("Proyecto", d.project_title), fila("Total", `${dinero(t.total)} ${d.currency || ""}`)),
+      h("ol", { class: "itt-historial__conceptos" }, (d.items || []).map((it, i) => h("li", {}, h("span", {}, it.title || `Concepto ${i + 1}`), h("span", { class: "tv-tenue" }, dinero(t.importes[i])))))];
+  }
+
 
   function numero(texto) {
     let t = String(texto).trim().replace(/\s/g, "").replace(/^\$/, "");
@@ -49,6 +64,7 @@
   }
 
   function programarGuardado() {
+    if (comp.soloLectura) return;
     reg.sucio = true;
     estadoGuardado();
     clearTimeout(temporizador);
@@ -57,9 +73,9 @@
   async function guardarYa() {
     clearTimeout(temporizador);
     temporizador = null;
-    if (!reg) return;
+    if (!reg || comp.soloLectura) return;
     const snapshot = ITT.cot.copiar(reg.datos);
-    const nuevo = await ITT.cot.guardar(reg.id, snapshot, { miniaturas: reg.miniaturas, aviso: reg.aviso });
+    const nuevo = await ITT.cot.guardar(reg.id, snapshot, { miniaturas: reg.miniaturas, aviso: reg.aviso, sesion: comp.sesion });
     if (nuevo && reg && nuevo.id === reg.id) { reg.actualizada = nuevo.actualizada; }
     estadoGuardado();
     ITT.refrescarCola && (await ITT.refrescarCola());
@@ -119,7 +135,7 @@
 
   function titulo() {
     const d = reg.datos;
-    $("cot-titulo-editor").textContent = [d.quote_number, d.project_title].filter(Boolean).join(" · ") || "Cotización";
+    $("cot-titulo-editor").textContent = [d.quote_number || "Folio al sincronizar", d.project_title].filter(Boolean).join(" · ") || "Cotización";
   }
 
   // -- Lista -------------------------------------------------------------------------------------------------------------------
@@ -136,6 +152,7 @@
   async function pintarLista() {
     const lista = $("cot-lista");
     controlLista.desdeUrl();
+    comp.avisos();
     const todos = await ITT.cot.listar();
     controlLista.ponerClientes(todos.slice().sort((a, b) => b.actualizada - a.actualizada).map((b) => b.datos.client_name));
     const visibles = controlLista.aplicar(todos);
@@ -144,7 +161,7 @@
     $("cot-herramientas-lista").hidden = todos.length === 0;
     for (const b of visibles) {
       const t = T.totales(b.datos);
-      const folio = b.datos.quote_number || "Sin folio";
+      const folio = b.datos.quote_number || "Folio al sincronizar";
       const estado = b.error ? h("span", { class: "itt-estado", "data-estado": "error" }, icono("triangle-alert"), h("span", {}, "No se pudo subir"))
         : b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("cloud-off"), h("span", {}, "Sin subir")) : null;
       lista.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "", "data-seleccionada": controlLista.seleccion.has(b.id) ? "1" : "" },
@@ -153,14 +170,16 @@
           h("span", { class: "cot-tarjeta__folio" }, folio),
           h("strong", { class: "cot-tarjeta__titulo" }, b.datos.project_title || "Sin título"),
           h("span", { class: "cot-tarjeta__cliente" }, b.datos.client_name || "Sin cliente"),
-          h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor))),
+          h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor)),
+          b.conflicto ? h("span", { class: "cot-tarjeta__conflicto" }, b.conflicto) : null),
         h("div", { class: "cot-tarjeta__pie" },
           h("span", { class: "cot-tarjeta__total" }, dinero(t.total), h("small", {}, ` ${b.datos.currency || ""}`)),
           estado,
-          b.aviso ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia por conflicto")) : null,
+          b.aviso || b.conflicto ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia en conflicto")) : null,
+          b.bloqueo && !b.bloqueo.mio ? h("span", { class: "itt-estado", "data-estado": "bloqueo" }, icono("lock"), h("span", {}, `La edita ${b.bloqueo.nombre}`)) : null,
           h("span", { class: "cot-tarjeta__espacio" }),
           boton({ onclick: () => duplicarDesde(b), etiqueta: `Duplicar ${folio}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "copy"),
-          boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${folio}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
+          b.puede_borrar === false ? null : boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${folio}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
     }
   }
 
@@ -202,6 +221,7 @@
       aviso.append(reg.aviso, " ", h("button", { type: "button", class: "tv-boton tv-boton--secundario", onclick: async () => { reg.aviso = ""; aviso.hidden = true; await guardarYa(); } }, "Entendido"));
     }
     ITT.ui.autoria($("cot-autor"), reg, ctx && ctx.autor);
+    $("mas-borrar").hidden = reg.puede_borrar === false;
     titulo(); avisosRecomendados(); indicadorOrtografia(); pintarConceptos(); pintarImagenes(); recalcular(); estadoGuardado();
     $("mas-editable").setAttribute("download", nombreEditable());
   }
@@ -330,7 +350,7 @@
     } catch (e) {
       if (e.clase === "rechazo" && /Ya existe/.test(e.mensaje || "")) {
         const previo = propios().find((x) => x.nombre.toLowerCase() === cuerpo.nombre.trim().toLowerCase());
-        if (previo && (await confirmar(`Ya tienes un machote llamado «${previo.nombre}». ¿Reemplazarlo con este concepto? Podrás restaurar la versión anterior.`, { aceptar: "Reemplazar" }))) {
+        if (previo && (await confirmar(`Ya hay un machote llamado «${previo.nombre}». ¿Reemplazarlo con este concepto? Podrás restaurar la versión anterior.`, { aceptar: "Reemplazar" }))) {
           try { const m = await ITT.cot.pedir(urls.machotes, { metodo: "POST", json: Object.assign({}, cuerpo, { id: previo.id, nombre: previo.nombre }) }); await recargarContexto(); mensaje(`Machote «${m.nombre}» actualizado.`, "info"); return m; }
           catch (e2) { mensaje(e2.mensaje || "No se pudo guardar el machote. Inténtalo de nuevo.", "error"); }
         }
@@ -372,7 +392,7 @@
       caja.append(h("ul", { class: "cot-plantillas__lista" }, filas));
     };
     const mios = propios().filter((m) => coincide(m.nombre, m.concepto)).sort((a, b) => (a.idioma === idioma ? 0 : 1) - (b.idioma === idioma ? 0 : 1) || a.nombre.localeCompare(b.nombre, "es"));
-    grupo("Mis machotes", "star", mios.map((m) => filaPlantilla(m.nombre, m.concepto, m.idioma !== idioma ? idiomaCorto(m.idioma) : "", () => elegirPlantilla(m.nombre, m.concepto))));
+    grupo("Machotes de la empresa", "star", mios.map((m) => filaPlantilla(m.nombre, m.concepto, m.idioma !== idioma ? idiomaCorto(m.idioma) : "", () => elegirPlantilla(m.nombre, m.concepto))));
     grupo(idioma === "en" ? "Catálogo · English" : "Catálogo", "book-open", catalogo(idioma).filter((f) => coincide(f.nombre, f.concepto)).map((f) => filaPlantilla(f.nombre, f.concepto, "", () => elegirPlantilla(f.nombre, f.concepto))));
     if (!caja.children.length) caja.append(h("p", { class: "tv-tenue cot-sin-resultados" }, "Sin resultados."));
   }
@@ -488,7 +508,7 @@
   const nombreEditable = () => (reg ? `EDITABLE_COTIZACION ${limpioNombre(reg.datos.quote_number, "SIN FOLIO")} - ${limpioNombre(reg.datos.project_title, "SERVICIOS")}.json` : "editable.json");
 
   async function pedirPdf(exportar) {
-    const r = await ITT.cot.pedir(urls.pdf + (exportar ? "?exportar=1" : ""), { metodo: "POST", json: { datos: reg.datos }, crudo: true });
+    const r = await ITT.cot.pedir(urls.pdf + (exportar ? "?exportar=1" : ""), { metodo: "POST", json: { datos: reg.datos, servidor_id: reg.servidor_id || null }, crudo: true });
     const blob = await r.blob();
     const disp = r.headers.get("Content-Disposition") || "";
     let nombre = `COTIZACION ${limpioNombre(reg.datos.quote_number, "SIN FOLIO")} - ${limpioNombre(reg.datos.project_title, "SERVICIOS")}.pdf`;
@@ -508,6 +528,12 @@
       if (!(await confirmar(`Falta revisar la ortografía (${nombre}). ¿Generar el PDF de todos modos?`, { aceptar: "Generar PDF", cancelar: "Revisar primero" }))) return;
     }
     await guardarYa();
+    if (!reg.servidor_id || !reg.datos.quote_number) {                // el folio llega al sincronizar: se sincroniza antes del PDF final
+      await ITT.cot.sincronizar();
+      const r = await ITT.cola.borrador(reg.id);
+      if (r) { reg.servidor_id = r.servidor_id; reg.revision_base = r.revision_base; reg.sucio = r.sucio; if (r.datos.quote_number) reg.datos.quote_number = r.datos.quote_number; pintarCampos(); }
+      if (!reg.servidor_id || !reg.datos.quote_number) return mensaje("Esta cotización aún no tiene folio: se asigna al sincronizar. Vuelve a intentarlo en un momento.", "error");
+    }
     const dlg = $("dlg-pdf");
     $("pdf-estado").textContent = "Generando el PDF…";
     $("pdf-advertencias").hidden = true;
@@ -597,11 +623,12 @@
           h("button", { type: "button", class: "cot-fila__principal", onclick: () => abrirMachote(m), "aria-label": `Editar el machote ${m.nombre}` },
             h("strong", {}, m.nombre, h("span", { class: "cot-etiqueta" }, idiomaCorto(m.idioma))),
             h("span", { class: "tv-tenue" }, m.concepto.title || ""),
-            h("span", { class: "cot-fila__meta" }, Number(m.concepto.unit_price) ? `${dinero(m.concepto.unit_price)} / ${m.concepto.unit || ""}` : m.concepto.unit || "", m.actualizado ? ` · ${fechaCorta(m.actualizado)}` : "")),
+            h("span", { class: "cot-fila__meta" }, Number(m.concepto.unit_price) ? `${dinero(m.concepto.unit_price)} / ${m.concepto.unit || ""}` : m.concepto.unit || "", m.actualizado ? ` · ${fechaCorta(m.actualizado)}` : ""),
+            h("span", { class: "cot-fila__meta" }, [m.autor ? `De ${m.autor}` : "", m.modificado_por && m.modificado_por !== m.autor ? `modificado por ${m.modificado_por}` : ""].filter(Boolean).join(" · "))),
           h("div", { class: "cot-fila__acciones" },
             boton({ onclick: () => abrirMachote(m), etiqueta: `Editar ${m.nombre}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "pencil"),
             h("a", { class: "tv-boton tv-boton--secundario itt-boton-plano itt-boton-icono", href: `${urls["machotes-exportar"]}?id=${encodeURIComponent(m.id)}`, download: `machote_${m.nombre.replace(/[^\w\- ]+/g, "").trim() || "cotizacion"}.json`, "aria-label": `Exportar ${m.nombre}`, title: `Exportar ${m.nombre}` }, icono("download")),
-            boton({ onclick: () => borrarMachote(m), etiqueta: `Eliminar ${m.nombre}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
+            m.puede_borrar === false ? null : boton({ onclick: () => borrarMachote(m), etiqueta: `Eliminar ${m.nombre}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
       }
     } else {
       $("cot-machotes-vacio").hidden = true;
@@ -627,7 +654,7 @@
     $("m-title").value = c.title || ""; $("m-description").value = c.description || ""; $("m-subitems").value = (c.subitems || []).join("\n");
     $("m-unit").value = c.unit || ""; $("m-quantity").value = fmtNum(Number(c.quantity ?? 1)); $("m-unit_price").value = fmtNum(Number(c.unit_price ?? 0));
     $("m-restaurar").hidden = !(m && m.tiene_anterior);
-    $("m-eliminar").hidden = !m;
+    $("m-eliminar").hidden = !m || m.puede_borrar === false;
     $("m-error").hidden = true;
     $("dlg-machote").showModal();
   }
@@ -714,8 +741,10 @@
       pintarCampos();
       document.title = `${$("cot-titulo-editor").textContent} · Cotizaciones`;
       programarVistaPrevia();
+      await comp.abrir(r, { latido: ctx && ctx.latido });
       return;
     }
+    comp.cerrar();
     reg = null;
     if (hash === "#/nueva") { history.replaceState(null, "", "#/"); if (ctx) return nueva(); }
     if (hash === "#/machotes") { mostrar("machotes"); await pintarMachotes(); return; }
@@ -759,6 +788,7 @@
     $("pdf-descargar").addEventListener("click", descargarPdf);
     $("cot-mas").addEventListener("click", () => $("dlg-mas").showModal());
     $("mas-vista-previa").addEventListener("click", () => { $("dlg-mas").close(); if (ancha()) actualizarVistaPrevia(); else generarPdf(); });
+    $("mas-historial").addEventListener("click", () => { $("dlg-mas").close(); comp.historial(); });
     $("mas-duplicar").addEventListener("click", async () => { $("dlg-mas").close(); await guardarYa(); const r = await ITT.cot.duplicar(ctx, reg); location.hash = `#/c/${r.id}`; });
     $("mas-editable").addEventListener("click", (e) => {
       e.preventDefault();
@@ -786,11 +816,26 @@
       const d = e.detail || {};
       if (d.tipo !== "cotizacion") return;
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
-        await confirmar("Esta cotización cambió en otro dispositivo mientras la editabas. Tus cambios están a salvo en una copia nueva.", { aceptar: "Ver la copia", soloAviso: true });
+        await confirmar("Esta cotización cambió mientras la editabas sin conexión. Tu versión quedó a salvo como copia en conflicto, con su propio folio.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/c/${d.copia}`;
+      } else if ((d.tipo_evento === "recuperacion" || d.tipo_evento === "fusionada") && reg && reg.id === d.id) {
+        const r = await ITT.cola.borrador(reg.id);
+        if (r && !temporizador) { reg = r; pintarCampos(); programarVistaPrevia(); }
+        if (d.tipo_evento === "fusionada") mensaje("Tus cambios sin conexión se juntaron con los del equipo.", "info");
+      } else if (d.tipo_evento === "no_borrado") {
+        mensaje(d.mensaje || "No se pudo eliminar.", "error");
+        if (raiz.dataset.vista === "lista") pintarLista();
       } else if (d.tipo_evento === "sincronizado") {
         if (raiz.dataset.vista === "lista") pintarLista();
-        else if (reg) { const r = await ITT.cola.borrador(reg.id); if (r) { reg.sucio = r.sucio; reg.servidor_id = r.servidor_id; reg.revision_base = r.revision_base; estadoGuardado(); } }
+        else if (reg) {
+          const r = await ITT.cola.borrador(reg.id);
+          if (r) {
+            reg.sucio = r.sucio; reg.servidor_id = r.servidor_id; reg.revision_base = r.revision_base;
+            Object.assign(reg, { autor: r.autor, modificado: r.modificado, puede_borrar: r.puede_borrar, conflicto: r.conflicto });
+            if (r.datos.quote_number && r.datos.quote_number !== reg.datos.quote_number) { reg.datos.quote_number = r.datos.quote_number; $("f-quote_number").value = r.datos.quote_number; titulo(); }
+            estadoGuardado();
+          }
+        }
       }
     });
   }

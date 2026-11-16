@@ -12,8 +12,10 @@
       <div class="tv-encabezado__titulos"><h1 id="cq-titulo-lista">Croquis de ubicación</h1></div>
       <div class="tv-acciones"><button type="button" id="cq-nuevo" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nuevo croquis</span></button></div>
     </header>
-    <div id="cq-lista-vacia" class="itt-vacio" hidden>{% icono "map" %}<p>Aún no tienes croquis</p><button type="button" class="tv-boton" id="cq-nuevo-vacio">{% icono "plus" %}<span>Nuevo croquis</span></button></div>
+    <div id="cq-lista-vacia" class="itt-vacio" hidden>{% icono "map" %}<p>Aún no hay croquis del equipo</p><button type="button" class="tv-boton" id="cq-nuevo-vacio">{% icono "plus" %}<span>Nuevo croquis</span></button></div>
+    <ul id="cq-avisos" class="itt-avisos-doc" hidden></ul>
     <ul id="cq-lista" class="cot-lista"></ul>
+    <p class="itt-papelera-enlace"><a href="{{ urls.papelera }}" id="cq-papelera">{% icono "trash-2" %}<span>Papelera</span></a></p>
   </section>
 
   <section id="cq-vista-editor" aria-labelledby="cq-titulo-editor" hidden>
@@ -22,10 +24,13 @@
       <span id="cq-estado-guardado" class="itt-estado" role="status"></span>
     </div>
     <h1 id="cq-titulo-editor" class="cot-titulo-doc">Croquis</h1>
+    <p id="cq-autor" class="itt-autoria" hidden></p>
+    <p id="cq-bloqueo" class="itt-bloqueo" role="status" hidden></p>
+    <p id="cq-recuperacion" class="itt-recuperacion" role="status" hidden></p>
     <p id="cq-aviso-doc" class="tv-alerta tv-alerta--aviso" hidden></p>
 
     <div class="cq-herramientas" role="toolbar" aria-label="Herramientas de dibujo">
-      <div class="cq-modos" role="group" aria-label="Modo">
+      <div class="cq-modos" role="group" aria-label="Modo" data-editable>
         <button type="button" class="tv-boton tv-boton--secundario" data-modo="static" aria-pressed="true">{% icono "hand" %}<span>Mover</span></button>
         <button type="button" class="tv-boton tv-boton--secundario" data-modo="polygon" aria-pressed="false">{% icono "pentagon" %}<span>Polígono</span></button>
         <button type="button" class="tv-boton tv-boton--secundario" data-modo="rectangle" aria-pressed="false">{% icono "square-dashed" %}<span>Rectángulo</span></button>
@@ -41,7 +46,7 @@
     <div id="cq-mapa" class="cq-mapa" aria-label="Mapa del croquis"></div>
     <p id="cq-mapa-info" class="tv-tenue"></p>
 
-    <details class="cot-paso" id="cq-paso-datos" open>
+    <details class="cot-paso" id="cq-paso-datos" open data-editable>
       <summary>{% icono "file-text" %}<span>Datos del croquis</span></summary>
       <div class="cot-paso__cuerpo">
         <div class="tv-campo"><label for="q-title">Título</label><input id="q-title" data-dato="title" type="text" maxlength="200" autocomplete="off"></div>
@@ -53,7 +58,7 @@
       </div>
     </details>
 
-    <details class="cot-paso" id="cq-paso-vertices">
+    <details class="cot-paso" id="cq-paso-vertices" data-editable>
       <summary>{% icono "pentagon" %}<span>Vértices del área</span><span class="cot-resumen-paso" id="cq-resumen-vertices"></span></summary>
       <div class="cot-paso__cuerpo">
         <div class="itt-acciones">
@@ -66,7 +71,7 @@
       </div>
     </details>
 
-    <details class="cot-paso" id="cq-paso-capas">
+    <details class="cot-paso" id="cq-paso-capas" data-editable>
       <summary>{% icono "layers" %}<span>Mapa y capas</span><span class="cot-resumen-paso" id="cq-resumen-capas"></span></summary>
       <div class="cot-paso__cuerpo">
         <div class="tv-campo"><label for="q-map_layer">Mapa base</label><select id="q-map_layer" data-dato="map_layer"></select></div>
@@ -117,6 +122,7 @@
     <div class="cot-menu-acciones">
       <button type="button" id="mas-vectorizar" class="cot-menu-accion">{% icono "refresh-cw" %}<span>Vectorizar de nuevo</span></button>
       <button type="button" id="mas-modulo" class="cot-menu-accion">{% icono "download" %}<span>Exportar proyecto (.json) para el módulo local</span></button>
+      <button type="button" id="mas-historial" class="cot-menu-accion">{% icono "history" %}<span>Historial de versiones</span></button>
       <button type="button" id="mas-borrar" class="cot-menu-accion cot-menu-accion--peligro">{% icono "trash-2" %}<span>Eliminar croquis</span></button>
     </div>
   </div>
@@ -133,6 +139,7 @@
 <script src="{% static 'herramientas/vendor/terradraw/terra-draw-maplibre-gl-adapter.umd.js' %}"></script>
 <script src="{% static 'herramientas/offline/ayudas.js' %}"></script>
 <script src="{% static 'herramientas/offline/documentos.js' %}"></script>
+<script src="{% static 'herramientas/offline/compartido.js' %}"></script>
 <script src="{% static 'herramientas/offline/vista-pdf.js' %}"></script>
 <script src="{% static 'herramientas/croquis/croquis.js' %}"></script>
 {% endblock %}

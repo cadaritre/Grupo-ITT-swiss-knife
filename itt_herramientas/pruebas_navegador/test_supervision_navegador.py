@@ -1,4 +1,4 @@
-"""«Documentos de todas las cuentas» en el navegador, a 360 y 1280 px: filtrar, abrir de solo lectura y descargar el PDF."""
+"""Supervisión en el navegador, a 360 y 1280 px: filtrar, abrir de solo lectura y descargar el PDF."""
 from __future__ import annotations
 
 import os
@@ -33,14 +33,14 @@ def test_supervisar_filtrar_abrir_y_descargar(motor, tmp_path, servidor, sesion_
     sofia = _persona(crear_usuario, roles, "sofia", "Sofía Ruiz", "sofia@grupoitt.com", "supervision")
     d = perfiles.nueva_cotizacion(perfiles.perfil_activo(ana)).to_dict()
     d.update(quote_number="COT-2026-0042", project_title="Deslinde Rancho Viejo", client_name="Agrícola Norte", items=[{"title": "Levantamiento", "unit": "Lote", "quantity": 1, "unit_price": 12500}], images=[])
-    cot.sincronizar(ana, uuid.uuid4(), None, None, d, "grupo_itt")
+    folio = cot.sincronizar(ana, uuid.uuid4(), None, None, d, "grupo_itt")["folio"]           # lo asigna el servidor
     rep.sincronizar(beto, uuid.uuid4(), None, None, {"titulo": "Visita de obra", "fecha": "2026-11-13", "fotos": []}, "grupo_itt")
 
     ctx = contexto(motor, tmp_path, servidor, sesion_de(sofia), viewport={"width": ancho, "height": 900}, is_mobile=ancho < 768, has_touch=ancho < 768, accept_downloads=True)
     try:
         pagina = ctx.pages[0] if ctx.pages else ctx.new_page()
         pagina.goto(servidor.url + "/supervision/")
-        expect(pagina.locator("h1")).to_have_text("Documentos de todas las cuentas")
+        expect(pagina.locator("h1")).to_have_text("Supervisión")
         expect(pagina.locator("#sup-cuantos")).to_have_text("2 documentos")
         assert pagina.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
         assert pagina.evaluate("getComputedStyle(document.documentElement).colorScheme") in ("light", "normal")          # claro por omisión
@@ -73,7 +73,7 @@ def test_supervisar_filtrar_abrir_y_descargar(motor, tmp_path, servidor, sesion_
         assert boton.bounding_box()["height"] >= 43.5
         with pagina.expect_download(timeout=TIEMPO) as descarga:
             boton.click()
-        assert descarga.value.suggested_filename == "COTIZACION COT-2026-0042 - Deslinde Rancho Viejo.pdf"
+        assert descarga.value.suggested_filename == f"COTIZACION {folio} - Deslinde Rancho Viejo.pdf"
         if CAPTURAS:
             pagina.screenshot(path=f"{CAPTURAS}/supervision-cotizacion-{motor['nombre']}-{ancho}.png", full_page=True)
     finally:

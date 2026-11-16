@@ -10,7 +10,7 @@
   const raiz = $("rep");
   const urls = {};
   for (const a of raiz.attributes) if (a.name.startsWith("data-url-")) urls[a.name.slice(9)] = a.value;
-  const docs = ITT.crearDocumentos({ tipo: "reporte", lista: "reportes", avisoCopia: "Se guardó como copia porque este reporte cambió en otro dispositivo mientras lo editabas aquí." });
+  const docs = ITT.crearDocumentos({ tipo: "reporte", lista: "reportes", avisoCopia: "Este reporte cambió mientras lo editabas sin conexión: tu versión, con todas sus fotos, quedó aparte." });
 
   let ctx = null;
   let reg = null;                        // registro abierto
@@ -35,6 +35,17 @@
   const mensaje = (texto, tipo) => ITT.ui.mensaje("rep-mensaje", texto, tipo);
   const { icono, boton } = ITT.ui;
 
+  // Reportes de la empresa: bloqueo de edición, historial y recuperación (offline/compartido.js).
+  const comp = ITT.compartido.crear({
+    tipo: "reporte", prefijo: "rep", docs, articulo: "lo", nombre: "reporte", alMensaje: (t, tipo) => mensaje(t, tipo),
+    alRecargar: async (nuevo) => { if (reg && nuevo.id === reg.id) { reg = Object.assign(nuevo, { porSubir: reg.porSubir }); pintarCampos(); } },
+    resumen: (d) => [
+      h("dl", { class: "itt-historial__datos" }, ...[["Nombre", d.titulo], ["Cliente", d.cliente], ["Fecha", String(d.fecha || "").split("-").reverse().join("/")],
+        ["Fotos", String((d.fotos || []).length)]].map(([k, v]) => h("div", {}, h("dt", {}, k), h("dd", {}, v || "—")))),
+      h("ol", { class: "itt-historial__conceptos" }, (d.fotos || []).map((f, i) => h("li", {}, h("span", {}, f.nota || `Foto ${i + 1}`), h("span", { class: "tv-tenue" }, f.tomada ? f.tomada.replace("T", " ").slice(0, 16) : "")))),
+    ],
+  });
+
 
   // -- Guardado ------------------------------------------------------------------------------------------------------------------
   function estadoGuardado() {
@@ -48,6 +59,7 @@
     e.dataset.estado = n ? "pendiente" : "sincronizado";
   }
   function programarGuardado() {
+    if (comp.soloLectura) return;
     reg.sucio = true;
     estadoGuardado();
     clearTimeout(temporizador);
@@ -56,8 +68,8 @@
   async function guardarYa() {
     clearTimeout(temporizador);
     temporizador = null;
-    if (!reg) return;
-    const nuevo = await docs.guardar(reg.id, reg.datos, { miniaturas: reg.miniaturas, aviso: reg.aviso });
+    if (!reg || comp.soloLectura) return;
+    const nuevo = await docs.guardar(reg.id, reg.datos, { miniaturas: reg.miniaturas, aviso: reg.aviso, sesion: comp.sesion });
     if (nuevo && reg && nuevo.id === reg.id) reg.actualizada = nuevo.actualizada;
     estadoGuardado();
     ITT.refrescarCola && (await ITT.refrescarCola());
@@ -105,6 +117,7 @@
   async function pintarLista() {
     const ul = $("rep-lista");
     lista.desdeUrl();
+    comp.avisos();
     const todos = await docs.listar();
     sugerencias = await clientesConocidos(todos);
     const pendientes = new Map();
@@ -125,13 +138,15 @@
           h("span", { class: "cot-tarjeta__folio" }, String(d.fecha || "").split("-").reverse().join("/")),
           h("strong", { class: "cot-tarjeta__titulo" }, nombre),
           h("span", { class: "cot-tarjeta__cliente" }, [d.cliente, `${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")),
-          h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor))),
+          h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor)),
+          b.conflicto ? h("span", { class: "cot-tarjeta__conflicto" }, b.conflicto) : null),
         h("div", { class: "cot-tarjeta__pie" },
           por || b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono(enLinea() ? "cloud-upload" : "cloud-off"), h("span", {}, por ? `${por} foto${por === 1 ? "" : "s"} por subir` : "Sin subir"))
             : h("span", { class: "itt-estado" }, icono("cloud-check"), h("span", {}, "Guardado")),
-          b.aviso ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia por conflicto")) : null,
+          b.aviso || b.conflicto ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia en conflicto")) : null,
+          b.bloqueo && !b.bloqueo.mio ? h("span", { class: "itt-estado", "data-estado": "bloqueo" }, icono("lock"), h("span", {}, `Lo edita ${b.bloqueo.nombre}`)) : null,
           h("span", { class: "cot-tarjeta__espacio" }),
-          boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${d.titulo || "reporte"}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
+          b.puede_borrar === false ? null : boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${d.titulo || "reporte"}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
     }
   }
   async function nuevo() {
@@ -141,17 +156,14 @@
   }
   async function borrarRegistro(b) {
     const por = await pendientesDe(b.id);
-    const texto = por || b.sucio || !b.servidor_id
-      ? `¿Eliminar «${b.datos.titulo || "este reporte"}»? Tiene fotos o cambios que aún no se suben y se perderán.`
-      : `¿Eliminar «${b.datos.titulo || "este reporte"}»? No se puede deshacer.`;
+    const texto = !b.servidor_id
+      ? `¿Eliminar «${b.datos.titulo || "este reporte"}»? Aún no se sube y no se podrá recuperar.${por ? " Sus fotos se suben de todos modos." : ""}`
+      : `¿Eliminar «${b.datos.titulo || "este reporte"}»? Va a la papelera, de donde se puede recuperar durante 30 días.`;
     if (!(await confirmar(texto, { aceptar: "Eliminar reporte", peligro: true }))) return;
-    await quitarFotosEnCola(b.id);
+    // Las fotos que esperan en la cola nunca se tiran: se suben igual (un reporte de la papelera se recupera con todas sus fotos).
     await docs.borrar(b.id);
     await pintarLista();
     ITT.subirAhora && ITT.subirAhora();
-  }
-  async function quitarFotosEnCola(id) {
-    for (const i of await ITT.cola.listar()) if (i.meta && i.meta.referencia === `reporte:${id}` && i.estado !== "subiendo") await ITT.cola.borrar(i.id);
   }
 
   // -- Editor ---------------------------------------------------------------------------------------------------------------------
@@ -166,6 +178,7 @@
     $("r-credenciales-caja").hidden = !(ctx && ctx.credenciales);
     $("rep-titulo-editor").textContent = d.titulo || "Reporte";
     ITT.ui.autoria($("rep-autor"), reg, ctx && ctx.autor);
+    $("mas-borrar").hidden = reg.puede_borrar === false;
     $("rep-paso-datos").open = !d.fotos.length;                       // con fotos, lo primero es seguir capturando
     const aviso = $("rep-aviso-doc");
     limpiar(aviso);
@@ -567,8 +580,10 @@
       mostrar("editor");
       pintarCampos();
       document.title = `${r.datos.titulo || "Reporte"} · Reportes`;
+      await comp.abrir(r, { latido: ctx && ctx.latido });
       return;
     }
+    comp.cerrar();
     reg = null;
     ultimaLista = lista.hashLista();
     mostrar("lista");
@@ -603,6 +618,7 @@
     $("pdf-compartir").addEventListener("click", compartirPdf);
     $("pdf-descargar").addEventListener("click", descargarPdf);
     $("rep-mas").addEventListener("click", () => $("dlg-mas").showModal());
+    $("mas-historial").addEventListener("click", () => { $("dlg-mas").close(); comp.historial(); });
     $("mas-borrar").addEventListener("click", async () => { $("dlg-mas").close(); const b = reg; await borrarRegistro(b); if (!(await ITT.cola.borrador(b.id))) { reg = null; location.hash = "#/"; } });
     $("u-actual").addEventListener("click", () => {
       if (!posicion) { iniciarUbicacion(); $("u-error").textContent = "Activa la ubicación del teléfono y espera unos segundos."; $("u-error").hidden = false; return; }
@@ -627,11 +643,21 @@
       const d = e.detail || {};
       if (d.tipo !== "reporte") return;
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
-        await confirmar("Este reporte cambió en otro dispositivo mientras lo editabas. Tus cambios están a salvo en una copia nueva.", { aceptar: "Ver la copia", soloAviso: true });
+        await confirmar("Este reporte cambió mientras lo editabas sin conexión y los cambios chocaban. Tu versión, con todas sus fotos, quedó a salvo como copia en conflicto.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/r/${d.copia}`;
+      } else if ((d.tipo_evento === "recuperacion" || d.tipo_evento === "fusionada") && reg && reg.id === d.id) {
+        const r = await ITT.cola.borrador(reg.id);
+        if (r && !temporizador) { reg = Object.assign(r, { porSubir: reg.porSubir }); pintarCampos(); }
+        if (d.tipo_evento === "fusionada") mensaje("Tus cambios sin conexión se juntaron con los del equipo.", "info");
+      } else if (d.tipo_evento === "no_borrado") {
+        mensaje(d.mensaje || "No se pudo eliminar.", "error");
+        if (raiz.dataset.vista === "lista") pintarLista();
       } else if (d.tipo_evento === "sincronizado") {
         if (raiz.dataset.vista === "lista") pintarLista();
-        else if (reg) { const r = await ITT.cola.borrador(reg.id); if (r) { reg.sucio = r.sucio; reg.servidor_id = r.servidor_id; reg.revision_base = r.revision_base; estadoGuardado(); } }
+        else if (reg) {
+          const r = await ITT.cola.borrador(reg.id);
+          if (r) { reg.sucio = r.sucio; reg.servidor_id = r.servidor_id; reg.revision_base = r.revision_base; Object.assign(reg, { autor: r.autor, modificado: r.modificado, puede_borrar: r.puede_borrar }); estadoGuardado(); }
+        }
       }
     });
   }

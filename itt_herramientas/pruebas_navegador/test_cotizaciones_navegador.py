@@ -129,7 +129,8 @@ def test_quince_conceptos_sin_conexion_duplicar_cerrar_y_sincronizar(motor, tmp_
         pagina.locator("#dlg-concepto button[type=submit]").click()
         pagina.wait_for_timeout(600)
         copia = datos_de(pagina, 1)
-        assert copia["quote_number"] != datos["quote_number"] and copia["items"][0]["unit_price"] == 99.995
+        # Sin conexión no hay folio: lo asigna el servidor al sincronizar (único en la empresa); abajo se comprueba que quedan distintos.
+        assert copia["quote_number"] == "" == datos["quote_number"] and copia["items"][0]["unit_price"] == 99.995
         assert float(pagina.evaluate("document.documentElement.dataset.cotTotal")) == total_python(copia)
         assert len(copia["items"]) == 15 and copia["spelling_checked"] is False
         # --- Cierre forzado y reapertura SIN conexión ---
@@ -176,14 +177,14 @@ def test_conflicto_guarda_copia_y_no_pisa(motor, tmp_path, servidor, sesion_de, 
         # El teléfono todavía no se entera del cambio de la oficina: sin esto, el ciclo de sincronización bajaría la versión nueva
         # antes de editar (y entonces no habría conflicto, que también es correcto, pero no es lo que esta prueba verifica).
         pagina.evaluate("""() => { const f0 = window.fetch.bind(window); window.fetch = (u, o) => (/\\/cotizaciones\\/api\\/lista\\//.test(String((u && u.url) || u)) ? Promise.reject(new TypeError('Failed to fetch')) : f0(u, o)); }""")
-        # Otro dispositivo cambia la cotización en el servidor.
-        datos = dict(original.datos, project_title="Cambiado en la oficina")
+        # Otro dispositivo cambia en el servidor el mismo campo que el teléfono va a cambiar (si fuera otro campo, se fusionaría).
+        datos = dict(original.datos, project_title="Cambiado en la oficina", client_name="Cliente de la oficina")
         revision = original.revision + 1                 # el teléfono pudo subir en varios pasos: se parte de la revisión que tiene el servidor
         Cotizacion.objects.filter(pk=original.pk).update(datos=datos, revision=revision)
         # El teléfono edita partiendo de la revisión que bajó antes.
         pagina.fill("#f-client_name", "Cliente desde el teléfono")
         pagina.locator("#confirmar-si").wait_for(state="visible", timeout=TIEMPO * 2)
-        expect(pagina.locator("#confirmar-texto")).to_contain_text("a salvo en una copia nueva")
+        expect(pagina.locator("#confirmar-texto")).to_contain_text("copia en conflicto")
         pagina.locator("#confirmar-si").click()
         sin_pendientes(pagina)
         assert Cotizacion.objects.count() == 2
@@ -191,7 +192,7 @@ def test_conflicto_guarda_copia_y_no_pisa(motor, tmp_path, servidor, sesion_de, 
         assert original.datos["project_title"] == "Cambiado en la oficina" and original.revision == revision
         copia = Cotizacion.objects.exclude(pk=original.pk).get()
         assert copia.datos["client_name"] == "Cliente desde el teléfono" and copia.copia_de_id == original.pk
-        assert copia.datos["project_title"].endswith("(desde el teléfono)")
+        assert copia.conflicto.startswith(f"Copia en conflicto de {original.folio} (") and copia.folio != original.folio
         # El teléfono quedó con las dos, y la abierta es la copia.
         locales = {b["servidor_id"] for b in borradores(pagina)}
         assert locales == {str(original.pk), str(copia.pk)}
@@ -380,7 +381,7 @@ def test_machotes_como_en_el_escritorio(motor, tmp_path, servidor, sesion_de, us
         # Insertar sin conexión: el selector usa los machotes guardados en el teléfono.
         ctx.set_offline(True)
         pagina.locator("#cot-desde-machote").click()
-        expect(pagina.locator("#p-lista .cot-grupo").first).to_contain_text("Mis machotes")
+        expect(pagina.locator("#p-lista .cot-grupo").first).to_contain_text("Machotes de la empresa")
         pagina.fill("#p-buscar", "rústico")
         expect(pagina.locator("#p-lista .cot-plantilla")).to_have_count(1)
         pagina.locator("#p-lista .cot-plantilla").first.click()

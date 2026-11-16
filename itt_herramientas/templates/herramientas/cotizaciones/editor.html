@@ -16,9 +16,11 @@
         <button type="button" id="cot-nueva" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nueva cotización</span></button>
       </div>
     </header>
+    <ul id="cot-avisos" class="itt-avisos-doc" hidden></ul>
     <div id="cot-herramientas-lista" hidden>{% include "herramientas/pwa/_lista_herramientas.html" with p="cot" marcador="Buscar por folio, cliente, proyecto o autor" titulo="Proyecto" %}</div>
-    <div id="cot-lista-vacia" class="itt-vacio" hidden>{% icono "file-text" %}<p>Aún no tienes cotizaciones</p><button type="button" class="tv-boton" id="cot-nueva-vacia">{% icono "plus" %}<span>Nueva cotización</span></button></div>
+    <div id="cot-lista-vacia" class="itt-vacio" hidden>{% icono "file-text" %}<p>Aún no hay cotizaciones del equipo</p><button type="button" class="tv-boton" id="cot-nueva-vacia">{% icono "plus" %}<span>Nueva cotización</span></button></div>
     <ul id="cot-lista" class="cot-lista"></ul>
+    <p class="itt-papelera-enlace"><a href="{{ urls.papelera }}" id="cot-papelera">{% icono "trash-2" %}<span>Papelera</span></a></p>
   </section>
 
   <section id="cot-vista-editor" aria-labelledby="cot-titulo-editor" hidden>
@@ -28,20 +30,22 @@
     </div>
     <h1 id="cot-titulo-editor" class="cot-titulo-doc">Cotización</h1>
     <p id="cot-autor" class="itt-autoria" hidden></p>
+    <p id="cot-bloqueo" class="itt-bloqueo" role="status" hidden></p>
+    <p id="cot-recuperacion" class="itt-recuperacion" role="status" hidden></p>
     <p id="cot-aviso-doc" class="tv-alerta tv-alerta--aviso" hidden></p>
     <div class="cot-barra-estado">
-      <button type="button" id="cot-ortografia-estado" class="cot-insignia" data-estado="pendiente">Ortografía pendiente</button>
+      <button type="button" id="cot-ortografia-estado" class="cot-insignia" data-estado="pendiente" data-editable>Ortografía pendiente</button>
       <span id="cot-recomendados" class="cot-insignia"></span>
     </div>
     <div class="cot-cuerpo">
-      <div class="cot-formulario">
+      <div class="cot-formulario" data-editable>
         <details class="cot-paso" id="paso-datos" open>
           <summary>{% icono "building-2" %}<span>Cliente y proyecto</span><span class="cot-resumen-paso" id="resumen-datos"></span></summary>
           <div class="cot-paso__cuerpo">
             <div class="cot-rejilla">
               <div class="tv-campo"><label for="f-idioma">Idioma</label>
                 <select id="f-idioma"><option value="es">Español</option><option value="en">English</option></select></div>
-              <div class="tv-campo" data-campo="quote_number"><label for="f-quote_number">Folio</label><input id="f-quote_number" data-dato="quote_number" type="text" maxlength="60" autocomplete="off"></div>
+              <div class="tv-campo" data-campo="quote_number"><label for="f-quote_number">Folio</label><input id="f-quote_number" data-dato="quote_number" type="text" maxlength="60" autocomplete="off" readonly placeholder="Folio al sincronizar" aria-describedby="f-folio-ayuda"><p class="tv-campo__ayuda" id="f-folio-ayuda">Lo asigna el servidor; es único en la empresa.</p></div>
               <div class="tv-campo"><label for="f-quote_date">Fecha</label><input id="f-quote_date" data-dato="quote_date" type="date"></div>
             </div>
             <div class="tv-campo" data-campo="client_name"><label for="f-client_name">Nombre / Empresa</label><input id="f-client_name" data-dato="client_name" type="text" maxlength="400" autocomplete="organization"></div>
@@ -113,7 +117,7 @@
         <div class="cot-total"><dt>Total</dt><dd id="cot-total">$ 0.00</dd></div>
       </dl>
       <div class="cot-barra__acciones">
-        <button type="button" id="cot-ortografia" class="tv-boton tv-boton--secundario">{% icono "spell-check" %}<span>Ortografía</span></button>
+        <button type="button" id="cot-ortografia" class="tv-boton tv-boton--secundario" data-editable>{% icono "spell-check" %}<span>Ortografía</span></button>
         <button type="button" id="cot-mas" class="tv-boton tv-boton--secundario itt-boton-icono" aria-haspopup="dialog" aria-label="Más acciones" title="Más acciones">{% icono "ellipsis" %}</button>
         <button type="button" id="cot-pdf" class="tv-boton">{% icono "file-text" %}<span>Generar PDF</span></button>
       </div>
@@ -123,7 +127,7 @@
   <section id="cot-vista-machotes" aria-labelledby="cot-titulo-machotes" hidden>
     <div class="cot-barra-sup"><a href="#/" class="tv-boton tv-boton--secundario itt-boton-plano cot-volver">{% icono "arrow-left" %}<span>Cotizaciones</span></a></div>
     <header class="tv-encabezado">
-      <div class="tv-encabezado__titulos"><h1 id="cot-titulo-machotes">Machotes</h1><p class="tv-subtitulo">Conceptos listos para insertar en tus cotizaciones.</p></div>
+      <div class="tv-encabezado__titulos"><h1 id="cot-titulo-machotes">Machotes</h1><p class="tv-subtitulo">Conceptos de la empresa listos para insertar. Los comparte todo el equipo de cotizaciones.</p></div>
       <div class="tv-acciones cot-acciones-lista">
         <label class="tv-boton tv-boton--secundario">{% icono "upload" %}<span>Importar</span><input id="cot-machotes-importar" class="itt-ocultar-entrada" type="file" accept="application/json,.json"></label>
         <a id="cot-machotes-exportar" class="tv-boton tv-boton--secundario" href="#/machotes" download="machotes_cotizacion.json">{% icono "download" %}<span>Exportar</span></a>
@@ -131,7 +135,7 @@
       </div>
     </header>
     <div class="cot-segmento" role="group" aria-label="Qué machotes ver">
-      <button type="button" class="cot-segmento__boton" data-coleccion="propios" aria-pressed="true">{% icono "star" %}<span>Mis machotes</span><span class="cot-segmento__cuenta" id="m-cuenta-propios"></span></button>
+      <button type="button" class="cot-segmento__boton" data-coleccion="propios" aria-pressed="true">{% icono "star" %}<span>De la empresa</span><span class="cot-segmento__cuenta" id="m-cuenta-propios"></span></button>
       <button type="button" class="cot-segmento__boton" data-coleccion="catalogo" aria-pressed="false">{% icono "book-open" %}<span>Catálogo</span></button>
     </div>
     <div class="cot-filtros-machotes">
@@ -139,7 +143,7 @@
       <div class="tv-campo cot-idioma-catalogo" id="m-idioma-caja" hidden><label for="m-idioma" class="tv-solo-lectores">Idioma del catálogo</label><select id="m-idioma"><option value="es">Español</option><option value="en">English</option></select></div>
     </div>
     <ul id="cot-machotes-lista" class="cot-filas"></ul>
-    <div id="cot-machotes-vacio" class="itt-vacio" hidden>{% icono "bookmark-plus" %}<p>Aún no tienes machotes propios</p><span>Guárdalos desde un concepto o personaliza uno del catálogo.</span></div>
+    <div id="cot-machotes-vacio" class="itt-vacio" hidden>{% icono "bookmark-plus" %}<p>Aún no hay machotes de la empresa</p><span>Guárdalos desde un concepto o personaliza uno del catálogo.</span></div>
     <ul id="cot-catalogo-lista" class="cot-filas" hidden></ul>
     <p id="cot-machotes-sin-resultados" class="tv-tenue cot-sin-resultados" hidden>Sin resultados.</p>
   </section>
@@ -246,6 +250,7 @@
     <div class="tv-hoja__cabecera"><h2 id="dlg-mas-titulo">Más acciones</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
     <div class="cot-menu-acciones">
       <button type="button" id="mas-vista-previa" class="cot-menu-accion">{% icono "refresh-cw" %}<span>Actualizar vista previa</span></button>
+      <button type="button" id="mas-historial" class="cot-menu-accion">{% icono "history" %}<span>Historial de versiones</span></button>
       <button type="button" id="mas-duplicar" class="cot-menu-accion">{% icono "copy" %}<span>Duplicar cotización</span></button>
       <a id="mas-editable" class="cot-menu-accion" href="#/">{% icono "download" %}<span>Descargar editable (.json)</span></a>
       <a href="#/machotes" class="cot-menu-accion" id="mas-machotes">{% icono "library-big" %}<span>Administrar machotes</span></a>
@@ -260,6 +265,7 @@
 <link rel="stylesheet" href="{% static 'herramientas/cotizaciones/cotizaciones.css' %}">
 <script src="{% static 'herramientas/offline/ayudas.js' %}"></script>
 <script src="{% static 'herramientas/offline/documentos.js' %}"></script>
+<script src="{% static 'herramientas/offline/compartido.js' %}"></script>
 <script src="{% static 'herramientas/offline/vista-pdf.js' %}"></script>
 <script src="{% static 'herramientas/offline/listas.js' %}"></script>
 <script src="{% static 'herramientas/cotizaciones/totales.js' %}"></script>

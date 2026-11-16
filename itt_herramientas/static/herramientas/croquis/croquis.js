@@ -10,11 +10,20 @@
   const raiz = $("cq");
   const urls = {};
   for (const a of raiz.attributes) if (a.name.startsWith("data-url-")) urls[a.name.slice(9)] = a.value;
-  const docs = ITT.crearDocumentos({ tipo: "croquis", lista: "croquis", avisoCopia: "Se guardó como copia porque este croquis cambió en otro dispositivo mientras lo editabas aquí." });
+  const docs = ITT.crearDocumentos({ tipo: "croquis", lista: "croquis", avisoCopia: "Este croquis cambió mientras lo editabas sin conexión: tu versión quedó aparte." });
   const mensaje = (texto, tipo) => ITT.ui.mensaje("cq-mensaje", texto, tipo);
   const { icono, boton } = ITT.ui;
   const enLinea = () => navigator.onLine;
   const esperarMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Croquis de la empresa: bloqueo de edición, historial y recuperación (offline/compartido.js). En solo lectura el mapa se mueve pero no dibuja.
+  const comp = ITT.compartido.crear({
+    tipo: "croquis", prefijo: "cq", docs, articulo: "lo", nombre: "croquis", alMensaje: (t, tipo) => mensaje(t, tipo),
+    alRecargar: async (nuevo) => { if (reg && nuevo.id === reg.id) { reg = nuevo; pintarCampos(); aDibujo(); refrescarEstado(); } },
+    alCambiarModo: (lectura) => { if (lectura) ponerModo("static"); },
+    resumen: (d) => [h("dl", { class: "itt-historial__datos" }, ...[["Título", d.title], ["Cliente", d.client], ["Proyecto", d.project], ["Fecha", d.sketch_date],
+      ["Vértices", String((d.points || []).length)], ["Mapa", d.map_layer]].map(([k, v]) => h("div", {}, h("dt", {}, k), h("dd", {}, v || "—"))))],
+  });
 
   let ctx = null, reg = null, temporizador = null;
   let mapa = null, dibujo = null, mapaListo = null, marcaUbicacion = null;
@@ -49,6 +58,7 @@
     e.dataset.estado = reg.sucio ? "pendiente" : "sincronizado";
   }
   function programarGuardado() {
+    if (comp.soloLectura) return;
     reg.sucio = true;
     estadoGuardado();
     clearTimeout(temporizador);
@@ -57,8 +67,8 @@
   async function guardarYa() {
     clearTimeout(temporizador);
     temporizador = null;
-    if (!reg) return;
-    const nuevo = await docs.guardar(reg.id, reg.datos, { aviso: reg.aviso });
+    if (!reg || comp.soloLectura) return;
+    const nuevo = await docs.guardar(reg.id, reg.datos, { aviso: reg.aviso, sesion: comp.sesion });
     if (nuevo && reg && nuevo.id === reg.id) reg.actualizada = nuevo.actualizada;
     estadoGuardado();
     ITT.refrescarCola && (await ITT.refrescarCola());
@@ -84,6 +94,7 @@
   async function pintarLista() {
     const ul = $("cq-lista");
     const todos = await docs.listar();
+    comp.avisos();
     limpiar(ul);
     $("cq-lista-vacia").hidden = todos.length > 0;
     for (const b of todos) {
@@ -93,13 +104,16 @@
         h("a", { class: "cot-tarjeta__enlace", href: `#/q/${b.id}` },
           h("span", { class: "cot-tarjeta__folio" }, d.points.length ? `${d.points.length} vértices · ${textoKm2(km2)}${km2 >= 1 ? " km²" : ""}` : "Sin área"),
           h("strong", { class: "cot-tarjeta__titulo" }, d.title || "Sin título"),
-          h("span", { class: "cot-tarjeta__cliente" }, [d.client, d.project].filter(Boolean).join(" · ") || "Sin cliente")),
+          h("span", { class: "cot-tarjeta__cliente" }, [d.client, d.project].filter(Boolean).join(" · ") || "Sin cliente"),
+          h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor)),
+          b.conflicto ? h("span", { class: "cot-tarjeta__conflicto" }, b.conflicto) : null),
         h("div", { class: "cot-tarjeta__pie" },
           b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono(enLinea() ? "cloud-upload" : "cloud-off"), h("span", {}, "Sin subir"))
             : h("span", { class: "itt-estado" }, icono("cloud-check"), h("span", {}, "Guardado")),
-          b.aviso ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia por conflicto")) : null,
+          b.aviso || b.conflicto ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia en conflicto")) : null,
+          b.bloqueo && !b.bloqueo.mio ? h("span", { class: "itt-estado", "data-estado": "bloqueo" }, icono("lock"), h("span", {}, `Lo edita ${b.bloqueo.nombre}`)) : null,
           h("span", { class: "cot-tarjeta__espacio" }),
-          boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${d.title || "croquis"}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
+          b.puede_borrar === false ? null : boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${d.title || "croquis"}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
     }
   }
   async function nuevo() {
@@ -112,7 +126,7 @@
   }
   async function borrarRegistro(b) {
     const nombre = b.datos.title || "este croquis";
-    if (!(await confirmar(b.sucio || !b.servidor_id ? `¿Eliminar «${nombre}»? Tiene cambios que aún no se suben y se perderán.` : `¿Eliminar «${nombre}» y su cartografía? No se puede deshacer.`, { aceptar: "Eliminar croquis", peligro: true }))) return;
+    if (!(await confirmar(!b.servidor_id ? `¿Eliminar «${nombre}»? Aún no se sube y no se podrá recuperar.` : `¿Eliminar «${nombre}»? Va a la papelera, de donde se puede recuperar durante 30 días.`, { aceptar: "Eliminar croquis", peligro: true }))) return;
     await docs.borrar(b.id);
     await pintarLista();
     ITT.subirAhora && ITT.subirAhora();
@@ -198,6 +212,7 @@
 
   function alTerminarDibujo(id, contexto) {
     if (enDibujo || !reg) return;
+    if (comp.soloLectura) { aDibujo(); return; }
     const f = dibujo.getSnapshot().find((x) => x.id === id);
     if (!f || f.geometry.type !== "Polygon") return;
     const modo = f.properties.mode;
@@ -278,6 +293,8 @@
     const d = reg.datos;
     for (const e of raiz.querySelectorAll("[data-dato]")) e.value = e.type === "date" ? ITT.ui.fechaAIso(d[e.dataset.dato]) : (d[e.dataset.dato] ?? "");
     $("cq-titulo-editor").textContent = d.title || "Croquis";
+    ITT.ui.autoria($("cq-autor"), reg, ctx && ctx.autor);
+    $("mas-borrar").hidden = reg.puede_borrar === false;
     const aviso = $("cq-aviso-doc");
     limpiar(aviso);
     aviso.hidden = !reg.aviso;
@@ -581,8 +598,10 @@
         if (r.datos.points.length) ajustar();
       } else $("cq-mapa").hidden = true;
       refrescarEstado();
+      await comp.abrir(r, { latido: ctx && ctx.latido });
       return;
     }
+    comp.cerrar();
     reg = null;
     mostrar("lista");
     await pintarLista();
@@ -616,6 +635,7 @@
     $("cq-modulo").addEventListener("click", exportarProyecto);
     $("mas-modulo").addEventListener("click", exportarProyecto);
     $("cq-mas").addEventListener("click", () => $("dlg-mas").showModal());
+    $("mas-historial").addEventListener("click", () => { $("dlg-mas").close(); comp.historial(); });
     $("mas-borrar").addEventListener("click", async () => { $("dlg-mas").close(); const b = reg; await borrarRegistro(b); if (!(await ITT.cola.borrador(b.id))) { reg = null; location.hash = "#/"; } });
     $("salida-compartir").addEventListener("click", compartirSalida);
     $("salida-descargar").addEventListener("click", descargarSalida);
@@ -635,8 +655,15 @@
       const d = e.detail || {};
       if (d.tipo !== "croquis") return;
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
-        await confirmar("Este croquis cambió en otro dispositivo mientras lo editabas. Tus cambios están a salvo en una copia nueva.", { aceptar: "Ver la copia", soloAviso: true });
+        await confirmar("Este croquis cambió mientras lo editabas sin conexión y los cambios chocaban. Tu versión quedó a salvo como copia en conflicto.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/q/${d.copia}`;
+      } else if ((d.tipo_evento === "recuperacion" || d.tipo_evento === "fusionada") && reg && reg.id === d.id) {
+        const r = await ITT.cola.borrador(reg.id);
+        if (r && !temporizador) { reg = r; pintarCampos(); aDibujo(); }
+        if (d.tipo_evento === "fusionada") mensaje("Tus cambios sin conexión se juntaron con los del equipo.", "info");
+      } else if (d.tipo_evento === "no_borrado") {
+        mensaje(d.mensaje || "No se pudo eliminar.", "error");
+        if (raiz.dataset.vista === "lista") pintarLista();
       } else if (d.tipo_evento === "sincronizado") {
         if (raiz.dataset.vista === "lista") pintarLista();
         else if (reg) { const r = await ITT.cola.borrador(reg.id); if (r) { reg.sucio = r.sucio; reg.servidor_id = r.servidor_id; reg.revision_base = r.revision_base; estadoGuardado(); if (!r.sucio) refrescarEstado(); } }
