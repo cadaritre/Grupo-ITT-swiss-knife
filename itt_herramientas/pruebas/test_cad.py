@@ -701,6 +701,32 @@ MOTOR = textwrap.dedent('''\
         sys.exit(2)
     print(json.dumps({{"ok": True, "ready": True, "version": "2026.45"}}), flush=True)
     abierto = None
+
+    def pdf(ancho):
+        # un PDF de una página, válido, cuyo ancho dice qué presentación es
+        objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d 600] >>" % ancho).encode()]
+        out, offs = b"%PDF-1.4\\n", []
+        for i, o in enumerate(objs, 1):
+            offs.append(len(out))
+            out += b"%d 0 obj\\n" % i + o + b"\\nendobj\\n"
+        x = len(out)
+        out += b"xref\\n0 4\\n0000000000 65535 f \\n" + b"".join(b"%010d 00000 n \\n" % o for o in offs)
+        return out + b"trailer\\n<< /Size 4 /Root 1 0 R >>\\nstartxref\\n%d\\n%%%%EOF\\n" % x
+
+    # Presentaciones del plano: (nombre, orden de pestaña, bloque). «HOJAS»: dos con dibujo y una vacía, en desorden; las demás, una.
+    def hojas():
+        if "HOJAS" in (abierto or ""):
+            return [("Hoja B", 3, 0x24), ("Model", 0, 0x1F), ("Vacía", 2, 0x23), ("Hoja A", 1, 0x22)]
+        if "SINHOJAS" in (abierto or ""):
+            return [("Model", 0, 0x1F), ("Presentación1", 1, 0x22)]
+        return [("Model", 0, 0x1F), ("Presentación1", 1, 0x22)]
+
+    def entidades():
+        e = [("Line", 0x1F, None), ("Viewport", 0x23, 1)]                  # la vacía solo tiene su ventana general
+        if "SINHOJAS" not in (abierto or ""):
+            e += [("Viewport", 0x22, 1), ("Viewport", 0x22, 2), ("Text", 0x24, None)]
+        return [{{"type": t, "handle": "%X" % (0x100 + k), "values": {{"/common/owner_handle": dueno, "/id": i}}}} for k, (t, dueno, i) in enumerate(e)]
     for linea in sys.stdin:
         r = json.loads(linea)
         op = r.get("op")
@@ -714,11 +740,29 @@ MOTOR = textwrap.dedent('''\
             os.abort()
         elif op == "header":
             print(json.dumps({{"ok": True, "insertion_units": 6}}), flush=True)
+        elif op == "records":
+            c = r["collection"]
+            if c == "objects":
+                regs = [{{"type": "Layout", "handle": "%X" % b, "values": {{"/name": n, "/tab_order": t, "/block_record": b}}}} for n, t, b in hojas()]
+            elif c == "block_records":
+                regs = [{{"type": "BlockRecord", "handle": "%X" % b, "name": "*Model_Space" if n == "Model" else "*Paper_Space%d" % t, "values": {{}}}} for n, t, b in hojas()]
+            else:
+                regs = entidades()
+            o, l = r.get("offset", 0), r.get("limit", 1000)
+            pagina = regs[o:o + 2]                                           # de dos en dos: la página debe pedir las siguientes
+            siguiente = o + 2 if o + 2 < len(regs) else None
+            print(json.dumps({{"ok": True, "records": pagina, "count": len(regs), "next_offset": siguiente}}), flush=True)
         elif op == "plot":
             assert r["document_id"] == 2
             fuentes = os.path.join(os.environ["XDG_CONFIG_HOME"], "OpenCADStudio", "fonts")
             r["fuentes"] = sorted(n for n in os.listdir(fuentes) if os.path.isfile(os.path.join(fuentes, n))) if os.path.isdir(fuentes) else []
-            open(r["path"], "wb").write(b"%PDF-1.3\\n" + json.dumps(r).encode())
+            if "HOJAS" in (abierto or ""):
+                if r["layout"] not in [n for n, _, _ in hojas()]:
+                    print(json.dumps({{"ok": False, "code": "layout_missing", "error": "x"}}), flush=True)
+                    continue
+                open(r["path"], "wb").write(pdf({{"Hoja A": 400, "Hoja B": 500, "Vacía": 300, "Model": 200}}[r["layout"]]))
+            else:
+                open(r["path"], "wb").write(b"%PDF-1.3\\n" + json.dumps(r).encode())
             print(json.dumps({{"ok": True, "request_id": r["request_id"], "result": {{"pages": 1, "page_sizes": [[279.4, 215.9]]}}}}), flush=True)
         elif op == "save":
             if "PERDIDA" in abierto and not r.get("allow_lossy"):
@@ -769,6 +813,43 @@ def test_el_motor_imprime_con_las_fuentes_shx_de_la_empresa(cliente_de, supervis
     contenido = b"".join(cl.get(d["resultado"]["url"]).streaming_content)
     pedido = json.loads(contenido.split(b"\n", 1)[1])
     assert pedido["fuentes"] == ["txt.shx"] and pedido["scale"] == "1:1"   # las presentaciones ya están en mm de papel
+
+
+def _plano_llamado(dibujante, nombre):
+    """Un plano cuyo archivo lleva `nombre` en la ruta (el motor de prueba se comporta según lo que abre)."""
+    p = servicio.crear_vacio(dibujante, nombre, "", "dwg")
+    nuevo = servicio.carpeta(p) / f"v1-{nombre}.dwg"
+    servicio.carpeta(p).joinpath("v1.dwg").rename(nuevo)
+    VersionPlano.objects.filter(plano=p).update(ruta=str(nuevo.relative_to(servicio.raiz())))
+    return p
+
+
+def test_presentaciones_solo_las_que_tienen_dibujo_en_el_orden_de_sus_pestanas(cliente_de, supervisora, dibujante, motor):
+    from pypdf import PdfReader
+
+    p = _plano_llamado(dibujante, "HOJAS")
+    cl = cliente_de(supervisora)
+    d = cl.post(url("cad_imprimir", pk=p.pk), {"area": "presentaciones", "escala": "ajustar"}).json()
+    assert d["estado"] == "completada", d
+    lector = PdfReader(io.BytesIO(b"".join(cl.get(d["resultado"]["url"]).streaming_content)))
+    # «Hoja A» (pestaña 1) y «Hoja B» (pestaña 3); ni el espacio modelo (200) ni «Vacía» (300, solo su ventana general)
+    assert [float(pg.mediabox.width) for pg in lector.pages] == [400, 500]
+    assert not list(servicio.carpeta_salidas().glob("*.hoja*.pdf"))   # las partes no se quedan
+
+
+def test_presentaciones_vacias_se_dicen(dibujante, motor):
+    from itt_herramientas.cad import salidas
+
+    p = _plano_llamado(dibujante, "SINHOJAS")
+    with pytest.raises(servicio.ErrorUsuario, match="no tiene presentaciones con dibujo"):
+        salidas.imprimir(p.pk, 1, dibujante.pk, {"area": "presentaciones", "escala": "ajustar"})
+
+
+def test_presentaciones_de_una_sola_hoja_no_se_reescriben(cliente_de, supervisora, plano, motor):
+    cl = cliente_de(supervisora)
+    d = cl.post(url("cad_imprimir", pk=plano.pk), {"area": "presentaciones", "escala": "ajustar"}).json()
+    pedido = json.loads(b"".join(cl.get(d["resultado"]["url"]).streaming_content).split(b"\n", 1)[1])
+    assert pedido["layout"] == "Presentación1" and pedido["area"] == "layout"
 
 
 def test_la_salida_es_solo_de_quien_la_pidio(cliente_de, supervisora, dibujante, plano, motor):

@@ -21,6 +21,7 @@ dependencies = [
     "pyspellchecker>=0.9,<1",
     "wordfreq>=3.1,<4",
     "cryptography>=44,<60",       # cifrado en reposo de los tokens de Google Drive
+    "pypdf>=6.21,<7",             # CAD: une en un PDF las presentaciones que imprime el motor, una por una (BSD, Python puro)
 ]
 
 [project.optional-dependencies]

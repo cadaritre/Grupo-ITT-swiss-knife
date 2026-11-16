@@ -39,7 +39,7 @@ PAPELES = {
 }
 PAPEL_POR_OMISION = "Letter_(8.50_x_11.00_Inches)"
 ORIENTACIONES = {"landscape": "Horizontal", "portrait": "Vertical"}
-AREAS = {"modelo": "Espacio modelo (todo el dibujo)", "presentaciones": "Presentaciones (una página por cada una)"}
+AREAS = {"modelo": "Espacio modelo (todo el dibujo)", "presentaciones": "Presentaciones (una página por cada una con dibujo)"}
 ESCALAS = ("ajustar", "1:1", "1:50", "1:100", "1:200", "1:250", "1:500", "1:1000", "1:2000", "1:2500", "1:5000", "1:10000")
 #: Milímetros por unidad de dibujo según $INSUNITS. El motor entiende «1:100» como «1 mm de papel = 100 unidades de dibujo» (convención de
 #: AutoCAD) y no mira las unidades: en un plano en metros «1:1000» salía a 1:1 000 000 (medido, 15-11-2026). Sin unidades (0), metros:
@@ -278,6 +278,74 @@ class Sesion:
             pass
 
 
+def _todos(s: "Sesion", **peticion) -> list[dict]:
+    """Todos los registros de una consulta `records`, de 10 000 en 10 000."""
+    salida, offset = [], 0
+    while True:
+        r = s.pedir("records", TIEMPO_ABRIR, limit=10000, offset=offset, **peticion)
+        if not r.get("ok"):
+            raise ErrorUsuario("No se pudieron leer las presentaciones del plano. Imprime el espacio modelo.")
+        salida += r.get("records") or []
+        if r.get("next_offset") is None:
+            return salida
+        offset = r["next_offset"]
+
+
+def _manija(valor) -> int | None:
+    """Una manija del motor (número, o texto hexadecimal en los registros) como entero."""
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, int):
+        return valor
+    try:
+        return int(str(valor), 16)
+    except (TypeError, ValueError):
+        return None
+
+
+def presentaciones_con_dibujo(s: "Sesion") -> list[str]:
+    """Las presentaciones que tienen algo dibujado, en el orden de sus pestañas. Sin el espacio modelo.
+
+    El motor, con `layout:"all"`, imprime también el espacio modelo y una hoja en blanco por cada presentación vacía (las «Presentación1»
+    que traen casi todos los planos). Una presentación tiene dibujo si su bloque de papel tiene alguna entidad que no sea la ventana
+    general del papel (la Viewport de id 1, que toda presentación abierta alguna vez tiene).
+    """
+    capas = _todos(s, collection="objects", type="Layout", paths=["/name", "/tab_order", "/block_record"])
+    bloques = {_manija(b.get("handle")): str(b.get("name") or "") for b in _todos(s, collection="block_records", paths=["/flags"])}
+    modelo = {h for h, n in bloques.items() if n.upper() == "*MODEL_SPACE"}
+    con_dibujo: set[int] = set()
+    for e in _todos(s, collection="entities", paths=["/common/owner_handle", "/id"]):
+        v = e.get("values") or {}
+        if str(e.get("type", "")).lower() == "viewport" and v.get("/id") == 1:
+            continue
+        dueno = _manija(v.get("/common/owner_handle"))
+        if dueno is not None:
+            con_dibujo.add(dueno)
+    hojas = []
+    for c in capas:
+        v = c.get("values") or {}
+        bloque, nombre = _manija(v.get("/block_record")), str(v.get("/name") or "")
+        if not nombre or nombre.lower() == "model" or bloque in modelo or bloque not in con_dibujo:
+            continue
+        orden = v.get("/tab_order")
+        hojas.append((orden if isinstance(orden, int) and not isinstance(orden, bool) else 1 << 15, len(hojas), nombre))
+    return [n for _, _, n in sorted(hojas)]
+
+
+def _unir_pdf(partes: list[Path], salida: Path) -> None:
+    """Une los PDF de cada presentación en uno, en ese orden."""
+    from pypdf import PdfWriter
+
+    escritor = PdfWriter()
+    for parte in partes:
+        escritor.append(str(parte))
+    temporal = salida.with_suffix(".uniendo")
+    with open(temporal, "wb") as f:
+        escritor.write(f)
+    escritor.close()
+    temporal.replace(salida)
+
+
 def imprimir(entrada: Path, salida: Path, papel: str, orientacion: str, escala: str, area: str, grosores: bool = True) -> dict:
     """PDF del plano. `escala`: «ajustar» o «1:100»; `area`: «modelo» o «presentaciones». Devuelve {paginas, tamanos}."""
     if papel not in PAPELES:
@@ -291,24 +359,44 @@ def imprimir(entrada: Path, salida: Path, papel: str, orientacion: str, escala: 
     if area == "modelo":
         campos.update(layout="Model", area="extents")
     else:
-        campos.update(layout="all", area="layout")
+        campos.update(area="layout")
     if escala == "ajustar":
         campos["fit"] = True
-    with Sesion() as s:
-        s.abrir(entrada)
-        if escala != "ajustar":   # las presentaciones ya están en mm de papel; el espacio modelo, en las unidades del plano
-            campos["scale"] = escala if area != "modelo" else escala_del_motor(escala, (s.pedir("header", TIEMPO_ABRIR) or {}).get("insertion_units"))
-        r = s.pedir("plot", **campos)
-    if not r.get("ok"):
-        codigo = r.get("code") or ""
-        log.warning("CAD nativo: plot falló: %s %s", codigo, r.get("error"))
-        if codigo == "layout_missing" or "layout" in codigo:
-            raise ErrorUsuario("Este plano no tiene presentaciones. Imprime el espacio modelo.")
-        raise ErrorUsuario("No se pudo imprimir el plano con estas opciones. Prueba con «Ajustar al papel».")
-    if not salida.is_file():
-        raise ErrorUsuario("No se pudo imprimir el plano. Inténtalo de nuevo.")
-    res = r.get("result") or {}
-    return {"paginas": int(res.get("pages") or 1), "tamanos": res.get("page_sizes") or []}
+    paginas, tamanos, partes = 0, [], []
+    try:
+        with Sesion() as s:
+            s.abrir(entrada)
+            if escala != "ajustar":   # las presentaciones ya están en mm de papel; el espacio modelo, en las unidades del plano
+                campos["scale"] = escala if area != "modelo" else escala_del_motor(escala, (s.pedir("header", TIEMPO_ABRIR) or {}).get("insertion_units"))
+            if area == "modelo":
+                trabajos = [("Model", salida)]
+            else:
+                # una impresión por cada presentación con dibujo, en el orden de sus pestañas, y después se unen
+                hojas = presentaciones_con_dibujo(s)
+                if not hojas:
+                    raise ErrorUsuario("Este plano no tiene presentaciones con dibujo. Imprime el espacio modelo.")
+                trabajos = [(h, salida if len(hojas) == 1 else salida.with_name(f"{salida.stem}.hoja{k}.pdf")) for k, h in enumerate(hojas)]
+            for hoja, destino in trabajos:
+                if destino != salida:
+                    partes.append(destino)
+                r = s.pedir("plot", **{**campos, "layout": hoja, "path": str(destino)})
+                if not r.get("ok"):
+                    codigo = r.get("code") or ""
+                    log.warning("CAD nativo: plot falló: %s %s", codigo, r.get("error"))
+                    if codigo == "layout_missing" or "layout" in codigo:
+                        raise ErrorUsuario("Este plano no tiene presentaciones. Imprime el espacio modelo.")
+                    raise ErrorUsuario("No se pudo imprimir el plano con estas opciones. Prueba con «Ajustar al papel».")
+                if not destino.is_file():
+                    raise ErrorUsuario("No se pudo imprimir el plano. Inténtalo de nuevo.")
+                res = r.get("result") or {}
+                paginas += int(res.get("pages") or 1)
+                tamanos += res.get("page_sizes") or []
+        if partes:
+            _unir_pdf(partes, salida)
+    finally:
+        for parte in partes:
+            parte.unlink(missing_ok=True)
+    return {"paginas": paginas, "tamanos": tamanos}
 
 
 def convertir(entrada: Path, salida: Path, formato: str, permitir_perdida: bool = False) -> dict:
