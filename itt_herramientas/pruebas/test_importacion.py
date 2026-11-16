@@ -11,7 +11,7 @@ from itt_herramientas.comun import diccionarios, importacion, perfiles, preferen
 from itt_herramientas.dominio.almacenamiento import DEFAULT_SETTINGS
 from itt_herramientas.dominio.quotation_models import QuoteItem
 from itt_herramientas.dominio.quotation_templates import CustomConceptTemplateStore
-from itt_herramientas.models import MachoteCuenta, Perfil
+from itt_herramientas.models import Machote, Perfil
 
 pytestmark = pytest.mark.django_db
 
@@ -79,7 +79,7 @@ def test_aplicar_todo_como_administrador(tmp_path):
     assert (prefs["geospatial"]["utm_zone"], prefs["reports"]["include_map"]) == (12, False)
     assert "cloud" not in prefs                                                      # Drive se reemplaza por la API de Drive
     assert diccionarios.palabras_personales(7) == {"es": ["mojonera", "zorplón"], "en": ["benchmark"]}
-    assert sorted(MachoteCuenta.objects.filter(cuenta_id=7).values_list("nombre", flat=True)) == ["Inspección", "Survey"]
+    assert sorted(Machote.objects.filter(cuenta_id=7).values_list("nombre", flat=True)) == ["Inspección", "Survey"]
     assert Perfil.objects.get(clave="grupo_itt").textos_reporte == {}
     assert r.aplicado["machotes"] == 2 and r.aplicado["diccionario"] == 3
 
@@ -97,7 +97,7 @@ def test_importar_dos_veces_no_duplica(tmp_path):
     paquete = importacion.leer(zip_de_escritorio(tmp_path))
     importacion.aplicar(paquete, 7, {"machotes", "diccionario"}, es_admin=False)
     r = importacion.aplicar(paquete, 7, {"machotes", "diccionario"}, es_admin=False)
-    assert MachoteCuenta.objects.filter(cuenta_id=7).count() == 2
+    assert Machote.objects.filter(cuenta_id=7).count() == 2
     assert r.aplicado == {"machotes": 0, "diccionario": 0} and "ya existían" in r.omitido[0]
 
 

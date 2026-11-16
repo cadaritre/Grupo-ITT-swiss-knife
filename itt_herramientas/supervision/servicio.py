@@ -1,4 +1,7 @@
-"""Supervisión: las cotizaciones y los reportes de TODAS las cuentas, solo para leer (rol `supervision` o el propietario).
+"""Supervisión: las cotizaciones y los reportes de la empresa, con su autor, solo para leer (rol `supervision` o el propietario).
+
+Desde que los documentos son compartidos con el equipo (16-11-2026), quien edita ya ve todo en su herramienta; esta vista queda para quien
+supervisa sin editar. Aquí también aparecen los folios repetidos de antes de compartir, para que el propietario les asigne uno nuevo.
 
 Nada de aquí escribe en un documento: las consultas leen, el PDF de una cotización se arma al vuelo y el de un reporte
 desactualizado se genera aparte (`reportes.servicio.generar_copia`), sin tocar el reporte, su último PDF ni su Google Drive.
@@ -98,14 +101,14 @@ def _texto(*campos):
 def _columnas(tipo: str, _titulo: str, **propias) -> dict:
     comunes = {
         "s_id": Cast(F("id"), UUIDField()), "s_tipo": Value(tipo, CharField()), "s_cuenta": F("cuenta_id"),
-        "s_autor": F("autor_nombre"), "s_correo": F("autor_correo"),
+        "s_autor": F("autor_nombre"), "s_correo": F("autor_correo"), "s_modificado": F("modificado_por_nombre"),
     }
     return {**comunes, **propias, "s_creada": Cast(F("creada"), DateTimeField()), "s_actualizada": Cast(F("actualizada"), DateTimeField()),
             "s_orden_cliente": NullIf(Lower(F("cliente")), Value("")), "s_orden_titulo": NullIf(Lower(F(_titulo)), Value(""))}
 
 
 def _cotizaciones(f: Filtros):
-    consulta = _rango(Cotizacion.objects.all(), f)
+    consulta = _rango(Cotizacion.objects.filter(eliminado__isnull=True), f)
     if f.estado:                                                                # el estado del PDF es de los reportes
         consulta = consulta.none()
     if f.q:
@@ -117,7 +120,7 @@ def _cotizaciones(f: Filtros):
 
 
 def _reportes(f: Filtros):
-    consulta = _rango(Reporte.objects.all(), f)
+    consulta = _rango(Reporte.objects.filter(eliminado__isnull=True), f)
     if f.q:
         consulta = consulta.filter(_texto("autor_nombre", "autor_correo", "titulo", "cliente")(f.q))
     al_dia = Q(salida_revision=F("revision")) & ~Q(salida_ruta="")
@@ -132,7 +135,7 @@ def _reportes(f: Filtros):
     )).values(*_NOMBRES)
 
 
-_NOMBRES = ("s_id", "s_tipo", "s_cuenta", "s_autor", "s_correo", "s_titulo", "s_folio", "s_cliente", "s_total", "s_moneda", "s_fotos",
+_NOMBRES = ("s_id", "s_tipo", "s_cuenta", "s_autor", "s_correo", "s_modificado", "s_titulo", "s_folio", "s_cliente", "s_total", "s_moneda", "s_fotos",
             "s_revision", "s_pdf_revision", "s_creada", "s_actualizada", "s_orden_cliente", "s_orden_titulo")
 
 
@@ -157,7 +160,7 @@ def clientes() -> list[str]:
 
     filas = []
     for modelo in (Reporte, Cotizacion):
-        filas += list(modelo.objects.exclude(cliente="").order_by("-actualizada").values_list("actualizada", "cliente")[:2000])
+        filas += list(modelo.objects.filter(eliminado__isnull=True).exclude(cliente="").order_by("-actualizada").values_list("actualizada", "cliente")[:2000])
     filas.sort(key=lambda f: f[0], reverse=True)
     vistos, salida = set(), []
     for _, nombre in filas:
@@ -189,6 +192,7 @@ class Fila:
     creada: object
     actualizada: object
     pdf_al_dia: bool = False
+    modificado: str = ""
 
     @property
     def tipo_nombre(self) -> str:
@@ -205,7 +209,8 @@ def filas(pagina) -> list[Fila]:
         fotos = imagenes.get(r["s_id"], 0) if r["s_tipo"] == "cotizacion" else r["s_fotos"]
         salida.append(Fila(id=str(r["s_id"]), tipo=r["s_tipo"], cuenta_id=r["s_cuenta"], autor=r["s_autor"], correo=r["s_correo"], titulo=r["s_titulo"],
                            folio=r["s_folio"], cliente=r["s_cliente"], total=r["s_total"], moneda=r["s_moneda"], fotos=fotos, creada=r["s_creada"],
-                           actualizada=r["s_actualizada"], pdf_al_dia=r["s_tipo"] == "reporte" and r["s_pdf_revision"] == r["s_revision"]))
+                           actualizada=r["s_actualizada"], pdf_al_dia=r["s_tipo"] == "reporte" and r["s_pdf_revision"] == r["s_revision"],
+                           modificado=r["s_modificado"] or r["s_autor"]))
     return salida
 
 

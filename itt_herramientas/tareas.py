@@ -54,8 +54,8 @@ def convertir_conversion(conversion_id):
 
 
 @tarea("herramientas")
-def generar_reporte(reporte_id):
-    """PDF de un reporte fotográfico (10 a 90 s para 150 fotos)."""
+def generar_reporte(reporte_id, cuenta_id=None):
+    """PDF de un reporte fotográfico (10 a 90 s para 150 fotos). `cuenta_id`: quien lo pidió (a su Google Drive)."""
     from django.urls import reverse
     from tvplataforma.middleware import urlconf_de
 
@@ -63,7 +63,7 @@ def generar_reporte(reporte_id):
     from .reportes import servicio
 
     r = Reporte.objects.get(pk=reporte_id)
-    servicio.generar(r)
+    servicio.generar(r, cuenta_id=cuenta_id)
     url = reverse("herramientas:reportes_descargar", args=[r.pk], urlconf=urlconf_de("herramientas"))
     return {"mensaje": "Reporte listo.", "url": url, "etiqueta": "Descargar PDF"}
 

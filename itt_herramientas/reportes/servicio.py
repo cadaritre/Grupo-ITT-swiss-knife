@@ -13,7 +13,7 @@ from pathlib import Path
 from django.utils import timezone
 from tvplataforma.tareas import cancelada, progreso
 
-from ..comun import autoria, capturas, perfiles, sincronizacion
+from ..comun import autoria, capturas, documentos, perfiles, sincronizacion
 from ..dominio import document_texts, pdf_generator
 from ..dominio.metadata import PhotoInfo
 from ..models import Captura, Perfil, Reporte
@@ -102,15 +102,18 @@ def _aplicar(r: Reporte, datos: dict, perfil: str) -> None:
     r.actualizada = timezone.now()
 
 
-def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str) -> dict:
+def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str, sesion: str = "") -> dict:
+    """Las fotos se fusionan una por una (por su sha256): lo que se agregó en campo sin conexión entra aunque en la oficina se haya cambiado
+    otra cosa del reporte."""
     nuevos = validar(datos)
-
-    def copia(obj):
-        obj_datos = dict(nuevos, titulo=(nuevos["titulo"].rstrip() + " (desde el teléfono)").strip())
-        _aplicar(obj, obj_datos, perfil)
-
     return sincronizacion.sincronizar(Reporte, usuario, id_cliente, servidor_id, revision_base, nuevos,
-                                      aplicar=lambda obj: _aplicar(obj, nuevos, perfil), aplicar_copia=copia, error=ReporteInvalido, normalizar=_normalizado)
+                                      aplicar=lambda obj: _aplicar(obj, nuevos, perfil), aplicar_copia=lambda obj: _aplicar(obj, nuevos, perfil),
+                                      error=ReporteInvalido, normalizar=_normalizado, sesion=sesion, claves={"fotos": "sha256"},
+                                      aplicar_datos=lambda obj, d: _aplicar(obj, validar(d), perfil))
+
+
+def aplicar_datos_guardados(r: Reporte, datos: dict) -> None:
+    _aplicar(r, validar(datos), r.perfil)
 
 
 def _normalizado(datos) -> dict | None:
@@ -121,11 +124,14 @@ def _normalizado(datos) -> dict | None:
         return None
 
 
-def resumen_fila(r: Reporte) -> dict:
-    return {"id": str(r.id), "id_cliente": str(r.id_cliente) if r.id_cliente else None, "revision": r.revision, "titulo": r.titulo, "fotos": r.fotos,
+def resumen_fila(r: Reporte, usuario=None) -> dict:
+    fila = {"id": str(r.id), "id_cliente": str(r.id_cliente) if r.id_cliente else None, "revision": r.revision, "titulo": r.titulo, "fotos": r.fotos,
             "actualizada": r.actualizada.isoformat(), "copia": r.copia_de_id is not None, "perfil": r.perfil,
             "pdf": bool(r.salida_ruta), "pdf_al_dia": bool(r.salida_ruta) and r.salida_revision == r.revision, "pdf_revision": r.salida_revision,
             "cliente": r.cliente, "autor": autoria.fila(r)}
+    if usuario is not None:
+        fila.update(documentos.fila(r, usuario))
+    return fila
 
 
 def titulo_por_omision(perfil: Perfil) -> str:
@@ -140,9 +146,13 @@ def nombre_pdf(titulo: str) -> str:
 
 
 def _fotos_de(cuenta_id: int, datos: dict) -> list[PhotoInfo]:
-    filas = {c.sha256: c for c in Captura.objects.filter(cuenta_id=cuenta_id, sha256__in=[f["sha256"] for f in datos["fotos"]])}
+    """Las fotos del reporte, las haya subido quien sea del equipo (primero las de la cuenta autora)."""
     raiz = capturas.raiz()
-    faltan = sum(1 for f in datos["fotos"] if f["sha256"] not in filas or not (raiz / filas[f["sha256"]].ruta).is_file())
+    filas = {}
+    for c in Captura.objects.filter(sha256__in=[f["sha256"] for f in datos["fotos"]]).order_by("recibida"):
+        if (raiz / c.ruta).is_file() and (c.sha256 not in filas or c.cuenta_id == cuenta_id):
+            filas[c.sha256] = c
+    faltan = sum(1 for f in datos["fotos"] if f["sha256"] not in filas)
     if faltan:
         raise FotosPendientes(faltan)
     resultado = []
@@ -180,8 +190,9 @@ def _producir(r: Reporte, datos: dict, temporal: Path, informar=progreso) -> Non
         pdf_generator.generate_report(opciones, avance)
 
 
-def generar(r: Reporte, informar=progreso) -> Path:
-    """Genera el PDF del reporte (se llama desde la tarea). Guarda el archivo y lo deja ligado al reporte."""
+def generar(r: Reporte, informar=progreso, cuenta_id: int | None = None) -> Path:
+    """Genera el PDF del reporte (se llama desde la tarea). Guarda el archivo y lo deja ligado al reporte. A Google Drive va el de la
+    cuenta que lo generó (`cuenta_id`; sin ella, la autora), como cuando cada quien guarda su PDF."""
     datos = validar(r.datos)
     verificar_listo(r)
     revision = r.revision
@@ -196,7 +207,7 @@ def generar(r: Reporte, informar=progreso) -> Path:
     informar(1.0, "Listo")
     from ..drive import servicio as drive
 
-    drive.encolar(r.cuenta_id, "reportes", nombre_pdf(datos["titulo"]), origen=destino, clave=drive.clave_de("reporte", r.pk, revision, r.perfil))           # a Drive si la persona lo conectó (no falla el reporte si no)
+    drive.encolar(cuenta_id if cuenta_id is not None else r.cuenta_id, "reportes", nombre_pdf(datos["titulo"]), origen=destino, clave=drive.clave_de("reporte", r.pk, revision, r.perfil))           # a Drive si la persona lo conectó (no falla el reporte si no)
     return destino
 
 

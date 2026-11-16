@@ -11,6 +11,7 @@ from .drive import vistas as drive
 from .triangulacion import vistas as triangulacion
 from .reportes import vistas as reportes
 from .supervision import vistas as supervision
+from .comun import vistas_documentos
 
 app_name = "herramientas"
 
@@ -53,6 +54,13 @@ urlpatterns = [
     path("cotizaciones/api/<uuid:pk>/", cotizaciones.detalle, name="cotizaciones_detalle"),
     path("cotizaciones/api/<uuid:pk>/duplicar/", cotizaciones.duplicar, name="cotizaciones_duplicar"),
     path("cotizaciones/api/<uuid:pk>/editable.json", cotizaciones.editable, name="cotizaciones_editable"),
+    path("cotizaciones/api/<uuid:pk>/versiones/<int:vid>/pdf/", cotizaciones.version_pdf, name="cotizaciones_version_pdf"),
+    *vistas_documentos.rutas("cotizaciones", "cotizaciones", cotizaciones._comunes),
+    *vistas_documentos.rutas("reportes", "reportes", reportes._comunes),
+    *vistas_documentos.rutas("croquis", "croquis", croquis._comunes),
+    path("documentos/papelera/", supervision.papelera, name="papelera"),
+    path("documentos/papelera/<slug:tipo>/<uuid:pk>/recuperar/", supervision.papelera_recuperar, name="papelera_recuperar"),
+    path("documentos/papelera/<slug:tipo>/<uuid:pk>/eliminar/", supervision.papelera_eliminar, name="papelera_eliminar"),
     path("reportes/", reportes.pagina, name="reportes"),
     path("reportes/api/contexto/", reportes.contexto, name="reportes_contexto"),
     path("reportes/api/lista/", reportes.lista, name="reportes_lista"),
@@ -132,6 +140,7 @@ urlpatterns = [
     path("drive/desconectar/", drive.desconectar, name="drive_desconectar"),
     path("supervision/", supervision.lista, name="supervision"),
     path("supervision/zip/", supervision.zip_lote, name="supervision_zip"),
+    path("supervision/folios/<uuid:pk>/asignar/", supervision.asignar_folio, name="supervision_asignar_folio"),
     path("zip/<str:token>/", views.zip_descargar, name="zip_descargar"),
     path("supervision/cotizaciones/<uuid:pk>/", supervision.cotizacion, name="supervision_cotizacion"),
     path("supervision/cotizaciones/<uuid:pk>/pdf/", supervision.cotizacion_pdf, name="supervision_cotizacion_pdf"),

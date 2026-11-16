@@ -11,8 +11,8 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import autoria, diccionarios, perfiles, zips
-from ..models import Cotizacion, MachoteCuenta
+from ..comun import autoria, diccionarios, documentos, perfiles, vistas_documentos, zips
+from ..models import Cotizacion, Machote
 from . import servicio
 
 usuario_de_cotizaciones = requiere_rol("herramientas", "cotizaciones", "admin")
@@ -31,11 +31,16 @@ MARCA_ID = "00000000-0000-0000-0000-000000000000"
 
 def _urls() -> dict:
     """URL de la API para el editor. Las que llevan identificador usan una marca que el JS sustituye (nada escrito a mano)."""
-    fijas = ("contexto", "lista", "sincronizar", "pdf", "ortografia", "traducir", "palabra", "machotes", "machotes_exportar", "machotes_importar", "importar", "zip")
-    con_id = ("detalle", "duplicar", "editable", "machote", "machote_restaurar")
+    fijas = ("contexto", "lista", "sincronizar", "pdf", "ortografia", "traducir", "palabra", "machotes", "machotes_exportar", "machotes_importar", "importar", "zip",
+             "avisos")
+    con_id = ("detalle", "duplicar", "editable", "machote", "machote_restaurar", "bloqueo", "versiones", "recuperacion")
     urls = {n.replace("_", "-"): reverse(f"herramientas:cotizaciones_{n}") for n in fijas}
     urls.update({n.replace("_", "-"): reverse(f"herramientas:cotizaciones_{n}", kwargs={"pk": MARCA_ID}) for n in con_id})
     urls["foto"] = reverse("herramientas:cotizaciones_foto", kwargs={"sha256": "SHA"})
+    urls["version"] = reverse("herramientas:cotizaciones_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
+    urls["restaurar-version"] = reverse("herramientas:cotizaciones_restaurar_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
+    urls["version-pdf"] = reverse("herramientas:cotizaciones_version_pdf", kwargs={"pk": MARCA_ID, "vid": 999999999})
+    urls["papelera"] = reverse("herramientas:papelera")
     urls["capturar"] = reverse("herramientas:capturar")
     urls["tarea"] = reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA_ID})
     return urls
@@ -72,16 +77,17 @@ def _privado(respuesta):
 @usuario_de_cotizaciones
 @require_GET
 def contexto(request):
-    """Todo lo que el editor necesita para trabajar sin conexión: machotes, valores del perfil, siguiente folio y unidades."""
+    """Todo lo que el editor necesita para trabajar sin conexión: machotes de la empresa, valores del perfil y unidades. El folio no: lo
+    asigna el servidor al sincronizar (es único en la empresa)."""
     perfil = perfiles.perfil_activo(request.user)
     base = perfiles.nueva_cotizacion(perfil).to_dict()
     for clave in ("items", "images"):
         base.pop(clave, None)
     return _privado(JsonResponse({
         "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
-        "base": base, "folio": servicio.siguiente_folio(request.user.pk),
+        "base": base, "latido": documentos.LATIDO_SEGUNDOS, "admin": documentos.es_admin(request.user),
         "plantillas": servicio.plantillas_integradas(),
-        "machotes": [servicio.fila_machote(m) for m in MachoteCuenta.objects.filter(cuenta_id=request.user.pk).order_by("nombre")],
+        "machotes": [servicio.fila_machote(m, request.user) for m in Machote.objects.order_by("nombre")],
         "unidades": servicio.UNIDADES, "limites": {"conceptos": servicio.MAX_CONCEPTOS, "incisos": servicio.MAX_INCISOS, "imagenes": servicio.MAX_IMAGENES},
     }))
 
@@ -89,26 +95,59 @@ def contexto(request):
 @usuario_de_cotizaciones
 @require_GET
 def lista(request):
-    filas = [servicio.resumen_fila(c) for c in Cotizacion.objects.filter(cuenta_id=request.user.pk)[:500]]
+    """Las cotizaciones de la empresa (todas las cuentas), de la más reciente a la más vieja."""
+    filas = [servicio.resumen_fila(c, request.user) for c in documentos.visibles(Cotizacion)[:500]]
     return _privado(JsonResponse({"cotizaciones": filas}))
+
+
+def _detalle(c, usuario) -> dict:
+    return {**servicio.resumen_fila(c, usuario), "datos": c.datos, "recuperacion": documentos.recuperacion_de(c, usuario)}
+
+
+def _visible(pk) -> Cotizacion:
+    return get_object_or_404(Cotizacion, pk=pk, eliminado__isnull=True)
 
 
 @usuario_de_cotizaciones
 @require_http_methods(["GET", "DELETE"])
 def detalle(request, pk):
-    c = get_object_or_404(Cotizacion, pk=pk, cuenta_id=request.user.pk)
+    c = _visible(pk)
     if request.method == "DELETE":
-        c.delete()
-        return _privado(JsonResponse({"borrada": str(pk)}))
-    return _privado(JsonResponse({**servicio.resumen_fila(c), "datos": c.datos}))
+        fallo = vistas_documentos.borrar(c, request.user)
+        return fallo or _privado(JsonResponse({"borrada": str(pk)}))
+    return _privado(JsonResponse(_detalle(c, request.user)))
 
 
 @usuario_de_cotizaciones
 @require_POST
 def duplicar(request, pk):
-    c = get_object_or_404(Cotizacion, pk=pk, cuenta_id=request.user.pk)
-    copia = servicio.duplicar(request.user, c)
-    return _privado(JsonResponse({**servicio.resumen_fila(copia), "datos": copia.datos}, status=201))
+    copia = servicio.duplicar(request.user, _visible(pk))
+    return _privado(JsonResponse(_detalle(copia, request.user), status=201))
+
+
+_comunes = vistas_documentos.vistas("cotizacion", usuario_de_cotizaciones, servicio.aplicar_datos_guardados, _detalle)
+
+
+@usuario_de_cotizaciones
+@require_GET
+def version_pdf(request, pk, vid):
+    """El PDF de una versión del historial, tal como era (con el perfil de la cotización)."""
+    from django.utils.http import content_disposition_header
+
+    from ..models import Perfil
+
+    c = _visible(pk)
+    v = documentos.version_de(c, vid)
+    if v is None:
+        raise Http404
+    perfil = Perfil.objects.filter(clave=v.perfil or c.perfil).first() or Perfil.objects.get(clave=perfiles.PERFIL_POR_OMISION)
+    try:
+        contenido, nombre, _ = servicio.pdf_de(c.cuenta_id, perfil, v.datos)
+    except servicio.CotizacionInvalida as exc:
+        return _error(exc, 422)
+    respuesta = HttpResponse(contenido, content_type="application/pdf")
+    respuesta["Content-Disposition"] = content_disposition_header(request.GET.get("descargar") == "1", nombre.replace(".pdf", f" (versión {v.revision}).pdf"))
+    return _privado(respuesta)
 
 
 @usuario_de_cotizaciones
@@ -122,7 +161,9 @@ def sincronizar(request):
         base = cuerpo.get("revision_base")
         if base is not None and (isinstance(base, bool) or not isinstance(base, int) or base < 1):
             raise servicio.CotizacionInvalida("La revisión base no es válida.")
-        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), perfiles.perfil_activo(request.user).clave)
+        sesion = str(cuerpo.get("sesion") or "")
+        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), perfiles.perfil_activo(request.user).clave,
+                                         sesion if documentos.sesion_valida(sesion) else "")
     except servicio.CotizacionInvalida as exc:
         return _error(exc, 422)
     return _privado(JsonResponse(resultado))
@@ -131,10 +172,22 @@ def sincronizar(request):
 @usuario_de_cotizaciones
 @require_POST
 def pdf(request):
-    """PDF del borrador que se está editando (no hace falta guardarlo antes) con el perfil activo de la cuenta."""
+    """PDF del borrador que se está editando (no hace falta guardarlo antes) con el perfil activo de la cuenta.
+
+    El folio es el del servidor (`servidor_id`): una cotización que aún no se sincroniza no tiene folio, así que su vista previa dice
+    «BORRADOR» y el PDF final (`?exportar=1`) espera a que se sincronice. Sin `servidor_id` (editable suelto) vale el de los datos."""
     try:
         cuerpo = _cuerpo(request)
-        contenido, nombre, pendientes = servicio.generar_pdf(request.user, cuerpo.get("datos"))
+        datos = cuerpo.get("datos")
+        folio = str(datos.get("quote_number") or "").strip() if isinstance(datos, dict) else ""
+        if cuerpo.get("servidor_id"):
+            c = Cotizacion.objects.filter(pk=_uuid(cuerpo["servidor_id"], "servidor_id"), eliminado__isnull=True).first()
+            folio = c.folio if c is not None else ""
+        if isinstance(datos, dict) and datos.get("quote_number") != (folio or "BORRADOR"):
+            datos = {**datos, "quote_number": folio or "BORRADOR"}
+        if not folio and request.GET.get("exportar") == "1":
+            return _error(servicio.CotizacionInvalida("Esta cotización aún no tiene folio: se asigna al sincronizar. Conéctate un momento y vuelve a generar el PDF."), 409)
+        contenido, nombre, pendientes = servicio.generar_pdf(request.user, datos)
     except servicio.CotizacionInvalida as exc:
         return _error(exc, 422)
     respuesta = HttpResponse(contenido, content_type="application/pdf")
@@ -145,9 +198,9 @@ def pdf(request):
         from ..drive import servicio as drive
 
         editable = nombre.replace("COTIZACION", "EDITABLE_COTIZACION", 1).rsplit(".", 1)[0] + ".json"
-        clave = drive.clave_de("cotizacion", json.dumps(cuerpo.get("datos"), sort_keys=True), perfiles.perfil_activo(request.user).clave)
+        clave = drive.clave_de("cotizacion", json.dumps(datos, sort_keys=True), perfiles.perfil_activo(request.user).clave)
         e1 = drive.encolar(request.user.pk, "cotizaciones", nombre, contenido=contenido, clave=clave)
-        e2 = drive.encolar(request.user.pk, "cotizaciones", editable, contenido=json.dumps(cuerpo.get("datos"), ensure_ascii=False, indent=2).encode("utf-8"), clave=clave)
+        e2 = drive.encolar(request.user.pk, "cotizaciones", editable, contenido=json.dumps(datos, ensure_ascii=False, indent=2).encode("utf-8"), clave=clave)
         respuesta["X-Drive"] = "encolado" if (e1 or e2) else "no"
 
     respuesta["Content-Disposition"] = content_disposition_header(request.GET.get("descargar") == "1", nombre)
@@ -183,19 +236,24 @@ def palabra(request):
 @require_http_methods(["GET", "POST"])
 def machotes(request):
     if request.method == "GET":
-        return _privado(JsonResponse({"machotes": [servicio.fila_machote(m) for m in MachoteCuenta.objects.filter(cuenta_id=request.user.pk).order_by("nombre")]}))
+        return _privado(JsonResponse({"machotes": [servicio.fila_machote(m, request.user) for m in Machote.objects.order_by("nombre")]}))
     try:
         cuerpo = _cuerpo(request)
         m = servicio.guardar_machote(request.user, cuerpo.get("nombre", ""), cuerpo.get("idioma", "es"), cuerpo.get("concepto"), cuerpo.get("id"))
     except servicio.CotizacionInvalida as exc:
         return _error(exc, 422)
-    return _privado(JsonResponse(servicio.fila_machote(m)))
+    return _privado(JsonResponse(servicio.fila_machote(m, request.user)))
 
 
 @usuario_de_cotizaciones
 @require_http_methods(["DELETE"])
 def machote(request, pk):
-    get_object_or_404(MachoteCuenta, plantilla_id=pk, cuenta_id=request.user.pk).delete()
+    """Los machotes son de la empresa: los elimina quien los creó o quien administra las herramientas."""
+    m = get_object_or_404(Machote, plantilla_id=pk)
+    if not servicio.puede_borrar_machote(request.user, m):
+        return _error(servicio.CotizacionInvalida(f"Solo {m.autor_nombre or 'quien lo creó'} o quien administra las herramientas puede eliminar este machote."), 409)
+    m.delete()
+    documentos.log.info("Documentos: la cuenta %s eliminó el machote %s", request.user.pk, pk)
     return _privado(JsonResponse({"borrado": str(pk)}))
 
 
@@ -203,12 +261,13 @@ def machote(request, pk):
 @require_POST
 def machote_restaurar(request, pk):
     """Regresa el concepto del machote a la versión que tenía antes de la última sobrescritura."""
-    m = get_object_or_404(MachoteCuenta, plantilla_id=pk, cuenta_id=request.user.pk)
+    m = get_object_or_404(Machote, plantilla_id=pk)
     if not m.anterior:
         return _error(servicio.CotizacionInvalida("Este machote no tiene una versión anterior."), 409)
     m.concepto, m.anterior = m.anterior, None
+    m.modificado_por_id, m.modificado_por_nombre = request.user.pk, autoria.de_usuario(request.user)[0]
     m.save()
-    return _privado(JsonResponse(servicio.fila_machote(m)))
+    return _privado(JsonResponse(servicio.fila_machote(m, request.user)))
 
 
 @usuario_de_cotizaciones
@@ -243,7 +302,7 @@ def machotes_importar(request):
 @require_GET
 def editable(request, pk):
     """El JSON editable de la cotización, compatible con el que guarda el escritorio (`EDITABLE_COTIZACION_*.json`)."""
-    c = get_object_or_404(Cotizacion, pk=pk, cuenta_id=request.user.pk)
+    c = _visible(pk)
     nombre = servicio.nombre_pdf(servicio.validar(c.datos)).replace("COTIZACION", "EDITABLE_COTIZACION", 1).rsplit(".", 1)[0] + ".json"
     from django.utils.http import content_disposition_header
 
@@ -262,7 +321,7 @@ def importar(request):
         c = servicio.importar_editable(request.user, archivo.read(), perfiles.perfil_activo(request.user).clave)
     except servicio.CotizacionInvalida as exc:
         return _error(exc, 422)
-    return _privado(JsonResponse({**servicio.resumen_fila(c), "datos": c.datos}, status=201))
+    return _privado(JsonResponse({**_detalle(c, request.user), "folio_original": c.folio_original}, status=201))
 
 
 @usuario_de_cotizaciones
@@ -279,7 +338,7 @@ def traducir(request):
 @usuario_de_cotizaciones
 @require_GET
 def foto(request, sha256):
-    """La foto de referencia de una cotización (solo de la cuenta que la subió)."""
+    """La foto de referencia de una cotización: de esta cuenta o de una cotización de la empresa que la usa."""
     ruta = servicio.ruta_foto(request.user, sha256)
     if ruta is None:
         raise Http404
@@ -291,7 +350,7 @@ def foto(request, sha256):
 @usuario_de_cotizaciones
 @require_POST
 def zip_lote(request):
-    """Varias cotizaciones propias en un ZIP de PDF: `{"elementos": [["cotizacion", id], …]}` (hasta 50)."""
+    """Varias cotizaciones de la empresa en un ZIP de PDF: `{"elementos": [["cotizacion", id], …]}` (hasta 50)."""
     try:
         elementos = zips.cuerpo_json(request).get("elementos")
     except zips.LoteInvalido as exc:

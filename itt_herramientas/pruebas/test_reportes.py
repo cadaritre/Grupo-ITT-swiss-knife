@@ -57,7 +57,7 @@ def test_contexto_usa_el_texto_del_perfil(cliente_de, reportera):
     assert r["perfil"] == "grupo_itt" and r["titulo"] and r["max_fotos"] == 150
 
 
-def test_sincronizacion_idempotente_conflicto_y_aislamiento(cliente_de, reportera, crear_usuario, roles):
+def test_sincronizacion_idempotente_conflicto_y_equipo(cliente_de, reportera, crear_usuario, roles):
     c = cliente_de(reportera)
     idc = uuid.uuid4()
     a = sinc(c, idc, datos([foto("a" * 64)]))
@@ -68,14 +68,14 @@ def test_sincronizacion_idempotente_conflicto_y_aislamiento(cliente_de, reporter
     assert r["resultado"] == "copia"
     assert Reporte.objects.get(pk=a["servidor_id"]).datos["fotos"][0]["nota"] == "nota"
     copia = Reporte.objects.get(pk=r["servidor_id"])
-    assert copia.titulo.endswith("(desde el teléfono)") and copia.copia_de_id == uuid.UUID(a["servidor_id"])
+    assert copia.conflicto.startswith("Copia en conflicto de ") and copia.copia_de_id == uuid.UUID(a["servidor_id"])
     assert sinc(c, idc, datos([foto("a" * 64, "del teléfono")]), a["servidor_id"], 1)["servidor_id"] == r["servidor_id"]
+    # Los reportes son de la empresa: otra cuenta con el rol los ve.
     otra = crear_usuario("otra")
     roles.conceder(otra, "herramientas", "reportes")
     co = cliente_de(otra)
-    assert co.get(url("reportes_detalle", pk=a["servidor_id"])).status_code == 404
-    assert co.get(url("reportes_lista")).json()["reportes"] == []
-    assert post(co, "reportes_pdf", {}, pk=a["servidor_id"]).status_code == 404
+    assert co.get(url("reportes_detalle", pk=a["servidor_id"])).status_code == 200
+    assert {f["id"] for f in co.get(url("reportes_lista")).json()["reportes"]} == {a["servidor_id"], r["servidor_id"]}
 
 
 def test_validacion(cliente_de, reportera):

@@ -1,9 +1,21 @@
 {% extends "herramientas/base_comun.html" %}
 {% load static tv herramientas %}
-{% block titulo_pagina %}Todas las cuentas{% endblock %}
-{% block titulo_h1 %}<h1>Documentos de todas las cuentas</h1><p class="tv-subtitulo">Cotizaciones y reportes, con quién los hizo. Solo lectura.</p>{% endblock %}
+{% block titulo_pagina %}Supervisión{% endblock %}
+{% block titulo_h1 %}<h1>Supervisión</h1><p class="tv-subtitulo">Cotizaciones y reportes de la empresa, con quién los hizo. Solo lectura.</p>{% endblock %}
+{% block acciones_pagina %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:papelera' %}">{% icono "trash-2" %}<span>Papelera</span></a>{% endblock %}
 {% block cuerpo %}
 <div class="sup" id="sup">
+{% if repetidos %}
+<section class="tv-tarjeta sup-repetidos" id="sup-repetidos" aria-labelledby="sup-repetidos-titulo">
+  <h2 id="sup-repetidos-titulo">{% icono "triangle-alert" %}<span>Folios repetidos</span></h2>
+  <p class="tv-tenue">Antes de compartir, cada cuenta contaba sus folios. Estas cotizaciones repiten un folio que ya tiene otra.{% if decide_folios %} Asígnales uno nuevo cuando lo decidas; nada cambia solo.{% else %} El propietario decide si les asigna uno nuevo.{% endif %}</p>
+  <ul class="sup-repetidos__lista">{% for g in repetidos %}
+    <li><strong>{{ g.folio }}</strong>{% if g.conserva %}<span class="tv-tenue"> · lo conserva «{{ g.conserva.proyecto|default:"Sin título" }}» de {{ g.conserva.autor_nombre|default:"cuenta eliminada" }}</span>{% endif %}
+      <ul>{% for c in g.marcadas %}<li class="sup-repetidos__fila"><a href="{% url 'herramientas:supervision_cotizacion' c.pk %}">{{ c.proyecto|default:"Sin título" }}</a> <span class="tv-tenue">de {{ c.autor_nombre|default:"cuenta eliminada" }} · {{ c.creada|date:"j M Y"|lower }}</span>
+        {% if decide_folios %}<form method="post" action="{% url 'herramientas:supervision_asignar_folio' c.pk %}" class="sup-repetidos__accion">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--secundario">{% icono "refresh-cw" %}<span>Asignar folio nuevo</span></button></form>{% endif %}</li>{% endfor %}</ul></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% if hay_documentos %}
 <form method="get" class="sup-filtros" id="sup-filtros" role="search" aria-label="Filtrar documentos" data-tv-una-vez>
   <div class="tv-campo sup-filtros__buscar"><label for="sup-q">Buscar</label>
@@ -44,7 +56,7 @@
       <td data-etiqueta="Documento"><a class="sup-doc" href="{{ abrir }}">
         <span class="sup-doc__icono" data-tipo="{{ f.tipo }}">{% if f.tipo == "cotizacion" %}{% icono "receipt" %}{% else %}{% icono "camera" %}{% endif %}</span>
         <span class="sup-doc__texto"><strong>{{ f.titulo|default:"Sin título" }}</strong><span class="tv-tenue">{{ f.tipo_nombre }}{% if f.folio %} · {{ f.folio }}{% endif %}{% if f.cliente %} · {{ f.cliente }}{% endif %}</span></span></a></td>
-      <td data-etiqueta="Autor"><span class="sup-autor"><strong>{{ f.autor|default:"Cuenta eliminada" }}</strong>{% if f.correo %}<span class="tv-tenue">{{ f.correo }}</span>{% endif %}</span></td>
+      <td data-etiqueta="Autor"><span class="sup-autor"><strong>{{ f.autor|default:"Cuenta eliminada" }}</strong>{% if f.correo %}<span class="tv-tenue">{{ f.correo }}</span>{% endif %}{% if f.modificado and f.modificado != f.autor %}<span class="tv-tenue">Modificada por {{ f.modificado }}</span>{% endif %}</span></td>
       <td data-etiqueta="Total" class="tv-num"><span class="sup-total">{% if f.total is not None %}{{ f.total|dinero }} <small class="tv-tenue">{{ f.moneda }}</small>{% else %}<span class="tv-tenue" aria-label="No aplica">—</span>{% endif %}</span></td>
       <td data-etiqueta="Fotos" class="tv-num">{{ f.fotos|default:"0" }}</td>
       <td data-etiqueta="Fechas"><span class="sup-fechas"><span>Creado <time datetime="{{ f.creada|date:'c' }}" title="{{ f.creada|date:"j M Y, H:i"|lower }}">{{ f.creada|date:"j M Y"|lower }}</time></span>

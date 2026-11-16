@@ -55,9 +55,14 @@ def _datos_cot(usuario, **campos):
     return d
 
 
-def _cot(usuario, folio="COT-2026-0001", proyecto="Deslinde", cliente="Agrícola Norte"):
-    r = cot.sincronizar(usuario, uuid.uuid4(), None, None, _datos_cot(usuario, quote_number=folio, project_title=proyecto, client_name=cliente), "grupo_itt")
-    return Cotizacion.objects.get(pk=r["servidor_id"])
+def _cot(usuario, folio=None, proyecto="Deslinde", cliente="Agrícola Norte"):
+    """Una cotización. El folio lo asigna el servidor; con `folio`, la prueba lo fija después (como un dato de antes de compartir)."""
+    r = cot.sincronizar(usuario, uuid.uuid4(), None, None, _datos_cot(usuario, project_title=proyecto, client_name=cliente), "grupo_itt")
+    c = Cotizacion.objects.get(pk=r["servidor_id"])
+    if folio and folio != c.folio:
+        c.folio, c.datos = folio, {**c.datos, "quote_number": folio}
+        c.save(update_fields=["folio", "datos"])
+    return c
 
 
 def _rep(usuario, titulo="Avance de obra", fotos=()):
@@ -164,17 +169,15 @@ def test_la_supervision_pide_el_rol(cliente_de, ana, crear_usuario):
     assert cliente_de(ana).post(url("supervision_reporte_pdf", pk=r.pk)).status_code == 403
 
 
-def test_nadie_ve_ni_toca_los_documentos_de_otra_cuenta(cliente_de, ana, beto):
+def test_el_equipo_ve_lo_de_todos_pero_solo_su_autor_lo_elimina(cliente_de, ana, beto):
     c, r = _cot(ana), _rep(ana)
     cb = cliente_de(beto)
-    assert cb.get(url("cotizaciones_detalle", pk=c.pk)).status_code == 404
-    assert cb.delete(url("cotizaciones_detalle", pk=c.pk)).status_code == 404
-    assert cb.get(url("reportes_detalle", pk=r.pk)).status_code == 404
-    assert cb.delete(url("reportes_detalle", pk=r.pk)).status_code == 404
-    assert cb.get(url("cotizaciones_lista")).json()["cotizaciones"] == []
-    cuerpo = {"id_cliente": str(uuid.uuid4()), "servidor_id": str(c.pk), "revision_base": 1, "datos": _datos_cot(beto)}
-    assert cb.post(url("cotizaciones_sincronizar"), json.dumps(cuerpo), content_type="application/json").status_code == 422
-    assert Cotizacion.objects.filter(pk=c.pk, revision=1).exists() and Reporte.objects.filter(pk=r.pk).exists()
+    assert cb.get(url("cotizaciones_detalle", pk=c.pk)).status_code == 200
+    assert cb.get(url("reportes_detalle", pk=r.pk)).status_code == 200
+    assert cb.delete(url("cotizaciones_detalle", pk=c.pk)).status_code == 409
+    assert cb.delete(url("reportes_detalle", pk=r.pk)).status_code == 409
+    assert [f["id"] for f in cb.get(url("cotizaciones_lista")).json()["cotizaciones"]] == [str(c.pk)]
+    assert Cotizacion.objects.filter(pk=c.pk, eliminado__isnull=True).exists() and Reporte.objects.filter(pk=r.pk, eliminado__isnull=True).exists()
 
 
 def test_quien_supervisa_ve_todo_pero_no_puede_escribir(cliente_de, ana, beto, supervisora, roles):
@@ -187,14 +190,10 @@ def test_quien_supervisa_ve_todo_pero_no_puede_escribir(cliente_de, ana, beto, s
     # Las rutas de supervisión solo leen.
     for ruta in (url("supervision"), url("supervision_cotizacion", pk=c.pk), url("supervision_reporte", pk=r.pk), url("supervision_cotizacion_pdf", pk=c.pk)):
         assert s.post(ruta).status_code == 405 and s.delete(ruta).status_code == 405
-    # Las de edición son de cada cuenta: sin el rol, 403; aunque tenga el rol, lo ajeno no existe para ella.
+    # Sin los roles de edición, la supervisión no escribe (403).
     assert s.delete(url("cotizaciones_detalle", pk=c.pk)).status_code == 403
-    roles.conceder(supervisora, "herramientas", "cotizaciones", "reportes")
-    s = cliente_de(supervisora)
-    assert s.delete(url("cotizaciones_detalle", pk=c.pk)).status_code == 404
-    assert s.delete(url("reportes_detalle", pk=r.pk)).status_code == 404
     cuerpo = {"id_cliente": str(uuid.uuid4()), "servidor_id": str(r.pk), "revision_base": 1, "datos": datos_reporte([], titulo="Pisado")}
-    assert s.post(url("reportes_sincronizar"), json.dumps(cuerpo), content_type="application/json").status_code == 422
+    assert s.post(url("reportes_sincronizar"), json.dumps(cuerpo), content_type="application/json").status_code == 403
     c.refresh_from_db(), r.refresh_from_db()
     assert c.revision == 1 and r.titulo == "Visita de obra" and r.revision == 1
 
@@ -208,8 +207,8 @@ def test_la_entrada_del_menu_solo_la_ve_quien_supervisa(cliente_de, ana, supervi
     assert "supervision" in cliente_de(supervisora).get(url("sesion")).json()["nav"]
     assert "supervision" not in cliente_de(ana).get(url("sesion")).json()["nav"]
     html = cliente_de(supervisora).get(url("inicio")).content.decode()
-    assert "Documentos de todas las cuentas" in html
-    assert "Documentos de todas las cuentas" not in cliente_de(ana).get(url("inicio")).content.decode()
+    assert "Solo lectura" in html and "Supervisión" in html
+    assert "Cotizaciones y reportes de la empresa, con su autor" not in cliente_de(ana).get(url("inicio")).content.decode()
 
 
 # -- Supervisión: lista, filtros y PDF ---------------------------------------------------------------------------------------

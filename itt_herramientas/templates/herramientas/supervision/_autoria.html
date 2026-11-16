@@ -1,3 +1,3 @@
 {% load tv %}<p class="itt-autoria" aria-label="Autor y fechas">{% icono "user-round" %}<span><strong>{{ autor.nombre|default:"Sin nombre" }}</strong>{% if autor.correo %} <span class="itt-autoria__correo">{{ autor.correo }}</span>{% endif %}{% if autor.eliminada %} <span class="tv-insignia tv-insignia--neutra">Cuenta eliminada</span>{% endif %}</span>
 <span class="itt-autoria__fecha">Creado <time datetime="{{ autor.creada|date:'c' }}">{{ autor.creada|date:"j M Y, H:i"|lower }}</time></span>
-<span class="itt-autoria__fecha">Actualizado <time datetime="{{ autor.actualizada|date:'c' }}">{{ autor.actualizada|date:"j M Y, H:i"|lower }}</time></span></p>
+<span class="itt-autoria__fecha">Modificada por {{ autor.modificado|default:"—" }} · <time datetime="{{ autor.actualizada|date:'c' }}">{{ autor.actualizada|date:"j M Y, H:i"|lower }}</time></span></p>

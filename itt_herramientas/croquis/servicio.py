@@ -20,7 +20,7 @@ from pathlib import Path
 from django.utils import timezone
 from tvplataforma.tareas import cancelada, progreso
 
-from ..comun import autoria, capturas, errores, perfiles, sincronizacion
+from ..comun import autoria, capturas, documentos, errores, perfiles, sincronizacion
 from ..dominio import branding, geospatial_converter as gc, location_sketch as ls, osm_vector, terrain_contours
 from ..models import Croquis, Perfil
 
@@ -109,14 +109,15 @@ def _aplicar(c: Croquis, datos: dict, perfil: str) -> None:
     c.datos, c.perfil, c.titulo, c.actualizada = datos, perfil, datos["title"][:200], timezone.now()
 
 
-def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str) -> dict:
+def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str, sesion: str = "") -> dict:
     nuevos = validar(datos)
-
-    def copia(obj):
-        _aplicar(obj, dict(nuevos, title=(nuevos["title"].rstrip() + " (desde el teléfono)").strip()), perfil)
-
     return sincronizacion.sincronizar(Croquis, usuario, id_cliente, servidor_id, revision_base, nuevos,
-                                      aplicar=lambda obj: _aplicar(obj, nuevos, perfil), aplicar_copia=copia, error=CroquisInvalido)
+                                      aplicar=lambda obj: _aplicar(obj, nuevos, perfil), aplicar_copia=lambda obj: _aplicar(obj, nuevos, perfil),
+                                      error=CroquisInvalido, sesion=sesion, aplicar_datos=lambda obj, d: _aplicar(obj, validar(d), perfil))
+
+
+def aplicar_datos_guardados(c: Croquis, datos: dict) -> None:
+    _aplicar(c, validar(datos), c.perfil)
 
 
 def estado_vectores(c: Croquis) -> str:
@@ -125,11 +126,14 @@ def estado_vectores(c: Croquis) -> str:
     return "vigentes" if c.vectores_fuente == fuente(c.datos) else "obsoletos"
 
 
-def resumen_fila(c: Croquis) -> dict:
-    return {"id": str(c.id), "id_cliente": str(c.id_cliente) if c.id_cliente else None, "revision": c.revision, "titulo": c.titulo, "actualizada": c.actualizada.isoformat(),
+def resumen_fila(c: Croquis, usuario=None) -> dict:
+    fila = {"id": str(c.id), "id_cliente": str(c.id_cliente) if c.id_cliente else None, "revision": c.revision, "titulo": c.titulo, "actualizada": c.actualizada.isoformat(),
             "copia": c.copia_de_id is not None, "perfil": c.perfil, "vectores": estado_vectores(c), "resumen": c.vectores_resumen,
             "vectorizado": c.vectorizado.isoformat() if c.vectorizado else None, "area_km2": round(area_km2(c.datos), 3),
             "pdf_al_dia": bool(c.salida_ruta) and c.salida_fuente == _huella_salida(c), "autor": autoria.fila(c)}
+    if usuario is not None:
+        fila.update(documentos.fila(c, usuario))
+    return fila
 
 
 def _huella_salida(c: Croquis) -> str:

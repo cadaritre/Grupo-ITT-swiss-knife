@@ -360,7 +360,7 @@ def test_hoja_de_concepto_fecha_unica_y_avisos_junto_a_la_barra(motor, tmp_path,
 def test_machotes_como_en_el_escritorio(motor, tmp_path, servidor, sesion_de, usuaria):
     """Machotes con paridad de escritorio: guardar el concepto actual, insertar (también sin red, desde la caché), reemplazar el concepto
     abierto, y en «Machotes»: editar y renombrar, restaurar la versión anterior, personalizar uno del catálogo, exportar uno, importar y eliminar."""
-    from itt_herramientas.models import MachoteCuenta
+    from itt_herramientas.models import Machote
 
     ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria), viewport={"width": 360, "height": 780}, accept_downloads=True)
     try:
@@ -375,7 +375,7 @@ def test_machotes_como_en_el_escritorio(motor, tmp_path, servidor, sesion_de, us
         pagina.fill("#confirmar-entrada", "Deslinde rústico")
         pagina.locator("#confirmar-si").click()
         expect(pagina.locator("#cot-mensaje")).to_contain_text("Deslinde rústico")
-        assert MachoteCuenta.objects.get(cuenta_id=usuaria.pk).concepto["unit_price"] == 8500
+        assert Machote.objects.get(cuenta_id=usuaria.pk).concepto["unit_price"] == 8500
         pagina.locator("#c-cerrar").click()
         # Insertar sin conexión: el selector usa los machotes guardados en el teléfono.
         ctx.set_offline(True)
@@ -415,7 +415,7 @@ def test_machotes_como_en_el_escritorio(motor, tmp_path, servidor, sesion_de, us
         pagina.locator("#m-guardar").click()
         expect(pagina.locator("#dlg-machote")).to_be_hidden()
         expect(pagina.locator("#cot-machotes-lista")).to_contain_text("Deslinde rústico 2026")
-        m = MachoteCuenta.objects.get(cuenta_id=usuaria.pk)
+        m = Machote.objects.get(cuenta_id=usuaria.pk)
         assert m.nombre == "Deslinde rústico 2026" and m.concepto["unit_price"] == 9900 and m.anterior["unit_price"] == 8500
         pagina.locator("#cot-machotes-lista .cot-fila__principal").first.click()
         pagina.locator("#m-restaurar").click()
@@ -445,6 +445,6 @@ def test_machotes_como_en_el_escritorio(motor, tmp_path, servidor, sesion_de, us
         expect(pagina.locator("#confirmar-texto")).to_contain_text("(importado 2)")
         pagina.locator("#confirmar-si").click()
         expect(pagina.locator("#cot-machotes-lista > li")).to_have_count(2)
-        assert MachoteCuenta.objects.filter(cuenta_id=usuaria.pk).count() == 2
+        assert Machote.objects.filter(cuenta_id=usuaria.pk).count() == 2
     finally:
         ctx.close()

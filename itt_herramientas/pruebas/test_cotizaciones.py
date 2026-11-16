@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from itt_herramientas.models import Captura, Cotizacion, MachoteCuenta
+from itt_herramientas.models import Captura, Cotizacion, Machote
 
 from .conftest import url
 
@@ -51,7 +51,7 @@ def test_contexto(cliente_de, usuaria):
     r = cliente_de(usuaria).get(url("cotizaciones_contexto")).json()
     assert r["perfil"] == "grupo_itt"
     assert len(r["plantillas"]["es"]) == 14 and len(r["plantillas"]["en"]) == 14
-    assert r["folio"].startswith("COT-") and r["folio"].endswith("-0001")
+    assert "folio" not in r                                 # el folio lo asigna el servidor al sincronizar (único en la empresa)
     assert "prepared_by" in r["base"] and "bank" in r["base"] and "items" not in r["base"]
 
 
@@ -75,22 +75,31 @@ def test_actualiza_con_la_revision_base_y_copia_en_conflicto(cliente_de, usuaria
     assert r["resultado"] == "copia" and r["copia_de"] == a["servidor_id"]
     assert Cotizacion.objects.get(pk=a["servidor_id"]).datos["project_title"] == "Editado"
     copia = Cotizacion.objects.get(pk=r["servidor_id"])
-    assert copia.datos["project_title"] == "Del teléfono (desde el teléfono)" and copia.copia_de_id == uuid.UUID(a["servidor_id"])
+    assert copia.datos["project_title"] == "Del teléfono" and copia.copia_de_id == uuid.UUID(a["servidor_id"])
+    assert copia.conflicto.startswith(f"Copia en conflicto de {a['folio']} (") and copia.folio != a["folio"]
     # Reenviar el mismo conflicto no crea otra copia.
     assert sincronizar(c, idc, datos(project_title="Del teléfono"), a["servidor_id"], 1)["servidor_id"] == r["servidor_id"]
     assert Cotizacion.objects.count() == 2
 
 
-def test_aislamiento_entre_cuentas(cliente_de, usuaria, crear_usuario, roles):
+def test_compartidas_con_el_equipo(cliente_de, usuaria, crear_usuario, roles):
+    """Quien tiene el rol de cotizaciones ve y edita las de todos; quien no lo tiene, nada."""
     otra = crear_usuario("beto")
     roles.conceder(otra, "herramientas", "cotizaciones")
     a = sincronizar(cliente_de(usuaria), uuid.uuid4(), datos())
     cb = cliente_de(otra)
-    assert cb.get(url("cotizaciones_detalle", pk=a["servidor_id"])).status_code == 404
-    assert cb.delete(url("cotizaciones_detalle", pk=a["servidor_id"])).status_code == 404
-    assert cb.get(url("cotizaciones_lista")).json()["cotizaciones"] == []
-    r = post(cb, "cotizaciones_sincronizar", {"id_cliente": str(uuid.uuid4()), "servidor_id": a["servidor_id"], "revision_base": 1, "datos": datos()})
-    assert r.status_code == 422
+    assert cb.get(url("cotizaciones_detalle", pk=a["servidor_id"])).status_code == 200
+    assert [f["id"] for f in cb.get(url("cotizaciones_lista")).json()["cotizaciones"]] == [a["servidor_id"]]
+    r = post(cb, "cotizaciones_sincronizar", {"id_cliente": str(uuid.uuid4()), "servidor_id": a["servidor_id"], "revision_base": 1, "datos": datos(project_title="De Beto")})
+    assert r.status_code == 200 and r.json()["resultado"] == "actualizada"
+    fila = cb.get(url("cotizaciones_detalle", pk=a["servidor_id"])).json()
+    assert fila["modificado"]["nombre"] == "beto" and fila["autor"]["nombre"] == "ana" and fila["datos"]["project_title"] == "De Beto"
+    # Eliminar es de quien la creó (o de quien administra): Beto no puede, y lo dice sin 403 (la cola lo tomaría como sesión caducada).
+    r = cb.delete(url("cotizaciones_detalle", pk=a["servidor_id"]))
+    assert r.status_code == 409 and r.json()["sin_permiso"] is True
+    sin_rol = crear_usuario("carla")
+    roles.conceder(sin_rol, "herramientas", "reportes")
+    assert cliente_de(sin_rol).get(url("cotizaciones_lista")).status_code == 403
 
 
 def test_validacion(cliente_de, usuaria):
@@ -112,7 +121,8 @@ def test_duplicar_y_borrar(cliente_de, usuaria):
     assert copia["id"] != a["servidor_id"] and copia["datos"]["spelling_checked"] is False and copia["datos"]["items"] == datos()["items"] or True
     assert copia["folio"] != "" and Cotizacion.objects.count() == 2
     assert c.delete(url("cotizaciones_detalle", pk=copia["id"])).status_code == 200
-    assert Cotizacion.objects.count() == 1
+    assert Cotizacion.objects.filter(eliminado__isnull=True).count() == 1          # a la papelera, no borrada
+    assert c.get(url("cotizaciones_detalle", pk=copia["id"])).status_code == 404
 
 
 def test_total_guardado_es_el_del_dominio(cliente_de, usuaria):
@@ -173,14 +183,14 @@ def test_machotes_crud_sobrescribir_exportar_importar(cliente_de, usuaria):
     r2 = post(c, "cotizaciones_machotes", {"id": pid, "nombre": "Mi concepto", "idioma": "es", "concepto": concepto(2, 9)})
     assert r2.json()["tiene_anterior"] is True
     assert c.post(url("cotizaciones_machote_restaurar", pk=pid)).status_code == 200
-    assert MachoteCuenta.objects.get(plantilla_id=pid).concepto["unit_price"] == 5
+    assert Machote.objects.get(plantilla_id=pid).concepto["unit_price"] == 5
     exportado = c.get(url("cotizaciones_machotes_exportar"))
     assert json.loads(exportado.content)["tool"] == "grupo_itt.quote_concept_templates"
     from django.core.files.uploadedfile import SimpleUploadedFile
 
     r = c.post(url("cotizaciones_machotes_importar"), {"archivo": SimpleUploadedFile("m.json", exportado.content)})
     assert r.json() == {"agregados": 1, "renombrados": 1}
-    assert sorted(MachoteCuenta.objects.values_list("nombre", flat=True)) == ["Mi concepto", "Mi concepto (importado 2)"]
+    assert sorted(Machote.objects.values_list("nombre", flat=True)) == ["Mi concepto", "Mi concepto (importado 2)"]
     assert c.delete(url("cotizaciones_machote", pk=pid)).status_code == 200
     assert c.post(url("cotizaciones_machotes_importar"), {"archivo": SimpleUploadedFile("m.json", b"{}")}).status_code == 422
 
@@ -193,17 +203,25 @@ def test_editable_e_importacion(cliente_de, usuaria):
     e = c.get(url("cotizaciones_editable", pk=a["servidor_id"]))
     assert "EDITABLE_COTIZACION COT-2026-0001 - Proyecto.json" in e["Content-Disposition"]
     r = c.post(url("cotizaciones_importar"), {"archivo": SimpleUploadedFile("e.json", e.content)})
-    assert r.status_code == 201 and r.json()["folio"] == "COT-2026-0001"
+    # El folio del editable ya lo tiene otra cotización de la empresa: recibe el siguiente y se dice cuál traía.
+    assert r.status_code == 201 and r.json()["folio"] == "COT-2026-0002" and r.json()["folio_original"] == "COT-2026-0001"
     assert c.post(url("cotizaciones_importar"), {"archivo": SimpleUploadedFile("e.json", b"no json")}).status_code == 422
 
 
-def test_siguiente_folio(cliente_de, usuaria):
+def test_folio_lo_asigna_el_servidor_y_sigue_desde_el_mayor(cliente_de, usuaria):
+    from django.core.files.uploadedfile import SimpleUploadedFile
     from django.utils import timezone
 
     c = cliente_de(usuaria)
     y = timezone.localdate().year
-    sincronizar(c, uuid.uuid4(), datos(quote_number=f"COT-{y}-0007"))
-    assert c.get(url("cotizaciones_contexto")).json()["folio"] == f"COT-{y}-0008"
+    a = sincronizar(c, uuid.uuid4(), datos(quote_number="LO-QUE-SEA"))        # el teléfono no decide el folio
+    assert a["folio"] == f"COT-{y}-0001"
+    importado = json.dumps(datos(quote_number=f"COT-{y}-0007")).encode()
+    assert c.post(url("cotizaciones_importar"), {"archivo": SimpleUploadedFile("e.json", importado)}).json()["folio"] == f"COT-{y}-0007"
+    assert sincronizar(c, uuid.uuid4(), datos())["folio"] == f"COT-{y}-0008"
+    # Editar no cambia el folio aunque el teléfono mande otro.
+    b = sincronizar(c, uuid.UUID(int=1), datos(quote_number="X"), a["servidor_id"], a["revision"])
+    assert b["folio"] == f"COT-{y}-0001" and Cotizacion.objects.get(pk=a["servidor_id"]).datos["quote_number"] == f"COT-{y}-0001"
 
 
 @pytest.mark.parametrize("clave", ["grupo_itt", "tresvizo"])

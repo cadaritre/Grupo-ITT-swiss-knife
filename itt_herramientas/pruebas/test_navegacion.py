@@ -30,18 +30,23 @@ def test_el_menu_y_las_acciones_resuelven_y_no_usan_atajos_reservados():
     assert {e.clave for e in MODULO.menu} >= {"inicio", "cotizaciones", "reportes", "croquis", "convertidor", "triangulacion", "ajustes"}
 
 
-def test_la_busqueda_solo_devuelve_lo_propio_y_de_sus_herramientas(cliente_de, usuaria, crear_usuario, roles):
-    _cotizacion(usuaria, "COT-2026-0101", "Deslinde Rancho Viejo", "Agrícola Norte")
+def test_la_busqueda_devuelve_lo_del_equipo_de_sus_herramientas(cliente_de, usuaria, crear_usuario, roles):
+    a = _cotizacion(usuaria, "", "Deslinde Rancho Viejo", "Agrícola Norte")
     otra = crear_usuario("otra")
     roles.conceder(otra, "herramientas", "cotizaciones")
-    _cotizacion(otra, "COT-2026-0909", "Deslinde ajeno", "Otro cliente")
+    b = _cotizacion(otra, "", "Deslinde de Otra", "Otro cliente")
+    e = _cotizacion(otra, "", "Deslinde eliminado", "Otro cliente")
+    Cotizacion.objects.filter(pk=e["servidor_id"]).update(eliminado=Cotizacion.objects.get(pk=e["servidor_id"]).creada)
     c = cliente_de(usuaria)
     r = c.get(url("buscar"), {"q": "deslinde"}).json()["resultados"]
-    assert [x["titulo"] for x in r] == ["COT-2026-0101 · Deslinde Rancho Viejo"]
-    pk = Cotizacion.objects.get(folio="COT-2026-0101").pk
-    assert r[0]["url"] == f"/cotizaciones/#/s/{pk}" and "Agrícola Norte" in r[0]["subtitulo"]
+    assert sorted(x["titulo"] for x in r) == sorted([f"{a['folio']} · Deslinde Rancho Viejo", f"{b['folio']} · Deslinde de Otra"])
+    pk = Cotizacion.objects.get(folio=a["folio"]).pk
+    propio = next(x for x in r if "Rancho" in x["titulo"])
+    assert propio["url"] == f"/cotizaciones/#/s/{pk}" and "Agrícola Norte" in propio["subtitulo"]
     assert c.get(url("buscar"), {"q": "d"}).json()["resultados"] == []                        # mínimo dos letras
-    assert c.get(url("buscar"), {"q": "rancho"}).status_code == 200
+    solo_reportes = crear_usuario("rep")
+    roles.conceder(solo_reportes, "herramientas", "reportes")
+    assert cliente_de(solo_reportes).get(url("buscar"), {"q": "deslinde"}).json()["resultados"] == []     # solo de sus herramientas
 
 
 def test_la_busqueda_pide_un_rol_de_documentos(cliente_de, convertidora):

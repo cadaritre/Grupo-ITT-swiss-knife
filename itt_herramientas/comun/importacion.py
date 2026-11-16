@@ -19,7 +19,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from ..dominio.quotation_templates import CustomConceptTemplateStore
-from ..models import MachoteCuenta, Perfil
+from ..models import Machote, Perfil
 from . import diccionarios, errores, perfiles, preferencias
 
 VERSION_AJUSTES = 5
@@ -260,11 +260,12 @@ def aplicar(paquete: Paquete, cuenta_id: int, elementos: set[str], *, es_admin: 
             resultado.aplicado["diccionario"] = diccionarios.fusionar_palabras(cuenta_id, paquete.diccionario)
         if "machotes" in elementos:
             nuevos = omitidos = 0
-            existentes = set(MachoteCuenta.objects.filter(cuenta_id=cuenta_id).values_list("nombre", flat=True))
-            ids = set(MachoteCuenta.objects.filter(cuenta_id=cuenta_id).values_list("plantilla_id", flat=True))
+            # Los machotes son de la empresa: un nombre que ya existe (de cualquier cuenta) no se toca.
+            existentes = {n.casefold() for n in Machote.objects.values_list("nombre", flat=True)}
+            ids = set(Machote.objects.values_list("plantilla_id", flat=True))
             from dataclasses import asdict
             for t in paquete.machotes:
-                if t.name in existentes:
+                if t.name.casefold() in existentes:
                     omitidos += 1
                     continue
                 try:
@@ -273,8 +274,10 @@ def aplicar(paquete: Paquete, cuenta_id: int, elementos: set[str], *, es_admin: 
                     plantilla_id = uuid.uuid4()
                 if plantilla_id in ids:
                     plantilla_id = uuid.uuid4()
-                MachoteCuenta.objects.create(cuenta_id=cuenta_id, plantilla_id=plantilla_id, nombre=t.name, idioma=t.language, concepto=asdict(t.item))
-                existentes.add(t.name)
+                m = Machote(cuenta_id=cuenta_id, plantilla_id=plantilla_id, nombre=t.name, idioma=t.language, concepto=asdict(t.item))
+                m.save()
+                Machote.objects.filter(pk=m.pk).update(modificado_por_id=cuenta_id, modificado_por_nombre=m.autor_nombre)
+                existentes.add(t.name.casefold())
                 ids.add(plantilla_id)
                 nuevos += 1
             resultado.aplicado["machotes"] = nuevos

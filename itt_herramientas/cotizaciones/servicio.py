@@ -16,13 +16,12 @@ from pathlib import Path
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from tvplataforma import ajustes
 
-from ..comun import autoria, capturas, diccionarios, errores, perfiles, sincronizacion
+from ..comun import autoria, capturas, diccionarios, documentos, errores, perfiles, sincronizacion
 from ..dominio import quotation_models as qm
 from ..dominio import quotation_pdf
 from ..dominio.quotation_i18n import STANDARD_UNITS
-from ..models import Captura, Cotizacion, MachoteCuenta
+from ..models import ContadorFolio, Cotizacion, Machote
 
 MAX_BYTES_DATOS = 400_000
 MAX_CONCEPTOS = 200
@@ -122,61 +121,146 @@ def _resumen(q: qm.QuoteData) -> dict:
     return {"folio": q.quote_number[:60], "cliente": q.client_name[:160], "proyecto": q.project_title[:200], "moneda": q.currency, "total": Decimal(str(q.total))}
 
 
-def siguiente_folio(cuenta_id: int, hoy: date | None = None) -> str:
-    hoy = hoy or timezone.localdate()
-    patron = re.compile(rf"^COT-{hoy.year}-(\d{{1,6}})$")
+_FOLIO = re.compile(r"^COT-(\d{4})-(\d{1,6})$")
+
+
+def _mayor_folio(anio: int) -> int:
     mayor = 0
-    for folio in Cotizacion.objects.filter(cuenta_id=cuenta_id, folio__startswith=f"COT-{hoy.year}-").values_list("folio", flat=True):
-        m = patron.match(folio)
-        if m:
-            mayor = max(mayor, int(m.group(1)))
-    return f"COT-{hoy.year}-{mayor + 1:04d}"
+    for folio in Cotizacion.objects.filter(folio__startswith=f"COT-{anio}-").values_list("folio", flat=True):
+        m = _FOLIO.match(folio)
+        if m and int(m.group(1)) == anio:
+            mayor = max(mayor, int(m.group(2)))
+    return mayor
+
+
+def asignar_folio(hoy: date | None = None) -> str:
+    """Siguiente folio de la EMPRESA (COT-AAAA-NNNN), con el contador del año bloqueado hasta que termine la transacción.
+
+    Dos cotizaciones creadas al mismo tiempo (dos personas, o el teléfono y la oficina) nunca reciben el mismo: la segunda espera el
+    renglón del contador. Sigue desde el mayor que exista (también los importados), así nunca choca con uno ya usado.
+    """
+    hoy = hoy or timezone.localdate()
+    with transaction.atomic():
+        ContadorFolio.objects.bulk_create([ContadorFolio(anio=hoy.year, ultimo=0)], ignore_conflicts=True)
+        contador = ContadorFolio.objects.select_for_update().get(anio=hoy.year)
+        contador.ultimo = max(contador.ultimo, _mayor_folio(hoy.year)) + 1
+        contador.save(update_fields=["ultimo"])
+        return f"COT-{hoy.year}-{contador.ultimo:04d}"
+
+
+def _ajustar_contador(folio: str) -> None:
+    """Un folio importado mayor que el contador lo adelanta (así el siguiente asignado no lo repite)."""
+    m = _FOLIO.match(folio or "")
+    if not m:
+        return
+    anio, n = int(m.group(1)), int(m.group(2))
+    ContadorFolio.objects.bulk_create([ContadorFolio(anio=anio, ultimo=0)], ignore_conflicts=True)
+    ContadorFolio.objects.filter(anio=anio, ultimo__lt=n).update(ultimo=n)
+
+
+def folio_libre(folio: str, excepto=None) -> bool:
+    consulta = Cotizacion.objects.filter(folio=folio, folio_repetido=False)
+    if excepto is not None:
+        consulta = consulta.exclude(pk=excepto)
+    return bool(folio) and not consulta.exists()
 
 
 # -- Guardado y sincronización -----------------------------------------------------------------------------------------
 
-def resumen_fila(c: Cotizacion) -> dict:
-    return {"id": str(c.id), "id_cliente": str(c.id_cliente) if c.id_cliente else None, "revision": c.revision, "folio": c.folio, "cliente": c.cliente,
+def resumen_fila(c: Cotizacion, usuario=None) -> dict:
+    fila = {"id": str(c.id), "id_cliente": str(c.id_cliente) if c.id_cliente else None, "revision": c.revision, "folio": c.folio, "cliente": c.cliente,
             "proyecto": c.proyecto, "moneda": c.moneda, "total": float(c.total), "actualizada": c.actualizada.isoformat(), "copia": c.copia_de_id is not None,
-            "perfil": c.perfil, "autor": autoria.fila(c)}
+            "perfil": c.perfil, "autor": autoria.fila(c), "folio_repetido": c.folio_repetido}
+    if usuario is not None:
+        fila.update(documentos.fila(c, usuario))
+    return fila
 
 
-def _aplicar(c: Cotizacion, q: qm.QuoteData, perfil: str) -> None:
+def _aplicar(c: Cotizacion, q: qm.QuoteData, perfil: str, folio_propuesto: str = "") -> None:
+    """Vuelca la cotización en el registro. El folio lo fija el servidor: el que ya tiene, o uno nuevo de la empresa si no tiene
+    (`folio_propuesto`, el de un editable importado, solo si está libre)."""
+    if not c.folio:
+        if folio_propuesto and folio_libre(folio_propuesto):
+            c.folio = folio_propuesto[:60]
+            _ajustar_contador(c.folio)
+        else:
+            c.folio = asignar_folio()
+    q.quote_number = c.folio
     c.datos = a_datos(q)
     r = _resumen(q)
-    c.folio, c.cliente, c.proyecto, c.moneda, c.total, c.perfil = r["folio"], r["cliente"], r["proyecto"], r["moneda"], r["total"], perfil
+    c.cliente, c.proyecto, c.moneda, c.total, c.perfil = r["cliente"], r["proyecto"], r["moneda"], r["total"], perfil
     c.actualizada = timezone.now()
 
 
 def guardar_nueva(usuario, datos: dict, perfil: str, id_cliente: uuid.UUID | None = None) -> Cotizacion:
     q = validar(datos)
-    c = Cotizacion(cuenta_id=usuario.pk, id_cliente=id_cliente)
-    _aplicar(c, q, perfil)
-    c.save()
+    with transaction.atomic():
+        c = Cotizacion(cuenta_id=usuario.pk, id_cliente=id_cliente)
+        _aplicar(c, q, perfil)
+        c.save()
+        documentos.registrar_version(c, usuario)
     return c
 
 
-def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str) -> dict:
-    """Aplica un borrador del teléfono (ver `comun.sincronizacion`). Nunca pisa: ante un conflicto guarda una COPIA."""
+def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str, sesion: str = "") -> dict:
+    """Aplica un borrador del teléfono (ver `comun.sincronizacion`). Nunca pisa: fusiona si no choca; si choca, copia en conflicto."""
     q = validar(datos)
 
-    def copia(obj):
-        q.project_title = (q.project_title.rstrip() + " (desde el teléfono)").strip()
-        _aplicar(obj, q, perfil)
+    def aplicar_datos(obj, crudo):
+        _aplicar(obj, validar(crudo), perfil)
+
+    def ajustar(actual, nuevos):
+        return {**nuevos, "quote_number": actual.folio} if actual.folio else nuevos
+
+    def copia(obj):                                                         # la copia recibe su propio folio (son únicos)
+        _aplicar(obj, validar(a_datos(q)), perfil)
 
     return sincronizacion.sincronizar(Cotizacion, usuario, id_cliente, servidor_id, revision_base, a_datos(q),
-                                      aplicar=lambda obj: _aplicar(obj, q, perfil), aplicar_copia=copia, error=CotizacionInvalida)
+                                      aplicar=lambda obj: _aplicar(obj, q, perfil), aplicar_copia=copia, error=CotizacionInvalida,
+                                      sesion=sesion, aplicar_datos=aplicar_datos, ajustar=ajustar)
+
+
+def aplicar_datos_guardados(c: Cotizacion, datos: dict) -> None:
+    """Restaurar una versión o un borrador de recuperación: los datos guardados con el folio vigente."""
+    _aplicar(c, validar(datos), c.perfil)
 
 
 def duplicar(usuario, c: Cotizacion) -> Cotizacion:
     q = validar(c.datos)
-    q.quote_number = siguiente_folio(usuario.pk)
     q.quote_date = timezone.localdate().strftime("%d/%m/%Y")
     q.spelling_checked = False
-    copia = Cotizacion(cuenta_id=usuario.pk)
-    _aplicar(copia, q, c.perfil)
-    copia.save()
+    with transaction.atomic():
+        copia = Cotizacion(cuenta_id=usuario.pk)
+        _aplicar(copia, q, c.perfil)
+        copia.save()
+        documentos.registrar_version(copia, usuario, nota=f"Duplicada de {c.folio}" if c.folio else "")
     return copia
+
+
+def repetidos() -> list[dict]:
+    """Folios que estaban repetidos antes de compartir: cada grupo con la cotización que lo conserva y las marcadas."""
+    marcadas = list(Cotizacion.objects.filter(folio_repetido=True, eliminado__isnull=True).order_by("folio", "creada"))
+    grupos: dict[str, dict] = {}
+    for c in marcadas:
+        g = grupos.setdefault(c.folio, {"folio": c.folio, "conserva": Cotizacion.objects.filter(folio=c.folio, folio_repetido=False).first(), "marcadas": []})
+        g["marcadas"].append(c)
+    return list(grupos.values())
+
+
+def asignar_folio_nuevo(c: Cotizacion, usuario) -> Cotizacion:
+    """«Asignar folio nuevo» (lo decide el propietario): la cotización marcada recibe el siguiente folio de la empresa, en una revisión nueva."""
+    with transaction.atomic():
+        c = Cotizacion.objects.select_for_update().get(pk=c.pk)
+        if not c.folio_repetido:
+            raise CotizacionInvalida("Esta cotización ya tiene un folio único.")
+        anterior = c.folio
+        c.folio, c.folio_repetido = "", False
+        _aplicar(c, validar(c.datos), c.perfil)
+        c.revision += 1
+        c.save()
+        documentos.registrar_version(c, usuario, nota=f"Folio nuevo: antes {anterior}")
+    documentos.log.info("Documentos: la cuenta %s asignó un folio nuevo a la cotización %s", usuario.pk, c.pk)
+    return c
 
 
 # -- PDF -----------------------------------------------------------------------------------------------------------------
@@ -193,19 +277,19 @@ def nombre_pdf(q: qm.QuoteData) -> str:
 
 
 def _resolver_imagenes(cuenta_id: int, q: qm.QuoteData) -> list[str]:
-    """Cambia «captura:<sha>» por la ruta de la foto de la cuenta dueña; devuelve las que aún no llegan al servidor."""
+    """Cambia «captura:<sha>» por la ruta de la foto (la subió cualquiera del equipo: la cotización es de la empresa; primero la de la cuenta
+    autora). Devuelve las que aún no llegan al servidor."""
     pendientes = []
-    raiz = Path(ajustes.valor("TV_HERRAMIENTAS_ARCHIVOS"))
     resueltas = []
     for imagen in q.images:
         m = _CAPTURA.match(imagen.path)
         if not m:
             continue
-        captura = Captura.objects.filter(cuenta_id=cuenta_id, sha256=m.group(1)).first()
-        if captura is None or not (raiz / captura.ruta).is_file():
+        ruta = capturas.ruta_de_documento(m.group(1), cuenta_id)
+        if ruta is None:
             pendientes.append(imagen.caption or m.group(1)[:8])
             continue
-        resueltas.append(qm.QuoteImage(path=str(raiz / captura.ruta), caption=imagen.caption))
+        resueltas.append(qm.QuoteImage(path=str(ruta), caption=imagen.caption))
     q.images = resueltas
     return pendientes
 
@@ -244,8 +328,13 @@ def traducir(datos: dict, idioma: str) -> dict:
 
 
 def ruta_foto(usuario, sha256: str) -> Path | None:
-    """Archivo de una foto de ESTA cuenta (para las miniaturas del editor)."""
-    return capturas.ruta(usuario.pk, sha256)
+    """Archivo de una foto para las miniaturas del editor: de esta cuenta, o de una cotización de la empresa que la usa."""
+    propia = capturas.ruta(usuario.pk, sha256)
+    if propia is not None:
+        return propia
+    if Cotizacion.objects.filter(eliminado__isnull=True, datos__images__contains=[{"path": f"captura:{sha256}"}]).exists():
+        return capturas.ruta_de_documento(sha256)
+    return None
 
 
 # -- Corrector -------------------------------------------------------------------------------------------------------------
@@ -281,11 +370,22 @@ def validar_concepto(crudo) -> dict:
     return asdict(q.items[0])
 
 
-def fila_machote(m: MachoteCuenta) -> dict:
-    return {"id": str(m.plantilla_id), "nombre": m.nombre, "idioma": m.idioma, "concepto": m.concepto, "actualizado": m.actualizado.isoformat(), "tiene_anterior": bool(m.anterior)}
+def fila_machote(m: Machote, usuario=None) -> dict:
+    return {"id": str(m.plantilla_id), "nombre": m.nombre, "idioma": m.idioma, "concepto": m.concepto, "actualizado": m.actualizado.isoformat(), "tiene_anterior": bool(m.anterior),
+            "autor": m.autor_nombre or "Cuenta eliminada", "modificado_por": m.modificado_por_nombre or m.autor_nombre,
+            "puede_borrar": usuario is None or puede_borrar_machote(usuario, m)}
 
 
-def guardar_machote(usuario, nombre: str, idioma: str, concepto: dict, plantilla_id: str | None = None) -> MachoteCuenta:
+def puede_borrar_machote(usuario, m: Machote) -> bool:
+    """Como los documentos: quien lo creó o quien administra las herramientas."""
+    return documentos.es_admin(usuario) or m.cuenta_id == usuario.pk
+
+
+def _modificado(m: Machote, usuario) -> None:
+    m.modificado_por_id, m.modificado_por_nombre = usuario.pk, autoria.de_usuario(usuario)[0]
+
+
+def guardar_machote(usuario, nombre: str, idioma: str, concepto: dict, plantilla_id: str | None = None) -> Machote:
     limpio = " ".join(str(nombre).split()).strip()
     if not limpio:
         raise CotizacionInvalida("Escribe un nombre para el machote.")
@@ -293,16 +393,27 @@ def guardar_machote(usuario, nombre: str, idioma: str, concepto: dict, plantilla
         raise CotizacionInvalida("El nombre del machote es demasiado largo.")
     idioma = idioma if idioma in IDIOMAS else "es"
     concepto = validar_concepto(concepto)
-    propios = MachoteCuenta.objects.filter(cuenta_id=usuario.pk)
-    existente = propios.filter(plantilla_id=plantilla_id).first() if plantilla_id else None
-    choque = propios.filter(nombre__iexact=limpio).first()
+    todos = Machote.objects.all()
+    try:
+        existente = todos.filter(plantilla_id=plantilla_id).first() if plantilla_id else None
+    except (ValueError, TypeError):
+        existente = None
+    choque = todos.filter(nombre__iexact=limpio).first()
     if choque is not None and choque != existente:
-        raise CotizacionInvalida(f"Ya existe un machote personalizado llamado «{limpio}».")
+        raise CotizacionInvalida(f"Ya existe un machote llamado «{limpio}».")
     if existente is None:
-        return MachoteCuenta.objects.create(cuenta_id=usuario.pk, nombre=limpio, idioma=idioma, concepto=concepto)
+        m = Machote(cuenta_id=usuario.pk, nombre=limpio, idioma=idioma, concepto=concepto)
+        _modificado(m, usuario)
+        try:
+            with transaction.atomic():
+                m.save()
+        except IntegrityError:                                         # otra persona lo creó con ese nombre en el mismo instante
+            raise CotizacionInvalida(f"Ya existe un machote llamado «{limpio}».") from None
+        return m
     if concepto != existente.concepto:                 # al sobrescribir el concepto se guarda la versión anterior (renombrar no la toca)
         existente.anterior = existente.concepto
     existente.nombre, existente.idioma, existente.concepto, existente.actualizado = limpio, idioma, concepto, timezone.now()
+    _modificado(existente, usuario)
     existente.save()
     return existente
 
@@ -311,7 +422,7 @@ def exportar_machotes(usuario, ids: list[uuid.UUID] | None = None) -> dict:
     """La colección (esquema del escritorio); con `ids`, solo esos machotes («Exportar solamente el seleccionado» del escritorio)."""
     from ..dominio.quotation_templates import SCHEMA_VERSION, TEMPLATE_TOOL_ID
 
-    propios = MachoteCuenta.objects.filter(cuenta_id=usuario.pk)
+    propios = Machote.objects.all()
     if ids is not None:
         propios = propios.filter(plantilla_id__in=ids)
 
@@ -332,8 +443,8 @@ def importar_machotes(usuario, datos: bytes) -> tuple[int, int]:
             registros = CustomConceptTemplateStore._read(ruta)
         except (OSError, ValueError, TypeError) as exc:
             raise CotizacionInvalida(errores.texto(exc, "El archivo no es una colección de machotes de cotización válida.")) from exc
-    nombres = {n.casefold() for n in MachoteCuenta.objects.filter(cuenta_id=usuario.pk).values_list("nombre", flat=True)}
-    ids = set(MachoteCuenta.objects.filter(cuenta_id=usuario.pk).values_list("plantilla_id", flat=True))
+    nombres = {n.casefold() for n in Machote.objects.values_list("nombre", flat=True)}
+    ids = set(Machote.objects.values_list("plantilla_id", flat=True))
     agregados = renombrados = 0
     with transaction.atomic():
         for r in registros:
@@ -346,7 +457,9 @@ def importar_machotes(usuario, datos: bytes) -> tuple[int, int]:
                 pid = uuid.uuid4()
             if pid in ids:
                 pid = uuid.uuid4()
-            MachoteCuenta.objects.create(cuenta_id=usuario.pk, plantilla_id=pid, nombre=nombre[:160], idioma=r.language, concepto=validar_concepto(asdict(r.item)))
+            m = Machote(cuenta_id=usuario.pk, plantilla_id=pid, nombre=nombre[:160], idioma=r.language, concepto=validar_concepto(asdict(r.item)))
+            _modificado(m, usuario)
+            m.save()
             nombres.add(nombre.casefold())
             ids.add(pid)
             agregados += 1
@@ -355,7 +468,8 @@ def importar_machotes(usuario, datos: bytes) -> tuple[int, int]:
 
 
 def importar_editable(usuario, contenido: bytes, perfil: str) -> Cotizacion:
-    """Importa el JSON editable del escritorio (`EDITABLE_COTIZACION_*.json`)."""
+    """Importa el JSON editable del escritorio (`EDITABLE_COTIZACION_*.json`). Conserva su folio si está libre en la empresa; si ya lo usa
+    otra cotización, recibe el siguiente (la respuesta lo dice: `folio_original`)."""
     import json
 
     try:
@@ -364,7 +478,11 @@ def importar_editable(usuario, contenido: bytes, perfil: str) -> Cotizacion:
         raise CotizacionInvalida("El archivo no es un JSON válido.") from exc
     q = validar(crudo)
     q.spelling_checked = False
-    c = Cotizacion(cuenta_id=usuario.pk)
-    _aplicar(c, q, perfil)
-    c.save()
+    original = q.quote_number.strip()
+    with transaction.atomic():
+        c = Cotizacion(cuenta_id=usuario.pk)
+        _aplicar(c, q, perfil, folio_propuesto=original)
+        c.save()
+        documentos.registrar_version(c, usuario, nota="Importada de un editable")
+    c.folio_original = original
     return c

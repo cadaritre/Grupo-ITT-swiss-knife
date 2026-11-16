@@ -70,7 +70,7 @@ def test_contexto(cliente_de, croquista):
     assert {c["nombre"] for c in r["capas_mapa"]} >= {"Calles - OpenStreetMap", "Base neutra"}
 
 
-def test_sincronizacion_idempotente_conflicto_y_aislamiento(cliente_de, croquista, crear_usuario, roles):
+def test_sincronizacion_idempotente_conflicto_y_equipo(cliente_de, croquista, crear_usuario, roles):
     c = cliente_de(croquista)
     idc = uuid.uuid4()
     a = sinc(c, idc, datos())
@@ -79,13 +79,15 @@ def test_sincronizacion_idempotente_conflicto_y_aislamiento(cliente_de, croquist
     assert b["resultado"] == "actualizada" and b["revision"] == 2
     r = sinc(c, idc, datos(client="Del teléfono"), a["servidor_id"], 1)
     assert r["resultado"] == "copia" and Croquis.objects.get(pk=a["servidor_id"]).datos["client"] == "Otro"
-    assert Croquis.objects.get(pk=r["servidor_id"]).titulo.endswith("(desde el teléfono)")
+    assert Croquis.objects.get(pk=r["servidor_id"]).conflicto.startswith("Copia en conflicto de ")
     otra = crear_usuario("otra")
     roles.conceder(otra, "herramientas", "croquis")
     co = cliente_de(otra)
-    assert co.get(url("croquis_detalle", pk=a["servidor_id"])).status_code == 404
-    assert post(co, "croquis_vectorizar", {}, pk=a["servidor_id"]).status_code == 404
-    assert co.get(url("croquis_editable", pk=a["servidor_id"])).status_code == 404
+    assert co.get(url("croquis_detalle", pk=a["servidor_id"])).status_code == 200            # de la empresa
+    assert co.get(url("croquis_editable", pk=a["servidor_id"])).status_code == 200
+    sin_rol = crear_usuario("sin")
+    roles.conceder(sin_rol, "herramientas", "reportes")
+    assert cliente_de(sin_rol).get(url("croquis_detalle", pk=a["servidor_id"])).status_code == 403
 
 
 def test_validacion(cliente_de, croquista):
@@ -215,4 +217,5 @@ def test_descargar_sin_salida_es_404_y_borrar(cliente_de, croquista):
     c = cliente_de(croquista)
     a = sinc(c, uuid.uuid4(), datos())
     assert c.get(url("croquis_descargar", pk=a["servidor_id"])).status_code == 404
-    assert c.delete(url("croquis_detalle", pk=a["servidor_id"])).status_code == 200 and Croquis.objects.count() == 0
+    assert c.delete(url("croquis_detalle", pk=a["servidor_id"])).status_code == 200
+    assert Croquis.objects.filter(eliminado__isnull=True).count() == 0 and Croquis.objects.count() == 1          # en la papelera

@@ -1,4 +1,4 @@
-/* «Documentos de todas las cuentas»: estados de carga de filtros y páginas, y descarga de PDF (con su avance si hay que generarlo). */
+/* Supervisión: estados de carga de filtros y páginas, y descarga de PDF (con su avance si hay que generarlo). */
 (function () {
   "use strict";
   const guion = document.getElementById("sup-script");

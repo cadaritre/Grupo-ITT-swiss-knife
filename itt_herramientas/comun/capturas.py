@@ -1,4 +1,8 @@
-"""Acceso a las fotos de campo (`Captura`) de UNA cuenta: ruta del archivo y miniaturas con caché."""
+"""Acceso a las fotos de campo (`Captura`): ruta del archivo y miniaturas con caché.
+
+Una foto es de la cuenta que la subió, pero los documentos son de la empresa: la foto de un reporte o una cotización compartida se lee
+de quien la haya subido (`ruta_de_documento`). Quien llama comprueba antes que el documento la usa y que la persona puede verlo.
+"""
 from __future__ import annotations
 
 import re
@@ -28,12 +32,29 @@ def ruta(cuenta_id: int, sha256: str) -> Path | None:
     return archivo if archivo.is_file() else None
 
 
-def miniatura(cuenta_id: int, sha256: str) -> Path | None:
-    """JPEG de `LADO_MINIATURA` px (se genera una vez y se guarda)."""
-    origen = ruta(cuenta_id, sha256)
+def ruta_de_documento(sha256: str, preferida: int | None = None) -> Path | None:
+    """Archivo de una foto que usa un documento de la empresa: la de la cuenta `preferida` si la tiene, si no la de cualquiera (el sha256 es
+    el contenido: es la misma foto)."""
+    if not _SHA.match(sha256 or ""):
+        return None
+    filas = Captura.objects.filter(sha256=sha256)
+    if preferida is not None:
+        primero = ruta(preferida, sha256)
+        if primero is not None:
+            return primero
+    for captura in filas.order_by("recibida"):
+        archivo = raiz() / captura.ruta
+        if archivo.is_file():
+            return archivo
+    return None
+
+
+def miniatura(cuenta_id: int | None, sha256: str) -> Path | None:
+    """JPEG de `LADO_MINIATURA` px (se genera una vez y se guarda). `cuenta_id=None`: la foto de cualquier cuenta (documento compartido)."""
+    origen = ruta(cuenta_id, sha256) if cuenta_id is not None else ruta_de_documento(sha256)
     if origen is None:
         return None
-    destino = raiz() / "miniaturas" / str(cuenta_id) / sha256[:2] / f"{sha256}.jpg"
+    destino = raiz() / "miniaturas" / (str(cuenta_id) if cuenta_id is not None else "documentos") / sha256[:2] / f"{sha256}.jpg"
     if not destino.is_file():
         destino.parent.mkdir(parents=True, exist_ok=True)
         with Image.open(origen) as imagen:

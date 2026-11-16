@@ -1,7 +1,10 @@
-"""«Documentos de todas las cuentas»: lista, consulta de solo lectura y PDF. Rol `supervision` (o el propietario).
+"""Supervisión: lista, consulta de solo lectura y PDF de los documentos de la empresa. Rol `supervision` (o el propietario).
 
-Todas las vistas son de lectura (GET). La única POST pide el PDF de un reporte cuyo último PDF no corresponde a su versión
-actual: se genera aparte para quien supervisa y el reporte no cambia.
+Las vistas de consulta son de lectura. Las POST: el PDF de un reporte cuyo último PDF no corresponde a su versión actual (se genera aparte
+y el reporte no cambia) y «Asignar folio nuevo» a una cotización con folio repetido de antes de compartir (solo el propietario o quien
+administra las herramientas).
+
+Aquí vive también la papelera de documentos (cotizaciones, reportes y croquis), para quien edita o supervisa.
 """
 from __future__ import annotations
 
@@ -9,20 +12,27 @@ import re
 
 from django.core.paginator import Paginator
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET, require_POST
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import capturas, zips
+from ..comun import capturas, documentos, zips
 from ..cotizaciones import servicio as cot
-from ..models import Cotizacion, Perfil, Reporte
+from ..models import TIPOS_DOCUMENTO, Cotizacion, Perfil, Reporte
 from ..reportes import servicio as rep
 from ..tareas import generar_reporte_supervision
 from . import servicio
 
 supervisor = requiere_rol("herramientas", "supervision")
+con_documentos = requiere_rol("herramientas", "cotizaciones", "reportes", "croquis", "admin", "supervision")
+
+
+def decide_folios(usuario) -> bool:
+    """«Asignar folio nuevo» lo decide el propietario (o quien administra las herramientas)."""
+    return bool(usuario.is_superuser) or documentos.es_admin(usuario)
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -33,7 +43,7 @@ def _privado(respuesta):
 
 def _autor(doc) -> dict:
     return {"nombre": doc.autor_nombre, "correo": doc.autor_correo, "creada": doc.creada, "actualizada": doc.actualizada,
-            "eliminada": not servicio.cuenta_existe(doc.cuenta_id)}
+            "eliminada": not servicio.cuenta_existe(doc.cuenta_id), "modificado": doc.modificado_por_nombre or doc.autor_nombre}
 
 
 @supervisor
@@ -46,7 +56,26 @@ def lista(request):
     return _privado(render(request, "herramientas/supervision/lista.html", {
         "filtros": filtros, "pagina": pagina, "filas": servicio.filas(pagina.object_list), "autores": servicio.autores(),
         "parametros": filtros.como_parametros(), "hay_documentos": hay_documentos, "clientes": servicio.clientes(),
-        "estados": servicio.ESTADOS, "ordenes": servicio.ORDENES, "maximo_zip": zips.MAXIMO}))
+        "estados": servicio.ESTADOS, "ordenes": servicio.ORDENES, "maximo_zip": zips.MAXIMO,
+        "repetidos": cot.repetidos(), "decide_folios": decide_folios(request.user)}))
+
+
+@supervisor
+@require_POST
+def asignar_folio(request, pk):
+    """«Asignar folio nuevo» a una cotización marcada con folio repetido. Nunca pasa solo: lo pide el propietario aquí."""
+    from django.contrib import messages
+
+    if not decide_folios(request.user):
+        return _privado(HttpResponse("Solo el propietario o quien administra las herramientas puede asignar folios.", status=403))
+    c = get_object_or_404(Cotizacion, pk=pk, eliminado__isnull=True)
+    anterior = c.folio
+    try:
+        c = cot.asignar_folio_nuevo(c, request.user)
+        messages.success(request, f"La cotización que tenía {anterior} ahora es {c.folio}.")
+    except cot.CotizacionInvalida as exc:
+        messages.error(request, str(exc))
+    return HttpResponseRedirect(reverse("herramientas:supervision") + "#sup-repetidos")
 
 
 def _cotizacion(pk) -> tuple[Cotizacion, object]:
@@ -180,3 +209,69 @@ def zip_lote(request):
             total = servicio.consulta(filtros).count()
             return _privado(JsonResponse({"error": f"Son {total} documentos; el máximo por descarga es {zips.MAXIMO}. Ajusta los filtros."}, status=422))
     return zips.responder(request, elementos, "documentos", supervision=True)
+
+
+# -- Papelera de documentos --------------------------------------------------------------------------------------------------------
+
+def _tipos_de(usuario) -> list[str]:
+    from tvplataforma import permisos
+
+    if permisos.tiene_rol(usuario, "herramientas", "supervision") or documentos.es_admin(usuario):
+        return list(documentos.MODELOS)
+    return [t for t in documentos.MODELOS if documentos.puede_editar(usuario, t)]
+
+
+def _titulo(tipo: str, d) -> str:
+    if tipo == "cotizacion":
+        return " · ".join(x for x in (d.folio, d.proyecto) if x) or "Cotización"
+    return d.titulo or ("Reporte" if tipo == "reporte" else "Croquis")
+
+
+@con_documentos
+@require_GET
+def papelera(request):
+    """Los documentos eliminados de las herramientas de la cuenta. Se borran para siempre a los 30 días."""
+    filas = []
+    for tipo, d in documentos.papelera(request.user, _tipos_de(request.user)):
+        filas.append({"tipo": tipo, "tipo_nombre": dict(TIPOS_DOCUMENTO)[tipo], "id": d.pk, "titulo": _titulo(tipo, d), "autor": d.autor_nombre or "Cuenta eliminada", "eliminado": d.eliminado,
+                      "eliminado_por": d.eliminado_por_nombre or "—", "vence": documentos.vence_en(d),
+                      "puede_recuperar": documentos.puede_recuperar(request.user, d), "puede_destruir": documentos.es_admin(request.user),
+                      "dialogo": f"doc-destruir-{tipo}-{d.pk}"})
+    return _privado(render(request, "herramientas/supervision/papelera.html", {"filas": filas, "dias": documentos.PAPELERA_DIAS}))
+
+
+def _de_papelera(tipo, pk):
+    if tipo not in documentos.MODELOS:
+        raise Http404
+    return get_object_or_404(documentos.MODELOS[tipo], pk=pk, eliminado__isnull=False)
+
+
+@con_documentos
+@require_POST
+def papelera_recuperar(request, tipo, pk):
+    from django.contrib import messages
+
+    d = _de_papelera(tipo, pk)
+    try:
+        documentos.recuperar(d, request.user)
+        messages.success(request, f"«{_titulo(tipo, d)}» volvió a su herramienta.")
+    except documentos.SinPermiso as exc:
+        messages.error(request, str(exc))
+    return HttpResponseRedirect(reverse("herramientas:papelera"))
+
+
+@con_documentos
+@require_POST
+def papelera_eliminar(request, tipo, pk):
+    """Eliminar para siempre (con su historial): solo quien administra las herramientas."""
+    from django.contrib import messages
+
+    d = _de_papelera(tipo, pk)
+    if not documentos.es_admin(request.user):
+        messages.error(request, "Solo quien administra las herramientas puede eliminar para siempre.")
+    else:
+        titulo = _titulo(tipo, d)
+        documentos.destruir(d)
+        documentos.log.info("Documentos: la cuenta %s eliminó para siempre %s %s", request.user.pk, tipo, pk)
+        messages.success(request, f"«{titulo}» se eliminó para siempre.")
+    return HttpResponseRedirect(reverse("herramientas:papelera"))

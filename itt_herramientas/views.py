@@ -454,8 +454,8 @@ def teselas(request, capa, z, x, y):
 @requiere_rol("herramientas", "cotizaciones", "reportes", "croquis", "cad", "admin", "supervision")
 @require_GET
 def buscar(request):
-    """Búsqueda de la paleta (contrato 1.5, §12.1): los documentos de ESTA cuenta, solo de las herramientas que tiene, y los planos de la
-    biblioteca compartida de CAD (son del equipo). Hasta 20."""
+    """Búsqueda de la paleta (contrato 1.5, §12.1): los documentos de la empresa de las herramientas que la cuenta tiene (cotizaciones,
+    reportes y croquis son compartidos con el equipo) y los planos de la biblioteca de CAD. Hasta 20."""
     from django.db.models import Q
     from django.http import JsonResponse
 
@@ -466,7 +466,7 @@ def buscar(request):
     if len(q) >= 2:
         def tiene(rol):
             return permisos.tiene_rol(request.user, "herramientas", rol) or permisos.tiene_rol(request.user, "herramientas", "admin")
-        propio = {"cuenta_id": request.user.pk}
+        propio = {"eliminado__isnull": True}
         if tiene("cotizaciones"):
             for c in Cotizacion.objects.filter(Q(folio__icontains=q) | Q(cliente__icontains=q) | Q(proyecto__icontains=q), **propio).order_by("-actualizada")[:10]:
                 resultados.append({"titulo": " · ".join(x for x in (c.folio, c.proyecto) if x) or "Cotización", "subtitulo": f"Cotización · {c.cliente}" if c.cliente else "Cotización",

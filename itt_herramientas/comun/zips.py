@@ -98,7 +98,8 @@ def _unico(nombre: str, usados: set[str]) -> str:
 
 
 def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: bool = False) -> dict:
-    """Arma el ZIP (lo llama la tarea). Sin supervisión, solo entran documentos de `cuenta_id`; los ajenos se ignoran."""
+    """Arma el ZIP (lo llama la tarea). Entran los documentos de la empresa que no están en la papelera (son compartidos); `cuenta_id` es
+    quien lo pidió (solo esa cuenta lo descarga). Con supervisión, los PDF de reportes se generan aparte y nada del documento cambia."""
     from ..cotizaciones import servicio as cot
     from ..models import Cotizacion, Perfil, Reporte
     from ..reportes import servicio as rep
@@ -136,7 +137,7 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
                 incluidos += 1
                 continue
             if clase == "cotizacion":
-                consulta = Cotizacion.objects.filter(pk=pk) if supervision else Cotizacion.objects.filter(pk=pk, cuenta_id=cuenta_id)
+                consulta = Cotizacion.objects.filter(pk=pk, eliminado__isnull=True)
                 c = consulta.first()
                 if c is None:
                     continue
@@ -152,14 +153,14 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
                 zf.writestr(_unico(nombre, usados), contenido)
                 incluidos += 1
                 continue
-            consulta = Reporte.objects.filter(pk=pk) if supervision else Reporte.objects.filter(pk=pk, cuenta_id=cuenta_id)
+            consulta = Reporte.objects.filter(pk=pk, eliminado__isnull=True)
             r = consulta.first()
             if r is None:
                 continue
             archivo = rep.pdf_vigente(r, supervision=supervision)
             if archivo is None:
                 try:
-                    archivo = rep.generar_copia(r, informar) if supervision else rep.generar(r, informar)
+                    archivo = rep.generar_copia(r, informar) if supervision else rep.generar(r, informar, cuenta_id=cuenta_id)
                 except rep.ReporteInvalido as exc:
                     omitidos.append(f"{r.titulo or 'Reporte'}: {exc}")
                     continue

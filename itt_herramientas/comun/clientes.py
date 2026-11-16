@@ -1,4 +1,4 @@
-"""Clientes que una cuenta ya escribió (en sus reportes y cotizaciones): las sugerencias del campo «Cliente».
+"""Clientes que el equipo ya escribió (en los reportes y las cotizaciones de la empresa): las sugerencias del campo «Cliente».
 
 No hay catálogo que administrar: un nombre nuevo se vuelve sugerencia en cuanto se guarda un documento con él. Se quitan
 los repetidos sin distinguir mayúsculas ni acentos («Agrícola Norte» = «AGRICOLA NORTE») y queda la forma más reciente.
@@ -18,11 +18,12 @@ def clave(texto: str) -> str:
     return " ".join(sin_acentos.casefold().split())
 
 
-def sugerencias(cuenta_id: int, maximo: int = MAXIMO) -> list[str]:
-    """Clientes de la cuenta, del usado más recientemente al más viejo, sin repetidos."""
+def sugerencias(cuenta_id: int | None = None, maximo: int = MAXIMO) -> list[str]:
+    """Clientes de los documentos de la empresa (son compartidos), del usado más recientemente al más viejo, sin repetidos.
+    `cuenta_id` se acepta por compatibilidad y ya no filtra."""
     filas: list[tuple] = []
     for modelo in (Reporte, Cotizacion):
-        filas += list(modelo.objects.filter(cuenta_id=cuenta_id).exclude(cliente="").order_by("-actualizada")
+        filas += list(modelo.objects.filter(eliminado__isnull=True).exclude(cliente="").order_by("-actualizada")
                       .values_list("actualizada", "cliente")[:maximo * 3])
     filas.sort(key=lambda f: f[0], reverse=True)
     vistos, salida = set(), []

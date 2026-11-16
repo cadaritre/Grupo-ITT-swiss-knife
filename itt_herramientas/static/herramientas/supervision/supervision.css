@@ -1,4 +1,4 @@
-/* «Documentos de todas las cuentas» (supervisión, solo lectura). Claro por omisión; los colores salen de los tokens del armazón. */
+/* Supervisión (solo lectura) y papelera de documentos. Claro por omisión; los colores salen de los tokens del armazón. */
 .sup-filtros { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); align-items: end; gap: var(--tv-espacio-3); margin: 0 0 var(--tv-espacio-4); }
 .sup-filtros__buscar { grid-column: 1 / -1; }
 .sup-filtros .tv-campo { margin: 0; min-width: 0; }
@@ -86,3 +86,12 @@
   .sup-tabla td[data-etiqueta="Documento"] { padding-right: 56px; }
   .sup-tabla thead .sup-col-casilla { display: none; }
 }
+
+/* Folios repetidos de antes de compartir (los decide el propietario). */
+.sup-repetidos { margin-bottom: var(--tv-espacio-5, 24px); border-left: 3px solid var(--tv-estado-aviso-texto); }
+.sup-repetidos h2 { display: flex; align-items: center; gap: var(--tv-espacio-2, 8px); margin: 0 0 var(--tv-espacio-2, 8px); font-size: var(--tv-texto-lg, 1.125rem); }
+.sup-repetidos__lista, .sup-repetidos__lista ul { list-style: none; margin: 0; padding: 0; }
+.sup-repetidos__lista > li { padding: var(--tv-espacio-2, 8px) 0; border-top: 1px solid var(--tv-borde); }
+.sup-repetidos__fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2, 8px); padding: var(--tv-espacio-1, 4px) 0 0 var(--tv-espacio-4, 16px); }
+.sup-repetidos__accion { margin-left: auto; }
+.sup-acciones form { display: inline; }

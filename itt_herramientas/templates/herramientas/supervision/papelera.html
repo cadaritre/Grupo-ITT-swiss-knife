@@ -1,0 +1,25 @@
+{% extends "herramientas/base_comun.html" %}
+{% load static tv herramientas %}
+{% block titulo_pagina %}Papelera de documentos{% endblock %}
+{% block titulo_h1 %}<h1>Papelera de documentos</h1><p class="tv-subtitulo">Cotizaciones, reportes y croquis eliminados. Se borran para siempre a los {{ dias }} días.</p>{% endblock %}
+{% block cuerpo %}
+<div class="sup" id="papelera">
+{% if filas %}
+<div class="tv-tabla-envoltura"><table class="tv-tabla sup-tabla">
+  <thead><tr><th scope="col">Documento</th><th scope="col">Autor</th><th scope="col">Eliminado</th><th scope="col"><span class="tv-solo-lectores">Acciones</span></th></tr></thead>
+  <tbody>{% for f in filas %}<tr data-tipo="{{ f.tipo }}">
+    <td data-etiqueta="Documento"><span class="sup-doc__texto"><strong>{{ f.titulo }}</strong><span class="tv-tenue">{{ f.tipo_nombre }}</span></span></td>
+    <td data-etiqueta="Autor">{{ f.autor }}</td>
+    <td data-etiqueta="Eliminado"><span class="sup-fechas"><span>{{ f.eliminado_por }} · <time datetime="{{ f.eliminado|date:'c' }}">{{ f.eliminado|date:"j M Y, H:i"|lower }}</time></span>
+      <span class="tv-tenue">Se borra el {{ f.vence|date:"j M Y"|lower }}</span></span></td>
+    <td data-etiqueta="Acciones" class="sup-acciones">
+      {% if f.puede_recuperar %}<form method="post" action="{% url 'herramientas:papelera_recuperar' f.tipo f.id %}">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--secundario">{% icono "rotate-ccw" %}<span>Recuperar</span></button></form>{% endif %}
+      {% if f.puede_destruir %}{% url 'herramientas:papelera_eliminar' f.tipo f.id as u_destruir %}{% confirmar_accion id=f.dialogo accion=u_destruir abrir="Eliminar para siempre" titulo="¿Eliminar «"|add:f.titulo|add:"» para siempre?" texto="Se borran el documento y todo su historial. No se puede deshacer." aceptar="Eliminar para siempre" icono="x" clase="tv-boton tv-boton--fantasma" %}{% endif %}
+    </td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}
+{% vacio titulo="La papelera está vacía." icono="trash-2" %}{% endvacio %}
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{% static 'herramientas/supervision/supervision.css' %}">{% endblock %}

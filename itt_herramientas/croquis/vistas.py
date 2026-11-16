@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from tvplataforma.models import Tarea
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import autoria, capturas, perfiles
+from ..comun import autoria, capturas, documentos, perfiles, vistas_documentos
 from ..dominio import location_sketch as ls
 from ..dominio.osm_vector import CATEGORY_LABELS
 from ..models import Croquis
@@ -31,13 +31,16 @@ def pagina(request):
 
 
 def _urls() -> dict:
-    fijas = ("contexto", "lista", "sincronizar", "importar")
-    con_id = ("detalle", "vectorizar", "exportar", "descargar", "vectores", "editable")
+    fijas = ("contexto", "lista", "sincronizar", "importar", "avisos")
+    con_id = ("detalle", "vectorizar", "exportar", "descargar", "vectores", "editable", "bloqueo", "versiones", "recuperacion")
     urls = {n: reverse(f"herramientas:croquis_{n}") for n in fijas}
     urls.update({n: reverse(f"herramientas:croquis_{n}", kwargs={"pk": MARCA_ID}) for n in con_id})
     urls["teselas"] = reverse("herramientas:teselas", kwargs={"capa": "osm", "z": 0, "x": 0, "y": 0}).replace("/osm/0/0/0.png", "/{capa}/{z}/{x}/{y}.png")
     urls["tarea"] = reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA_ID})
     urls["cad"] = reverse("herramientas:cad_desde_croquis", kwargs={"pk": MARCA_ID})
+    urls["version"] = reverse("herramientas:croquis_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
+    urls["restaurar-version"] = reverse("herramientas:croquis_restaurar_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
+    urls["papelera"] = reverse("herramientas:papelera")
     return urls
 
 
@@ -70,7 +73,12 @@ def _error(exc, estado=422):
 
 
 def _propio(request, pk) -> Croquis:
-    return get_object_or_404(Croquis, pk=pk, cuenta_id=request.user.pk)
+    """Cualquier croquis de la empresa que no esté en la papelera (los croquis son compartidos)."""
+    return get_object_or_404(Croquis, pk=pk, eliminado__isnull=True)
+
+
+def _detalle(c, usuario) -> dict:
+    return {**servicio.resumen_fila(c, usuario), "datos": c.datos, "recuperacion": documentos.recuperacion_de(c, usuario)}
 
 
 def _en_curso(c: Croquis):
@@ -87,7 +95,7 @@ def contexto(request):
         "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre, "limite_km2": servicio.LIMITE_KM2, "max_vertices": servicio.MAX_VERTICES,
         "capas_mapa": [{"nombre": n, "capa": "osm" if n == ls.DEFAULT_MAP_LAYER else "topo" if n.startswith("Topográfico") else None, "atribucion": c["attribution"], "zoom_max": c["max_zoom"]}
                        for n, c in ls.MAP_LAYERS.items()],
-        "categorias": CATEGORY_LABELS, "contornos": list(servicio.CONTORNOS), "base": {"title": base.title, "map_layer": base.map_layer, "contour_interval": base.contour_interval,
+        "latido": documentos.LATIDO_SEGUNDOS, "admin": documentos.es_admin(request.user), "categorias": CATEGORY_LABELS, "contornos": list(servicio.CONTORNOS), "base": {"title": base.title, "map_layer": base.map_layer, "contour_interval": base.contour_interval,
                                                                                      "geometry": base.geometry, "layer_visibility": base.layer_visibility, "points": []},
     }))
 
@@ -95,7 +103,7 @@ def contexto(request):
 @usuario_de_croquis
 @require_GET
 def lista(request):
-    return _privado(JsonResponse({"croquis": [servicio.resumen_fila(c) for c in Croquis.objects.filter(cuenta_id=request.user.pk)[:300]]}))
+    return _privado(JsonResponse({"croquis": [servicio.resumen_fila(c, request.user) for c in documentos.visibles(Croquis)[:300]]}))
 
 
 @usuario_de_croquis
@@ -103,9 +111,12 @@ def lista(request):
 def detalle(request, pk):
     c = _propio(request, pk)
     if request.method == "DELETE":
-        c.delete()
-        return _privado(JsonResponse({"borrado": str(pk)}))
-    return _privado(JsonResponse({**servicio.resumen_fila(c), "datos": c.datos}))
+        fallo = vistas_documentos.borrar(c, request.user)
+        return fallo or _privado(JsonResponse({"borrado": str(pk)}))
+    return _privado(JsonResponse(_detalle(c, request.user)))
+
+
+_comunes = vistas_documentos.vistas("croquis", usuario_de_croquis, servicio.aplicar_datos_guardados, _detalle)
 
 
 @usuario_de_croquis
@@ -118,7 +129,9 @@ def sincronizar(request):
         base = cuerpo.get("revision_base")
         if base is not None and (isinstance(base, bool) or not isinstance(base, int) or base < 1):
             raise servicio.CroquisInvalido("La revisión base no es válida.")
-        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), perfiles.perfil_activo(request.user).clave)
+        sesion = str(cuerpo.get("sesion") or "")
+        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), perfiles.perfil_activo(request.user).clave,
+                                         sesion if documentos.sesion_valida(sesion) else "")
     except servicio.CroquisInvalido as exc:
         return _error(exc)
     return _privado(JsonResponse(resultado))

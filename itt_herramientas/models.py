@@ -7,6 +7,8 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 CLAVES_PERFIL = (("grupo_itt", "Grupo ITT"), ("tresvizo", "TresVizo"))
@@ -31,6 +33,31 @@ class ConAutor(models.Model):
 
             self.autor_nombre, self.autor_correo = autoria.de_cuenta(self.cuenta_id)
         super().save(*args, **kwargs)
+
+
+class DocumentoCompartido(ConAutor):
+    """Documento de la empresa (cotización, reporte o croquis): lo ven y editan todas las cuentas con el rol de su herramienta.
+
+    `cuenta_id` y `autor_*` son de quien lo creó; «Modificado por» es la foto de quien guardó la revisión vigente. El bloqueo de edición
+    es de una sola página del editor (`bloqueo_sesion`) y caduca si su latido deja de llegar (`comun.documentos`). Eliminar lo manda a la
+    papelera (`eliminado`), que se vacía sola a los 30 días; mientras tanto su historial se conserva.
+    """
+
+    modificado_por_id = models.BigIntegerField(null=True, blank=True)
+    modificado_por_nombre = models.CharField(max_length=150, blank=True, default="")
+    bloqueo_cuenta_id = models.BigIntegerField(null=True, blank=True)
+    bloqueo_nombre = models.CharField(max_length=150, blank=True, default="")
+    bloqueo_sesion = models.CharField(max_length=64, blank=True, default="")
+    bloqueo_latido = models.DateTimeField(null=True, blank=True)
+    bloqueo_desde = models.DateTimeField(null=True, blank=True)
+    eliminado = models.DateTimeField(null=True, blank=True, db_index=True)
+    eliminado_por_id = models.BigIntegerField(null=True, blank=True)
+    eliminado_por_nombre = models.CharField(max_length=150, blank=True, default="")
+    # «Copia en conflicto de COT-2026-0007 (Ana López, 16/11/2026 13:05)»: lo que se guardó sin conexión y chocaba con otra versión.
+    conflicto = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        abstract = True
 
 
 class Perfil(models.Model):
@@ -153,23 +180,26 @@ class TerminoTecnico(models.Model):
         ordering = ["palabra"]
 
 
-class MachoteCuenta(models.Model):
-    """Machote de concepto de cotización de una cuenta (esquema `quotation_templates` del escritorio)."""
+class Machote(ConAutor):
+    """Machote de concepto de cotización de la empresa (esquema `quotation_templates` del escritorio).
+
+    Lo comparten todas las cuentas con el rol de cotizaciones: `cuenta_id` y `autor_*` son de quien lo creó y «Modificado por» de quien lo
+    cambió al último. El nombre es único sin distinguir mayúsculas.
+    """
 
     cuenta_id = models.BigIntegerField(db_index=True)
-    plantilla_id = models.UUIDField(default=uuid.uuid4)
+    plantilla_id = models.UUIDField(default=uuid.uuid4, unique=True)
     nombre = models.CharField(max_length=160)
     idioma = models.CharField(max_length=2, default="es")
     concepto = models.JSONField()
     anterior = models.JSONField(null=True, blank=True)               # versión previa del concepto al sobrescribir el machote
+    modificado_por_id = models.BigIntegerField(null=True, blank=True)
+    modificado_por_nombre = models.CharField(max_length=150, blank=True, default="")
     creado = models.DateTimeField(default=timezone.now)
     actualizado = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["cuenta_id", "plantilla_id"], name="herramientas_machote_id"),
-            models.UniqueConstraint(fields=["cuenta_id", "nombre"], name="herramientas_machote_nombre"),
-        ]
+        constraints = [models.UniqueConstraint(Lower("nombre"), name="herramientas_machote_nombre_empresa")]
         ordering = ["nombre"]
 
 
@@ -203,11 +233,15 @@ class Captura(models.Model):
         ordering = ["referencia", "orden", "id"]
 
 
-class Cotizacion(ConAutor):
-    """Una cotización de la cuenta. `datos` es el JSON de `QuoteData` del escritorio (mismo esquema, compatible en los dos sentidos).
+class Cotizacion(DocumentoCompartido):
+    """Una cotización de la empresa. `datos` es el JSON de `QuoteData` del escritorio (mismo esquema, compatible en los dos sentidos).
 
     `revision` sube con cada guardado. El teléfono guarda borradores sin conexión con la revisión en que se basaron: si al
-    sincronizar el servidor ya cambió, la versión del teléfono no pisa nada y se guarda como copia.
+    sincronizar el servidor ya cambió, se fusiona cuando no choca y si choca se guarda como copia en conflicto (nunca pisa).
+
+    El folio (COT-AAAA-NNNN) lo asigna el servidor (`cotizaciones.servicio.asignar_folio`) y es único en la empresa. Los repetidos que
+    venían de antes de compartir (cuando se contaba por cuenta) quedan marcados en `folio_repetido` hasta que el propietario les asigna
+    uno nuevo: nunca cambian solos.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -217,6 +251,7 @@ class Cotizacion(ConAutor):
     revision = models.PositiveIntegerField(default=1)
     perfil = models.CharField(max_length=20, default="grupo_itt")
     folio = models.CharField(max_length=60, blank=True)
+    folio_repetido = models.BooleanField(default=False)
     cliente = models.CharField(max_length=160, blank=True)
     proyecto = models.CharField(max_length=200, blank=True)
     moneda = models.CharField(max_length=3, default="MXN")
@@ -226,12 +261,13 @@ class Cotizacion(ConAutor):
     actualizada = models.DateTimeField(default=timezone.now, db_index=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_cotizacion_cliente")]
+        constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_cotizacion_cliente"),
+                       models.UniqueConstraint(fields=["folio"], condition=~Q(folio="") & Q(folio_repetido=False), name="herramientas_cotizacion_folio_unico")]
         ordering = ["-actualizada"]
 
 
-class Reporte(ConAutor):
-    """Reporte fotográfico de una cuenta (herramientas-web.md §4.2). Se arma en el teléfono y se sincroniza como borrador.
+class Reporte(DocumentoCompartido):
+    """Reporte fotográfico de la empresa (herramientas-web.md §4.2). Se arma en el teléfono y se sincroniza como borrador.
 
     `datos` = {titulo, cliente, fecha, con_croquis, con_credenciales, fotos: [{sha256, nota, tomada, lat, lon, precision, sin_ubicacion,
     nombre}]}: el orden de `fotos` es el orden del PDF. Las fotos viven en `Captura` (por sha256); aquí solo se referencian.
@@ -260,8 +296,8 @@ class Reporte(ConAutor):
         ordering = ["-actualizada"]
 
 
-class Croquis(ConAutor):
-    """Croquis de ubicación de una cuenta (herramientas-web.md §4.3), con autoguardado en el servidor.
+class Croquis(DocumentoCompartido):
+    """Croquis de ubicación de la empresa (herramientas-web.md §4.3), con autoguardado en el servidor.
 
     `datos` es el `SketchData` del escritorio SIN `features` (los vectores pesan megas y los produce el servidor): van en un
     archivo (`vectores_ruta`) que vale solo mientras `vectores_fuente` sea la huella del área, la capa y las curvas actuales.
@@ -290,6 +326,74 @@ class Croquis(ConAutor):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_croquis_cliente")]
         ordering = ["-actualizada"]
+
+
+class ContadorFolio(models.Model):
+    """Último número de folio de cotización asignado en un año (COT-AAAA-NNNN). Se lee y aumenta con el renglón bloqueado."""
+
+    anio = models.PositiveIntegerField(unique=True)
+    ultimo = models.PositiveIntegerField(default=0)
+
+
+TIPOS_DOCUMENTO = (("cotizacion", "Cotización"), ("reporte", "Reporte fotográfico"), ("croquis", "Croquis de ubicación"))
+
+
+class VersionDocumento(models.Model):
+    """Una revisión guardada de un documento compartido (`comun.documentos`).
+
+    Se guarda cada revisión. Las que una misma persona guarda seguidas (en `documentos.AGRUPAR_MINUTOS`) se muestran en el historial como
+    una sola: la más reciente del grupo queda `visible` y las anteriores se ocultan. Las ocultas sirven de base para fusionar lo que se
+    editó sin conexión y se borran a los `documentos.INTERMEDIAS_DIAS` días.
+    """
+
+    tipo = models.CharField(max_length=10, choices=TIPOS_DOCUMENTO)
+    documento_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    datos = models.JSONField()
+    perfil = models.CharField(max_length=20, blank=True, default="")
+    cuenta_id = models.BigIntegerField(null=True, blank=True)
+    autor_nombre = models.CharField(max_length=150, blank=True, default="")
+    nota = models.CharField(max_length=200, blank=True, default="")      # «Restaurada de la versión 3», «Fusionada con cambios sin conexión»…
+    visible = models.BooleanField(default=True)
+    inicio = models.DateTimeField(default=timezone.now)                  # primer guardado del grupo que esta versión cierra
+    creada = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-revision"]
+        constraints = [models.UniqueConstraint(fields=["tipo", "documento_id", "revision"], name="herramientas_versiondoc_revision")]
+        indexes = [models.Index(fields=["tipo", "documento_id", "visible"], name="herramientas_versiondoc_vis")]
+
+
+class BorradorRecuperacion(models.Model):
+    """Cambios sin guardar de una persona que perdió el control de un documento (otra tomó el control): NO son una revisión.
+
+    Uno por documento y cuenta (el último reemplaza al anterior). La persona lo ve al abrir el documento y decide si lo usa o lo descarta.
+    """
+
+    tipo = models.CharField(max_length=10, choices=TIPOS_DOCUMENTO)
+    documento_id = models.UUIDField()
+    cuenta_id = models.BigIntegerField(db_index=True)
+    datos = models.JSONField()
+    revision_base = models.PositiveIntegerField()
+    quien = models.CharField(max_length=150, blank=True, default="")      # quien tomó el control
+    creado = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tipo", "documento_id", "cuenta_id"], name="herramientas_recuperacion_unica")]
+
+
+class AvisoDocumento(models.Model):
+    """Aviso para una cuenta sobre un documento compartido: tomaron el control, o lo que guardó quedó junto a una copia en conflicto."""
+
+    cuenta_id = models.BigIntegerField(db_index=True)
+    tipo = models.CharField(max_length=10, choices=TIPOS_DOCUMENTO)
+    documento_id = models.UUIDField()
+    texto = models.CharField(max_length=400)
+    creado = models.DateTimeField(default=timezone.now)
+    visto = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-creado"]
 
 
 class Triangulacion(models.Model):

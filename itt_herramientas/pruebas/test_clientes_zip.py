@@ -59,20 +59,20 @@ def test_un_reporte_de_antes_sin_cliente_no_cuenta_como_cambio(ana):
     assert res["resultado"] == "sin_cambios" and Reporte.objects.filter(cuenta_id=ana.pk).count() == 1
 
 
-def test_sugerencias_de_la_cuenta_sin_repetidos_y_recientes_primero(ana, beto):
+def test_sugerencias_de_la_empresa_sin_repetidos_y_recientes_primero(ana, beto):
     _rep(ana, cliente="Agrícola Norte")
     _cot(ana, cliente="Constructora Sur")
     _rep(ana, cliente="AGRICOLA  NORTE")                                   # la forma más reciente gana
     _rep(beto, cliente="Cliente de Beto")
-    assert clientes.sugerencias(ana.pk) == ["AGRICOLA NORTE", "Constructora Sur"]
-    assert clientes.sugerencias(beto.pk) == ["Cliente de Beto"]
+    esperadas = ["Cliente de Beto", "AGRICOLA NORTE", "Constructora Sur"]          # los documentos son del equipo: los clientes también
+    assert clientes.sugerencias(ana.pk) == esperadas and clientes.sugerencias(beto.pk) == esperadas
 
 
 def test_el_contexto_de_reportes_trae_las_sugerencias(cliente_de, ana, beto):
     _rep(ana, cliente="Agrícola Norte")
-    _rep(beto, cliente="Ajeno")
-    assert cliente_de(ana).get(url("reportes_contexto")).json()["clientes"] == ["Agrícola Norte"]
-    assert cliente_de(ana).get(url("reportes_lista")).json()["reportes"][0]["cliente"] == "Agrícola Norte"
+    _rep(beto, cliente="Otro cliente")
+    assert cliente_de(ana).get(url("reportes_contexto")).json()["clientes"] == ["Otro cliente", "Agrícola Norte"]
+    assert cliente_de(ana).get(url("reportes_lista")).json()["reportes"][0]["cliente"] == "Otro cliente"
 
 
 def test_la_migracion_llena_la_columna_desde_los_datos(ana):
@@ -137,10 +137,13 @@ def test_zip_con_tope_y_seleccion_invalida(cliente_de, ana):
 
 def test_zip_de_cotizaciones(cliente_de, ana, beto):
     a, b = _cot(ana, folio="COT-2026-0001", proyecto="Deslinde"), _cot(ana, folio="COT-2026-0002", proyecto="Topografía")
-    ajena = _cot(beto, folio="COT-2026-0003")
+    de_beto = _cot(beto, folio="COT-2026-0003")
+    en_papelera = _cot(beto, folio="COT-2026-0004")
+    Cotizacion.objects.filter(pk=en_papelera.pk).update(eliminado=en_papelera.creada)
     c = cliente_de(ana)
-    _, archivo, zf = _descargar(c, _zip(c, "cotizaciones_zip", [["cotizacion", str(x.pk)] for x in (a, b, ajena)]))
-    assert sorted(zf.namelist()) == ["COTIZACION COT-2026-0001 - Deslinde.pdf", "COTIZACION COT-2026-0002 - Topografía.pdf"]
+    _, archivo, zf = _descargar(c, _zip(c, "cotizaciones_zip", [["cotizacion", str(x.pk)] for x in (a, b, de_beto, en_papelera)]))
+    assert sorted(zf.namelist()) == ["COTIZACION COT-2026-0001 - Deslinde.pdf", "COTIZACION COT-2026-0002 - Topografía.pdf",
+                                     "COTIZACION COT-2026-0003 - Deslinde.pdf"]                    # las del equipo sí; las de la papelera no
     assert "Cotizaciones " in archivo["Content-Disposition"]
     assert cliente_de(beto).post(url("cotizaciones_zip"), "{}", content_type="application/json").status_code == 422
 

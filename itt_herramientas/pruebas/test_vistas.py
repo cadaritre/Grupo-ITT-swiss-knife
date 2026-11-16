@@ -10,7 +10,7 @@ from PIL import Image
 
 from itt_herramientas.comun import diccionarios, perfiles
 from itt_herramientas.dominio.almacenamiento import DEFAULT_SETTINGS
-from itt_herramientas.models import MachoteCuenta, Perfil, PerfilActivo, TerminoTecnico
+from itt_herramientas.models import Machote, Perfil, PerfilActivo, TerminoTecnico
 
 from .conftest import url
 

@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from tvplataforma.models import Tarea
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import autoria, capturas, clientes, perfiles, zips
+from ..comun import autoria, capturas, clientes, documentos, perfiles, vistas_documentos, zips
 from ..models import Reporte
 from ..tareas import generar_reporte
 from . import servicio
@@ -29,11 +29,14 @@ def pagina(request):
 
 
 def _urls() -> dict:
-    fijas = ("contexto", "lista", "sincronizar", "zip")
-    con_id = ("detalle", "pdf", "descargar")
+    fijas = ("contexto", "lista", "sincronizar", "zip", "avisos")
+    con_id = ("detalle", "pdf", "descargar", "bloqueo", "versiones", "recuperacion")
     urls = {n: reverse(f"herramientas:reportes_{n}") for n in fijas}
     urls.update({n: reverse(f"herramientas:reportes_{n}", kwargs={"pk": MARCA_ID}) for n in con_id})
     urls["foto"] = reverse("herramientas:reportes_foto", kwargs={"sha256": "SHA"})
+    urls["version"] = reverse("herramientas:reportes_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
+    urls["restaurar-version"] = reverse("herramientas:reportes_restaurar_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
+    urls["papelera"] = reverse("herramientas:papelera")
     urls["teselas"] = reverse("herramientas:teselas", kwargs={"capa": "osm", "z": 0, "x": 0, "y": 0}).replace("/osm/0/0/0.png", "/{capa}/{z}/{x}/{y}.png")
     urls["tarea"] = reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA_ID})
     urls["capturar"] = reverse("herramientas:capturar")
@@ -76,24 +79,36 @@ def contexto(request):
         "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
         "titulo": servicio.titulo_por_omision(perfil), "max_fotos": servicio.MAX_FOTOS,
         "credenciales": bool(perfil.firmante_reporte or perfil.cedula_profesional),
-        "clientes": clientes.sugerencias(request.user.pk),
+        "clientes": clientes.sugerencias(request.user.pk), "latido": documentos.LATIDO_SEGUNDOS, "admin": documentos.es_admin(request.user),
     }))
 
 
 @usuario_de_reportes
 @require_GET
 def lista(request):
-    return _privado(JsonResponse({"reportes": [servicio.resumen_fila(r) for r in Reporte.objects.filter(cuenta_id=request.user.pk)[:300]]}))
+    """Los reportes de la empresa (todas las cuentas)."""
+    return _privado(JsonResponse({"reportes": [servicio.resumen_fila(r, request.user) for r in documentos.visibles(Reporte)[:300]]}))
+
+
+def _detalle(r, usuario) -> dict:
+    return {**servicio.resumen_fila(r, usuario), "datos": r.datos, "recuperacion": documentos.recuperacion_de(r, usuario)}
+
+
+def _visible(pk) -> Reporte:
+    return get_object_or_404(Reporte, pk=pk, eliminado__isnull=True)
 
 
 @usuario_de_reportes
 @require_http_methods(["GET", "DELETE"])
 def detalle(request, pk):
-    r = get_object_or_404(Reporte, pk=pk, cuenta_id=request.user.pk)
+    r = _visible(pk)
     if request.method == "DELETE":
-        r.delete()
-        return _privado(JsonResponse({"borrado": str(pk)}))
-    return _privado(JsonResponse({**servicio.resumen_fila(r), "datos": r.datos}))
+        fallo = vistas_documentos.borrar(r, request.user)
+        return fallo or _privado(JsonResponse({"borrado": str(pk)}))
+    return _privado(JsonResponse(_detalle(r, request.user)))
+
+
+_comunes = vistas_documentos.vistas("reporte", usuario_de_reportes, servicio.aplicar_datos_guardados, _detalle)
 
 
 @usuario_de_reportes
@@ -106,7 +121,9 @@ def sincronizar(request):
         base = cuerpo.get("revision_base")
         if base is not None and (isinstance(base, bool) or not isinstance(base, int) or base < 1):
             raise servicio.ReporteInvalido("La revisión base no es válida.")
-        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), perfiles.perfil_activo(request.user).clave)
+        sesion = str(cuerpo.get("sesion") or "")
+        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), perfiles.perfil_activo(request.user).clave,
+                                         sesion if documentos.sesion_valida(sesion) else "")
     except servicio.ReporteInvalido as exc:
         return _error(exc)
     return _privado(JsonResponse(resultado))
@@ -116,7 +133,7 @@ def sincronizar(request):
 @require_POST
 def pdf(request, pk):
     """Pone en cola la generación del PDF. 409 si faltan fotos por subir; 422 si el reporte está incompleto."""
-    r = get_object_or_404(Reporte, pk=pk, cuenta_id=request.user.pk)
+    r = _visible(pk)
     try:
         servicio.verificar_listo(r)
     except servicio.FotosPendientes as exc:
@@ -126,7 +143,7 @@ def pdf(request, pk):
     previa = Tarea.objects.filter(pk=r.tarea_id).first() if r.tarea_id else None
     if previa is not None and not previa.ha_terminado:               # un solo PDF a la vez por reporte
         return _privado(JsonResponse({"tarea": str(previa.pk), "revision": r.revision}))
-    tarea = generar_reporte.encolar(str(r.pk), usuario=request.user)
+    tarea = generar_reporte.encolar(str(r.pk), request.user.pk, usuario=request.user)
     Reporte.objects.filter(pk=r.pk).update(tarea_id=tarea.pk)
     return _privado(JsonResponse({"tarea": str(tarea.pk), "revision": r.revision}, status=202))
 
@@ -134,7 +151,7 @@ def pdf(request, pk):
 @usuario_de_reportes
 @require_GET
 def descargar(request, pk):
-    r = get_object_or_404(Reporte, pk=pk, cuenta_id=request.user.pk)
+    r = _visible(pk)
     ruta = capturas.raiz() / r.salida_ruta if r.salida_ruta else None
     if ruta is None or not ruta.is_file():
         raise Http404
@@ -149,8 +166,11 @@ def descargar(request, pk):
 @usuario_de_reportes
 @require_GET
 def foto(request, sha256):
-    """Miniatura (por omisión) u original (`?original=1`) de una foto de ESTA cuenta."""
-    ruta = capturas.ruta(request.user.pk, sha256) if request.GET.get("original") == "1" else capturas.miniatura(request.user.pk, sha256)
+    """Miniatura (por omisión) u original (`?original=1`) de una foto de esta cuenta o de un reporte de la empresa que la usa."""
+    original = request.GET.get("original") == "1"
+    ruta = capturas.ruta(request.user.pk, sha256) if original else capturas.miniatura(request.user.pk, sha256)
+    if ruta is None and Reporte.objects.filter(eliminado__isnull=True, datos__fotos__contains=[{"sha256": sha256}]).exists():
+        ruta = capturas.ruta_de_documento(sha256) if original else capturas.miniatura(None, sha256)
     if ruta is None:
         raise Http404
     respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if ruta.suffix == ".png" else "image/jpeg")
@@ -161,7 +181,7 @@ def foto(request, sha256):
 @usuario_de_reportes
 @require_POST
 def zip_lote(request):
-    """Varios reportes propios en un ZIP: `{"elementos": [["reporte", id], …]}` (hasta 50). Los PDF que falten se generan antes."""
+    """Varios reportes de la empresa en un ZIP: `{"elementos": [["reporte", id], …]}` (hasta 50). Los PDF que falten se generan antes."""
     try:
         elementos = zips.cuerpo_json(request).get("elementos")
     except zips.LoteInvalido as exc:
