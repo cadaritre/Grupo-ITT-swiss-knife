@@ -439,6 +439,27 @@
 </form>
 {% endhoja_inferior %}
 
+{# -- Eje con espirales ---------------------------------------------------------------------------------------------------------- #}
+{% hoja_inferior "civil-hoja-eje-espirales" titulo="Eje con espirales" %}
+<form class="tv-formulario civil-form" data-civil-form="eje_espirales">
+  <div class="civil-elecciones">
+    <div class="civil-eleccion"><div><strong>Tangentes</strong><span class="tv-tenue" data-civil-cuenta="tangentes">Sin elegir · sus vértices son los PI</span></div><button type="button" class="tv-boton" data-civil-elegir="tangentes">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
+  </div>
+  <div class="civil-fila civil-fila--4">
+    <div class="tv-campo"><label for="civil-esp-vp">Velocidad de proyecto</label><div class="civil-unidad"><select id="civil-esp-vp" name="velocidad"><option value="30">30</option><option value="40">40</option><option value="50">50</option><option value="60" selected>60</option><option value="70">70</option><option value="80">80</option><option value="90">90</option><option value="100">100</option><option value="110">110</option></select><span>km/h</span></div></div>
+    <div class="tv-campo"><label for="civil-esp-smax">Sobreelevación máxima</label><select id="civil-esp-smax" name="smax"><option value="10" selected>10 %</option><option value="8">8 %</option><option value="6">6 %</option></select></div>
+    <div class="tv-campo"><label for="civil-esp-ini">Cadenamiento inicial</label><input id="civil-esp-ini" name="inicio" value="0+000.00" autocomplete="off"></div>
+  </div>
+  <div class="civil-pis" data-civil-pis hidden>
+    <p class="tv-tenue civil-nota">Radio y espiral de cada PI. «Mínima» es la longitud del manual de la SCT para esa velocidad (8·Vp·S); 0 deja la curva circular simple.</p>
+    <div class="tv-tabla-envoltura"><table class="tv-tabla civil-tabla"><thead><tr><th>PI</th><th class="tv-num">Deflexión</th><th class="tv-num">Radio (m)</th><th class="tv-num">Espiral (m)</th></tr></thead><tbody data-civil-pis-filas></tbody></table></div>
+  </div>
+  <div class="civil-resultado" data-civil-resultado hidden></div>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones civil-acciones-3"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cerrar</button><button type="button" class="tv-boton tv-boton--secundario" data-civil-calcular-eje>{% icono "calculator" %}<span>Calcular</span></button><button type="submit" class="tv-boton">{% icono "route" %}<span>Dibujar eje</span></button></div>
+</form>
+{% endhoja_inferior %}
+
 {# -- Perfil ------------------------------------------------------------------------------------------------------------------- #}
 {% hoja_inferior "civil-hoja-perfil" titulo="Perfil del eje" %}
 <form class="tv-formulario civil-form" data-civil-form="perfil">

@@ -122,7 +122,7 @@
   }
 
   /** Capas que dibuja Civil como resultado: nunca sirven como eje, límite o polígono (las marcas de estación tocan el eje). */
-  const CAPAS_DE_RESULTADO = /^(EJE_ESTACIONES|PERFIL_|SECCION_|CURVAS_|CUADRO_|VOLUMEN_|VERTICES_POLIGONO|PUNTOS_|TRIANGULACION_REVISION|LADOS_|RETICULA_|MASA_|LOTES_)/
+  const CAPAS_DE_RESULTADO = /^(EJE_ESTACIONES|PERFIL_|SECCION_|CURVAS_|CUADRO_|VOLUMEN_|VERTICES_POLIGONO|PUNTOS_|TRIANGULACION_REVISION|LADOS_|RETICULA_|MASA_|LOTES_|EJE_PUNTOS|EJE_TABLA)/;
 
   /** Entidades elegidas por la persona. `tipos`: nombres del editor (p. ej. ["Polyline", "Polyline3D"]). */
   async function elegir({ mensaje, tipo, capa, tipos, minimo = 1, maximo = Infinity, sinResultados = false }) {
@@ -504,6 +504,7 @@
     poligono: { mensaje: "Elige el polígono (polilínea cerrada)", tipos: ["Polyline", "LwPolyline"], maximo: 1, cerrada: true, texto: (_, d) => `${d[0].vertices.length} vértices` },
     curvas: { mensaje: "Elige las polilíneas con curvas", tipos: ["Polyline", "LwPolyline"], maximo: Infinity,
       texto: (n, d) => { const k = d.reduce((t, p) => t + p.combas.slice(0, p.cerrada ? p.combas.length : p.combas.length - 1).filter((b) => b).length, 0); return `${n} polilínea${n === 1 ? "" : "s"} · ${k} curva${k === 1 ? "" : "s"}`; } },
+    tangentes: { mensaje: "Elige la polilínea de las tangentes", tipos: ["Polyline", "LwPolyline"], maximo: 1, texto: (_, d) => `${d[0].vertices.length - 2} PI` },
     lineas: { mensaje: "Elige las polilíneas o líneas", tipos: ["Polyline", "LwPolyline", "Line", "Polyline3D"], maximo: Infinity, texto: (n) => `${n} elegida${n === 1 ? "" : "s"}` },
     eje: { mensaje: "Elige el eje (polilínea o línea)", tipos: ["Polyline", "LwPolyline", "Line", "Polyline3D"], maximo: 1, texto: (_, d) => `${d[0].vertices.length} vértices` },
   };
@@ -534,10 +535,11 @@
           const e = await elegir({ mensaje: def.mensaje, tipos: def.tipos, maximo: def.maximo, sinResultados: true });
           if (!e) return;
           const datos = e.map(polilinea);
+          if (que === "eje") datos[0].definicion = await definicionEje(e[0].handle);
           if (def.cerrada && datos.some((d) => !d.cerrada && !(d.vertices.length > 2 && d.vertices[0][0] === d.vertices[d.vertices.length - 1][0] && d.vertices[0][1] === d.vertices[d.vertices.length - 1][1])))
             throw new ErrorCivil("La polilínea debe estar cerrada.");
           est.elegidos[clave][que] = datos;
-          cuenta.textContent = def.texto(datos.length, datos);
+          cuenta.textContent = que === "eje" && datos[0].definicion ? `Eje con espirales · ${datos[0].definicion.curvas.filter(Boolean).length} curvas` : def.texto(datos.length, datos);
           cuenta.classList.add("civil-elegido");
           if (alElegir) await alElegir(que, datos);
         } catch (err) { avisar(err instanceof ErrorCivil ? err.message : "No se pudo leer lo elegido.", "error"); if (!(err instanceof ErrorCivil)) console.error(err); }
@@ -832,7 +834,9 @@
     const el = est.elegidos[clave] || {};
     if (!el.eje) throw new ErrorCivil("Elige el eje.");
     const e = el.eje[0];
-    return { eje: { vertices: e.vertices.map((v) => [v[0], v[1]]), combas: e.combas }, inicio: leerEstacion(valor(f, "inicio")), intervalo: numero(f, "intervalo", 20) };
+    // un eje que dibujó Civil con espirales viaja por su definición (PI y curvas); cualquier otra polilínea, por sus vértices y arcos
+    const eje = e.definicion ? e.definicion : { vertices: e.vertices.map((v) => [v[0], v[1]]), combas: e.combas };
+    return { eje, inicio: e.definicion ? e.definicion.inicio : leerEstacion(valor(f, "inicio")), intervalo: numero(f, "intervalo", 20) };
   }
   function prepararPerfil() {
     const f = document.querySelector('[data-civil-form="perfil"]');
@@ -1409,6 +1413,68 @@
     });
   }
 
+  // -- Eje con espirales ------------------------------------------------------------------------------------------------------
+  /** La definición del eje (PI y curvas) que Civil guarda en el XDATA del eje que dibuja; null si es una polilínea cualquiera. */
+  async function definicionEje(handle) {
+    try {
+      const r = await pedir({ op: "xdata_get", handles: [handle], app: "TVCIVIL" });
+      const datos = (((r.items || r.result && r.result.items || [])[0] || {}).xdata || {}).TVCIVIL || [];
+      const valores = datos.map((d) => (d && typeof d === "object" ? d.value : d));
+      if (valores[0] !== "eje_espiral") return null;
+      return JSON.parse(valores.slice(1).join(""));
+    } catch (_) { return null; }
+  }
+
+  function prepararEjeEspirales() {
+    const f = document.querySelector('[data-civil-form="eje_espirales"]');
+    const caja = f.querySelector("[data-civil-pis]"), cuerpo = f.querySelector("[data-civil-pis-filas]"), res = f.querySelector("[data-civil-resultado]");
+    const deflexion = (a, b, c) => {
+      const r1 = Math.atan2(b[1] - a[1], b[0] - a[0]), r2 = Math.atan2(c[1] - b[1], c[0] - b[0]);
+      let d = r2 - r1; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+      return d * 180 / Math.PI;
+    };
+    const dms = (g) => { const a = Math.abs(g), gr = Math.floor(a), m = Math.floor((a - gr) * 60), s = Math.round(((a - gr) * 60 - m) * 60); return `${gr}°${String(m).padStart(2, "0")}'${String(s).padStart(2, "0")}"`; };
+    prepararElecciones(f, async (_, datos) => {
+      const v = datos[0].vertices.map((q) => [q[0], q[1]]);
+      if (v.length < 3) throw new ErrorCivil("La polilínea necesita al menos un vértice interior (un PI).");
+      cuerpo.innerHTML = v.slice(1, -1).map((p, k) => { const d = deflexion(v[k], p, v[k + 2]); return `<tr><td>PI ${k + 1}</td><td class="tv-num">${dms(d)} ${d > 0 ? "izq." : "der."}</td>
+        <td class="tv-num"><input name="pi_radio" type="number" min="1" step="any" value="300" inputmode="decimal" aria-label="Radio del PI ${k + 1}"></td>
+        <td class="tv-num"><input name="pi_espiral" value="Mínima" autocomplete="off" aria-label="Espiral del PI ${k + 1}"></td></tr>`; }).join("");
+      caja.hidden = false; res.hidden = true;
+    });
+    const datos = () => {
+      const el = est.elegidos.eje_espirales || {};
+      if (!el.tangentes) throw new ErrorCivil("Elige la polilínea de las tangentes.");
+      const curvas = [...cuerpo.querySelectorAll("tr")].map((tr) => {
+        const r = parseFloat(String(tr.querySelector("[name=pi_radio]").value).replace(",", "."));
+        const e = String(tr.querySelector("[name=pi_espiral]").value).trim().toLowerCase();
+        if (!(r > 0)) throw new ErrorCivil("Cada PI necesita su radio.");
+        const le = e === "" || e.startsWith("m") ? "auto" : parseFloat(e.replace(",", "."));
+        if (le !== "auto" && !(le >= 0)) throw new ErrorCivil("La espiral es «Mínima», 0 o una longitud en metros.");
+        return { radio: r, espiral: le };
+      });
+      return { pi: el.tangentes[0].vertices.map((q) => [q[0], q[1]]), curvas, velocidad: +valor(f, "velocidad"), smax: +valor(f, "smax"), inicio: leerEstacion(valor(f, "inicio")) };
+    };
+    const mostrar = (r) => {
+      res.hidden = false;
+      res.innerHTML = `<p><strong>${r.resumen.curvas} curva${r.resumen.curvas === 1 ? "" : "s"}</strong> · eje de ${mil(r.resumen.longitud, 2)} m, hasta ${estacion(r.resumen.fin)}</p>
+        <div class="tv-tabla-envoltura"><table class="tv-tabla civil-tabla"><thead><tr><th>PI</th><th class="tv-num">Rc</th><th class="tv-num">le</th><th class="tv-num">θe</th><th class="tv-num">STe</th><th>TE</th><th>EC</th><th>CE</th><th>ET</th></tr></thead><tbody>
+        ${r.elementos.map((e) => `<tr><td>${e.pi}</td><td class="tv-num">${mil(e.radio, 2)}</td><td class="tv-num">${mil(e.le, 2)}</td><td class="tv-num">${dms(e.theta_e)}</td><td class="tv-num">${mil(e.ste, 3)}</td><td>${estacion(e.te)}</td><td>${estacion(e.ec)}</td><td>${estacion(e.ce)}</td><td>${estacion(e.et)}</td></tr>`).join("")}</tbody></table></div>`;
+    };
+    f.querySelector("[data-civil-calcular-eje]").addEventListener("click", () => {
+      trabajo(f, "Calculando…", async () => { mostrar(await calcular("eje_espirales", { ...datos(), tabla: false })); }, { soloLee: true });
+    });
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Dibujando el eje…", async () => {
+        const r = await calcular("eje_espirales", datos());
+        mostrar(r);
+        await insertarDxf(r.dxf, "eje.dxf");
+        avisar(`Eje con ${r.resumen.curvas} curva${r.resumen.curvas === 1 ? "" : "s"}: elígelo en el perfil, las secciones o la curva masa`);
+      });
+    });
+  }
+
   // -- Volumen entre superficies -------------------------------------------------------------------------------------------------
   function prepararVolumen() {
     const f = document.querySelector('[data-civil-form="volumen"]');
@@ -1454,6 +1520,7 @@
     memoria: () => abrirHoja("civil-hoja-memoria"),
     cuadricula: () => abrirHoja("civil-hoja-cuadricula"),
     masa: () => abrirHoja("civil-hoja-masa"),
+    eje_espirales: () => abrirHoja("civil-hoja-eje-espirales"),
     lotes: () => abrirHoja("civil-hoja-lotes"),
     triangular: () => abrirHoja("civil-hoja-triangular"),
     invertir: invertirTriangulos,
@@ -1506,7 +1573,7 @@
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") barra.querySelectorAll(".civil-menu[open]").forEach((d) => d.removeAttribute("open")); });
     document.querySelectorAll("[data-civil-cuenta]").forEach((c) => { c.dataset.vacio = c.textContent; });
     llenarEscala = prepararEscala();
-    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararPerfil(); prepararSecciones(); prepararVolumen();
+    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararEjeEspirales(); prepararPerfil(); prepararSecciones(); prepararVolumen();
     pintarEscala();
     const editable = () => barra.toggleAttribute("data-solo-lectura", !window.TVCad.estado().editable);
     editable();

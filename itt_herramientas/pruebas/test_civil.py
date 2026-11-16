@@ -187,6 +187,9 @@ def test_curva_masa_por_la_cola_y_lotificar(cliente_de, dibujante):
     r = cl.get(d["resultado"]["url"]).json()
     c, = r["curvas"]
     assert c["lado"] == "izquierda" and 0.03 < c["sobreelevacion"] <= 0.10 and c["ampliacion"] >= 0.5
+    r = mandar(cl, "eje_espirales", {"pi": [[X0, Y0], [X0 + 500, Y0], [X0 + 900, Y0 + 400]], "curvas": [{"radio": 300, "espiral": "auto"}], "velocidad": 60}).json()
+    e, = r["resultado"]["elementos"]
+    assert e["le"] > 0 and e["te"] < e["ec"] < e["ce"] < e["et"] and r["resultado"]["definicion"]["curvas"][0][0] == 300
     r = mandar(cl, "lotificar", {"poligono": {"vertices": CUADRADO}, "lado_frente": 0, "metodo": "por_cantidad", "valor": 5}).json()["resultado"]
     assert r["resumen"]["lotes"] == 5 and r["resumen"]["superficie"] == pytest.approx(10000)
 
@@ -221,7 +224,7 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
     for nuevo in ("Renumerar puntos", "Revisar triangulación", "Cuadro de curvas", "Los que elija", "Localizar punto", "Reporte de puntos",
                   "Insertar puntos", "Rumbo y distancia de lados", "Numerar vértices", "Memoria descriptiva", "Cuadrícula UTM", "UTM-GPS", "Zona UTM",
                   "Dibujar punto", "Editar punto", "Etiquetas de puntos", "Convertir puntos", "Etiquetar curvas", "Suavizar curvas",
-                  "Curva masa", "Lotificar manzana", "Carretera", "Despalme", "Sobreelevación y ampliación en las curvas (SCT)", "C3R3"):
+                  "Curva masa", "Lotificar manzana", "Carretera", "Despalme", "Sobreelevación y ampliación en las curvas (SCT)", "C3R3", "T3S2R4", "T3S3", "Eje con espirales"):
         assert nuevo in html, nuevo
     cfg = json.loads(html.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
     assert cfg["capas"]["tin"]["terreno"] == "TRIANGULACION" and cfg["bloques"]["terreno"] == "PT_TERRENO"

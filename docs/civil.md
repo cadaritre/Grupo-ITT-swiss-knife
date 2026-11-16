@@ -134,9 +134,29 @@ geométrico.
 | Longitud de transición | H.3: Le = 8·Vp·S | el doble con cuatro carriles y el triple con seis (cap. II, C.2) |
 | Reparto de la transición | figura III.17 | 60 % en la tangente (se elige 50, 60 o 70 %); antes, el bombeo del lado exterior se quita en N = b·Le/S; aviso si la sobreelevación completa dura menos de Lc/3 o si la tangente entre dos curvas no alcanza |
 | Ampliación | H.4 a H.6: acc = N(U + C) + (N − 1)FA + Z, ac = acc − act | del lado interior, crece con la transición; menos de 0.50 m no se amplía y lo demás va al decímetro superior |
-| Vehículos de proyecto | tablas III.5 (tipo B, DE-2434, C3R3) y III.7 (tipo D, DE-790, C3) | sus coeficientes reproducen esas tablas a ±0.005 m (el redondeo de la tabla): C3 ΣLi² = 66 m², A(2L+A) = 14 m²; C3R3 ΣLi² + A(2L+A)/2 = 147 m². Las tablas III.4 (tipo ET y A) y III.6 (tipo C) están impresas como imagen: para esos vehículos se escriben sus medidas («Otro…»: entrevía, distancias entre ejes, vuelo delantero y distancia entre ejes del camión) |
+| Vehículos de proyecto | tablas III.4 a III.7 | ver abajo; para otro vehículo se escriben sus medidas («Otro…»: entrevía, distancias entre ejes, vuelo delantero y distancia entre ejes del camión) |
+| Cuatro carriles o más | cap. III, texto después de las tablas (página 129, «117 de 589») | en carretera no dividida, la ampliación es el doble de la de dos carriles |
+| Espirales de transición | cap. II, C.2.3 y figura II.4 (página 46, «36 de 589»); cap. III, H.3 y figura III.17 | eje por PI con espiral–circular–espiral; clotoide exacta (la serie de la figura II.4 coincide a ±3 mm hasta θe = 15°); θe = le/2Rc, k, p, STe = k + (Rc + p) tan Δ/2, TL, TC, CLe, Ec, Lc = Rc·Δc; cadenamiento por TE, EC, CE y ET; la transición de la sobreelevación y la ampliación es la espiral; aviso si le < 8·Vp·S |
 
-Las curvas del eje son circulares simples (sin espirales). Las secciones se calculan además en el inicio y el fin de cada transición y
+**Vehículos de proyecto** (dos carriles de 3.50 m, calzada de 7.0 m en tangente). Cada tabla se transcribió completa
+(`TresVizo-Civil/pruebas/datos/tablas_sct.py`) y una prueba revisa que **cada celda** salga de la fórmula al centímetro:
+
+| Vehículo | Camino | Tabla y página del PDF oficial | Cómo se leyó | Celdas | ΣLi² | A(2L + A) |
+| --- | --- | --- | --- | --- | --- | --- |
+| T3S2R4 de 31.00 m (DE-2836) | ET y A | III.4, página 125 («113 de 589») | imagen, transcrita a mano a 300 ppp | 273 | 222.77 m² | 15.56 m² |
+| C3R3 de 28.50 m (DE-2434) | B | III.5, página 126 («114 de 589») | texto del PDF | 330 | 134.89 m² | 24.11 m² |
+| T3S3 de 18.50 m (DE-1594) | C | III.6, página 127 («115 de 589») | imagen, transcrita a mano a 300 ppp | 387 | 131.0 m² | 23.8 m² |
+| C3 de 12.50 m (DE-790) | D | III.7, página 128 («116 de 589») | texto del PDF | 682 | 62.67 m² | 20.79 m² |
+
+Entrevía 2.60 m (tabla III.2) y 2.59 m para la distancia libre C: con eso la calzada en tangente da 7.02 m, la constante que traen las
+cuatro tablas. Notas de la transcripción, sin adivinar nada:
+- En las tablas III.4 y III.6 la columna Ac de 10 km/h trae erratas (p. ej. III.4, Gc 1.00: «7.25»; III.6, Gc 0.50 a 1.25: corrida un
+  renglón). Se usó Acc, que concuerda con la fórmula en todas las celdas; Ac = Acc − 7.00.
+- La leyenda de la tabla III.5 dice «DE-1760, T3S3 de 20.80 m», pero el encabezado de la propia tabla dice «DE 2434, C3R3 de 28.50 m», y
+  los valores corresponden a este último. Se tomó el del encabezado.
+- Las celdas vacías del manual (grado mayor que el máximo para esa velocidad) no se usan.
+
+Las curvas del eje son circulares simples o con espirales. Las secciones se calculan además en el inicio y el fin de cada transición y
 de la sobreelevación completa; cada sección dibujada dice su sobreelevación y su ampliación, y la hoja trae la tabla de las curvas.
 
 **Despalme:** el espesor de despalme bajo toda la obra (entre chaflanes) se reporta como despalme. Bajo el terraplén ese hueco se

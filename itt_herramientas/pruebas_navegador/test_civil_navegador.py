@@ -712,9 +712,8 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     p.locator('[data-civil-form="triangular"] button[type=submit]').click()
     esperar(p, "!document.getElementById('civil-hoja-triangular').open", LARGO * 2)
     apagar(p, "TRIANGULACION", "PUNTOS_TERRENO", "PUNTOS_NUMERO", "PUNTOS_ELEVACION", "PUNTOS_DESCRIPCION")
-    # un eje con una curva: tangente de 130 m y un arco de unos 180 m de radio (comba 0.2)
-    eje = pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 20, Y0 + 150], [X0 + 150, Y0 + 150], [X0 + 280, Y0 + 200]], "closed": False, "layer": "EJE"}]})["result"]["handles"][0]
-    pedir(p, {"op": "set_properties", "collection": "entities", "handle": eje, "updates": [{"path": "/vertices/1/bulge", "value": 0.2}]})
+    # las tangentes del eje: un PI con 21° de deflexión a la izquierda
+    pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 20, Y0 + 150], [X0 + 150, Y0 + 150], [X0 + 280, Y0 + 200]], "closed": False, "layer": "TANGENTES"}]})
 
     # lotificar una manzana de 30 × 100 m en lotes de 20 m de frente sobre su lado sur
     pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 50, Y0 + 20], [X0 + 150, Y0 + 20], [X0 + 150, Y0 + 50], [X0 + 50, Y0 + 50]], "closed": True, "layer": "MANZANA"}]})
@@ -736,11 +735,30 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     assert "5 lotes" in p.locator('[data-civil-form="lotes"] [data-civil-resultado]').inner_text()
     p.locator("#civil-hoja-lotes [data-tv-cerrar]").first.click()
     assert cuenta(p, None, "LOTES") == 5 and "TOTAL" in [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "LOTES_TABLA", "detail": "geometry"})["entities"]]
-    # curva masa con plantilla de carretera
+    # el eje con espirales: radio 180 m y la espiral mínima del manual de la SCT para 60 km/h
+    mapa = enfocar(p, (X0 + 20, Y0 + 140, X0 + 280, Y0 + 200))
+    menu(p, "ejes", "eje_espirales")
+    p.locator('[data-civil-form="eje_espirales"] [data-civil-elegir="tangentes"]').click()
+    elegir_en_dibujo(p, [(X0 + 60, Y0 + 150)], mapa)
+    esperar(p, "document.querySelectorAll('[data-civil-pis-filas] tr').length === 1", LARGO)
+    p.locator('[data-civil-form="eje_espirales"] [name=pi_radio]').fill("180")
+    p.locator('[data-civil-form="eje_espirales"] [data-civil-calcular-eje]').click()
+    esperar(p, "!document.querySelector('[data-civil-form=eje_espirales] [data-civil-resultado]').hidden", LARGO)
+    texto = p.locator('[data-civil-form="eje_espirales"] [data-civil-resultado]').inner_text()
+    assert "1 curva" in texto and "TE" in texto, texto
+    foto(p, "32-eje-espirales", 1280)
+    p.locator('[data-civil-form="eje_espirales"] button[type=submit]').click()
+    esperar_aviso(p, "Eje con 1 curva")
+    p.locator("#civil-hoja-eje-espirales [data-tv-cerrar]").first.click()
+    assert cuenta(p, None, "EJE_PROYECTO") == 1 and cuenta(p, "Text", "EJE_PUNTOS") == 4
+    apagar(p, "TANGENTES", "EJE_PUNTOS", "EJE_TABLA")
+
+    # curva masa con plantilla de carretera sobre ese eje
     mapa = enfocar(p, (X0 + 20, Y0 + 140, X0 + 280, Y0 + 200))
     menu(p, "volumenes", "masa")
     p.locator('[data-civil-form="masa"] [data-civil-elegir="eje"]').click()
-    elegir_en_dibujo(p, [(X0 + 85, Y0 + 150)], mapa)
+    elegir_en_dibujo(p, [(X0 + 40, Y0 + 150)], mapa)
+    esperar(p, "document.querySelector('[data-civil-form=masa] [data-civil-cuenta=eje]').textContent.includes('espirales')", LARGO)
     esperar(p, "document.querySelector('[data-civil-form=masa] [data-civil-cuenta=eje]').classList.contains('civil-elegido')", LARGO)
     filas = p.locator('[data-civil-form="masa"] [data-civil-pivs] tr')
     filas.nth(0).locator("[name=piv_z]").fill("108")
@@ -748,6 +766,7 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     filas.nth(1).locator("[name=piv_e]").fill("0+300.00")
     filas.nth(1).locator("[name=piv_z]").fill("111")
     p.locator('[data-civil-form="masa"] input[name=plantilla_tipo][value=carretera]').check()
+    p.locator('[data-civil-form="masa"] [name=vehiculo]').select_option("T3S3")
     foto(p, "29-curva-masa", 1280)
     p.locator('[data-civil-form="masa"] button[type=submit]').click()
     esperar(p, "!document.querySelector('[data-civil-form=masa] [data-civil-resultado]').hidden", LARGO * 3)
@@ -849,7 +868,7 @@ def test_capturas_civil(cad, navegar, crear_usuario, roles, tema, ancho, tmp_pat
                                         ("puntos", "reporte", "civil-hoja-reporte", "17-reporte"), ("terreno", "insertar", "civil-hoja-insertar", "18-insertar"),
                                         ("cuadros", "rumbos", "civil-hoja-rumbos", "19-rumbos"), ("cuadros", "numerar", "civil-hoja-numerar", "20-numerar"),
                                         ("cuadros", "memoria", "civil-hoja-memoria", "21-memoria"), ("plano", "cuadricula", "civil-hoja-cuadricula", "22-cuadricula"),
-                                        ("volumenes", "masa", "civil-hoja-masa", "29-curva-masa"), ("plano", "lotes", "civil-hoja-lotes", "30-lotes"),
+                                        ("volumenes", "masa", "civil-hoja-masa", "29-curva-masa"), ("ejes", "eje_espirales", "civil-hoja-eje-espirales", "32-eje-espirales"), ("plano", "lotes", "civil-hoja-lotes", "30-lotes"),
                                         ("puntos", "punto_nuevo", "civil-hoja-punto-nuevo", "24-punto-nuevo"), ("puntos", "etiquetas_puntos", "civil-hoja-etiquetas-puntos", "26-etiquetas-puntos"),
                                         ("curvas", "etiquetar_curvas", "civil-hoja-etiquetar-curvas", "27-etiquetar-curvas"), ("ejes", "perfil", "civil-hoja-perfil", "10-perfil"),
                                         ("ejes", "secciones", "civil-hoja-secciones", "11-secciones"), ("volumenes", "volumen", "civil-hoja-volumen", "12-volumen")):

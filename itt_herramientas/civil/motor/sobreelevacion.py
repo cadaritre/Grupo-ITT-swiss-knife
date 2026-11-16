@@ -15,10 +15,14 @@
 
 El grado es el de un arco de 20 m: G = 1145.92 / R.
 
-Vehículos de proyecto: las tablas III.4 a III.7 del manual tabulan acc para dos carriles de 3.50 m. Las del camino tipo D (vehículo
-DE-790, C3 de 12.50 m) y tipo B (DE-2434, C3R3 de 28.50 m) se reproducen con estas fórmulas y los coeficientes de `VEHICULOS`
-(ΣLi² y A(2L + A), calibrados contra esas tablas: error máximo 0.005 m, el redondeo de la tabla). Para otro vehículo se dan sus
-medidas.
+Vehículos de proyecto: las tablas III.4 a III.7 del manual tabulan acc para dos carriles de 3.50 m (III.4 y III.6 impresas como
+imagen, transcritas a mano en `pruebas/datos/tablas_sct.py`). Las cuatro se reproducen con estas fórmulas y los coeficientes de
+`VEHICULOS` (ΣLi² y A(2L + A), calibrados contra cada tabla: todas las celdas a ±0.005 m, el redondeo de la tabla). Para otro vehículo
+se dan sus medidas.
+
+Con espirales (figura III.17, curva con espirales): la transición de la sobreelevación y la ampliación se hacen a lo largo de la espiral,
+del TE al EC (y del CE al ET); la sobreelevación es completa en toda la curva circular; antes del TE se quita el bombeo exterior. Si la
+espiral es más corta que 8·Vp·S se avisa.
 """
 
 from __future__ import annotations
@@ -45,8 +49,10 @@ class Vehiculo:
 
 
 VEHICULOS = {
-    "C3": Vehiculo("C3 de 12.50 m (camino tipo D, DE-790)", 2.60, 2.59, 66.0, 14.0),
-    "C3R3": Vehiculo("C3R3 de 28.50 m (camino tipo B, DE-2434)", 2.60, 2.59, 130.0, 34.0),
+    "T3S2R4": Vehiculo("T3S2R4 de 31.00 m (caminos tipo ET y A, DE-2836)", 2.60, 2.59, 222.77, 15.56),
+    "C3R3": Vehiculo("C3R3 de 28.50 m (camino tipo B, DE-2434)", 2.60, 2.59, 134.89, 24.11),
+    "T3S3": Vehiculo("T3S3 de 18.50 m (camino tipo C, DE-1594)", 2.60, 2.59, 131.0, 23.8),
+    "C3": Vehiculo("C3 de 12.50 m (camino tipo D, DE-790)", 2.60, 2.59, 62.67, 20.79),
 }
 
 
@@ -104,8 +110,15 @@ def ancho_en_curva(radio: float, velocidad: float, carriles: int, ancho_tangente
 
 
 def ampliacion_sct(radio: float, velocidad: float, carriles: int, ancho_tangente: float, vehiculo: Vehiculo) -> float:
-    """ac = acc − act (H.5), con la regla de H.6: menos de 0.50 m no se amplía; lo demás, al decímetro superior."""
-    ac = ancho_en_curva(radio, velocidad, carriles, ancho_tangente, vehiculo) - ancho_tangente
+    """ac = acc − act (H.5), con la regla de H.6: menos de 0.50 m no se amplía; lo demás, al decímetro superior.
+
+    Con cuatro carriles o más (carretera no dividida) la ampliación es el doble de la de dos carriles (cap. III, después de las tablas
+    III.4 a III.7, página 129), y el mínimo de 0.50 m se revisa ya duplicada."""
+    if carriles >= 4:
+        dos = ancho_tangente * 2.0 / carriles
+        ac = 2.0 * (ancho_en_curva(radio, velocidad, 2, dos, vehiculo) - dos)
+    else:
+        ac = ancho_en_curva(radio, velocidad, carriles, ancho_tangente, vehiculo) - ancho_tangente
     if ac < 0.5:
         return 0.0
     return math.ceil(round(ac * 10.0, 6)) / 10.0
@@ -161,20 +174,28 @@ class Peraltes:
         self.curvas: list[CurvaSCT] = []
         self.avisos: list[str] = []
         veh = params.vehiculo_de_proyecto
-        for t in eje.tramos:
-            if t.centro is None:
-                continue
-            pc, pt = eje.inicio + t.inicio, eje.inicio + t.inicio + t.largo
-            g = grado(t.radio)
+        for ce in eje.curvas:
+            g = grado(ce.radio)
             s = sobreelevacion_sct(g, params.velocidad, params.smax)
-            le = longitud_transicion(params.velocidad, s, carriles)
-            n = self.bombeo * le / s if s > 0 else 0.0
-            amp = ampliacion_sct(t.radio, params.velocidad, carriles, ancho_tangente, veh) if params.ampliar else 0.0
-            antes = params.reparto_tangente * le
-            dentro = le - antes
-            c = CurvaSCT(pc, pt, t.radio, g, t.theta > 0, s, le, n, amp, pc - antes - n, pc + dentro, pt - dentro, pt + antes + n)
-            if c.completa_hasta - c.completa_desde < (pt - pc) / 3.0 - 1e-6:
-                self.avisos.append(f"Curva en {formato_estacion(pc)}: la sobreelevación completa dura menos de un tercio de la curva.")
+            le_min = longitud_transicion(params.velocidad, s, carriles)
+            amp = ampliacion_sct(ce.radio, params.velocidad, carriles, ancho_tangente, veh) if params.ampliar else 0.0
+            if ce.le > 0:
+                # con espirales (figura III.17): la transición es la espiral, del TE al EC; el bombeo exterior se quita antes del TE
+                le = ce.le
+                n = self.bombeo * le / s if s > 0 else 0.0
+                if le < le_min - 1e-6:
+                    self.avisos.append(f"Curva en {formato_estacion(ce.te)}: la espiral de {le:.2f} m es menor que la longitud mínima de "
+                                       f"{le_min:.2f} m (8·Vp·S).")
+                c = CurvaSCT(ce.te, ce.et, ce.radio, g, ce.izquierda, s, le, n, amp, ce.te - n, ce.ec, ce.ce, ce.et + n)
+            else:
+                le = le_min
+                n = self.bombeo * le / s if s > 0 else 0.0
+                pc, pt = ce.te, ce.et
+                antes = params.reparto_tangente * le
+                dentro = le - antes
+                c = CurvaSCT(pc, pt, ce.radio, g, ce.izquierda, s, le, n, amp, pc - antes - n, pc + dentro, pt - dentro, pt + antes + n)
+                if c.completa_hasta - c.completa_desde < (pt - pc) / 3.0 - 1e-6:
+                    self.avisos.append(f"Curva en {formato_estacion(pc)}: la sobreelevación completa dura menos de un tercio de la curva.")
             if self.curvas and c.inicio < self.curvas[-1].fin - 1e-6:
                 self.avisos.append(f"Curvas en {formato_estacion(self.curvas[-1].pc)} y {formato_estacion(pc)}: la tangente entre ellas no alcanza "
                                    "para las dos transiciones.")

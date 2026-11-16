@@ -17,6 +17,7 @@ Formatos de entrada comunes:
 from __future__ import annotations
 
 import base64
+import json
 import math
 
 import numpy as np
@@ -31,7 +32,7 @@ from .curvas import CAPAS_CURVAS, Curva, curvas_de_nivel, dibujar_curvas, etique
 from .curvas import _en as _en_curva, _partir as _partir_curva
 from .dibujos import APP, BLOQUES, CAPAS_PUNTOS, bloque_punto, dibujar_puntos, dibujar_tin
 from .edicion_tin import ErrorEdicion, agregar, invertir, normalizar_cara, insertar_puntos, quitar_dentro, quitar_fuera, quitar_largos, revisar
-from .eje import Eje, formato_estacion
+from .eje import Eje, EjePI, TramoEspiral, formato_estacion
 from .entidades import Capa, Dibujo, EstiloTexto, Insercion, Linea, Polilinea, Texto
 from .escala import ALTURAS_MM, Escala
 from .memoria import memoria_descriptiva, reporte_puntos
@@ -556,11 +557,14 @@ def cuadro_curvas(d: dict) -> dict:
 # --- perfiles, secciones y volúmenes -------------------------------------------------------------
 
 def _eje(d: dict) -> Eje:
-    v, combas = _polilinea(d.get("eje"), "el eje")
+    e = d.get("eje") or {}
     try:
+        if isinstance(e, dict) and e.get("pi"):              # eje con espirales: sus PI y, en cada PI interior, radio y espiral
+            return EjePI(e["pi"], e.get("curvas") or [], _num(d, "inicio", float(e.get("inicio", 0.0))))
+        v, combas = _polilinea(e, "el eje")
         return Eje(v, combas, _num(d, "inicio", 0.0))
-    except ValueError as exc:
-        raise ErrorOrden(str(exc)) from None
+    except (ValueError, TypeError, KeyError, IndexError) as exc:
+        raise ErrorOrden(str(exc) if isinstance(exc, ValueError) else "Revisa los datos del eje.") from None
 
 
 def _tin_de_caras(caras):
@@ -867,6 +871,129 @@ def lotificar_orden(d: dict) -> dict:
             "lotes": [{"numero": l.numero, "superficie": l.superficie, "frente": l.frente} for l in lotes], "avisos": []}
 
 
+# --- eje con espirales de transición ---------------------------------------------------------------------------------------------
+
+#: Capas del eje con espirales: el eje mismo (se elige después como eje de perfiles y secciones) y sus puntos y datos.
+CAPAS_EJE = {"eje": Capa("EJE_PROYECTO", 1, grosor_mm=0.35, descripcion="Eje de proyecto con espirales"),
+             "puntos": Capa("EJE_PUNTOS", 2, descripcion="TE, EC, CE y ET del eje"),
+             "tabla": Capa("EJE_TABLA", 7, descripcion="Datos de las curvas del eje")}
+
+
+def _definicion_xdata(definicion: dict) -> list[tuple[int, object]]:
+    """La definición del eje (PI y curvas) en XDATA: cadenas de hasta 250 caracteres (el límite de DXF es 255)."""
+    texto = json.dumps(definicion, separators=(",", ":"))
+    return [(1000, "eje_espiral")] + [(1000, texto[i:i + 250]) for i in range(0, len(texto), 250)]
+
+
+def eje_espirales(d: dict) -> dict:
+    """Eje por sus PI con curvas circulares y espirales de transición (manual SCT 2018, cap. II, C.2.3 y cap. III, H.3).
+
+    `curvas`: una por PI interior, {"radio": R, "espiral": le | "auto" | 0}; «auto» es la longitud mínima Le = 8·Vp·S con la
+    sobreelevación de la curva (H.1) para `velocidad` y `smax`. Devuelve los elementos de cada curva y el dibujo: el eje (polilínea con
+    arcos; las espirales en tramos de 1 m), sus TE, EC, CE y ET con su cadenamiento y la tabla de datos."""
+    from .sobreelevacion import longitud_transicion, sobreelevacion_sct
+
+    pis = [[float(p[0]), float(p[1])] for p in (d.get("pi") or [])]
+    if len(pis) < 2:
+        raise ErrorOrden("Elige la polilínea de las tangentes (sus vértices son los PI).")
+    datos = d.get("curvas") or []
+    if len(datos) != len(pis) - 2:
+        raise ErrorOrden("Da el radio de cada PI.")
+    v = _num(d, "velocidad", 60.0)
+    smax = _num(d, "smax", 10.0, minimo=2, maximo=12) / 100.0
+    curvas = []
+    try:
+        for c in datos:
+            if not c or not c.get("radio"):
+                curvas.append(None)
+                continue
+            r = _num(c, "radio", 0.0, minimo=1.0)
+            le = c.get("espiral", "auto")
+            if le == "auto":
+                le = longitud_transicion(v, sobreelevacion_sct(1145.92 / r, v, smax), 2 * int(_num(d, "carriles_por_lado", 1, minimo=1, maximo=6)))
+            curvas.append([r, float(le)])
+        eje = EjePI(pis, curvas, _num(d, "inicio", 0.0))
+    except (ValueError, TypeError) as exc:
+        raise ErrorOrden(str(exc)) from None
+    esc = _escala(d)
+    dib = Dibujo()
+    for c in CAPAS_EJE.values():
+        dib.capa(c)
+    dib.estilo(EstiloTexto("CIVIL", "romans.shx", 0.85))
+    vertices, combas = [], []
+    for t in eje.tramos:
+        if isinstance(t, TramoEspiral):
+            n = max(4, int(math.ceil(t.largo / 1.0)))
+            for k in range(n):
+                x, y, _ = t.punto(t.largo * k / n)
+                vertices.append((x, y))
+                combas.append(0.0)
+        else:
+            vertices.append(t.a)
+            combas.append(t.comba if t.centro is not None else 0.0)
+    x, y, _ = eje.punto(eje.fin)
+    vertices.append((x, y))
+    combas.append(0.0)
+    definicion = {"pi": pis, "curvas": curvas, "inicio": eje.inicio}
+    dib.agregar(Polilinea(CAPAS_EJE["eje"].nombre, vertices=vertices, combas=combas, datos={"TVCIVIL": _definicion_xdata(definicion)}))
+    h = esc.altura("cuadro_dato")
+    for el in eje.elementos:
+        if not el:
+            continue
+        nombres = (("TE", "EC", "CE", "ET") if el["le"] > 0 else ("PC", "", "", "PT"))
+        for nombre, clave in zip(nombres, ("te", "ec", "ce", "et")):
+            if not nombre:
+                continue
+            x, y, direc = eje.punto(el[clave])
+            nx, ny = -math.sin(direc), math.cos(direc)
+            lado = -1 if el["izquierda"] else 1                   # el texto va del lado de afuera de la curva
+            dib.agregar(Linea(CAPAS_EJE["puntos"].nombre, inicio=(x - nx * h, y - ny * h, 0.0), fin=(x + nx * h, y + ny * h, 0.0)))
+            dib.agregar(Texto(CAPAS_EJE["puntos"].nombre, valor=f"{nombre} {formato_estacion(el[clave])}", posicion=(x + lado * nx * 2 * h, y + lado * ny * 2 * h),
+                              altura=h, rotacion=math.degrees(direc) + 90 if lado > 0 else math.degrees(direc) - 90, estilo="CIVIL",
+                              alineacion_h="izquierda", alineacion_v="medio"))
+    filas = [el for el in eje.elementos if el]
+    if filas and d.get("tabla", True):
+        xs, ys = [p[0] for p in pis], [p[1] for p in pis]
+        dib.unir(_tabla_eje(filas, (max(xs) + 10 * h, max(ys)), esc))
+    elementos = [{k: (round(vv, 6) if isinstance(vv, float) else vv) for k, vv in el.items()} for el in filas]
+    return {"dxf": _dxf(dib), "definicion": definicion, "elementos": elementos,
+            "resumen": {"curvas": len(filas), "longitud": eje.longitud, "fin": eje.fin}, "avisos": []}
+
+
+def _tabla_eje(filas: list[dict], esquina, esc: Escala) -> Dibujo:
+    from .angulos import formato_dms
+
+    d = Dibujo()
+    capa = d.capa(CAPAS_EJE["tabla"])
+    d.estilo(EstiloTexto("CIVIL", "romans.shx", 0.85))
+    f = float(esc.denominador) / 1000.0
+    h = esc.altura("cuadro_dato")
+    cols = (("PI", 10), ("Δ", 22), ("Gc", 20), ("Rc", 18), ("le", 14), ("θe", 20), ("STe", 18), ("Lc", 18), ("Xc", 16), ("Yc", 14), ("k", 16),
+            ("p", 12), ("TE", 22), ("EC", 22), ("CE", 22), ("ET", 22))
+    xs = [esquina[0]]
+    for _, a in cols:
+        xs.append(xs[-1] + a * f)
+    fila_h = 2 * h
+    y = esquina[1]
+    d.agregar(Texto(capa, valor="DATOS DE LAS CURVAS DEL EJE", posicion=((xs[0] + xs[-1]) / 2, y + fila_h * 0.6), altura=h * 1.3, estilo="CIVIL",
+                    alineacion_h="centro", alineacion_v="abajo"))
+    renglones = [[c for c, _ in cols]]
+    for el in filas:
+        renglones.append([str(el["pi"]), formato_dms(el["delta"]), formato_dms(el["grado"]), f"{el['radio']:.2f}", f"{el['le']:.2f}",
+                          formato_dms(el["theta_e"]), f"{el['ste']:.3f}", f"{el['lc']:.3f}", f"{el.get('xc', 0):.3f}", f"{el.get('yc', 0):.3f}",
+                          f"{el.get('k', 0):.3f}", f"{el.get('p', 0):.3f}", formato_estacion(el["te"]), formato_estacion(el["ec"]),
+                          formato_estacion(el["ce"]), formato_estacion(el["et"])])
+    for r in renglones:
+        d.agregar(Linea(capa, inicio=(xs[0], y, 0.0), fin=(xs[-1], y, 0.0)))
+        for k, t in enumerate(r):
+            d.agregar(Texto(capa, valor=t, posicion=((xs[k] + xs[k + 1]) / 2, y - fila_h / 2), altura=h * 0.9, estilo="CIVIL", alineacion_h="centro", alineacion_v="medio"))
+        y -= fila_h
+    d.agregar(Linea(capa, inicio=(xs[0], y, 0.0), fin=(xs[-1], y, 0.0)))
+    for x in xs:
+        d.agregar(Linea(capa, inicio=(x, esquina[1], 0.0), fin=(x, y, 0.0)))
+    return d
+
+
 ORDENES: dict[str, Callable[[dict], dict]] = {
     "importar_puntos": importar_puntos,
     "exportar_puntos": exportar_puntos,
@@ -891,6 +1018,7 @@ ORDENES: dict[str, Callable[[dict], dict]] = {
     "secciones": secciones_orden,
     "volumen_superficies": volumen_superficies,
     "curva_masa": curva_masa,
+    "eje_espirales": eje_espirales,
     "lotificar": lotificar_orden,
 }
 

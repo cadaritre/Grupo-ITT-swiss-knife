@@ -56,6 +56,8 @@ MENUS = (
         {"clave": "lotes", "nombre": "Lotificar manzana…", "icono": "layout-grid"},
     )},
     {"clave": "ejes", "nombre": "Perfiles", "icono": "chart-line", "acciones": (
+        {"clave": "eje_espirales", "nombre": "Eje con espirales…", "icono": "route"},
+        {"separador": True},
         {"clave": "perfil", "nombre": "Perfil del eje…", "icono": "chart-line"},
         {"clave": "secciones", "nombre": "Secciones transversales…", "icono": "panels-top-left"},
     )},
