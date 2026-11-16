@@ -577,6 +577,191 @@ def test_civil_v11(cad, navegar, crear_usuario, roles, motor, tmp_path):
     assert not n.dialogos and not n.errores, (n.dialogos, n.errores)
 
 
+@pytest.mark.parametrize("motor", MOTORES)
+def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_path):
+    """Dibujar, editar, convertir y rotular puntos; etiquetar y suavizar curvas ya dibujadas."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    plano = servicio.crear_vacio(ana, "Predio puntos", "", "dwg")
+    n = navegar(ana, motor)
+    p = n.ir(f"/cad/{plano.pk}/")
+    esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
+    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
+    archivo = tmp_path / "puntos.txt"
+    archivo.write_bytes(archivo_pnezd(200, lado=120.0))
+    menu(p, "puntos", "importar")
+    p.locator("#civil-imp-archivo").set_input_files(str(archivo))
+    esperar(p, "document.querySelector('[data-civil-form=importar] [data-civil-enviar]').disabled === false", LARGO)
+    p.locator('[data-civil-form="importar"] [data-civil-enviar]').click()
+    esperar(p, "!document.getElementById('civil-hoja-importar').open", LARGO)
+
+    def punto(num):
+        for e in pedir(p, {"op": "query", "type": "INSERT", "detail": "full", "fields": ["handle", "layer", "position", "attributes"], "limit": 10000})["entities"]:
+            if e["attributes"].get("NUM") == num:
+                return e
+        return None
+
+    # dibujar un punto por coordenadas: el número sugerido es el siguiente libre
+    menu(p, "puntos", "punto_nuevo")
+    esperar(p, "document.getElementById('civil-pn-num').value === '201'", LARGO)
+    p.locator("#civil-pn-z").fill("123.4567")
+    p.locator("#civil-pn-desc").fill("MOJONERA")
+    p.locator('[data-civil-form="punto_nuevo"] input[name=donde][value=coordenadas]').check()
+    p.locator("#civil-pn-x").fill(str(X0 + 60))
+    p.locator("#civil-pn-y").fill(str(Y0 + 60))
+    foto(p, "24-punto-nuevo", 1280)
+    p.locator('[data-civil-form="punto_nuevo"] button[type=submit]').click()
+    esperar_aviso(p, "Punto 201 dibujado")
+    e = punto("201")
+    assert e["attributes"] == {"NUM": "201", "ELEV": "123.457", "DESC": "MOJONERA"} and abs(e["position"][2] - 123.4567) < 1e-6
+    p.locator("#civil-hoja-punto-nuevo [data-tv-cerrar]").first.click()
+
+    # editarlo eligiéndolo en el dibujo
+    apagar(p, "PUNTOS_NUMERO", "PUNTOS_ELEVACION", "PUNTOS_DESCRIPCION")
+    mapa = enfocar(p, (X0 + 55, Y0 + 55, X0 + 65, Y0 + 65))
+    menu(p, "puntos", "punto_editar")
+    p.locator('[data-civil-form="punto_editar"] [data-civil-elegir="punto"]').click()
+    elegir_en_dibujo(p, [(X0 + 60, Y0 + 60)], mapa)
+    esperar(p, "document.getElementById('civil-pe-num').value === '201'", LARGO)
+    p.locator("#civil-pe-desc").fill("MOJONERA 2")
+    p.locator("#civil-pe-dz").select_option("2")
+    foto(p, "25-punto-editar", 1280)
+    p.locator('[data-civil-form="punto_editar"] button[type=submit]').click()
+    esperar_aviso(p, "Punto 201 actualizado")
+    assert punto("201")["attributes"] == {"NUM": "201", "ELEV": "123.46", "DESC": "MOJONERA 2"} and cuenta(p, "INSERT", "PUNTOS_TERRENO") == 201
+
+    # convertirlo a proyecto
+    mapa = enfocar(p, (X0 + 55, Y0 + 55, X0 + 65, Y0 + 65))
+    menu(p, "puntos", "convertir_puntos")
+    p.locator('[data-civil-form="convertir_puntos"] button[type=submit]').click()
+    elegir_en_dibujo(p, [(X0 + 60, Y0 + 60)], mapa)
+    esperar_aviso(p, "pasó a proyecto")
+    e = punto("201")
+    assert e["layer"] == "PUNTOS_PROYECTO" and e["attributes"]["DESC"] == "MOJONERA 2" and cuenta(p, "INSERT", "PUNTOS_TERRENO") == 200
+
+    # etiquetas: ocultar la descripción y escribir las elevaciones con un decimal
+    menu(p, "puntos", "etiquetas_puntos")
+    p.locator('[data-civil-form="etiquetas_puntos"] input[name=ver_descripcion]').uncheck()
+    p.locator("#civil-etp-dz").select_option("1")
+    foto(p, "26-etiquetas-puntos", 1280)
+    p.locator('[data-civil-form="etiquetas_puntos"] button[type=submit]').click()
+    esperar_aviso(p, "Etiquetas aplicadas")
+    capas = {c["name"]: c for c in pedir(p, {"op": "layers"})["layers"]}
+    assert capas["PUNTOS_DESCRIPCION"]["off"] is True and capas["PUNTOS_NUMERO"]["off"] is False, capas["PUNTOS_DESCRIPCION"]
+    assert punto("201")["attributes"]["ELEV"] == "123.5" and cuenta(p, "INSERT", None) == 201
+
+    # curvas, y etiquetarlas donde se señala
+    menu(p, "terreno", "triangular")
+    p.locator('[data-civil-form="triangular"] button[type=submit]').click()
+    esperar(p, "!document.getElementById('civil-hoja-triangular').open", LARGO * 2)
+    menu(p, "curvas", "curvas")
+    p.locator('[data-civil-form="curvas"] input[name=cuales][value=ninguna]').check()
+    p.locator('[data-civil-form="curvas"] button[type=submit]').click()
+    esperar(p, "!document.getElementById('civil-hoja-curvas').open", LARGO * 2)
+    apagar(p, "TRIANGULACION", "PUNTOS_TERRENO", "PUNTOS_PROYECTO", "PUNTOS_NUMERO", "PUNTOS_ELEVACION")
+    curvas = pedir(p, {"op": "query", "layer": "CURVAS_MAESTRAS", "detail": "full", "limit": 50})["entities"]
+    c = max(curvas, key=lambda e: len(e["properties"]["vertices"]))
+    v = c["properties"]["vertices"][len(c["properties"]["vertices"]) // 2]["location"]
+    mapa = enfocar(p, (v["x"] - 8, v["y"] - 8, v["x"] + 8, v["y"] + 8))
+    antes = cuenta(p, "Text", "CURVAS_ETIQUETAS")
+    menu(p, "curvas", "etiquetar_curvas")
+    foto(p, "27-etiquetar-curvas", 1280)
+    p.locator('[data-civil-form="etiquetar_curvas"] button[type=submit]').click()
+    esperar(p, "!document.getElementById('civil-pick').hidden", LARGO)
+    clic_lento(p, *mapa.pantalla(v["x"], v["y"]))
+    esperar(p, "document.getElementById('civil-pick-texto').textContent.includes('(1)')", LARGO)   # ya pide la siguiente
+    p.wait_for_timeout(500)
+    p.locator("#civil-pick-cancelar").click()                                 # terminar con el botón del aviso
+    esperar_aviso(p, "1 etiqueta")
+    assert cuenta(p, "Text", "CURVAS_ETIQUETAS") == antes + 1
+
+    # suavizar las intermedias que se elijan con una ventana
+    menu(p, "curvas", "suavizar_curvas")
+    foto(p, "28-suavizar-curvas", 1280)
+    p.locator("#civil-hoja-suavizar-curvas [data-tv-cerrar]").first.click()
+    inter = pedir(p, {"op": "query", "layer": "CURVAS_INTERMEDIAS", "detail": "full", "limit": 50})["entities"]
+    c = max(inter, key=lambda e: len(e["properties"]["vertices"]))
+    v = c["properties"]["vertices"][len(c["properties"]["vertices"]) // 3]["location"]
+    mapa = enfocar(p, (v["x"] - 8, v["y"] - 8, v["x"] + 8, v["y"] + 8))
+    menu(p, "curvas", "suavizar_curvas")
+    p.locator('[data-civil-form="suavizar_curvas"] button[type=submit]').click()
+    elegir_en_dibujo(p, [(v["x"], v["y"])], mapa)
+    esperar_aviso(p, "suavizada")
+    assert not [a for a in p.evaluate("window.__avisos") if a[1] == "error"], p.evaluate("window.__avisos")
+    assert not n.dialogos and not n.errores, (n.dialogos, n.errores)
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, motor, tmp_path):
+    """Secciones con plantilla de carretera, curva masa con compensación y lotificación de una manzana, por la página."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    plano = servicio.crear_vacio(ana, "Predio carretera", "", "dwg")
+    n = navegar(ana, motor)
+    p = n.ir(f"/cad/{plano.pk}/")
+    esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
+    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
+    archivo = tmp_path / "puntos.txt"
+    archivo.write_bytes(archivo_pnezd(600, lado=300.0))
+    menu(p, "puntos", "importar")
+    p.locator("#civil-imp-archivo").set_input_files(str(archivo))
+    esperar(p, "document.querySelector('[data-civil-form=importar] [data-civil-enviar]').disabled === false", LARGO)
+    p.locator('[data-civil-form="importar"] [data-civil-enviar]').click()
+    esperar(p, "!document.getElementById('civil-hoja-importar').open", LARGO)
+    menu(p, "terreno", "triangular")
+    p.locator('[data-civil-form="triangular"] button[type=submit]').click()
+    esperar(p, "!document.getElementById('civil-hoja-triangular').open", LARGO * 2)
+    apagar(p, "TRIANGULACION", "PUNTOS_TERRENO", "PUNTOS_NUMERO", "PUNTOS_ELEVACION", "PUNTOS_DESCRIPCION")
+    pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 20, Y0 + 150], [X0 + 280, Y0 + 160]], "closed": False, "layer": "EJE"}]})
+
+    # curva masa con plantilla de carretera
+    mapa = enfocar(p, (X0 + 20, Y0 + 150, X0 + 280, Y0 + 160))
+    menu(p, "volumenes", "masa")
+    p.locator('[data-civil-form="masa"] [data-civil-elegir="eje"]').click()
+    elegir_en_dibujo(p, [(X0 + 150, Y0 + 155)], mapa)
+    esperar(p, "document.querySelector('[data-civil-form=masa] [data-civil-cuenta=eje]').classList.contains('civil-elegido')", LARGO)
+    filas = p.locator('[data-civil-form="masa"] [data-civil-pivs] tr')
+    filas.nth(0).locator("[name=piv_z]").fill("108")
+    p.locator('[data-civil-form="masa"] [data-civil-agregar-piv]').click()
+    filas.nth(1).locator("[name=piv_e]").fill("0+260.19")
+    filas.nth(1).locator("[name=piv_z]").fill("111")
+    p.locator('[data-civil-form="masa"] input[name=plantilla_tipo][value=carretera]').check()
+    foto(p, "29-curva-masa", 1280)
+    p.locator('[data-civil-form="masa"] button[type=submit]').click()
+    esperar(p, "!document.querySelector('[data-civil-form=masa] [data-civil-resultado]').hidden", LARGO * 3)
+    texto = p.locator('[data-civil-form="masa"] [data-civil-resultado]').inner_text().lower()
+    assert "sobreacarreo" in texto and "préstamo" in texto and "despalme" in texto, texto
+    foto(p, "29b-curva-masa-resultado", 1280)
+    p.locator("#civil-hoja-masa [data-tv-cerrar]").first.click()
+    assert cuenta(p, None, "MASA_CURVA") == 1 and cuenta(p, None, "MASA_COMPENSADORA") == 1 and cuenta(p, "Text", "MASA_TEXTOS") > 4
+
+    # lotificar una manzana de 30 × 100 m en lotes de 20 m de frente sobre su lado sur
+    pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 50, Y0 + 20], [X0 + 150, Y0 + 20], [X0 + 150, Y0 + 50], [X0 + 50, Y0 + 50]], "closed": True, "layer": "MANZANA"}]})
+    mapa = enfocar(p, (X0 + 50, Y0 + 20, X0 + 150, Y0 + 50))
+    menu(p, "plano", "lotes")
+    p.locator('[data-civil-form="lotes"] [data-civil-elegir="poligono"]').click()
+    elegir_en_dibujo(p, [(X0 + 50, Y0 + 35)], mapa)
+    esperar(p, "document.querySelector('[data-civil-form=lotes] [data-civil-cuenta=poligono]').classList.contains('civil-elegido')", LARGO)
+    p.locator('[data-civil-form="lotes"] [data-civil-elegir="frente"]').click()
+    esperar(p, "!document.getElementById('civil-pick').hidden", LARGO)
+    clic_lento(p, *mapa.pantalla(X0 + 100, Y0 + 21))
+    esperar(p, "document.querySelector('[data-civil-form=lotes] [data-civil-cuenta=frente]').classList.contains('civil-elegido')", LARGO)
+    p.locator('[data-civil-form="lotes"] input[name=metodo][value=por_frente]').check()
+    p.locator("#civil-lot-fr").fill("20")
+    p.locator("#civil-lot-pref").fill("L")
+    foto(p, "30-lotes", 1280)
+    p.locator('[data-civil-form="lotes"] button[type=submit]').click()
+    esperar(p, "!document.querySelector('[data-civil-form=lotes] [data-civil-resultado]').hidden", LARGO)
+    assert "5 lotes" in p.locator('[data-civil-form="lotes"] [data-civil-resultado]').inner_text()
+    p.locator("#civil-hoja-lotes [data-tv-cerrar]").first.click()
+    assert cuenta(p, None, "LOTES") == 5 and "TOTAL" in [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "LOTES_TABLA", "detail": "geometry"})["entities"]]
+    pedir(p, {"op": "action", "name": "zoom_extents"})
+    cerrar_aviso_gpu(p)
+    foto(p, "31-carretera-masa-lotes-dibujado", 1280)
+    assert not [a for a in p.evaluate("window.__avisos") if a[1] == "error"], p.evaluate("window.__avisos")
+    assert not n.dialogos and not n.errores, (n.dialogos, n.errores)
+
+
 @pytest.mark.parametrize("motor", ["chromium"])
 def test_civil_en_360_px_no_rompe_la_pagina(cad, navegar, crear_usuario, roles, motor):
     """En el teléfono los planos se abren para ver: Civil no estorba y la página no se desborda."""
@@ -659,7 +844,10 @@ def test_capturas_civil(cad, navegar, crear_usuario, roles, tema, ancho, tmp_pat
                                         ("puntos", "renumerar", "civil-hoja-renumerar", "02b-renumerar"), ("puntos", "localizar", "civil-hoja-localizar", "16-localizar"),
                                         ("puntos", "reporte", "civil-hoja-reporte", "17-reporte"), ("terreno", "insertar", "civil-hoja-insertar", "18-insertar"),
                                         ("cuadros", "rumbos", "civil-hoja-rumbos", "19-rumbos"), ("cuadros", "numerar", "civil-hoja-numerar", "20-numerar"),
-                                        ("cuadros", "memoria", "civil-hoja-memoria", "21-memoria"), ("plano", "cuadricula", "civil-hoja-cuadricula", "22-cuadricula"), ("ejes", "perfil", "civil-hoja-perfil", "10-perfil"),
+                                        ("cuadros", "memoria", "civil-hoja-memoria", "21-memoria"), ("plano", "cuadricula", "civil-hoja-cuadricula", "22-cuadricula"),
+                                        ("volumenes", "masa", "civil-hoja-masa", "29-curva-masa"), ("plano", "lotes", "civil-hoja-lotes", "30-lotes"),
+                                        ("puntos", "punto_nuevo", "civil-hoja-punto-nuevo", "24-punto-nuevo"), ("puntos", "etiquetas_puntos", "civil-hoja-etiquetas-puntos", "26-etiquetas-puntos"),
+                                        ("curvas", "etiquetar_curvas", "civil-hoja-etiquetar-curvas", "27-etiquetar-curvas"), ("ejes", "perfil", "civil-hoja-perfil", "10-perfil"),
                                         ("ejes", "secciones", "civil-hoja-secciones", "11-secciones"), ("volumenes", "volumen", "civil-hoja-volumen", "12-volumen")):
         menu(p, clave, accion)
         p.locator(f"#{hoja} details.civil-mas").evaluate_all("ds => ds.forEach(d => d.open = true)")

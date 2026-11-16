@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import base64
 import math
+
+import numpy as np
 from typing import Any, Callable
 
 from . import dxf as dxf_mod
@@ -25,7 +27,8 @@ from .cuadro import FORMATOS as FORMATOS_CUADRO
 from .cuadro import OpcionesCuadro, calcular_cuadro, dibujar_cuadro, resumen_geo
 from .cuadro_curvas import curvas_de_polilineas, dibujar_cuadro_curvas
 from .anotacion import CAPAS_ANOTACION, CAPAS_RETICULA, anotar_lados, cuadricula_utm, intervalo_reticula, numerar_vertices
-from .curvas import curvas_de_nivel, dibujar_curvas, suavizar
+from .curvas import CAPAS_CURVAS, Curva, curvas_de_nivel, dibujar_curvas, etiquetar, suavizar
+from .curvas import _en as _en_curva, _partir as _partir_curva
 from .dibujos import APP, BLOQUES, CAPAS_PUNTOS, bloque_punto, dibujar_puntos, dibujar_tin
 from .edicion_tin import ErrorEdicion, agregar, invertir, normalizar_cara, insertar_puntos, quitar_dentro, quitar_fuera, quitar_largos, revisar
 from .eje import Eje, formato_estacion
@@ -34,7 +37,9 @@ from .escala import ALTURAS_MM, Escala
 from .memoria import memoria_descriptiva, reporte_puntos
 from .perfiles import PIV, Rasante, dibujar_perfil, perfil_terreno
 from .puntos import PROYECTO, TERRENO, Punto, escribir_puntos, leer_puntos, numeros_repetidos
-from .secciones import Plantilla, dibujar_secciones, secciones
+from .lotificacion import dibujar_lotes, lotificar
+from .masa import compensar, dibujar_curva_masa
+from .secciones import Plantilla, PlantillaCarretera, dibujar_secciones, secciones
 from .superficie import formato_ha_a_ca, formato_miles
 from .tin import LineaQuiebre, crear_tin
 from .volumenes import CAPAS_VOLUMEN, dibujar_tabla_volumenes, volumen_entre_superficies, volumenes_por_secciones
@@ -354,6 +359,124 @@ def curvas(d: dict) -> dict:
             "avisos": avisos}
 
 
+# --- curvas que ya están en el plano ---------------------------------------------------------------
+
+def _curvas_del_plano(lista) -> list[tuple[dict, Curva]]:
+    """Polilíneas de curvas leídas del plano: {handle, capa, vertices, elevacion, cerrada}. Maestra si su capa lo dice."""
+    salida = []
+    for p in lista or []:
+        try:
+            v = np.array([[float(q[0]), float(q[1])] for q in p.get("vertices") or []])
+            z = float(p.get("elevacion") if p.get("elevacion") is not None else (p["vertices"][0][2] if len(p["vertices"][0]) > 2 else 0.0))
+        except (TypeError, ValueError, KeyError, IndexError):
+            raise ErrorOrden("Una curva elegida no se pudo leer.") from None
+        if len(v) < 2:
+            continue
+        salida.append((p, Curva(z, v, bool(p.get("cerrada")), "MAESTRA" in str(p.get("capa", "")).upper())))
+    if not salida:
+        raise ErrorOrden("Elige curvas de nivel (polilíneas con elevación).")
+    return salida
+
+
+def _polilinea_curva(p: dict, c: Curva) -> Polilinea:
+    return Polilinea(str(p.get("capa") or CAPAS_CURVAS["intermedias"].nombre), vertices=[(float(x), float(y)) for x, y in c.vertices], cerrada=c.cerrada,
+                     elevacion=float(c.elevacion), datos={"TVCIVIL": [(1000, "curva"), (1040, float(c.elevacion))]})
+
+
+def etiquetar_curvas(d: dict) -> dict:
+    """Etiquetas de elevación en curvas que ya están dibujadas.
+
+    - `puntos` (señalados en el plano): una etiqueta en cada uno, en la curva más cercana, alineada con ella.
+    - sin puntos: a lo largo de cada curva cada `separacion_mm` de papel (todas las elegidas, maestras o no).
+    Con `hueco` la curva se corta bajo cada etiqueta: se devuelven las piezas y los handles de las curvas que reemplazan.
+    """
+    curvas = _curvas_del_plano(d.get("polilineas"))
+    esc = _escala(d)
+    h = esc.altura("curva_etiqueta")
+    dec = int(d.get("decimales", 0))
+    hueco = bool(d.get("hueco", False))
+    capa_et = str(d.get("capa_etiquetas") or CAPAS_CURVAS["etiquetas"].nombre)
+    dib = Dibujo()
+    dib.estilo(EstiloTexto("CIVIL", "romans.shx", 0.85))
+    dib.capa(Capa(capa_et, CAPAS_CURVAS["etiquetas"].color, descripcion=CAPAS_CURVAS["etiquetas"].descripcion))
+    borrar, n = [], 0
+    puntos = d.get("puntos") or []
+    if puntos:
+        import shapely
+
+        lineas = [shapely.LineString(np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices) for _, c in curvas]
+        cortes: dict[int, list[float]] = {}
+        for q in puntos:
+            pt = shapely.Point(float(q[0]), float(q[1]))
+            i = min(range(len(lineas)), key=lambda k: lineas[k].distance(pt))
+            if lineas[i].distance(pt) > 20 * h:
+                continue
+            c = curvas[i][1]
+            v = np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices
+            dist = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(v, axis=0).T))])
+            s_ = float(lineas[i].project(pt))
+            x, y, ang = _en_curva(v, dist, s_)
+            texto = f"{c.elevacion:.{dec}f}"
+            dib.agregar(Texto(capa_et, valor=texto, posicion=(x, y), altura=h, rotacion=ang, estilo="CIVIL", alineacion_h="centro", alineacion_v="medio"))
+            ancho = h * (0.8 * len(texto) + 1.0)
+            cortes.setdefault(i, []).append((s_ - ancho / 2, s_ + ancho / 2))
+            n += 1
+        if hueco:
+            for i, cs in cortes.items():
+                p, c = curvas[i]
+                v = np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices
+                dist = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(v, axis=0).T))])
+                for pieza in _partir_curva(c, v, dist, cs):
+                    dib.agregar(_polilinea_curva(p, pieza))
+                borrar.append(p.get("handle"))
+    else:
+        sep = _num(d, "separacion_mm", 80.0, minimo=5) * float(esc.denominador) / 1000.0 * esc.unidades_por_metro
+        for p, c in curvas:                                   # curva por curva: así cada pieza sabe de qué curva viene
+            try:
+                etiquetas, piezas = etiquetar([c], sep, h, dec, solo_maestras=False, hueco=hueco)
+            except ValueError as exc:
+                raise ErrorOrden(str(exc)) from None
+            for e in etiquetas:
+                dib.agregar(Texto(capa_et, valor=e.texto, posicion=(e.x, e.y), altura=h, rotacion=e.rotacion, estilo="CIVIL", alineacion_h="centro", alineacion_v="medio"))
+            n += len(etiquetas)
+            if hueco and etiquetas:
+                for pieza in piezas:
+                    dib.agregar(_polilinea_curva(p, pieza))
+                borrar.append(p.get("handle"))
+    if not n:
+        raise ErrorOrden("No quedó ninguna etiqueta: señala más cerca de las curvas o elige curvas más largas.")
+    return {"dxf": _dxf(dib), "borrar": [b for b in borrar if b], "resumen": {"etiquetas": n}, "avisos": []}
+
+
+def suavizar_curvas(d: dict) -> dict:
+    """Suaviza curvas ya dibujadas sin que toquen a otras (las elegidas entre sí y las `fijas`). Conserva capa, elevación y XDATA."""
+    import shapely
+
+    curvas = _curvas_del_plano(d.get("polilineas"))
+    it = int(_num(d, "iteraciones", 2, minimo=1, maximo=4))
+    lisas, _ = suavizar([c for _, c in curvas], it)
+    fijas = [c for _, c in _curvas_del_plano(d["fijas"])] if d.get("fijas") else []
+    geo = lambda c: shapely.LineString(np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices)
+    arbol = shapely.STRtree([geo(c) for c in fijas]) if fijas else None
+    sin = 0
+    for k, c in enumerate(lisas):
+        if arbol is not None and len(arbol.query(geo(c), predicate="intersects")):
+            lisas[k] = curvas[k][1]
+        if lisas[k] is curvas[k][1]:
+            sin += 1
+    dib = Dibujo()
+    borrar = []
+    for (p, original), c in zip(curvas, lisas):
+        if c is original:
+            continue
+        dib.agregar(_polilinea_curva(p, c))
+        borrar.append(p.get("handle"))
+    if not dib.entidades:
+        raise ErrorOrden("Ninguna curva se pudo suavizar sin tocar a otra.")
+    avisos = [f"{sin} curva{'s' if sin != 1 else ''} muy {'juntas' if sin != 1 else 'junta'} se {'dejaron' if sin != 1 else 'dejó'} igual para que no se toquen."] if sin else []
+    return {"dxf": _dxf(dib), "borrar": [b for b in borrar if b], "resumen": {"suavizadas": len(borrar)}, "avisos": avisos}
+
+
 # --- cuadro de construcción -----------------------------------------------------------------------
 
 def _cuadro_de(d: dict):
@@ -498,18 +621,28 @@ def _colocar(dib: Dibujo, esquina) -> None:
         dib.trasladar(float(esquina[0]) - caja[0], float(esquina[1]) - caja[3])
 
 
+def _plantilla(pl: dict):
+    """La plantilla de la sección: «sencilla» (corona con bombeo) o «carretera» (carriles, acotamientos, cuneta, pavimento, despalme)."""
+    try:
+        if pl.get("tipo") == "carretera":
+            return PlantillaCarretera(int(_num(pl, "carriles_por_lado", 1, minimo=1, maximo=6)), _num(pl, "ancho_carril", 3.5, minimo=0.5),
+                                      _num(pl, "pendiente_carril", -2.0) / 100.0, _num(pl, "acotamiento", 2.5, minimo=0),
+                                      _num(pl, "pendiente_acotamiento", -4.0) / 100.0, _num(pl, "cuneta_ancho", 1.0, minimo=0),
+                                      _num(pl, "cuneta_profundidad", 0.5, minimo=0), _num(pl, "espesor_pavimento", 0.30, minimo=0),
+                                      _num(pl, "despalme", 0.20, minimo=0), _num(pl, "talud_corte", 1.0, minimo=0.01), _num(pl, "talud_terraplen", 1.5, minimo=0.01))
+        return Plantilla(_num(pl, "ancho_izq", 3.5, minimo=0), _num(pl, "ancho_der", 3.5, minimo=0), _num(pl, "bombeo", 2.0) / 100.0,
+                         _num(pl, "talud_corte", 1.0, minimo=0.01), _num(pl, "talud_terraplen", 1.5, minimo=0.01))
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+
+
 def secciones_orden(d: dict) -> dict:
     tin = _tin_de_caras(_caras(d.get("caras")))
     eje = _eje(d)
     intervalo = _num(d, "intervalo", 20.0, minimo=0.1)
     izq, der = _num(d, "izquierda", 20.0, minimo=0.1), _num(d, "derecha", 20.0, minimo=0.1)
     ras = _rasante(d)
-    pl = d.get("plantilla") or {}
-    try:
-        plantilla = Plantilla(_num(pl, "ancho_izq", 3.5, minimo=0), _num(pl, "ancho_der", 3.5, minimo=0), _num(pl, "bombeo", 2.0) / 100.0,
-                              _num(pl, "talud_corte", 1.0, minimo=0.01), _num(pl, "talud_terraplen", 1.5, minimo=0.01))
-    except ValueError as exc:
-        raise ErrorOrden(str(exc)) from None
+    plantilla = _plantilla(d.get("plantilla") or {})
     lista = secciones(tin, eje, eje.estaciones(intervalo), izq, der, ras, plantilla)
     esc = _escala(d)
     origen = d.get("origen")
@@ -522,7 +655,8 @@ def secciones_orden(d: dict) -> dict:
     avisos = [a for s in lista for a in s.avisos][:30]
     if ras is not None:
         renglones = volumenes_por_secciones(lista, _num(d, "abundamiento", 1.0, minimo=0.01))
-        resumen.update(corte=renglones[-1].acum_corte, terraplen=renglones[-1].acum_terraplen, ordenada_final=renglones[-1].ordenada)
+        resumen.update(corte=renglones[-1].acum_corte, terraplen=renglones[-1].acum_terraplen, ordenada_final=renglones[-1].ordenada,
+                       despalme=renglones[-1].acum_despalme)
         if d.get("tabla", True):
             h = esc.altura("cuadro_dato")
             xs = [e.inicio[0] for e in dib.entidades if hasattr(e, "inicio")] or [float(origen[0])]
@@ -647,6 +781,57 @@ def reporte_puntos_orden(d: dict) -> dict:
     return {"documento": doc.como_dict(), "resumen": {"puntos": len(pts)}, "avisos": []}
 
 
+# --- después de v1.1: curva masa con compensación y lotificación ----------------------------------------------------------
+
+def curva_masa(d: dict) -> dict:
+    """Secciones del eje con su plantilla → volúmenes por áreas medias → curva masa con línea compensadora y sobreacarreo."""
+    tin = _tin_de_caras(_caras(d.get("caras")))
+    eje = _eje(d)
+    ras = _rasante(d)
+    if ras is None:
+        raise ErrorOrden("La curva masa necesita la rasante de proyecto.")
+    lista = secciones(tin, eje, eje.estaciones(_num(d, "intervalo", 20.0, minimo=0.1)), _num(d, "izquierda", 30.0, minimo=0.1),
+                      _num(d, "derecha", 30.0, minimo=0.1), ras, _plantilla(d.get("plantilla") or {}))
+    ren = volumenes_por_secciones(lista, _num(d, "abundamiento", 1.0, minimo=0.01))
+    linea = None if d.get("linea") in (None, "", "auto") else _num(d, "linea", 0.0)
+    try:
+        comp = compensar([r.estacion for r in ren], [r.ordenada for r in ren], linea, _num(d, "acarreo_libre", 20.0, minimo=0))
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+    origen = d.get("origen") or (0.0, 0.0)
+    dib = dibujar_curva_masa([r.estacion for r in ren], [r.ordenada for r in ren], comp, (float(origen[0]), float(origen[1])), _escala(d),
+                             _num(d, "m3_por_mm", 0.0, minimo=0.0) or None)
+    _colocar(dib, d.get("esquina_superior"))
+    avisos = [a for s_ in lista for a in s_.avisos][:20] + comp.avisos
+    return {"dxf": _dxf(dib), "resumen": {"estaciones": len(ren), "corte": ren[-1].acum_corte, "terraplen": ren[-1].acum_terraplen,
+                                         "despalme": ren[-1].acum_despalme, "linea": comp.linea, "puntos": len(comp.puntos), "compensado": comp.compensado,
+                                         "sobreacarreo": comp.sobreacarreo, "prestamo": comp.prestamo, "desperdicio": comp.desperdicio},
+            "lazos": [{"desde": l.desde, "hasta": l.hasta, "volumen": l.volumen, "distancia": l.distancia_media, "sentido": l.sentido,
+                       "sobreacarreo": l.sobreacarreo} for l in comp.lazos], "avisos": avisos}
+
+
+def lotificar_orden(d: dict) -> dict:
+    v, _ = _polilinea(d.get("poligono"), "la manzana (polilínea cerrada)")
+    lado = d.get("lado_frente")
+    if d.get("punto_frente") is not None:      # el lado más cercano al punto señalado
+        import shapely
+
+        q = shapely.Point(float(d["punto_frente"][0]), float(d["punto_frente"][1]))
+        lado = min(range(len(v)), key=lambda i: shapely.LineString([v[i][:2], v[(i + 1) % len(v)][:2]]).distance(q))
+    try:
+        lotes = lotificar([p[:2] for p in v], int(lado or 0), d.get("metodo", "por_cantidad"), _num(d, "valor", 1.0), int(d.get("primer_numero", 1)),
+                          str(d.get("prefijo", ""))[:8])
+        tabla = d.get("esquina_tabla")
+        if tabla is None and d.get("tabla", True):
+            xs, ys = [p[0] for p in v], [p[1] for p in v]
+            tabla = (max(xs) + 10 * _escala(d).altura("cuadro_dato"), max(ys))
+        dib = dibujar_lotes(lotes, (float(tabla[0]), float(tabla[1])) if tabla else None, _escala(d), int(d.get("decimales", 3)))
+    except (ValueError, TypeError) as exc:
+        raise ErrorOrden(str(exc)) from None
+    return {"dxf": _dxf(dib), "resumen": {"lotes": len(lotes), "superficie": sum(l.superficie for l in lotes), "lado": int(lado or 0)},
+            "lotes": [{"numero": l.numero, "superficie": l.superficie, "frente": l.frente} for l in lotes], "avisos": []}
+
+
 ORDENES: dict[str, Callable[[dict], dict]] = {
     "importar_puntos": importar_puntos,
     "exportar_puntos": exportar_puntos,
@@ -657,6 +842,8 @@ ORDENES: dict[str, Callable[[dict], dict]] = {
     "agregar_triangulo": agregar_triangulo,
     "revisar_tin": revisar_tin,
     "curvas": curvas,
+    "etiquetar_curvas": etiquetar_curvas,
+    "suavizar_curvas": suavizar_curvas,
     "cuadro": cuadro,
     "cuadro_curvas": cuadro_curvas,
     "anotar_lados": anotar_lados_orden,
@@ -668,10 +855,12 @@ ORDENES: dict[str, Callable[[dict], dict]] = {
     "perfil": perfil,
     "secciones": secciones_orden,
     "volumen_superficies": volumen_superficies,
+    "curva_masa": curva_masa,
+    "lotificar": lotificar_orden,
 }
 
 #: Órdenes que pueden tardar con planos grandes: el servidor las manda a su cola de tareas.
-PESADAS = {"triangular", "curvas", "perfil", "secciones", "volumen_superficies", "revisar_tin", "insertar_puntos"}
+PESADAS = {"triangular", "curvas", "perfil", "secciones", "volumen_superficies", "revisar_tin", "insertar_puntos", "curva_masa"}
 
 
 def ejecutar(nombre: str, datos: dict) -> dict:

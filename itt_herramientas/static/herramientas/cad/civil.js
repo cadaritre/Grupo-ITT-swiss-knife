@@ -122,7 +122,7 @@
   }
 
   /** Capas que dibuja Civil como resultado: nunca sirven como eje, límite o polígono (las marcas de estación tocan el eje). */
-  const CAPAS_DE_RESULTADO = /^(EJE_ESTACIONES|PERFIL_|SECCION_|CURVAS_|CUADRO_|VOLUMEN_|VERTICES_POLIGONO|PUNTOS_|TRIANGULACION_REVISION|LADOS_|RETICULA_)/;
+  const CAPAS_DE_RESULTADO = /^(EJE_ESTACIONES|PERFIL_|SECCION_|CURVAS_|CUADRO_|VOLUMEN_|VERTICES_POLIGONO|PUNTOS_|TRIANGULACION_REVISION|LADOS_|RETICULA_|MASA_|LOTES_)/
 
   /** Entidades elegidas por la persona. `tipos`: nombres del editor (p. ej. ["Polyline", "Polyline3D"]). */
   async function elegir({ mensaje, tipo, capa, tipos, minimo = 1, maximo = Infinity, sinResultados = false }) {
@@ -160,10 +160,10 @@
   }
 
   /** Un punto señalado por la persona; null si cancela. Sin getpoint en el editor, lanza un ErrorCivil con la razón. */
-  async function senalar(mensaje) {
+  async function senalar(mensaje, sufijo = " · Esc para cancelar") {
     if (est.sinPicks) throw new ErrorCivil("Esta versión del editor no deja señalar puntos desde Civil.");
     return conHojaCerrada(async () => {
-      mostrarChip(`${mensaje} · Esc para cancelar`, false);
+      mostrarChip(`${mensaje}${sufijo}`, false);
       cancelarPick = () => pedir({ op: "cancel" }).catch(() => {});
       try {
         const r = await pedir({ op: "getpoint", prompt: mensaje }, 30 * 60000);
@@ -515,6 +515,13 @@
         const que = b.dataset.civilElegir;
         const cuenta = form.querySelector(`[data-civil-cuenta="${que}"]`);
         try {
+          if (que === "frente") {
+            const p = await senalar("Señala el lado del frente (el que da a la calle)");
+            if (!p) return;
+            est.elegidos[clave].frente = p;
+            cuenta.textContent = "Señalado"; cuenta.classList.add("civil-elegido");
+            return;
+          }
           if (que === "vertice") {
             const p = await senalar("Señala el vértice inicial");
             if (!p) return;
@@ -730,7 +737,7 @@
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
         const r = await dibujarCurvas(f, datosCurvas(f), decir);
         cerrarHoja();
-        avisar(`${r.resumen.curvas.toLocaleString("es-MX")} curvas, ${r.resumen.maestras} maestras`);
+        avisar(`${r.resumen.curvas.toLocaleString("es-MX")} curva${r.resumen.curvas === 1 ? "" : "s"}, ${r.resumen.maestras} maestra${r.resumen.maestras === 1 ? "" : "s"}`);
         for (const a of r.avisos || []) avisar(a);
       });
     });
@@ -845,6 +852,70 @@
       });
     });
   }
+  /** La plantilla de la hoja: sencilla (corona y bombeo) o de carretera; los porcentajes de bombeo van hacia afuera (negativos). */
+  function plantillaDe(f) {
+    const comun = { talud_corte: numero(f, "talud_corte", 1), talud_terraplen: numero(f, "talud_terraplen", 1.5) };
+    if (valor(f, "plantilla_tipo") === "carretera") {
+      return { tipo: "carretera", ...comun, carriles_por_lado: parseInt(valor(f, "carriles_por_lado"), 10) || 1, ancho_carril: numero(f, "ancho_carril", 3.5),
+        pendiente_carril: -Math.abs(numero(f, "pendiente_carril", 2)), acotamiento: numero(f, "acotamiento", 2.5), pendiente_acotamiento: -Math.abs(numero(f, "pendiente_acotamiento", 4)),
+        cuneta_ancho: numero(f, "cuneta_ancho", 1), cuneta_profundidad: numero(f, "cuneta_profundidad", 0.5), espesor_pavimento: numero(f, "espesor_pavimento", 0.3), despalme: numero(f, "despalme", 0.2) };
+    }
+    return { ...comun, ancho_izq: numero(f, "ancho_izq", 3.5), ancho_der: numero(f, "ancho_der", 3.5), bombeo: numero(f, "bombeo", 2) };
+  }
+
+  function prepararMasa() {
+    const f = document.querySelector('[data-civil-form="masa"]');
+    prepararElecciones(f); enlazarDependientes(f); prepararRasante(f);
+    f.elements.con_rasante.checked = true; f.elements.con_rasante.dispatchEvent(new Event("change", { bubbles: true }));
+    const res = f.querySelector("[data-civil-resultado]");
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      res.hidden = true;
+      trabajo(f, "Leyendo la triangulación…", async (decir) => {
+        const ras = rasante(f);
+        if (!ras) throw new ErrorCivil("La curva masa necesita la rasante de proyecto.");
+        const datos = { ...datosEje(f), izquierda: numero(f, "izquierda", 30), derecha: numero(f, "derecha", 30), rasante: ras, plantilla: plantillaDe(f),
+          abundamiento: numero(f, "abundamiento", 1), acarreo_libre: numero(f, "acarreo_libre", 20), linea: valor(f, "linea_modo") === "dada" ? numero(f, "linea", 0) : "auto" };
+        if (valor(f, "ubicacion") === "senalar") { const p = await senalar("Señala la esquina inferior izquierda de la curva masa"); if (!p) return; datos.origen = p; }
+        else datos.esquina_superior = await lugarLibre("debajo");
+        datos.caras = await carasDe("terreno");
+        decir("Calculando la curva masa…");
+        const r = await calcular("curva_masa", datos, decir);
+        await insertarDxf(r.dxf, "curva-masa.dxf");
+        const s = r.resumen;
+        res.hidden = false;
+        res.innerHTML = `<dl class="civil-cifras"><div><dt>Compensado</dt><dd>${mil(s.compensado, 0)} m³</dd></div><div><dt>Sobreacarreo</dt><dd>${mil(s.sobreacarreo, 1)} m³·hm</dd></div>
+          <div><dt>Préstamo</dt><dd>${mil(s.prestamo, 0)} m³</dd></div><div><dt>Desperdicio</dt><dd>${mil(s.desperdicio, 0)} m³</dd></div></dl>
+          <p class="civil-nota">Línea compensadora en ${mil(s.linea, 0)} m³ · ${s.puntos} puntos de compensación · corte ${mil(s.corte, 0)} m³, terraplén ${mil(s.terraplen, 0)} m³${s.despalme ? `, despalme ${mil(s.despalme, 0)} m³` : ""}</p>`;
+        for (const a of (r.avisos || []).slice(0, 3)) avisar(a);
+      });
+    });
+  }
+
+  function prepararLotes() {
+    const f = document.querySelector('[data-civil-form="lotes"]');
+    prepararElecciones(f); enlazarDependientes(f);
+    const res = f.querySelector("[data-civil-resultado]");
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      res.hidden = true;
+      trabajo(f, "Partiendo la manzana…", async () => {
+        const el = est.elegidos.lotes || {};
+        if (!el.poligono) throw new ErrorCivil("Elige la manzana.");
+        if (!el.frente) throw new ErrorCivil("Señala el lado del frente.");
+        const p = el.poligono[0];
+        const metodo = valor(f, "metodo");
+        const v = { por_cantidad: numero(f, "cantidad", 0), por_superficie: numero(f, "superficie", 0), por_frente: numero(f, "frente", 0) }[metodo];
+        const r = await calcular("lotificar", { poligono: { vertices: p.vertices.map((q) => [q[0], q[1]]), combas: p.combas, cerrada: true }, punto_frente: el.frente,
+          metodo, valor: v, prefijo: valor(f, "prefijo") || "", primer_numero: parseInt(valor(f, "primer_numero"), 10) || 1, tabla: !!valor(f, "tabla") });
+        await insertarDxf(r.dxf, "lotes.dxf");
+        res.hidden = false;
+        res.innerHTML = `<p><strong>${r.resumen.lotes} lotes</strong> · ${mil(r.resumen.superficie, 3)} m² en total</p>`;
+        avisar(`${r.resumen.lotes} lotes`);
+      });
+    });
+  }
+
   function prepararSecciones() {
     const f = document.querySelector('[data-civil-form="secciones"]');
     prepararElecciones(f); enlazarDependientes(f); prepararRasante(f);
@@ -853,14 +924,14 @@
       ev.preventDefault();
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
         const datos = { ...datosEje(f), izquierda: numero(f, "izquierda", 20), derecha: numero(f, "derecha", 20), rasante: rasante(f), tabla: valor(f, "tabla"),
-          abundamiento: numero(f, "abundamiento", 1), plantilla: { ancho_izq: numero(f, "ancho_izq", 3.5), ancho_der: numero(f, "ancho_der", 3.5), bombeo: numero(f, "bombeo", 2), talud_corte: numero(f, "talud_corte", 1), talud_terraplen: numero(f, "talud_terraplen", 1.5) } };
+          abundamiento: numero(f, "abundamiento", 1), plantilla: plantillaDe(f) };
         if (valor(f, "ubicacion") === "senalar") { const p = await senalar("Señala la esquina superior izquierda de las secciones"); if (!p) return; datos.origen = p; }
         else datos.esquina_superior = await lugarLibre("lado");
         datos.caras = await carasDe("terreno");
         decir("Calculando las secciones…");
         const r = await calcular("secciones", datos, decir);
         await insertarDxf(r.dxf, "secciones.dxf");
-        if (r.resumen.corte !== undefined) { res.hidden = false; res.innerHTML = `<p>Corte <strong>${mil(r.resumen.corte)} m³</strong> · Terraplén <strong>${mil(r.resumen.terraplen)} m³</strong></p>`; }
+        if (r.resumen.corte !== undefined) { res.hidden = false; res.innerHTML = `<p>Corte <strong>${mil(r.resumen.corte)} m³</strong> · Terraplén <strong>${mil(r.resumen.terraplen)} m³</strong>${r.resumen.despalme ? ` · Despalme <strong>${mil(r.resumen.despalme)} m³</strong>` : ""}</p>`; }
         avisar(`${r.resumen.secciones} secciones`);
         for (const a of (r.avisos || []).slice(0, 3)) avisar(a);
         if (r.resumen.corte === undefined) cerrarHoja();
@@ -1127,6 +1198,197 @@
     });
   }
 
+  // -- Puntos: dibujar, editar, etiquetas y convertir ------------------------------------------------------------------------
+  const elevTexto = (z, dec) => (z === null || z === undefined || z === "" || !Number.isFinite(+z) ? "" : (+z).toFixed(dec));
+  const sigNumero = (pts) => {
+    let n = 0;
+    for (const p of pts) { const m = String(p.atributos.NUM || "").match(/(\d+)\s*$/); if (m) n = Math.max(n, parseInt(m[1], 10)); }
+    return String(n + 1);
+  };
+  async function redibujar(pts, borrarAntes = [], extra = {}) {
+    const r = await calcular("redibujar_puntos", { puntos: pts, ...extra });
+    await insertarDxf(r.dxf, "puntos.dxf");
+    await borrar(borrarAntes);
+    return r;
+  }
+  function datosPunto(f) {
+    const num = String(valor(f, "numero") || "").trim();
+    if (!num) throw new ErrorCivil("Escribe el número del punto.");
+    const zTxt = String(valor(f, "elevacion") ?? "").trim();
+    const z = zTxt === "" ? null : parseFloat(zTxt.replace(",", "."));
+    if (zTxt !== "" && !Number.isFinite(z)) throw new ErrorCivil("Revisa la elevación.");
+    return { num, z, desc: String(valor(f, "descripcion") || "").trim(), dec: parseInt(valor(f, "decimales_z"), 10) };
+  }
+
+  function prepararPuntoNuevo() {
+    const f = document.querySelector('[data-civil-form="punto_nuevo"]');
+    enlazarDependientes(f);
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Dibujando…", async () => {
+        const d = datosPunto(f);
+        const existentes = await insercionesDe(null);
+        if (existentes.some((p) => String(p.atributos.NUM || "").trim().toUpperCase() === d.num.toUpperCase())) throw new ErrorCivil(`Ya hay un punto ${d.num}.`);
+        let x, y;
+        if (valor(f, "donde") === "coordenadas") {
+          x = numero(f, "x", NaN); y = numero(f, "y", NaN);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) throw new ErrorCivil("Escribe las coordenadas X y Y.");
+        } else {
+          const q = await senalar("Señala dónde va el punto");
+          if (!q) return;
+          [x, y] = q;
+        }
+        await redibujar([{ x, y, z: d.z ?? 0, tipo: valor(f, "tipo"), atributos: { NUM: d.num, ELEV: elevTexto(d.z, d.dec), DESC: d.desc } }]);
+        f.elements.numero.value = (() => { const m = d.num.match(/^(.*?)(\d+)$/); return m ? `${m[1]}${parseInt(m[2], 10) + 1}` : ""; })();
+        f.elements.elevacion.value = "";
+        avisar(`Punto ${d.num} dibujado`);
+      });
+    });
+    return async () => {   // al abrir: el siguiente número libre
+      if (!f.elements.numero.value) { try { f.elements.numero.value = sigNumero(await insercionesDe(null)); } catch (_) { /* nada */ } }
+    };
+  }
+
+  function prepararPuntoEditar() {
+    const f = document.querySelector('[data-civil-form="punto_editar"]');
+    enlazarDependientes(f);
+    const cuenta = f.querySelector('[data-civil-cuenta="punto"]');
+    let actual = null;
+    f.querySelector('[data-civil-elegir="punto"]').addEventListener("click", async () => {
+      try {
+        const e = await elegir({ mensaje: "Elige el punto", tipos: ["Block Reference", "INSERT", "Insert"], maximo: 1 });
+        if (!e) return;
+        if (!esPuntoCivil(e[0])) throw new ErrorCivil("Eso no es un punto de Civil.");
+        actual = puntoCivil(e[0]);
+        f.elements.numero.value = actual.atributos.NUM || "";
+        f.elements.elevacion.value = actual.atributos.ELEV ? actual.z : "";
+        f.elements.descripcion.value = actual.atributos.DESC || "";
+        f.elements.x.value = actual.x.toFixed(4); f.elements.y.value = actual.y.toFixed(4);
+        const dec = ((actual.atributos.ELEV || "").split(".")[1] || "").length;
+        if ([...f.elements.decimales_z.options].some((o) => +o.value === dec)) f.elements.decimales_z.value = String(dec);
+        cuenta.textContent = `Punto ${actual.atributos.NUM || "sin número"} · ${actual.tipo}`; cuenta.classList.add("civil-elegido");
+        f.elements.elegido.value = "1"; f.dispatchEvent(new Event("change"));
+      } catch (err) { avisar(err instanceof ErrorCivil ? err.message : "No se pudo leer el punto.", "error"); }
+    });
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Guardando…", async () => {
+        if (!actual) throw new ErrorCivil("Elige el punto.");
+        const d = datosPunto(f);
+        const x = numero(f, "x", actual.x), y = numero(f, "y", actual.y);
+        await redibujar([{ x, y, z: d.z ?? actual.z, tipo: actual.tipo, atributos: { NUM: d.num, ELEV: elevTexto(d.z, d.dec), DESC: d.desc } }], [actual.handle]);
+        actual = null; f.elements.elegido.value = ""; cuenta.textContent = cuenta.dataset.vacio; cuenta.classList.remove("civil-elegido"); f.dispatchEvent(new Event("change"));
+        cerrarHoja();
+        avisar(`Punto ${d.num} actualizado`);
+      });
+    });
+  }
+
+  function prepararEtiquetasPuntos() {
+    const f = document.querySelector('[data-civil-form="etiquetas_puntos"]');
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Aplicando…", async () => {
+        const capas = { ver_numero: "PUNTOS_NUMERO", ver_elevacion: "PUNTOS_ELEVACION", ver_descripcion: "PUNTOS_DESCRIPCION" };
+        const pasos = [];
+        for (const [campo, capa] of Object.entries(capas)) pasos.push({ op: "set_properties", collection: "layers", name: capa, updates: [{ path: "/flags/off", value: !valor(f, campo) }] });
+        for (const p of pasos) await pedir(p).catch(() => {});            // una capa que aún no existe no es un error
+        const dec = valor(f, "decimales_z");
+        let n = 0;
+        if (dec !== "") {
+          const pts = (await insercionesDe(null)).filter((p) => p.atributos.ELEV);
+          if (pts.length) {
+            await redibujar(pts.map((p) => ({ ...p, atributos: { ...p.atributos, ELEV: elevTexto(p.z, +dec) } })), pts.map((p) => p.handle));
+            n = pts.length;
+          }
+        }
+        cerrarHoja();
+        avisar(n ? `Etiquetas aplicadas; ${n.toLocaleString("es-MX")} elevaciones con ${dec} decimal${+dec === 1 ? "" : "es"}` : "Etiquetas aplicadas");
+      });
+    });
+  }
+
+  function prepararConvertirPuntos() {
+    const f = document.querySelector('[data-civil-form="convertir_puntos"]');
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "", async () => {
+        const a = valor(f, "a");
+        const e = await elegir({ mensaje: `Elige los puntos que pasan a ${a}`, tipos: ["Block Reference", "INSERT", "Insert"] });
+        if (!e) return;
+        const pts = e.filter(esPuntoCivil).map(puntoCivil).filter((p) => p.tipo !== a);
+        if (!pts.length) throw new ErrorCivil(`Esos puntos ya son de ${a}.`);
+        await redibujar(pts.map((p) => ({ ...p, tipo: a })), pts.map((p) => p.handle));
+        cerrarHoja();
+        avisar(pts.length === 1 ? `1 punto pasó a ${a}` : `${pts.length.toLocaleString("es-MX")} puntos pasaron a ${a}`);
+      });
+    });
+  }
+
+  // -- Curvas ya dibujadas: etiquetar y suavizar --------------------------------------------------------------------------------
+  const CAPA_CURVA = /^CURVAS_(MAESTRAS|INTERMEDIAS)(_PROYECTO)?$/;
+  const curvaDe = (e) => { const p = polilinea(e); return { handle: e.handle, capa: e.layer, vertices: p.vertices.map((v) => [v[0], v[1]]), elevacion: p.vertices.length ? p.vertices[0][2] : 0, cerrada: p.cerrada }; };
+  async function curvasDelPlano() {
+    const salida = [];
+    for (const capa of ["CURVAS_MAESTRAS", "CURVAS_INTERMEDIAS", "CURVAS_MAESTRAS_PROYECTO", "CURVAS_INTERMEDIAS_PROYECTO"]) salida.push(...(await consultar({ layer: capa, detail: "full" })).map(curvaDe));
+    return salida.filter((c) => c.vertices.length > 1);
+  }
+  async function elegirCurvas(mensaje) {
+    const e = await elegir({ mensaje, tipos: ["Polyline", "LwPolyline", "Polyline3D"] });
+    if (!e) return null;
+    const curvas = e.filter((x) => CAPA_CURVA.test(x.layer || "")).map(curvaDe);
+    if (!curvas.length) throw new ErrorCivil("Lo que elegiste no son curvas de nivel de Civil.");
+    return curvas;
+  }
+
+  function prepararEtiquetarCurvas() {
+    const f = document.querySelector('[data-civil-form="etiquetar_curvas"]');
+    enlazarDependientes(f);
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "", async () => {
+        const datos = { decimales: +valor(f, "decimales"), hueco: !!valor(f, "hueco") };
+        if (valor(f, "modo") === "largo") {
+          const c = await elegirCurvas("Elige las curvas");
+          if (!c) return;
+          Object.assign(datos, { polilineas: c, separacion_mm: numero(f, "separacion_mm", 80) });
+        } else {
+          const puntos = [];
+          for (;;) { const q = await senalar(`Señala dónde va la etiqueta${puntos.length ? ` (${puntos.length})` : ""}`, " · Esc para terminar"); if (!q) break; puntos.push(q); }
+          if (!puntos.length) return;
+          datos.puntos = puntos;
+          datos.polilineas = await curvasDelPlano();
+          if (!datos.polilineas.length) throw new ErrorCivil("No hay curvas de nivel en el plano.");
+        }
+        const r = await calcular("etiquetar_curvas", datos);
+        await insertarDxf(r.dxf, "etiquetas.dxf");
+        await borrar(r.borrar);
+        cerrarHoja();
+        avisar(`${r.resumen.etiquetas} etiqueta${r.resumen.etiquetas === 1 ? "" : "s"}`);
+      });
+    });
+  }
+
+  function prepararSuavizarCurvas() {
+    const f = document.querySelector('[data-civil-form="suavizar_curvas"]');
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "", async (decir) => {
+        const c = await elegirCurvas("Elige las curvas que vas a suavizar");
+        if (!c) return;
+        decir("Suavizando…");
+        const elegidas = new Set(c.map((x) => x.handle));
+        const fijas = (await curvasDelPlano()).filter((x) => !elegidas.has(x.handle));
+        const r = await calcular("suavizar_curvas", { polilineas: c, fijas, iteraciones: +valor(f, "iteraciones") });
+        await insertarDxf(r.dxf, "curvas.dxf");
+        await borrar(r.borrar);
+        cerrarHoja();
+        avisar(`${r.resumen.suavizadas} curva${r.resumen.suavizadas === 1 ? "" : "s"} suavizada${r.resumen.suavizadas === 1 ? "" : "s"}`);
+        for (const a of r.avisos || []) avisar(a);
+      });
+    });
+  }
+
   // -- Volumen entre superficies -------------------------------------------------------------------------------------------------
   function prepararVolumen() {
     const f = document.querySelector('[data-civil-form="volumen"]');
@@ -1158,6 +1420,12 @@
     renumerar: () => abrirHoja("civil-hoja-renumerar"),
     revisar: () => abrirHoja("civil-hoja-revisar"),
     cuadro_curvas: () => abrirHoja("civil-hoja-cuadro-curvas"),
+    punto_nuevo: async () => { abrirHoja("civil-hoja-punto-nuevo"); await alAbrirPuntoNuevo(); },
+    punto_editar: () => abrirHoja("civil-hoja-punto-editar"),
+    etiquetas_puntos: () => abrirHoja("civil-hoja-etiquetas-puntos"),
+    convertir_puntos: () => abrirHoja("civil-hoja-convertir-puntos"),
+    etiquetar_curvas: () => abrirHoja("civil-hoja-etiquetar-curvas"),
+    suavizar_curvas: () => abrirHoja("civil-hoja-suavizar-curvas"),
     localizar: () => { abrirHoja("civil-hoja-localizar"); $("civil-loc-num").focus(); },
     reporte: () => abrirHoja("civil-hoja-reporte"),
     insertar: () => abrirHoja("civil-hoja-insertar"),
@@ -1165,6 +1433,8 @@
     numerar: () => abrirHoja("civil-hoja-numerar"),
     memoria: () => abrirHoja("civil-hoja-memoria"),
     cuadricula: () => abrirHoja("civil-hoja-cuadricula"),
+    masa: () => abrirHoja("civil-hoja-masa"),
+    lotes: () => abrirHoja("civil-hoja-lotes"),
     triangular: () => abrirHoja("civil-hoja-triangular"),
     invertir: invertirTriangulos,
     borrar: () => abrirHoja("civil-hoja-borrar"),
@@ -1177,6 +1447,7 @@
     volumen: () => abrirHoja("civil-hoja-volumen"),
   };
   let llenarEscala = () => {};
+  let alAbrirPuntoNuevo = async () => {};
 
   /** La lista de un menú va fija (la barra se desplaza a lo ancho): bajo su botón, sin salirse de la ventana. */
   function colocarMenu(menu) {
@@ -1215,7 +1486,7 @@
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") barra.querySelectorAll(".civil-menu[open]").forEach((d) => d.removeAttribute("open")); });
     document.querySelectorAll("[data-civil-cuenta]").forEach((c) => { c.dataset.vacio = c.textContent; });
     llenarEscala = prepararEscala();
-    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararPerfil(); prepararSecciones(); prepararVolumen();
+    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararPerfil(); prepararSecciones(); prepararVolumen();
     pintarEscala();
     const editable = () => barra.toggleAttribute("data-solo-lectura", !window.TVCad.estado().editable);
     editable();

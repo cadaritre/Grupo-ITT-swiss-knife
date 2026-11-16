@@ -5,4 +5,4 @@ y una descripción neutral de entidades (`tvcivil.entidades`) que la página tra
 la API de control del editor.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

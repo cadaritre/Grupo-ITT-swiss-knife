@@ -39,6 +39,8 @@ class RenglonVolumen:
     acum_corte: float
     acum_terraplen: float
     ordenada: float  # curva masa: corte·abundamiento − terraplén, acumulado
+    vol_despalme: float = 0.0  # del tramo anterior (plantilla de carretera)
+    acum_despalme: float = 0.0
 
 
 def volumenes_por_secciones(lista: Sequence[Seccion], abundamiento: float = 1.0) -> list[RenglonVolumen]:
@@ -47,18 +49,20 @@ def volumenes_por_secciones(lista: Sequence[Seccion], abundamiento: float = 1.0)
         raise ValueError("El coeficiente de abundamiento debe ser positivo.")
     secs = sorted(lista, key=lambda s: s.estacion)
     salida: list[RenglonVolumen] = []
-    ac = at = om = 0.0
+    ac = at = om = ad = 0.0
     previo = None
     for s in secs:
-        vc = vt = 0.0
+        vc = vt = vd = 0.0
         if previo is not None:
             dist = s.estacion - previo.estacion
             vc = (previo.corte + s.corte) / 2 * dist
             vt = (previo.terraplen + s.terraplen) / 2 * dist
+            vd = (previo.despalme + s.despalme) / 2 * dist
         ac += vc
         at += vt
+        ad += vd
         om += vc * abundamiento - vt
-        salida.append(RenglonVolumen(s.estacion, s.corte, s.terraplen, vc, vt, ac, at, om))
+        salida.append(RenglonVolumen(s.estacion, s.corte, s.terraplen, vc, vt, ac, at, om, vd, ad))
         previo = s
     return salida
 

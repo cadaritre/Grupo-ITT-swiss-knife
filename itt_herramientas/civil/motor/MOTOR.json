@@ -1,10 +1,10 @@
 {
  "_nota": "Copia fijada de tvcivil. No se edita aquí: se cambia en el repositorio del motor y se vuelve a copiar con actualizar_motor.py.",
  "repo": "cadaritre/TresVizo-Civil",
- "commit": "5b61662e98d04f6f656f9c929b6a987438152713",
- "version": "0.4.0",
+ "commit": "58cf80ee677a6fbf669aeff6208dda48b9e26f62",
+ "version": "0.5.0",
  "archivos": {
-  "__init__.py": "94709479d80f3633d73f652c7079553edf8e12c7c927905be7bc95ab30d9f843",
+  "__init__.py": "9f6c6de4a046fc1654c7fb2703e0e828ad4c6fc3b93a790cdf2c43f07adb0c84",
   "angulos.py": "cab30267cd2b09bbb734d0e1af038158b3112ed1f3c25fc1c9ff352637aa2618",
   "anotacion.py": "4da0cdf09d8a02718446257146ecb062890c18069b1402ac3a332378c82ad255",
   "cuadro.py": "9e46fde1d15ca5aa2e68f011ec037e8dfbe4e18a59755f570154bcf58e60edbb",
@@ -17,13 +17,15 @@
   "entidades.py": "6d8eebae41d34e37acdbc0496862834fd29bfb3721c49710d0cbc76ef4af6cbd",
   "escala.py": "b5fc4651c8e28885fd9906cee251d94760fc65fbbc1ef277b575138325cca757",
   "geodesia.py": "f2946b1ef7e6f4f739cda7e780f2e5b18e1720d8d56d5af655fbee219ed96df0",
+  "lotificacion.py": "f006e97e8ee1963af73fc45ad6365c1667186cbbe054d36a074c12aeacc0abad",
+  "masa.py": "796e2c5b7add6155b806bef53cae01a000d28d1449b7287d7d482dca65db5f77",
   "memoria.py": "b7862bed86ad1b249e526c03b5575e28d882b66fb5d1015b3a0403e0405af854",
-  "ordenes.py": "d41e5c92f9600211779f64dc41096bee7ccd6e6dbba295c34532b89769622680",
+  "ordenes.py": "1824df3686487a4da05ddd0e3e8b352bdec52c126e600bc1bf69bf5f38534dd9",
   "perfiles.py": "114e9c6cbe573605cd5c1241bb9adc8a1d10cbf9f46876ce1ab2f8e7ff3e7b77",
   "puntos.py": "e5b9047bf0659e659ccc1f633e90766219b6a8bb452d07f5769963fb408e7491",
-  "secciones.py": "5c0b7f9693f7367228a0569bb6f76906af1f8c5023f973aa0e6fe204bf1224b6",
+  "secciones.py": "edf61268ffcb1c6c8acedab15295458077a606f7bfaa8aaccea467166937f064",
   "superficie.py": "c2d9519d02dce32c3078acbfb0c8b55639ecda194d36cb1686864a8d8609c37a",
   "tin.py": "6f0c84d3b8fcca5551793c418fc04c32542b831523bde92567281cd5bfd0dc07",
-  "volumenes.py": "b8cc5451ec42831f72155fd972ec2e20fe173ca833fc9344f7ebed7cb9fe65a0"
+  "volumenes.py": "80834df9212572c037ca76899d14ea16ed0a809bddfe1c7d097e25240ec05957"
  }
 }

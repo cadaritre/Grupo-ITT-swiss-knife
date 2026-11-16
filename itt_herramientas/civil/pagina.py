@@ -16,6 +16,10 @@ MENUS = (
         {"clave": "importar", "nombre": "Importar puntos…", "icono": "file-input"},
         {"clave": "exportar", "nombre": "Exportar puntos…", "icono": "file-output"},
         {"separador": True},
+        {"clave": "punto_nuevo", "nombre": "Dibujar punto…", "icono": "map-pin-plus"},
+        {"clave": "punto_editar", "nombre": "Editar punto…", "icono": "map-pin-pen"},
+        {"clave": "etiquetas_puntos", "nombre": "Etiquetas de puntos…", "icono": "tags"},
+        {"clave": "convertir_puntos", "nombre": "Convertir puntos…", "icono": "arrow-left-right"},
         {"clave": "renumerar", "nombre": "Renumerar puntos…", "icono": "list-ordered"},
         {"clave": "localizar", "nombre": "Localizar punto…", "icono": "locate-fixed"},
         {"separador": True},
@@ -27,13 +31,16 @@ MENUS = (
         {"clave": "invertir", "nombre": "Invertir triángulos", "icono": "flip-horizontal-2"},
         {"clave": "borrar", "nombre": "Borrar triángulos…", "icono": "eraser"},
         {"clave": "agregar", "nombre": "Agregar triángulo", "icono": "square-plus"},
-        {"clave": "insertar", "nombre": "Insertar puntos…", "icono": "map-pin-plus"},
+        {"clave": "insertar", "nombre": "Insertar puntos…", "icono": "circle-plus"},
         {"separador": True},
         {"clave": "revisar", "nombre": "Revisar triangulación…", "icono": "scan-search"},
     )},
     {"clave": "curvas", "nombre": "Curvas", "icono": "waves", "acciones": (
         {"clave": "curvas", "nombre": "Curvas de nivel…", "icono": "waves"},
         {"clave": "actualizar_curvas", "nombre": "Actualizar curvas", "icono": "refresh-cw"},
+        {"separador": True},
+        {"clave": "etiquetar_curvas", "nombre": "Etiquetar curvas…", "icono": "tag"},
+        {"clave": "suavizar_curvas", "nombre": "Suavizar curvas…", "icono": "spline-pointer"},
     )},
     {"clave": "cuadros", "nombre": "Cuadros", "icono": "table", "acciones": (
         {"clave": "cuadro", "nombre": "Cuadro de construcción…", "icono": "table"},
@@ -46,6 +53,7 @@ MENUS = (
     )},
     {"clave": "plano", "nombre": "Plano", "icono": "grid-3x3", "acciones": (
         {"clave": "cuadricula", "nombre": "Cuadrícula UTM…", "icono": "grid-3x3"},
+        {"clave": "lotes", "nombre": "Lotificar manzana…", "icono": "layout-grid"},
     )},
     {"clave": "ejes", "nombre": "Perfiles", "icono": "chart-line", "acciones": (
         {"clave": "perfil", "nombre": "Perfil del eje…", "icono": "chart-line"},
@@ -54,6 +62,8 @@ MENUS = (
     {"clave": "volumenes", "nombre": "Volúmenes", "icono": "box", "acciones": (
         {"clave": "secciones", "nombre": "Por secciones…", "icono": "panels-top-left"},
         {"clave": "volumen", "nombre": "Entre superficies…", "icono": "box"},
+        {"separador": True},
+        {"clave": "masa", "nombre": "Curva masa…", "icono": "chart-spline"},
     )},
 )
 

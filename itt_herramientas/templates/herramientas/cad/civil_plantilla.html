@@ -1,0 +1,28 @@
+{% load tv %}<fieldset class="tv-campo"><legend>Plantilla</legend><div class="tv-segmentado"><label><input type="radio" name="plantilla_tipo" value="sencilla" checked><span>Sencilla</span></label><label><input type="radio" name="plantilla_tipo" value="carretera"><span>Carretera</span></label></div></fieldset>
+<div class="civil-fila civil-fila--4" data-civil-si="plantilla_tipo=sencilla">
+  <div class="tv-campo"><label for="civil-{{ pre }}-ai">Corona izquierda</label><div class="civil-unidad"><input id="civil-{{ pre }}-ai" name="ancho_izq" type="number" min="0" step="any" value="3.5" inputmode="decimal"><span>m</span></div></div>
+  <div class="tv-campo"><label for="civil-{{ pre }}-ad">Corona derecha</label><div class="civil-unidad"><input id="civil-{{ pre }}-ad" name="ancho_der" type="number" min="0" step="any" value="3.5" inputmode="decimal"><span>m</span></div></div>
+  <div class="tv-campo"><label for="civil-{{ pre }}-bom">Bombeo</label><div class="civil-unidad"><input id="civil-{{ pre }}-bom" name="bombeo" type="number" min="0" max="20" step="0.1" value="2" inputmode="decimal"><span>%</span></div></div>
+</div>
+<div class="civil-plantilla" data-civil-si="plantilla_tipo=carretera" hidden>
+  <div class="civil-fila civil-fila--4">
+    <div class="tv-campo"><label for="civil-{{ pre }}-nc">Carriles por lado</label><select id="civil-{{ pre }}-nc" name="carriles_por_lado"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-ac">Ancho de carril</label><div class="civil-unidad"><input id="civil-{{ pre }}-ac" name="ancho_carril" type="number" min="0.5" step="any" value="3.5" inputmode="decimal"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-pc">Bombeo del carril</label><div class="civil-unidad"><input id="civil-{{ pre }}-pc" name="pendiente_carril" type="number" min="0" max="20" step="0.1" value="2" inputmode="decimal"><span>%</span></div></div>
+  </div>
+  <div class="civil-fila civil-fila--4">
+    <div class="tv-campo"><label for="civil-{{ pre }}-aa">Acotamiento</label><div class="civil-unidad"><input id="civil-{{ pre }}-aa" name="acotamiento" type="number" min="0" step="any" value="2.5" inputmode="decimal"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-pa">Pendiente del acotamiento</label><div class="civil-unidad"><input id="civil-{{ pre }}-pa" name="pendiente_acotamiento" type="number" min="0" max="20" step="0.1" value="4" inputmode="decimal"><span>%</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-ep">Pavimento</label><div class="civil-unidad"><input id="civil-{{ pre }}-ep" name="espesor_pavimento" type="number" min="0" step="0.01" value="0.30" inputmode="decimal"><span>m</span></div></div>
+  </div>
+  <div class="civil-fila civil-fila--4">
+    <div class="tv-campo"><label for="civil-{{ pre }}-cw">Cuneta, ancho</label><div class="civil-unidad"><input id="civil-{{ pre }}-cw" name="cuneta_ancho" type="number" min="0" step="any" value="1.0" inputmode="decimal"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-cp">Cuneta, profundidad</label><div class="civil-unidad"><input id="civil-{{ pre }}-cp" name="cuneta_profundidad" type="number" min="0" step="any" value="0.5" inputmode="decimal"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-dp">Despalme</label><div class="civil-unidad"><input id="civil-{{ pre }}-dp" name="despalme" type="number" min="0" step="0.01" value="0.20" inputmode="decimal"><span>m</span></div></div>
+  </div>
+</div>
+<div class="civil-fila">
+  <div class="tv-campo"><label for="civil-{{ pre }}-tc">Talud de corte</label><div class="civil-unidad"><input id="civil-{{ pre }}-tc" name="talud_corte" type="number" min="0.01" step="any" value="1" inputmode="decimal"><span>: 1</span></div></div>
+  <div class="tv-campo"><label for="civil-{{ pre }}-tt">Talud de terraplén</label><div class="civil-unidad"><input id="civil-{{ pre }}-tt" name="talud_terraplen" type="number" min="0.01" step="any" value="1.5" inputmode="decimal"><span>: 1</span></div></div>
+  <div class="tv-campo"><label for="civil-{{ pre }}-abun">Abundamiento</label><input id="civil-{{ pre }}-abun" name="abundamiento" type="number" min="0.5" max="2" step="0.01" value="1.00" inputmode="decimal"></div>
+</div>

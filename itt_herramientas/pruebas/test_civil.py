@@ -168,6 +168,20 @@ def test_insertar_puntos_va_a_la_cola(cliente_de, dibujante):
     assert mandar(cl, "insertar_puntos", {"caras": caras, "puntos": []}).status_code == 422
 
 
+def test_curva_masa_por_la_cola_y_lotificar(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+    xs, ys = np.meshgrid(np.arange(0, 201, 20.0), np.arange(-40, 41, 20.0))
+    pts = [[X0 + x, Y0 + y, 100 + 0.05 * x, str(i), ""] for i, (x, y) in enumerate(zip(xs.ravel(), ys.ravel()))]
+    tri = cl.get(mandar(cl, "triangular", {"puntos": pts}).json()["resultado"]["url"]).json()
+    d = mandar(cl, "curva_masa", {"caras": caras_de(tri["dxf"]), "eje": {"vertices": [[X0, Y0], [X0 + 200, Y0]]}, "intervalo": 20,
+                                  "rasante": [[0, 105], [200, 105]], "plantilla": {"tipo": "carretera"}}, comprimir=True).json()
+    assert d["estado"] == "completada", d
+    r = cl.get(d["resultado"]["url"]).json()
+    assert r["resumen"]["estaciones"] == 11 and r["resumen"]["despalme"] > 0 and r["lazos"] is not None
+    r = mandar(cl, "lotificar", {"poligono": {"vertices": CUADRADO}, "lado_frente": 0, "metodo": "por_cantidad", "valor": 5}).json()["resultado"]
+    assert r["resumen"]["lotes"] == 5 and r["resumen"]["superficie"] == pytest.approx(10000)
+
+
 def test_errores_de_la_persona_salen_con_su_mensaje(cliente_de, dibujante):
     cl = cliente_de(dibujante)
     r = mandar(cl, "curvas", {"caras": []})
@@ -196,7 +210,9 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
     assert 'id="civil-barra"' in html and "herramientas/cad/civil.js" in html and "Cuadro de construcción" in html
     assert "Invertir triángulos" in html and "Importar puntos" in html
     for nuevo in ("Renumerar puntos", "Revisar triangulación", "Cuadro de curvas", "Los que elija", "Localizar punto", "Reporte de puntos",
-                  "Insertar puntos", "Rumbo y distancia de lados", "Numerar vértices", "Memoria descriptiva", "Cuadrícula UTM", "UTM-GPS", "Zona UTM"):
+                  "Insertar puntos", "Rumbo y distancia de lados", "Numerar vértices", "Memoria descriptiva", "Cuadrícula UTM", "UTM-GPS", "Zona UTM",
+                  "Dibujar punto", "Editar punto", "Etiquetas de puntos", "Convertir puntos", "Etiquetar curvas", "Suavizar curvas",
+                  "Curva masa", "Lotificar manzana", "Carretera", "Despalme"):
         assert nuevo in html, nuevo
     cfg = json.loads(html.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
     assert cfg["capas"]["tin"]["terreno"] == "TRIANGULACION" and cfg["bloques"]["terreno"] == "PT_TERRENO"
