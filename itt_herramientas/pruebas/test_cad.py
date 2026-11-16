@@ -709,6 +709,8 @@ MOTOR = textwrap.dedent('''\
             print(json.dumps({{"ok": True, "request_id": r["request_id"], "result": {{}}, "state": {{"document_id": 2}}}}), flush=True)
         elif "ENORME" in (abierto or ""):
             os.kill(os.getpid(), signal.SIGKILL)
+        elif op == "header":
+            print(json.dumps({{"ok": True, "insertion_units": 6}}), flush=True)
         elif op == "plot":
             assert r["document_id"] == 2
             fuentes = os.path.join(os.environ["XDG_CONFIG_HOME"], "OpenCADStudio", "fonts")
@@ -743,7 +745,16 @@ def test_imprimir_pdf_por_la_cola(cliente_de, supervisora, plano, motor):
     contenido = b"".join(salida.streaming_content)
     pedido = json.loads(contenido.split(b"\n", 1)[1])
     assert contenido.startswith(b"%PDF") and 'filename="Predio Norte.pdf"' in salida["Content-Disposition"]
-    assert (pedido["paper"], pedido["orientation"], pedido["scale"], pedido["layout"], pedido["lineweights"]) == ("ISO_A3_(297.00_x_420.00_MM)", "portrait", "1:500", "Model", True)
+    # 1:500 en un plano en metros: el motor recibe «1000:500» (1000 mm de papel por cada 500 m del plano).
+    assert (pedido["paper"], pedido["orientation"], pedido["scale"], pedido["layout"], pedido["lineweights"]) == ("ISO_A3_(297.00_x_420.00_MM)", "portrait", "1000:500", "Model", True)
+
+
+def test_la_escala_del_motor_sigue_las_unidades_del_plano():
+    assert nativo.escala_del_motor("1:500", 6) == "1000:500"          # metros
+    assert nativo.escala_del_motor("1:500", 4) == "1:500"             # milímetros
+    assert nativo.escala_del_motor("1:100", 5) == "10:100"            # centímetros
+    assert nativo.escala_del_motor("1:1000", 0) == "1000:1000"        # sin unidades: metros (planos topográficos en UTM)
+    assert nativo.escala_del_motor("1:1000", None) == "1000:1000"
 
 
 def test_el_motor_imprime_con_las_fuentes_shx_de_la_empresa(cliente_de, supervisora, dibujante, plano, motor):

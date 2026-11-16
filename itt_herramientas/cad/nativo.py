@@ -41,6 +41,11 @@ PAPEL_POR_OMISION = "Letter_(8.50_x_11.00_Inches)"
 ORIENTACIONES = {"landscape": "Horizontal", "portrait": "Vertical"}
 AREAS = {"modelo": "Espacio modelo (todo el dibujo)", "presentaciones": "Presentaciones (una página por cada una)"}
 ESCALAS = ("ajustar", "1:1", "1:50", "1:100", "1:200", "1:250", "1:500", "1:1000", "1:2000", "1:2500", "1:5000", "1:10000")
+#: Milímetros por unidad de dibujo según $INSUNITS. El motor entiende «1:100» como «1 mm de papel = 100 unidades de dibujo» (convención de
+#: AutoCAD) y no mira las unidades: en un plano en metros «1:1000» salía a 1:1 000 000 (medido, 15-11-2026). Sin unidades (0), metros:
+#: los planos de la empresa son topográficos en coordenadas UTM.
+MM_POR_UNIDAD = {0: 1000.0, 1: 25.4, 2: 304.8, 3: 1609344.0, 4: 1.0, 5: 10.0, 6: 1000.0, 7: 1_000_000.0, 8: 0.0000254, 9: 0.0254,
+                 10: 914.4, 14: 100.0, 15: 10_000.0, 16: 100_000.0}
 TIEMPO_ARRANQUE = 30
 TIEMPO_ABRIR = 120
 TIEMPO_TRABAJO = 300
@@ -126,6 +131,13 @@ def escala_valida(texto: str) -> str:
     if len(partes) != 2 or not (0 < a <= 1e6 and 0 < b <= 1e7):
         raise ErrorUsuario("Escribe la escala como 1:100.")
     return f"{a:g}:{b:g}"
+
+
+def escala_del_motor(escala: str, unidades) -> str:
+    """«1:100» real (papel:terreno) -> la escala del motor (mm de papel : unidades de dibujo), según las unidades del plano."""
+    mm = MM_POR_UNIDAD.get(unidades if isinstance(unidades, int) else 0, 1000.0)
+    a, b = (float(x) for x in escala.split(":"))
+    return f"{a * mm:g}:{b:g}"
 
 
 class Sesion:
@@ -263,10 +275,10 @@ def imprimir(entrada: Path, salida: Path, papel: str, orientacion: str, escala: 
         campos.update(layout="all", area="layout")
     if escala == "ajustar":
         campos["fit"] = True
-    else:
-        campos["scale"] = escala
     with Sesion() as s:
         s.abrir(entrada)
+        if escala != "ajustar":   # las presentaciones ya están en mm de papel; el espacio modelo, en las unidades del plano
+            campos["scale"] = escala if area != "modelo" else escala_del_motor(escala, (s.pedir("header", TIEMPO_ABRIR) or {}).get("insertion_units"))
         r = s.pedir("plot", **campos)
     if not r.get("ok"):
         codigo = r.get("code") or ""
