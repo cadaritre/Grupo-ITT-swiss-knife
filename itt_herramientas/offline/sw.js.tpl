@@ -3,7 +3,8 @@
  * Qué hace:
  *  - guarda en caché la interfaz con versión (JS, CSS, íconos) y las páginas sin datos de cuenta
  *    (/capturar/, /instalar/ y /cotizaciones/) para trabajar sin conexión;
- *  - NUNCA guarda páginas con datos de una cuenta, respuestas de /sesion/ ni /subidas/;
+ *  - NUNCA guarda páginas con datos de una cuenta, respuestas de /sesion/ ni /subidas/ (sí el manifiesto y /perfil.css, que solo
+ *    llevan la marca y los colores del perfil, para que la app sin señal salga con los suyos);
  *  - sin red, cualquier navegación abre /capturar/ (así la app instalada arranca en modo avión);
  *  - no se activa solo a mitad de una captura: espera a que la persona toque «Actualizar»;
  *  - en Android (Background Sync) sube la cola aunque la app esté cerrada.
@@ -13,6 +14,7 @@ const VERSION = "__VERSION__";
 const CACHE = "itt-herramientas-" + VERSION;
 const PAGINAS = ["/capturar/", "/instalar/", "/cotizaciones/", "/reportes/", "/croquis/"];
 const ACTIVOS = __ACTIVOS__;
+const OPCIONALES = ["/manifest.webmanifest", "/manifest.webmanifest?p=tresvizo", "/perfil.css"];
 
 importScripts(...__SCRIPTS_SW__);
 
@@ -21,6 +23,12 @@ self.addEventListener("install", (evento) => {
     const cache = await caches.open(CACHE);
     // addAll es atómico: si algo falla (sin señal al instalar), la instalación se reintenta después.
     await cache.addAll([...PAGINAS, ...ACTIVOS].map((u) => new Request(u, { cache: "reload", credentials: "same-origin" })));
+    // La marca y los colores (ver redLuegoCache): se guardan ya, para que la primera vez sin señal no salgan sin ellos. Sin sesión,
+    // /perfil.css no se puede pedir: eso no impide instalar.
+    await Promise.allSettled(OPCIONALES.map(async (u) => {
+      const r = await fetch(new Request(u, { cache: "reload", credentials: "same-origin" }));
+      if (r.ok) await cache.put(u, r);
+    }));
   })());
 });
 
@@ -45,10 +53,32 @@ self.addEventListener("fetch", (evento) => {
     evento.respondWith(navegar(peticion, url));
     return;
   }
-  if (url.pathname.startsWith("/static/") || url.pathname === "/manifest.webmanifest") {
+  if (url.pathname.startsWith("/static/")) {
     evento.respondWith(cacheLuegoRed(peticion));
+    return;
+  }
+  // El manifiesto (cambia con el perfil: ?p=) y los colores del perfil: red primero y, sin red, lo último que se guardó. Antes el
+  // manifiesto nunca se guardaba y /perfil.css no pasaba por aquí: en modo avión cada página fallaba al pedirlos y salía sin los colores
+  // de su perfil (WebKit además registraba el error del service worker en cada navegación).
+  if (url.pathname === "/manifest.webmanifest" || url.pathname === "/perfil.css") {
+    evento.respondWith(redLuegoCache(peticion));
   }
 });
+
+async function redLuegoCache(peticion) {
+  const cache = await caches.open(CACHE);
+  try {
+    const respuesta = await fetch(peticion);
+    if (respuesta.ok) cache.put(peticion, respuesta.clone());
+    return respuesta;
+  } catch (_) {
+    const guardada = (await cache.match(peticion)) || (await cache.match(peticion, { ignoreSearch: true }));
+    if (guardada) return guardada;
+    // Nunca guardada (otra cuenta en este teléfono, o se instaló sin sesión): la paleta de fábrica, sin error.
+    if (new URL(peticion.url).pathname === "/perfil.css") return new Response("/* sin señal: paleta de fábrica */\n", { headers: { "Content-Type": "text/css; charset=utf-8" } });
+    return Response.error();
+  }
+}
 
 async function navegar(peticion, url) {
   const cache = await caches.open(CACHE);
