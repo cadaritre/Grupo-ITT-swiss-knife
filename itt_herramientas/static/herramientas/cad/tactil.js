@@ -1129,30 +1129,44 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------- presentaciones
+  // Modelo y presentaciones: `layouts` (en el orden de sus pestañas, Modelo primero, y `current`) y `layout_set` por nombre (con
+  // espacios). Cada entrada puede venir como nombre o como {name, model, current}.
+  const esModelo = (n) => /^model(o)?$/i.test(String(n || ""));
+  function listaPresentaciones(r) {
+    const actual = r.current && (r.current.name || r.current);
+    return (r.layouts || []).map((l) => {
+      const name = typeof l === "string" ? l : l.name;
+      return { name, model: typeof l === "object" && l.model !== undefined ? !!l.model : esModelo(name),
+        current: typeof l === "object" && l.current !== undefined ? !!l.current : String(name).toLowerCase() === String(actual || "").toLowerCase() };
+    });
+  }
   async function leerPresentacion() {
     if (est.sinPresentaciones) return null;
     const r = await pedirSuave({ op: "layouts" });
-    if (!r || !r.layouts) { est.sinPresentaciones = true; return null; }      // el editor fijado aún no lista presentaciones
-    const actual = r && r.current;
-    est.presentacion = !!(actual && !/^model$/i.test(actual) && !(r.layouts || []).some((l) => l.current && l.model));
+    if (!r || !r.layouts) { est.sinPresentaciones = true; return null; }      // un editor anterior a tv-v2026.45-7 no las lista
+    const lista = listaPresentaciones(r);
+    const actual = lista.find((l) => l.current);
+    est.presentacion = !!(actual && !actual.model);
     reflejarEstado();
-    return r;
+    return lista;
   }
   async function hojaPresentaciones() {
-    const r = await leerPresentacion();
+    const lista = (await leerPresentacion()) || [];
     const ul = nodo("ul", "tt-lista");
-    for (const l of (r && r.layouts) || []) {
+    for (const l of lista) {
       const li = nodo("li", "tt-fila"); if (l.current) li.setAttribute("aria-current", "true");
       const b = nodo("button", "tt-fila__texto tt-fila--boton"); b.type = "button";
       b.append(nodo("strong", "", l.model ? "Modelo" : l.name), nodo("span", "", l.current ? "Es la que ves" : (l.model ? "El dibujo" : "Presentación para imprimir")));
       b.addEventListener("click", async () => {
         cerrarHojas(); cancelarHerramienta(); quitarSeleccion();
-        await pedirSuave({ op: "layout_activate", name: l.name });
+        const ok = await pedirSuave({ op: "layout_set", name: l.name });
+        if (!ok) { aviso("No se pudo mostrar esa presentación.", "error"); return; }
         await pintado(); await leerVista(); await leerPresentacion();
         aviso(l.model ? "Modelo" : `Presentación «${l.name}»: solo ver y medir`);
       });
       li.append(icono(l.model ? "pen-line" : "layout-template"), b); ul.append(li);
     }
+    if (lista.length < 2) ul.append(nodo("li", "tt-nota-hoja", "Este plano no tiene presentaciones: solo el modelo."));
     abrirHoja("Modelo y presentaciones", ul);
   }
 

@@ -180,6 +180,44 @@ def test_puntero_con_referencias_polilinea_y_un_deshacer(tactil, navegar, crear_
     assert not n.errores, n.errores
 
 
+def plano_con_presentacion(usuario, nombre="Lotes con hoja"):
+    import ezdxf
+
+    d = ezdxf.new("R2018", setup=True)
+    d.modelspace().add_lwpolyline([(X0, Y0), (X0 + 20, Y0), (X0 + 20, Y0 + 20), (X0, Y0 + 20)], close=True)
+    d.layouts.new("Hoja A1 plano")
+    s = io.StringIO()
+    d.write(s)
+    t = servicio.carpeta_temporal() / f"{uuid.uuid4().hex}.tmp"
+    t.write_bytes(s.getvalue().encode())
+    return servicio.crear(usuario, t, nombre, "", {"tipo": "prueba"})
+
+
+@pytest.mark.parametrize("motor", ["chromium", "webkit"])
+def test_modelo_y_presentaciones_y_sin_avisos_del_editor(tactil, navegar, crear_usuario, roles, motor):
+    """La hoja «Modelo y presentaciones» (layouts y layout_set, nombres con espacios): en una presentación solo se ve y se mide.
+    Y en solo lienzo el editor no deja ningún aviso propio encima (el de «sin GPU» de Chromium sin tarjeta gráfica)."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_con_presentacion(ana)
+    n, p = abrir(navegar, ana, motor, p0=p0)
+    st = p.evaluate("TVCad.pedir({op: 'state'})")
+    assert st.get("canvas_only") is True and not st.get("modal") and not st.get("tool_windows"), {k: st.get(k) for k in ("canvas_only", "modal", "tool_windows")}
+    p.locator("#tt-mas").click()
+    p.locator("#tt-hoja").get_by_role("button", name="Modelo y presentaciones").click()
+    p.locator("#tt-hoja").get_by_role("button", name="Hoja A1 plano").click()
+    expect(p.locator("#tt-aviso")).to_contain_text("Hoja A1 plano")
+    esperar(p, "document.querySelector('.tt-pestanas [data-grupo=\"dibujar\"]').getAttribute('aria-disabled') === 'true'", LARGO)
+    assert p.locator('.tt-pestanas [data-grupo="medir"]').get_attribute("aria-disabled") == "false"
+    assert p.evaluate("TVCad.pedir({op: 'layouts'}).then(r => String(r.current && (r.current.name || r.current)))") == "Hoja A1 plano"
+    p.locator("#tt-mas").click()
+    p.locator("#tt-hoja").get_by_role("button", name="Modelo y presentaciones").click()
+    p.locator("#tt-hoja").get_by_role("button", name="Modelo").click()
+    esperar(p, "document.querySelector('.tt-pestanas [data-grupo=\"dibujar\"]').getAttribute('aria-disabled') === 'false'", LARGO)
+    assert not n.errores, n.errores
+    if CAPTURAS:                                      # después de mirar la consola: en WebKit la captura de Playwright inyecta estilos
+        p.screenshot(path=f"{CAPTURAS}/tactil-{motor}-sin-avisos.png", caret="initial")
+
+
 def test_circulo_por_coordenada_con_la_hoja_numerica(tactil, navegar, crear_usuario, roles):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = plano_utm(ana)
