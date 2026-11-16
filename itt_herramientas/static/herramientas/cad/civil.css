@@ -42,6 +42,9 @@
 
 /* Hojas */
 .civil-form { display: grid; gap: var(--tv-espacio-3); }
+/* nada de la hoja la ensancha: las tablas anchas se desplazan dentro de su caja */
+.civil-form > *, .civil-mas > *, .civil-fila > *, .civil-plantilla > * { min-width: 0; }
+.civil-resultado { min-width: 0; overflow-x: auto; }
 .civil-form > .tv-campo, .civil-form fieldset.tv-campo { margin: 0; }
 .civil-fila { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--tv-espacio-3); }
 .civil-fila .tv-campo { margin: 0; }

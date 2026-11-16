@@ -313,7 +313,7 @@
       window.TVCad.soltar();
       barra.removeAttribute("aria-busy");
       if (enviar) { enviar.removeAttribute("aria-busy"); enviar.disabled = false; }
-      if (estado && estado.textContent === texto) decir("");
+      decir("");                                                       // el estado de trabajo nunca se queda en la hoja
     }
   }
 
