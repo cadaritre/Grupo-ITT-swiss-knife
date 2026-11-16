@@ -82,6 +82,26 @@ def _primero_en_caer() -> None:
             pass
 
 
+def _poner_fuentes(carpeta: Path) -> None:
+    """Las fuentes SHX de la empresa (CAD → Fuentes) en la carpeta de fuentes del motor: `<XDG_CONFIG_HOME>/OpenCADStudio/fonts`.
+
+    El motor busca la .shx de un estilo junto al plano y después ahí (por nombre, sin importar mayúsculas). Los planos de la biblioteca se
+    guardan con otro nombre y sin sus fuentes, así que sin esto el PDF sale con la letra sustituta aunque el editor muestre la SHX real.
+    Un enlace por fuente con el nombre que usan los estilos («txt.shx»); si algo falla, se imprime igual con la sustituta.
+    """
+    try:
+        from ..models import FuenteCad
+        from . import fuentes
+
+        carpeta.mkdir(parents=True, exist_ok=True)
+        for f in FuenteCad.objects.all():
+            origen = fuentes.ruta(f)
+            if origen.is_file():
+                (carpeta / f.nombre).symlink_to(origen)
+    except Exception:  # noqa: BLE001
+        log.warning("CAD nativo: no se pudieron poner las fuentes SHX para el motor", exc_info=True)
+
+
 def binario() -> Path | None:
     ruta = getattr(settings, "HERRAMIENTAS_CAD_NATIVO", "") or ""
     if not ruta:
@@ -117,6 +137,7 @@ class Sesion:
             raise MotorNoDisponible("La impresión y la conversión en el servidor no están disponibles en este momento.")
         self._proc = None
         self._hogar = Path(tempfile.mkdtemp(prefix="ocs-"))
+        _poner_fuentes(self._hogar / "config" / "OpenCADStudio" / "fonts")
         try:
             # Entorno mínimo: nada del trabajador (ni sus credenciales ni las variables de la base) llega al motor.
             entorno = {"HOME": str(self._hogar), "XDG_CONFIG_HOME": str(self._hogar / "config"), "XDG_CACHE_HOME": str(self._hogar / "cache"),

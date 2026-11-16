@@ -711,6 +711,8 @@ MOTOR = textwrap.dedent('''\
             os.kill(os.getpid(), signal.SIGKILL)
         elif op == "plot":
             assert r["document_id"] == 2
+            fuentes = os.path.join(os.environ["XDG_CONFIG_HOME"], "OpenCADStudio", "fonts")
+            r["fuentes"] = sorted(n for n in os.listdir(fuentes) if os.path.isfile(os.path.join(fuentes, n))) if os.path.isdir(fuentes) else []
             open(r["path"], "wb").write(b"%PDF-1.3\\n" + json.dumps(r).encode())
             print(json.dumps({{"ok": True, "request_id": r["request_id"], "result": {{"pages": 1, "page_sizes": [[279.4, 215.9]]}}}}), flush=True)
         elif op == "save":
@@ -742,6 +744,17 @@ def test_imprimir_pdf_por_la_cola(cliente_de, supervisora, plano, motor):
     pedido = json.loads(contenido.split(b"\n", 1)[1])
     assert contenido.startswith(b"%PDF") and 'filename="Predio Norte.pdf"' in salida["Content-Disposition"]
     assert (pedido["paper"], pedido["orientation"], pedido["scale"], pedido["layout"], pedido["lineweights"]) == ("ISO_A3_(297.00_x_420.00_MM)", "portrait", "1:500", "Model", True)
+
+
+def test_el_motor_imprime_con_las_fuentes_shx_de_la_empresa(cliente_de, supervisora, dibujante, plano, motor):
+    from itt_herramientas.cad import fuentes
+    from .test_cad_fuentes import shx_de_prueba
+    fuentes.guardar("TXT.SHX", shx_de_prueba(), dibujante)
+    cl = cliente_de(supervisora)
+    d = cl.post(url("cad_imprimir", pk=plano.pk), {"area": "presentaciones", "escala": "1:1"}).json()
+    contenido = b"".join(cl.get(d["resultado"]["url"]).streaming_content)
+    pedido = json.loads(contenido.split(b"\n", 1)[1])
+    assert pedido["fuentes"] == ["txt.shx"] and pedido["scale"] == "1:1"   # las presentaciones ya están en mm de papel
 
 
 def test_la_salida_es_solo_de_quien_la_pidio(cliente_de, supervisora, dibujante, plano, motor):
