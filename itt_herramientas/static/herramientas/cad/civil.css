@@ -20,8 +20,8 @@
 .civil-barra .civil-menu__lista { position: fixed; left: var(--civil-menu-x, 0); top: var(--civil-menu-y, auto); right: auto; max-height: calc(100vh - var(--civil-menu-y, 0px) - 16px); overflow-y: auto; }
 
 /* Barra angosta (pantallas medianas o con la barra lateral abierta): menús más compactos para que quepa todo sin desplazar */
-@container civil-barra (max-width: 1040px) {
-  .civil-menu__flecha { display: none; }
+@container civil-barra (max-width: 1120px) {
+  .civil-menu__flecha, .civil-marca > span { display: none; }
   .civil-menu__boton { padding-inline: var(--tv-espacio-2); }
   .civil-marca { padding-right: var(--tv-espacio-2); }
 }
@@ -116,3 +116,9 @@
   .civil-pick { top: auto; bottom: var(--tv-espacio-3); }
 }
 @media (prefers-reduced-motion: reduce) { .civil-pick { animation: none; } .civil-menu__flecha { transition: none; } }
+
+/* Memoria descriptiva: una colindancia por lado */
+.civil-colindancias { display: grid; gap: var(--tv-espacio-2); }
+.civil-colindancias[hidden] { display: none; }
+.civil-colindancias__lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); gap: var(--tv-espacio-2) var(--tv-espacio-3); }
+.civil-colindancias__lista .tv-campo { margin: 0; }

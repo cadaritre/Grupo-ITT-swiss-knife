@@ -8,6 +8,8 @@ curvas desde las caras (`tvcivil.curvas.curvas_de_nivel` acepta caras).
 - `quitar_fuera` / `quitar_dentro`: borra triángulos fuera o dentro de un polígono.
 - `quitar_largos`: borra triángulos con alguna arista en planta mayor que un largo.
 - `agregar`: añade un triángulo que no se encime con los existentes (para cerrar un hueco).
+- `insertar_puntos`: mete puntos en la triangulación que ya está en el dibujo: cada punto parte el triángulo que lo contiene (o los dos
+  del lado sobre el que cae) y después los vecinos se ajustan con inversiones de Delaunay, solo alrededor de los puntos nuevos.
 - `revisar`: encuentra lo que rompe un TIN editado a mano (caras sin superficie, repetidas o encimadas, lados con más de dos
   triángulos) y los triángulos muy alargados.
 """
@@ -27,6 +29,8 @@ __all__ = [
     "quitar_dentro",
     "quitar_largos",
     "agregar",
+    "Insercion",
+    "insertar_puntos",
     "Revision",
     "revisar",
     "caras_de_consulta",
@@ -175,6 +179,122 @@ def agregar(caras: Sequence[Sequence], nueva: Sequence, tol: float = 1e-6) -> Ca
         if pol.intersection(otro).area > tol * max(pol.area, 1.0):
             raise ErrorEdicion("El triángulo nuevo se encima con uno existente.")
     return t
+
+
+@dataclass
+class Insercion:
+    quitar: list[int]  # índices de las caras de entrada que se reemplazan
+    nuevas: list[Cara]  # las caras que las reemplazan
+    fuera: list[int]  # índices de los puntos que no caen dentro de la triangulación
+    repetidos: list[int]  # índices de los puntos que ya son vértices
+
+
+def _en_circulo(a, b, c, p) -> bool:
+    """p dentro del círculo de a, b, c (antihorario)."""
+    m = [[a[0] - p[0], a[1] - p[1]], [b[0] - p[0], b[1] - p[1]], [c[0] - p[0], c[1] - p[1]]]
+    det = ((m[0][0] ** 2 + m[0][1] ** 2) * (m[1][0] * m[2][1] - m[2][0] * m[1][1])
+           - (m[1][0] ** 2 + m[1][1] ** 2) * (m[0][0] * m[2][1] - m[2][0] * m[0][1])
+           + (m[2][0] ** 2 + m[2][1] ** 2) * (m[0][0] * m[1][1] - m[1][0] * m[0][1]))
+    return det > _eps(a, b, c) * 1e-3
+
+
+def insertar_puntos(caras: Sequence[Sequence], puntos: Sequence[Sequence], legalizar: bool = True, tol: float = 1e-6) -> Insercion:
+    """Inserta puntos (x, y, z) en un TIN de caras. Los puntos fuera del TIN y los que ya son vértices se informan y no se usan.
+
+    Con `legalizar`, tras cada inserción se invierten las aristas vecinas que no cumplen Delaunay (Lawson), sin tocar nada lejos del punto.
+    Las elevaciones de los vértices no cambian; la del punto nuevo es la suya.
+    """
+    tris: dict[int, Cara] = {i: normalizar_cara(c) for i, c in enumerate(caras)}
+    originales = set(tris)
+    siguiente = len(caras)
+    fuera: list[int] = []
+    repetidos: list[int] = []
+    clave = lambda p: (round(p[0] / tol), round(p[1] / tol))
+    vertices = {clave(p) for t in tris.values() for p in t}
+
+    def lado_de(t: Cara, a, b):
+        ka, kb = clave(a), clave(b)
+        return any({clave(t[i]), clave(t[(i + 1) % 3])} == {ka, kb} for i in range(3))
+
+    def vecino(tid: int, a, b):
+        for j, t in tris.items():
+            if j != tid and lado_de(t, a, b):
+                return j
+        return None
+
+    def legal(tid: int, p, pendientes: list):
+        pendientes.append(tid)
+        while pendientes:
+            t_id = pendientes.pop()
+            if t_id not in tris:
+                continue
+            t = tris[t_id]
+            k = next((i for i in range(3) if clave(t[i]) == clave(p)), None)
+            if k is None:
+                continue
+            a, b = t[(k + 1) % 3], t[(k + 2) % 3]   # arista opuesta al punto nuevo
+            j = vecino(t_id, a, b)
+            if j is None:
+                continue
+            otro = next(q for q in tris[j] if clave(q) not in (clave(a), clave(b)))
+            if _en_circulo(p, a, b, otro) and _orient(p, a, otro) * _orient(p, b, otro) < 0:
+                del tris[t_id], tris[j]
+                nonlocal siguiente
+                n1, n2 = normalizar_cara([p, a, otro]), normalizar_cara([p, otro, b])
+                tris[siguiente], tris[siguiente + 1] = n1, n2
+                pendientes += [siguiente, siguiente + 1]
+                siguiente += 2
+
+    for ip, q in enumerate(puntos):
+        p = (float(q[0]), float(q[1]), float(q[2]) if len(q) > 2 and q[2] is not None else 0.0)
+        if clave(p) in vertices:
+            repetidos.append(ip)
+            continue
+        dentro = sobre = None
+        for tid, t in tris.items():
+            o = [_orient(t[i], t[(i + 1) % 3], p) for i in range(3)]
+            e = _eps(*t)
+            if all(x > e for x in o):
+                dentro = tid
+                break
+            if all(x > -e for x in o):
+                lado = next(i for i in range(3) if abs(o[i]) <= e)
+                sobre = (tid, lado)
+                break
+        if dentro is None and sobre is None:
+            fuera.append(ip)
+            continue
+        nuevos: list[int] = []
+        if dentro is not None:
+            a, b, c = tris.pop(dentro)
+            for tri in ((a, b, p), (b, c, p), (c, a, p)):
+                tris[siguiente] = normalizar_cara(tri)
+                nuevos.append(siguiente)
+                siguiente += 1
+        else:
+            tid, i = sobre
+            t = tris[tid]
+            a, b, c = t[i], t[(i + 1) % 3], t[(i + 2) % 3]   # p está sobre a-b
+            j = vecino(tid, a, b)
+            del tris[tid]
+            for tri in ((a, p, c), (p, b, c)):
+                tris[siguiente] = normalizar_cara(tri)
+                nuevos.append(siguiente)
+                siguiente += 1
+            if j is not None:
+                d = next(q for q in tris[j] if clave(q) not in (clave(a), clave(b)))
+                del tris[j]
+                for tri in ((b, p, d), (p, a, d)):
+                    tris[siguiente] = normalizar_cara(tri)
+                    nuevos.append(siguiente)
+                    siguiente += 1
+        vertices.add(clave(p))
+        if legalizar:
+            for n in nuevos:
+                legal(n, p, [])
+    quitar = sorted(originales - set(tris))
+    nuevas = [t for k, t in sorted(tris.items()) if k not in originales]
+    return Insercion(quitar, nuevas, fuera, repetidos)
 
 
 @dataclass

@@ -27,7 +27,12 @@
       <select id="civil-escala-den" name="denominador">{% for e in civil.escalas %}<option value="{{ e }}">1:{{ e }}</option>{% endfor %}<option value="otra">Otra…</option></select></div>
     <div class="tv-campo" data-civil-si="denominador=otra" hidden><label for="civil-escala-otra">Escala</label><input id="civil-escala-otra" name="otra" inputmode="decimal" placeholder="1:750" autocomplete="off"></div>
   </div>
-  <p class="tv-tenue civil-nota">Las alturas son las que miden los textos en el papel impreso.</p>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-escala-zona">Zona UTM</label><select id="civil-escala-zona" name="zona">{% for z in civil.zonas %}<option value="{{ z }}">{{ z }}</option>{% endfor %}<option value="otra">Otra…</option></select></div>
+    <div class="tv-campo" data-civil-si="zona=otra" hidden><label for="civil-escala-zona-otra">Zona</label><input id="civil-escala-zona-otra" name="zona_otra" type="number" min="1" max="60" step="1" inputmode="numeric"></div>
+    <div class="tv-campo"><label for="civil-escala-hemi">Hemisferio</label><select id="civil-escala-hemi" name="hemisferio"><option value="N">Norte</option><option value="S">Sur</option></select></div>
+  </div>
+  <p class="tv-tenue civil-nota">La zona se usa en los cuadros RAN y UTM-GPS, la cuadrícula y el reporte de puntos. Las alturas son las que miden los textos en el papel impreso.</p>
   <div class="civil-alturas">{% for a in civil.alturas %}
     <div class="tv-campo"><label for="civil-alt-{{ a.clave }}">{{ a.nombre }}</label><div class="civil-unidad"><input id="civil-alt-{{ a.clave }}" name="alt_{{ a.clave }}" type="number" min="0.5" max="20" step="0.1" value="{{ a.mm }}" inputmode="decimal"><span>mm</span></div></div>{% endfor %}
   </div>
@@ -94,6 +99,31 @@
 </form>
 {% endhoja_inferior %}
 
+{# -- Localizar punto -------------------------------------------------------------------------------------------------------- #}
+{% hoja_inferior "civil-hoja-localizar" titulo="Localizar punto" %}
+<form class="tv-formulario civil-form" data-civil-form="localizar">
+  <div class="tv-campo"><label for="civil-loc-num">Número del punto</label><input id="civil-loc-num" name="numero" required autocomplete="off" placeholder="125"></div>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "locate-fixed" %}<span>Ir al punto</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Reporte de puntos ------------------------------------------------------------------------------------------------------ #}
+{% hoja_inferior "civil-hoja-reporte" titulo="Reporte de puntos" %}
+<form class="tv-formulario civil-form" data-civil-form="reporte">
+  <fieldset class="tv-campo"><legend>Qué puntos</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="cuales" value="terreno" checked><span>Terreno</span></label><label><input type="radio" name="cuales" value="proyecto"><span>Proyecto</span></label><label><input type="radio" name="cuales" value="seleccion"><span>Los que elija</span></label></div></fieldset>
+  <div class="tv-campo"><label for="civil-rep-titulo">Título</label><input id="civil-rep-titulo" name="titulo" maxlength="80" value="REPORTE DE PUNTOS" autocomplete="off"></div>
+  <div class="tv-campo"><label for="civil-rep-proyecto">Proyecto o predio</label><input id="civil-rep-proyecto" name="proyecto" maxlength="120" autocomplete="off" placeholder="Opcional"></div>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-rep-dec">Decimales</label><select id="civil-rep-dec" name="decimales">{% for n in civil.decimales %}<option value="{{ n }}"{% if n == 3 %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+    <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-rep-geo" name="geograficas" value="1"><label for="civil-rep-geo">Con latitud y longitud (<span data-civil-zona-texto>zona 14 norte</span>)</label></div>
+  </div>
+  <fieldset class="tv-campo"><legend>Archivo</legend><div class="tv-segmentado"><label><input type="radio" name="formato" value="pdf" checked><span>PDF</span></label><label><input type="radio" name="formato" value="docx"><span>Word (DOCX)</span></label></div></fieldset>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "download" %}<span>Descargar reporte</span></button></div>
+</form>
+{% endhoja_inferior %}
+
 {# -- Triangular --------------------------------------------------------------------------------------------------------------- #}
 {% hoja_inferior "civil-hoja-triangular" titulo="Triangular" %}
 <form class="tv-formulario civil-form" data-civil-form="triangular">
@@ -105,6 +135,7 @@
     <div class="civil-eleccion"><div><strong>Islas</strong><span class="tv-tenue" data-civil-cuenta="islas">Ninguna</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="islas">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
   </div>
   <details class="civil-mas"><summary>Más opciones</summary>
+    <div class="tv-campo"><label for="civil-tri-excluir">No usar los puntos con descripción</label><input id="civil-tri-excluir" name="excluir" autocomplete="off" placeholder="ARBOL, POSTE, BAR*"></div>
     <div class="tv-campo"><label for="civil-tri-arista">No unir puntos a más de</label><div class="civil-unidad"><input id="civil-tri-arista" name="arista_maxima" type="number" min="0" step="any" inputmode="decimal" placeholder="Sin límite"><span>m</span></div></div>
   </details>
   <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-tri-reemplazar" name="reemplazar" value="1" checked><label for="civil-tri-reemplazar">Reemplazar la triangulación anterior</label></div>
@@ -126,6 +157,17 @@
   <div class="tv-campo" data-civil-si="modo=largos" hidden><label for="civil-bor-largo">Lado mayor que</label><div class="civil-unidad"><input id="civil-bor-largo" name="largo" type="number" min="0.01" step="any" value="50" inputmode="decimal"><span>m</span></div></div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "eraser" %}<span>Borrar triángulos</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Insertar puntos en la triangulación ---------------------------------------------------------------------------------- #}
+{% hoja_inferior "civil-hoja-insertar" titulo="Insertar puntos" %}
+<form class="tv-formulario civil-form" data-civil-form="insertar">
+  <p class="tv-tenue civil-nota">Mete los puntos elegidos en la triangulación que ya está en el plano: parte los triángulos donde caen y ajusta los vecinos.</p>
+  <fieldset class="tv-campo"><legend>Superficie</legend><div class="tv-segmentado"><label><input type="radio" name="tipo" value="terreno" checked><span>Terreno</span></label><label><input type="radio" name="tipo" value="proyecto"><span>Proyecto</span></label></div></fieldset>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-ins-ajustar" name="ajustar" value="1" checked><label for="civil-ins-ajustar">Ajustar los triángulos vecinos</label></div>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "map-pin-plus" %}<span>Elegir puntos e insertar</span></button></div>
 </form>
 {% endhoja_inferior %}
 
@@ -171,6 +213,9 @@
     <div class="civil-eleccion"><div><strong>Polígono</strong><span class="tv-tenue" data-civil-cuenta="poligono">Sin elegir</span></div><button type="button" class="tv-boton" data-civil-elegir="poligono">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
     <div class="civil-eleccion"><div><strong>Vértice inicial</strong><span class="tv-tenue" data-civil-cuenta="vertice">El primero del polígono</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="vertice">{% icono "crosshair" %}<span>Señalar</span></button></div>
   </div>
+  <fieldset class="tv-campo"><legend>Formato</legend><div class="tv-segmentado"><label><input type="radio" name="formato" value="normal" checked><span>Normal</span></label><label><input type="radio" name="formato" value="ran"><span>RAN</span></label><label><input type="radio" name="formato" value="utm_gps"><span>UTM-GPS</span></label></div></fieldset>
+  <p class="tv-tenue civil-nota" data-civil-si="formato=ran" hidden>Coordenadas UTM y geográficas de cada vértice, <span data-civil-zona-texto>zona 14 norte</span> (se cambia en la escala del plano).</p>
+  <p class="tv-tenue civil-nota" data-civil-si="formato=utm_gps" hidden>Además el factor de escala y la convergencia de cada vértice, y la superficie sobre el terreno, <span data-civil-zona-texto>zona 14 norte</span>.</p>
   <fieldset class="tv-campo"><legend>Sentido</legend><div class="tv-segmentado"><label><input type="radio" name="sentido" value="horario" checked><span>Horario</span></label><label><input type="radio" name="sentido" value="antihorario"><span>Antihorario</span></label><label><input type="radio" name="sentido" value="dibujo"><span>Como está</span></label></div></fieldset>
   <div class="civil-fila">
     <div class="tv-campo"><label for="civil-cua-num">Vértices</label><select id="civil-cua-num" name="numeracion"><option value="numeros">1, 2, 3…</option><option value="letras">A, B, C…</option></select></div>
@@ -225,6 +270,79 @@
   <fieldset class="tv-campo"><legend>Dónde va la tabla</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="ubicacion" value="auto" checked><span>A un lado del plano</span></label><label><input type="radio" name="ubicacion" value="senalar"><span>La señalo</span></label></div></fieldset>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "spline" %}<span>Dibujar cuadro</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Rumbo y distancia de lados ------------------------------------------------------------------------------------------ #}
+{% hoja_inferior "civil-hoja-rumbos" titulo="Rumbo y distancia de lados" %}
+<form class="tv-formulario civil-form" data-civil-form="rumbos">
+  <div class="civil-elecciones">
+    <div class="civil-eleccion"><div><strong>Polilíneas o líneas</strong><span class="tv-tenue" data-civil-cuenta="lineas">Sin elegir</span></div><button type="button" class="tv-boton" data-civil-elegir="lineas">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
+  </div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-rum-num" name="numerar_vertices" value="1"><label for="civil-rum-num">Numerar también los vértices</label></div>
+  <details class="civil-mas"><summary>Más opciones</summary>
+    <div class="civil-fila civil-fila--4">
+      <div class="tv-campo"><label for="civil-rum-dd">Distancias</label><select id="civil-rum-dd" name="decimales_distancia">{% for n in civil.decimales %}<option value="{{ n }}"{% if n == 2 %} selected{% endif %}>{{ n }} dec.</option>{% endfor %}</select></div>
+      <div class="tv-campo"><label for="civil-rum-ds">Segundos</label><select id="civil-rum-ds" name="decimales_segundos"><option value="0" selected>0 dec.</option><option value="1">1 dec.</option><option value="2">2 dec.</option></select></div>
+    </div>
+    <div class="civil-casillas"><label><input type="checkbox" name="separador_miles"> Separar miles</label><label><input type="checkbox" name="oeste_o"> Oeste como «O»</label></div>
+  </details>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "ruler-dimension-line" %}<span>Anotar lados</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Numerar vértices -------------------------------------------------------------------------------------------------------- #}
+{% hoja_inferior "civil-hoja-numerar" titulo="Numerar vértices" %}
+<form class="tv-formulario civil-form" data-civil-form="numerar">
+  <div class="civil-elecciones">
+    <div class="civil-eleccion"><div><strong>Polilíneas o líneas</strong><span class="tv-tenue" data-civil-cuenta="lineas">Sin elegir</span></div><button type="button" class="tv-boton" data-civil-elegir="lineas">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
+  </div>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-num-tipo">Vértices</label><select id="civil-num-tipo" name="numeracion"><option value="numeros">1, 2, 3…</option><option value="letras">A, B, C…</option></select></div>
+    <div class="tv-campo" data-civil-si="numeracion=numeros"><label for="civil-num-primero">Empezar en</label><input id="civil-num-primero" name="primer_numero" type="number" min="0" step="1" value="1" inputmode="numeric"></div>
+  </div>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "hash" %}<span>Numerar</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Memoria descriptiva ----------------------------------------------------------------------------------------------------- #}
+{% hoja_inferior "civil-hoja-memoria" titulo="Memoria descriptiva" %}
+<form class="tv-formulario civil-form" data-civil-form="memoria">
+  <div class="civil-elecciones">
+    <div class="civil-eleccion"><div><strong>Polígono</strong><span class="tv-tenue" data-civil-cuenta="poligono">Sin elegir</span></div><button type="button" class="tv-boton" data-civil-elegir="poligono">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
+  </div>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-mem-predio">Predio</label><input id="civil-mem-predio" name="predio" maxlength="120" autocomplete="off" placeholder="Opcional"></div>
+    <div class="tv-campo"><label for="civil-mem-prop">Propietario</label><input id="civil-mem-prop" name="propietario" maxlength="120" autocomplete="off" placeholder="Opcional"></div>
+  </div>
+  <div class="tv-campo"><label for="civil-mem-ubic">Ubicación</label><input id="civil-mem-ubic" name="ubicacion" maxlength="200" autocomplete="off" placeholder="Opcional"></div>
+  <fieldset class="tv-campo"><legend>Formato</legend><div class="tv-segmentado"><label><input type="radio" name="formato_cuadro" value="normal" checked><span>Normal</span></label><label><input type="radio" name="formato_cuadro" value="ran"><span>RAN</span></label><label><input type="radio" name="formato_cuadro" value="utm_gps"><span>UTM-GPS</span></label></div></fieldset>
+  <fieldset class="tv-campo"><legend>Sentido</legend><div class="tv-segmentado"><label><input type="radio" name="sentido" value="horario" checked><span>Horario</span></label><label><input type="radio" name="sentido" value="antihorario"><span>Antihorario</span></label><label><input type="radio" name="sentido" value="dibujo"><span>Como está</span></label></div></fieldset>
+  <div class="civil-colindancias" data-civil-colindancias hidden>
+    <p class="tv-tenue civil-nota">Colindancias (opcionales), lado por lado.</p>
+    <div class="civil-colindancias__lista" data-civil-colindancias-lista></div>
+  </div>
+  <fieldset class="tv-campo"><legend>Archivo</legend><div class="tv-segmentado"><label><input type="radio" name="formato" value="pdf" checked><span>PDF</span></label><label><input type="radio" name="formato" value="docx"><span>Word (DOCX)</span></label></div></fieldset>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "download" %}<span>Descargar memoria</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Cuadrícula UTM --------------------------------------------------------------------------------------------------------- #}
+{% hoja_inferior "civil-hoja-cuadricula" titulo="Cuadrícula UTM" %}
+<form class="tv-formulario civil-form" data-civil-form="cuadricula">
+  <fieldset class="tv-campo"><legend>Dónde</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="zona_dibujo" value="todo" checked><span>Todo el plano</span></label><label><input type="radio" name="zona_dibujo" value="senalar"><span>Señalo dos esquinas</span></label></div></fieldset>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-ret-int">Cada</label><div class="civil-unidad"><select id="civil-ret-int" name="intervalo"><option value="0" selected>Automático</option><option value="10">10</option><option value="20">20</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="250">250</option><option value="500">500</option><option value="1000">1000</option><option value="2000">2000</option></select><span>m</span></div></div>
+    <fieldset class="tv-campo"><legend>Dibujar</legend><div class="tv-segmentado"><label><input type="radio" name="tipo" value="lineas" checked><span>Líneas</span></label><label><input type="radio" name="tipo" value="cruces"><span>Cruces</span></label></div></fieldset>
+  </div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-ret-marco" name="marco" value="1" checked><label for="civil-ret-marco">Con marco</label></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-ret-geo" name="geograficas" value="1" checked><label for="civil-ret-geo">Latitud y longitud en las esquinas (<span data-civil-zona-texto>zona 14 norte</span>)</label></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-ret-reemplazar" name="reemplazar" value="1" checked><label for="civil-ret-reemplazar">Reemplazar la cuadrícula anterior</label></div>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "grid-3x3" %}<span>Dibujar cuadrícula</span></button></div>
 </form>
 {% endhoja_inferior %}
 

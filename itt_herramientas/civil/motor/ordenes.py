@@ -21,14 +21,17 @@ import math
 from typing import Any, Callable
 
 from . import dxf as dxf_mod
-from .cuadro import OpcionesCuadro, calcular_cuadro, dibujar_cuadro
+from .cuadro import FORMATOS as FORMATOS_CUADRO
+from .cuadro import OpcionesCuadro, calcular_cuadro, dibujar_cuadro, resumen_geo
 from .cuadro_curvas import curvas_de_polilineas, dibujar_cuadro_curvas
+from .anotacion import CAPAS_ANOTACION, CAPAS_RETICULA, anotar_lados, cuadricula_utm, intervalo_reticula, numerar_vertices
 from .curvas import curvas_de_nivel, dibujar_curvas, suavizar
 from .dibujos import APP, BLOQUES, CAPAS_PUNTOS, bloque_punto, dibujar_puntos, dibujar_tin
-from .edicion_tin import ErrorEdicion, agregar, invertir, normalizar_cara, quitar_dentro, quitar_fuera, quitar_largos, revisar
+from .edicion_tin import ErrorEdicion, agregar, invertir, normalizar_cara, insertar_puntos, quitar_dentro, quitar_fuera, quitar_largos, revisar
 from .eje import Eje, formato_estacion
 from .entidades import Capa, Dibujo, EstiloTexto, Insercion, Linea, Polilinea, Texto
 from .escala import ALTURAS_MM, Escala
+from .memoria import memoria_descriptiva, reporte_puntos
 from .perfiles import PIV, Rasante, dibujar_perfil, perfil_terreno
 from .puntos import PROYECTO, TERRENO, Punto, escribir_puntos, leer_puntos, numeros_repetidos
 from .secciones import Plantilla, dibujar_secciones, secciones
@@ -84,6 +87,16 @@ def _puntos(lista, tipo=TERRENO) -> list[Punto]:
         z = None if len(p) < 3 or p[2] is None else float(p[2])
         salida.append(Punto(str(p[3]) if len(p) > 3 and p[3] is not None else "", float(p[0]), float(p[1]), z, str(p[4]) if len(p) > 4 and p[4] else "", tipo))
     return salida
+
+
+def _zona(valor) -> int:
+    try:
+        z = int(valor)
+    except (TypeError, ValueError):
+        raise ErrorOrden("Elige la zona UTM.") from None
+    if not 1 <= z <= 60:
+        raise ErrorOrden("La zona UTM va de 1 a 60.")
+    return z
 
 
 def _polilinea(p: dict | None, nombre: str):
@@ -203,11 +216,30 @@ def redibujar_puntos(d: dict) -> dict:
 
 # --- triangulación ---------------------------------------------------------------------------------
 
+def _patrones(texto) -> list[str]:
+    """«ARBOL, POSTE, BAR*» → patrones en mayúsculas (se aceptan * y ?)."""
+    if isinstance(texto, str):
+        texto = texto.replace(";", ",").split(",")
+    return [t.strip().upper() for t in (texto or []) if str(t).strip()][:50]
+
+
+def _excluido(p, patrones) -> bool:
+    if not patrones:
+        return False
+    from fnmatch import fnmatchcase
+
+    desc = (str(p[4]) if len(p) > 4 and p[4] is not None else "").strip().upper()
+    return any(fnmatchcase(desc, pat) for pat in patrones)
+
+
 def triangular(d: dict) -> dict:
     tipo = d.get("tipo", TERRENO)
-    pts = [(p[0], p[1], p[2]) for p in (d.get("puntos") or []) if len(p) >= 3 and p[2] is not None]
+    excluir = _patrones(d.get("excluir"))
+    todos = [p for p in (d.get("puntos") or []) if len(p) >= 3 and p[2] is not None]
+    pts = [(p[0], p[1], p[2]) for p in todos if not _excluido(p, excluir)]
+    excluidos = len(todos) - len(pts)
     if len(pts) < 3:
-        raise ErrorOrden("Se necesitan al menos tres puntos con elevación.")
+        raise ErrorOrden("Se necesitan al menos tres puntos con elevación." + (f" Se dejaron fuera {excluidos} por su descripción." if excluidos else ""))
     quiebres = [LineaQuiebre([tuple(v) if len(v) > 2 else (v[0], v[1], None) for v in q["vertices"]], q.get("nombre", "")) for q in d.get("quiebres") or []]
     limite = d.get("limite", {}) and d["limite"].get("vertices")
     islas = [i["vertices"] for i in d.get("islas") or []]
@@ -219,7 +251,7 @@ def triangular(d: dict) -> dict:
     e = t.estadisticas
     return {
         "dxf": _dxf(dibujar_tin(t, tipo)),
-        "resumen": {"puntos": e.puntos_leidos - e.duplicados - e.invalidos, "triangulos": int(len(t.triangulos)), "duplicados": e.duplicados,
+        "resumen": {"puntos": e.puntos_leidos - e.duplicados - e.invalidos, "triangulos": int(len(t.triangulos)), "duplicados": e.duplicados, "excluidos": excluidos,
                     "quiebres": len(quiebres), "area_planta": t.area_planta(), "area_superficie": t.area_superficie()},
         "avisos": t.avisos[:50],
     }
@@ -324,7 +356,8 @@ def curvas(d: dict) -> dict:
 
 # --- cuadro de construcción -----------------------------------------------------------------------
 
-def cuadro(d: dict) -> dict:
+def _cuadro_de(d: dict):
+    """El cuadro calculado de la orden (polígono, opciones y vértice inicial), con sus opciones."""
     v, combas = _polilinea(d.get("poligono"), "una polilínea cerrada")
     o = d.get("opciones") or {}
     op = OpcionesCuadro(
@@ -334,7 +367,11 @@ def cuadro(d: dict) -> dict:
         decimales_superficie=int(o.get("decimales_superficie", 3)), oeste=o.get("oeste", "W"), separador_miles=o.get("separador_miles", ""),
         azimut=bool(o.get("azimut")), angulos_interiores=bool(o.get("angulos_interiores")), repetir_cierre=bool(o.get("repetir_cierre", True)),
         titulo=(o.get("titulo") or "CUADRO DE CONSTRUCCIÓN")[:80],
+        formato=o.get("formato", "normal"), zona=_zona(o.get("zona", 14)), hemisferio=o.get("hemisferio", "N"),
+        decimales_geo=int(o.get("decimales_geo", 4)),
     )
+    if op.formato not in FORMATOS_CUADRO:
+        raise ErrorOrden("Elige el formato del cuadro.")
     if "vertice_inicial" in d and d["vertice_inicial"] is not None:
         x, y = map(float, d["vertice_inicial"][:2])
         n = min(range(len(v)), key=lambda i: (v[i][0] - x) ** 2 + (v[i][1] - y) ** 2)
@@ -342,16 +379,26 @@ def cuadro(d: dict) -> dict:
         op.inicio = min(range(len(c0.vertices)), key=lambda i: (c0.vertices[i][0] - v[n][0]) ** 2 + (c0.vertices[i][1] - v[n][1]) ** 2)
     try:
         c = calcular_cuadro(v, combas, op)
+        resumen_geo(c, op)                                  # una zona que no corresponde a las coordenadas se dice aquí
     except ValueError as exc:
         raise ErrorOrden(str(exc)) from None
+    return c, op
+
+
+def cuadro(d: dict) -> dict:
+    c, op = _cuadro_de(d)
     esquina = d.get("esquina")
     if not esquina:
         xs = [p[0] for p in c.vertices]
         ys = [p[1] for p in c.vertices]
         esquina = (max(xs) + 10 * _escala(d).altura("cuadro_dato"), max(ys))
-    dib = dibujar_cuadro(c, (float(esquina[0]), float(esquina[1])), _escala(d), op, numerar_vertices=bool(d.get("numerar_vertices", True)))
+    try:
+        dib = dibujar_cuadro(c, (float(esquina[0]), float(esquina[1])), _escala(d), op, numerar_vertices=bool(d.get("numerar_vertices", True)))
+        geo = resumen_geo(c, op)
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
     return {"dxf": _dxf(dib), "resumen": {"lados": len(c.lados), "superficie": c.superficie, "superficie_ha": c.superficie_ha,
-                                         "perimetro": c.perimetro, "sentido": c.sentido, "curvas": sum(1 for l in c.lados if l.curva)},
+                                         "perimetro": c.perimetro, "sentido": c.sentido, "curvas": sum(1 for l in c.lados if l.curva), **geo},
             "avisos": []}
 
 
@@ -507,6 +554,99 @@ def volumen_superficies(d: dict) -> dict:
     return {"dxf": _dxf(dib), "resumen": {"corte": r.corte, "terraplen": r.terraplen, "neto": r.neto, "area_comun": r.area_comun}, "avisos": []}
 
 
+# --- anotaciones, cuadrícula, documentos (v1.1) --------------------------------------------------
+
+def _polis(d: dict, minimo: int = 1) -> list[dict]:
+    polis = [p for p in (d.get("polilineas") or []) if isinstance(p, dict) and len(p.get("vertices") or []) >= 2]
+    if len(polis) < minimo:
+        raise ErrorOrden("Elige polilíneas o líneas.")
+    return polis
+
+
+def anotar_lados_orden(d: dict) -> dict:
+    o = d.get("opciones") or {}
+    try:
+        dib = anotar_lados(_polis(d), _escala(d), int(o.get("decimales_distancia", 2)), int(o.get("decimales_segundos", 0)), o.get("oeste", "W"),
+                           o.get("separador_miles", ""))
+        if d.get("numerar_vertices"):
+            dib.unir(numerar_vertices(_polis(d), _escala(d), o.get("numeracion", "numeros"), int(o.get("primer_numero", 1))))
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+    lados = sum(1 for e in dib.entidades if getattr(e, "capa", "") == CAPAS_ANOTACION["rumbo"].nombre)
+    return {"dxf": _dxf(dib), "resumen": {"lados": lados}, "avisos": []}
+
+
+def numerar_vertices_orden(d: dict) -> dict:
+    o = d.get("opciones") or {}
+    try:
+        dib = numerar_vertices(_polis(d), _escala(d), o.get("numeracion", "numeros"), int(o.get("primer_numero", 1)))
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+    return {"dxf": _dxf(dib), "resumen": {"vertices": len(dib.entidades)}, "avisos": []}
+
+
+def cuadricula(d: dict) -> dict:
+    caja = d.get("caja")
+    if not (isinstance(caja, (list, tuple)) and len(caja) == 4):
+        raise ErrorOrden("Señala la zona de la cuadrícula.")
+    zona = _zona(d["zona"]) if d.get("zona") else None
+    intervalo = _num(d, "intervalo", 0.0, minimo=0.0) or None
+    try:
+        caja = [float(v) for v in caja]
+        dib = cuadricula_utm(caja, intervalo, _escala(d), d.get("tipo", "lineas"), bool(d.get("marco", True)), zona,
+                             d.get("hemisferio", "N"), int(d.get("decimales_geo", 2)), d.get("oeste", "W"))
+    except (TypeError, ValueError) as exc:
+        raise ErrorOrden(str(exc)) from None
+    textos = [e for e in dib.entidades if getattr(e, "capa", "") == CAPAS_RETICULA["textos"].nombre]
+    usado = intervalo or intervalo_reticula(_escala(d), caja[2] - caja[0], caja[3] - caja[1])
+    return {"dxf": _dxf(dib), "resumen": {"intervalo": usado, "textos": len(textos)}, "avisos": []}
+
+
+def insertar_puntos_orden(d: dict) -> dict:
+    lista = d.get("caras") or []
+    caras = _caras(lista)
+    pts = [p for p in (d.get("puntos") or []) if len(p) >= 3 and p[2] is not None]
+    if not pts:
+        raise ErrorOrden("Elige puntos con elevación.")
+    try:
+        r = insertar_puntos(caras, pts, bool(d.get("ajustar", True)))
+    except ErrorEdicion as exc:
+        raise ErrorOrden(str(exc)) from None
+    avisos = []
+    if r.fuera:
+        avisos.append(f"{len(r.fuera)} punto{'s' if len(r.fuera) != 1 else ''} fuera de la triangulación no se {'usaron' if len(r.fuera) != 1 else 'usó'}.")
+    if r.repetidos:
+        avisos.append(f"{len(r.repetidos)} punto{'s' if len(r.repetidos) != 1 else ''} ya {'eran vértices' if len(r.repetidos) != 1 else 'era vértice'}.")
+    if not r.nuevas:
+        raise ErrorOrden("Ningún punto cae dentro de la triangulación." if r.fuera else "Esos puntos ya están en la triangulación.")
+    return {"dxf": _dxf(dibujar_tin(r.nuevas, d.get("tipo", TERRENO))), "borrar": [lista[i].get("handle") for i in r.quitar if isinstance(lista[i], dict)],
+            "resumen": {"insertados": len(pts) - len(r.fuera) - len(r.repetidos), "triangulos": len(r.nuevas) - len(r.quitar)}, "avisos": avisos}
+
+
+def _datos_doc(d: dict) -> list[tuple[str, str]]:
+    return [(str(x[0])[:60], str(x[1])[:300]) for x in (d.get("datos") or []) if isinstance(x, (list, tuple)) and len(x) == 2][:12]
+
+
+def memoria(d: dict) -> dict:
+    c, op = _cuadro_de(d)
+    col = [str(x)[:200] for x in (d.get("colindancias") or [])]
+    doc = memoria_descriptiva(c, op, col, _datos_doc(d))
+    return {"documento": doc.como_dict(), "resumen": {"lados": len(c.lados), "superficie": c.superficie}, "avisos": []}
+
+
+def reporte_puntos_orden(d: dict) -> dict:
+    pts = _puntos(d.get("puntos"))
+    if not pts:
+        raise ErrorOrden("No hay puntos para el reporte.")
+    zona = _zona(d["zona"]) if d.get("zona") else None
+    try:
+        doc = reporte_puntos([[p.x, p.y, p.z, p.numero, p.descripcion] for p in pts], int(d.get("decimales", 3)), zona, d.get("hemisferio", "N"),
+                             int(d.get("decimales_geo", 4)), d.get("oeste", "W"), (d.get("titulo") or "REPORTE DE PUNTOS")[:80], _datos_doc(d))
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+    return {"documento": doc.como_dict(), "resumen": {"puntos": len(pts)}, "avisos": []}
+
+
 ORDENES: dict[str, Callable[[dict], dict]] = {
     "importar_puntos": importar_puntos,
     "exportar_puntos": exportar_puntos,
@@ -519,13 +659,19 @@ ORDENES: dict[str, Callable[[dict], dict]] = {
     "curvas": curvas,
     "cuadro": cuadro,
     "cuadro_curvas": cuadro_curvas,
+    "anotar_lados": anotar_lados_orden,
+    "numerar_vertices": numerar_vertices_orden,
+    "cuadricula": cuadricula,
+    "insertar_puntos": insertar_puntos_orden,
+    "memoria": memoria,
+    "reporte_puntos": reporte_puntos_orden,
     "perfil": perfil,
     "secciones": secciones_orden,
     "volumen_superficies": volumen_superficies,
 }
 
 #: Órdenes que pueden tardar con planos grandes: el servidor las manda a su cola de tareas.
-PESADAS = {"triangular", "curvas", "perfil", "secciones", "volumen_superficies", "revisar_tin"}
+PESADAS = {"triangular", "curvas", "perfil", "secciones", "volumen_superficies", "revisar_tin", "insertar_puntos"}
 
 
 def ejecutar(nombre: str, datos: dict) -> dict:

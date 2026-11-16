@@ -117,6 +117,57 @@ def test_revisar_triangulacion_va_a_la_cola(cliente_de, dibujante):
     assert r["resumen"]["repetidas"] == 1 and r["handles"] == ["1C"] and r["graves"] == ["1C"]
 
 
+CUADRADO = [[X0, Y0], [X0, Y0 + 100], [X0 + 100, Y0 + 100], [X0 + 100, Y0]]
+
+
+def test_memoria_descriptiva_en_pdf_y_docx(cliente_de, dibujante):
+    import zipfile
+
+    from pypdf import PdfReader
+
+    cl = cliente_de(dibujante)
+    base = {"poligono": {"vertices": CUADRADO}, "opciones": {"formato": "ran", "zona": 14}, "colindancias": ["Calle Juárez"],
+            "datos": [["Predio", "El Mezquite"], ["Propietario", ""]]}
+    r = mandar(cl, "memoria", {**base, "formato": "pdf"}).json()["resultado"]
+    assert r["extension"] == "pdf" and r["tipo"] == "application/pdf" and "documento" not in r
+    texto = " ".join(p.extract_text() for p in PdfReader(io.BytesIO(base64.b64decode(r["archivo"]))).pages)
+    assert "MEMORIA DESCRIPTIVA" in texto and "El Mezquite" in texto and "Calle Juárez" in texto and "LATITUD" in texto
+    r = mandar(cl, "memoria", {**base, "formato": "docx"}).json()["resultado"]
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(r["archivo"]))) as z:
+        xml = z.read("word/document.xml").decode()
+        assert "[Content_Types].xml" in z.namelist()
+    assert "Del vértice 1 al vértice 2" in xml and "colindando con Calle Juárez" in xml and "El Mezquite" in xml
+    # sin formato de archivo, el contenido (para que la página arme las colindancias lado por lado)
+    d = mandar(cl, "memoria", {"poligono": {"vertices": CUADRADO}}).json()["resultado"]
+    assert [f[:2] for f in d["documento"]["filas"][1:]] == [["1", "2"], ["2", "3"], ["3", "4"], ["4", "1"]]
+    assert mandar(cl, "memoria", {**base, "formato": "odt"}).status_code == 422
+
+
+def test_reporte_de_puntos_y_cuadricula_y_anotar(cliente_de, dibujante):
+    from pypdf import PdfReader
+
+    cl = cliente_de(dibujante)
+    r = mandar(cl, "reporte_puntos", {"puntos": puntos(30), "zona": 14, "formato": "pdf", "titulo": "LEVANTAMIENTO"}).json()["resultado"]
+    texto = PdfReader(io.BytesIO(base64.b64decode(r["archivo"]))).pages[0].extract_text()
+    assert "LEVANTAMIENTO" in texto and "LONGITUD" in texto and r["resumen"]["puntos"] == 34
+    r = mandar(cl, "cuadricula", {"caja": [X0, Y0, X0 + 300, Y0 + 200], "intervalo": 100, "zona": 14}).json()["resultado"]
+    capas = {e.dxf.layer for e in ezdxf.read(io.StringIO(base64.b64decode(r["dxf"]).decode())).modelspace()}
+    assert capas == {"RETICULA_UTM", "RETICULA_MARCO", "RETICULA_TEXTOS"}
+    r = mandar(cl, "anotar_lados", {"polilineas": [{"vertices": CUADRADO, "cerrada": True}]}).json()["resultado"]
+    assert r["resumen"]["lados"] == 4
+
+
+def test_insertar_puntos_va_a_la_cola(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+    caras = [{"handle": "F1", "vertices": [[X0, Y0, 1], [X0 + 10, Y0, 1], [X0 + 10, Y0 + 10, 1]]},
+             {"handle": "F2", "vertices": [[X0, Y0, 1], [X0 + 10, Y0 + 10, 1], [X0, Y0 + 10, 1]]}]
+    d = mandar(cl, "insertar_puntos", {"caras": caras, "puntos": [[X0 + 3, Y0 + 1, 5, "1", ""]]}).json()
+    assert d["estado"] == "completada", d
+    r = cl.get(d["resultado"]["url"]).json()
+    assert "F1" in r["borrar"] and r["resumen"]["insertados"] == 1
+    assert mandar(cl, "insertar_puntos", {"caras": caras, "puntos": []}).status_code == 422
+
+
 def test_errores_de_la_persona_salen_con_su_mensaje(cliente_de, dibujante):
     cl = cliente_de(dibujante)
     r = mandar(cl, "curvas", {"caras": []})
@@ -144,7 +195,8 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
     html = cliente_de(dibujante).get(url("cad_plano", pk=p.pk)).content.decode()
     assert 'id="civil-barra"' in html and "herramientas/cad/civil.js" in html and "Cuadro de construcción" in html
     assert "Invertir triángulos" in html and "Importar puntos" in html
-    for nuevo in ("Renumerar puntos", "Revisar triangulación", "Cuadro de curvas", "Los que elija"):
+    for nuevo in ("Renumerar puntos", "Revisar triangulación", "Cuadro de curvas", "Los que elija", "Localizar punto", "Reporte de puntos",
+                  "Insertar puntos", "Rumbo y distancia de lados", "Numerar vértices", "Memoria descriptiva", "Cuadrícula UTM", "UTM-GPS", "Zona UTM"):
         assert nuevo in html, nuevo
     cfg = json.loads(html.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
     assert cfg["capas"]["tin"]["terreno"] == "TRIANGULACION" and cfg["bloques"]["terreno"] == "PT_TERRENO"
