@@ -159,7 +159,21 @@
     medirZona();
     if (!activo || !listo) return;
     clearTimeout(releer);
-    releer = setTimeout(async () => { try { await ajustarRecorte(); await fijarVista(); } catch (_) { /* siguiente cambio */ } }, 180);
+    // Cambió el tamaño del área (la barra de la herramienta en lugar de las pestañas, la barra de Safari, el teclado): lo dibujado no se
+    // mueve. Queda en su lugar la esquina de arriba a la izquierda y la escala es la misma. Antes se fijaba con el alto viejo: la vista
+    // se corría y se acercaba un poco sola mientras se movía el puntero.
+    releer = setTimeout(async () => {
+      try {
+        const izq = vista.cx - (vista.w / 2) * vista.k, arr = vista.cy + (vista.h / 2) * vista.k;
+        await ajustarRecorte();
+        const ahora = deEstado({}, await pedir({ op: "state" }));
+        Object.assign(vistaEd, ahora);
+        Object.assign(vista, { w: ahora.w, h: ahora.h, ox: ahora.ox, oy: ahora.oy });
+        vista.cx = izq + (vista.w / 2) * vista.k; vista.cy = arr - (vista.h / 2) * vista.k;
+        aplicarTransformacion(); pintar();
+        await fijarVista();
+      } catch (_) { /* siguiente cambio */ }
+    }, 180);
   }
   new ResizeObserver(alCambiarTamano).observe(zona);
 
@@ -179,8 +193,12 @@
     cerrarTarjetaSiMueve = true;
     if (dedos.size === 1) {
       if (puntero.visible) {
-        const [ax, ay] = posAsa();
-        if (Math.hypot(x - ax, y - ay) < 38) { gesto = { tipo: "asa", dx: ax - x, dy: ay - y }; return; }
+        // El asa, o el astil entre el asa y la punta: arrastrar ahí mueve el puntero, nunca el dibujo (con el dedo un poco fuera del asa
+        // la vista se corría mientras se movía el puntero).
+        const [ax, ay] = posAsa(), [px, py] = posPunta();
+        const L2 = (px - ax) ** 2 + (py - ay) ** 2, t = L2 ? Math.max(0, Math.min(1, ((x - ax) * (px - ax) + (y - ay) * (py - ay)) / L2)) : 0;
+        const enAstil = Math.hypot(x - (ax + t * (px - ax)), y - (ay + t * (py - ay))) < 22 && t < 0.8;
+        if (Math.hypot(x - ax, y - ay) < 46 || enAstil) { gesto = { tipo: "asa", dx: ax - x, dy: ay - y }; return; }
       }
       if (modoVentana) { gesto = { tipo: "ventana", x0: x, y0: y, x, y }; pintarVentana(); return; }
       gesto = { tipo: "pendiente", largo: setTimeout(() => pulsacionLarga(ev.pointerId), LARGO_MS) };

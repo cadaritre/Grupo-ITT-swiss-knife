@@ -220,6 +220,36 @@ def test_modelo_y_presentaciones_y_sin_avisos_del_editor(tactil, navegar, crear_
         p.screenshot(path=f"{CAPTURAS}/tactil-{motor}-sin-avisos.png", caret="initial")
 
 
+@pytest.mark.parametrize("motor", ["chromium", "webkit"])
+def test_mover_el_puntero_no_mueve_la_vista_ni_un_cambio_de_alto_la_escala(tactil, navegar, crear_usuario, roles, motor):
+    """iOS: al arrastrar el asa (línea, segundo punto) la vista se corría y se acercaba, y al terminar volvía. La vista solo se mueve
+    cuando la persona la mueve; si cambia el alto del área (barra de Safari, teclado), quedan el mismo centro y la misma escala."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_utm(ana)
+    n, p = abrir(navegar, ana, motor, p0=p0)
+    _herramienta(p, "dibujar", "Línea")
+    llevar_punta(p, X0, Y0); poner(p)
+    v0, c0 = p.evaluate("TVCadTactil.vista()"), camara(p)
+    ax, ay = p.evaluate("(() => { const v = TVCadTactil.puntero(); const [x, y] = TVCadTactil.aPantalla(v.mundo[0], v.mundo[1]); return [x, y + 88]; })()")
+    # El dedo baja a 30 px del centro del asa y arrastra: se mueve el puntero, no el dibujo.
+    p.evaluate("([x, y]) => __g.arrastrar(x + 30, y, -90, -60)", [ax, ay])
+    p.wait_for_timeout(700)
+    v1, c1 = p.evaluate("TVCadTactil.vista()"), camara(p)
+    assert (v1["cx"], v1["cy"], v1["k"]) == (v0["cx"], v0["cy"], v0["k"]) and (c1["x"], c1["y"], c1["d"]) == (c0["x"], c0["y"], c0["d"])
+    assert p.evaluate("TVCadTactil.puntero().mundo")[0] < X0
+    # Cambia el alto del área: lo dibujado no se mueve (la esquina de arriba queda en su lugar, misma escala) y el editor dibuja lo
+    # mismo que la capa.
+    arriba0 = p.evaluate("(() => { const v = TVCadTactil.vista(); return TVCadTactil.aMundo(v.ox, v.oy); })()")
+    tam = p.viewport_size
+    p.set_viewport_size({"width": tam["width"], "height": tam["height"] - 70})
+    p.wait_for_timeout(1500)
+    v2, c2 = p.evaluate("TVCadTactil.vista()"), camara(p)
+    arriba2 = p.evaluate("(() => { const v = TVCadTactil.vista(); return TVCadTactil.aMundo(v.ox, v.oy); })()")
+    assert abs(v2["k"] / v0["k"] - 1) < 1e-6 and abs(arriba2[0] - arriba0[0]) < v0["k"] and abs(arriba2[1] - arriba0[1]) < v0["k"], (arriba0, arriba2)
+    assert abs(c2["x"] - v2["cx"]) < v2["k"] and abs(c2["y"] - v2["cy"]) < v2["k"]
+    assert not n.errores, n.errores
+
+
 def test_circulo_por_coordenada_con_la_hoja_numerica(tactil, navegar, crear_usuario, roles):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = plano_utm(ana)
