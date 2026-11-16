@@ -714,6 +714,26 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     apagar(p, "TRIANGULACION", "PUNTOS_TERRENO", "PUNTOS_NUMERO", "PUNTOS_ELEVACION", "PUNTOS_DESCRIPCION")
     pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 20, Y0 + 150], [X0 + 280, Y0 + 160]], "closed": False, "layer": "EJE"}]})
 
+    # lotificar una manzana de 30 × 100 m en lotes de 20 m de frente sobre su lado sur
+    pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 50, Y0 + 20], [X0 + 150, Y0 + 20], [X0 + 150, Y0 + 50], [X0 + 50, Y0 + 50]], "closed": True, "layer": "MANZANA"}]})
+    mapa = enfocar(p, (X0 + 50, Y0 + 20, X0 + 150, Y0 + 50))
+    menu(p, "plano", "lotes")
+    p.locator('[data-civil-form="lotes"] [data-civil-elegir="poligono"]').click()
+    elegir_en_dibujo(p, [(X0 + 50, Y0 + 35)], mapa)
+    esperar(p, "document.querySelector('[data-civil-form=lotes] [data-civil-cuenta=poligono]').classList.contains('civil-elegido')", LARGO)
+    p.locator('[data-civil-form="lotes"] [data-civil-elegir="frente"]').click()
+    esperar(p, "!document.getElementById('civil-pick').hidden", LARGO)
+    clic_lento(p, *mapa.pantalla(X0 + 100, Y0 + 21))
+    esperar(p, "document.querySelector('[data-civil-form=lotes] [data-civil-cuenta=frente]').classList.contains('civil-elegido')", LARGO)
+    p.locator('[data-civil-form="lotes"] input[name=metodo][value=por_frente]').check()
+    p.locator("#civil-lot-fr").fill("20")
+    p.locator("#civil-lot-pref").fill("L")
+    foto(p, "30-lotes", 1280)
+    p.locator('[data-civil-form="lotes"] button[type=submit]').click()
+    esperar(p, "!document.querySelector('[data-civil-form=lotes] [data-civil-resultado]').hidden", LARGO)
+    assert "5 lotes" in p.locator('[data-civil-form="lotes"] [data-civil-resultado]').inner_text()
+    p.locator("#civil-hoja-lotes [data-tv-cerrar]").first.click()
+    assert cuenta(p, None, "LOTES") == 5 and "TOTAL" in [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "LOTES_TABLA", "detail": "geometry"})["entities"]]
     # curva masa con plantilla de carretera
     mapa = enfocar(p, (X0 + 20, Y0 + 150, X0 + 280, Y0 + 160))
     menu(p, "volumenes", "masa")
@@ -735,26 +755,6 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     p.locator("#civil-hoja-masa [data-tv-cerrar]").first.click()
     assert cuenta(p, None, "MASA_CURVA") == 1 and cuenta(p, None, "MASA_COMPENSADORA") == 1 and cuenta(p, "Text", "MASA_TEXTOS") > 4
 
-    # lotificar una manzana de 30 × 100 m en lotes de 20 m de frente sobre su lado sur
-    pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 50, Y0 + 20], [X0 + 150, Y0 + 20], [X0 + 150, Y0 + 50], [X0 + 50, Y0 + 50]], "closed": True, "layer": "MANZANA"}]})
-    mapa = enfocar(p, (X0 + 50, Y0 + 20, X0 + 150, Y0 + 50))
-    menu(p, "plano", "lotes")
-    p.locator('[data-civil-form="lotes"] [data-civil-elegir="poligono"]').click()
-    elegir_en_dibujo(p, [(X0 + 50, Y0 + 35)], mapa)
-    esperar(p, "document.querySelector('[data-civil-form=lotes] [data-civil-cuenta=poligono]').classList.contains('civil-elegido')", LARGO)
-    p.locator('[data-civil-form="lotes"] [data-civil-elegir="frente"]').click()
-    esperar(p, "!document.getElementById('civil-pick').hidden", LARGO)
-    clic_lento(p, *mapa.pantalla(X0 + 100, Y0 + 21))
-    esperar(p, "document.querySelector('[data-civil-form=lotes] [data-civil-cuenta=frente]').classList.contains('civil-elegido')", LARGO)
-    p.locator('[data-civil-form="lotes"] input[name=metodo][value=por_frente]').check()
-    p.locator("#civil-lot-fr").fill("20")
-    p.locator("#civil-lot-pref").fill("L")
-    foto(p, "30-lotes", 1280)
-    p.locator('[data-civil-form="lotes"] button[type=submit]').click()
-    esperar(p, "!document.querySelector('[data-civil-form=lotes] [data-civil-resultado]').hidden", LARGO)
-    assert "5 lotes" in p.locator('[data-civil-form="lotes"] [data-civil-resultado]').inner_text()
-    p.locator("#civil-hoja-lotes [data-tv-cerrar]").first.click()
-    assert cuenta(p, None, "LOTES") == 5 and "TOTAL" in [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "LOTES_TABLA", "detail": "geometry"})["entities"]]
     pedir(p, {"op": "action", "name": "zoom_extents"})
     cerrar_aviso_gpu(p)
     foto(p, "31-carretera-masa-lotes-dibujado", 1280)

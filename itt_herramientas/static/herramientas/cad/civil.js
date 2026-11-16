@@ -151,6 +151,7 @@
         }
         entidades = sel.length ? (await pedir({ op: "query", handles: sel, detail: "full" })).entities || [] : [];
       }
+      await pedir({ op: "select", clear: true }).catch(() => {});      // lo elegido ya se leyó: el dibujo queda sin selección, como al terminar una orden
       if (tipos) entidades = entidades.filter((e) => tipos.includes(e.type) || tipos.includes(e.display_type));
       if (sinResultados) entidades = entidades.filter((e) => !CAPAS_DE_RESULTADO.test(e.layer || ""));
       if (entidades.length < minimo) throw new ErrorCivil(minimo === 1 ? `No elegiste nada que sirva: ${mensaje.toLowerCase()}.` : `Elige al menos ${minimo}.`);
