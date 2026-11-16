@@ -20,6 +20,41 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 DISPOSITIVOS = {"chromium": "Pixel 7", "webkit": "iPhone 13"}
 
 
+#: Tope por prueba (s). Una prueba que se cuelga (p. ej. un `evaluate` cuya promesa nunca se cumple: Playwright no le pone plazo) falla
+#: aquí con la pila de todos los hilos, en vez de retener el candado de la máquina. Se cambia con ITT_LIMITE_PRUEBA.
+LIMITE_PRUEBA = int(os.environ.get("ITT_LIMITE_PRUEBA", "600"))
+
+
+class PruebaColgada(Exception):
+    pass
+
+
+@pytest.fixture(autouse=True)
+def limite_por_prueba(request):
+    import faulthandler
+    import signal
+    import sys
+
+    vencio = []
+
+    def vencida(signum, frame):
+        vencio.append(True)
+        sys.stderr.write(f"\n*** {request.node.nodeid} pasó de {LIMITE_PRUEBA} s: pila de los hilos ***\n")
+        faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+        raise PruebaColgada(f"La prueba pasó de {LIMITE_PRUEBA} s (ITT_LIMITE_PRUEBA)")
+
+    previo = signal.signal(signal.SIGALRM, vencida)
+    signal.alarm(LIMITE_PRUEBA)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previo)
+    if vencio:
+        # Tras interrumpir el bucle de Playwright, el resto de la sesión no es confiable: se detiene la corrida para soltar el candado.
+        pytest.exit(f"Corrida detenida: {request.node.nodeid} se colgó", returncode=3)
+
+
 @pytest.fixture(scope="session")
 def playwright_():
     with sync_playwright() as p:
