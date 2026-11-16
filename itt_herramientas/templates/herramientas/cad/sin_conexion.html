@@ -1,0 +1,45 @@
+{% load static tv %}<!doctype html>
+{# CAD sin conexión (TV_CAD_TACTIL). El HTML es el mismo para todas las cuentas: se guarda en el teléfono junto con el editor y el service worker lo abre sin señal. Lo de la cuenta (sus planos y cambios) lo lee sin-conexion.js del almacenamiento de este navegador. #}
+<html lang="es" data-tv-tema="claro" data-cad-campo="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>CAD sin conexión · Herramientas</title>
+<link rel="stylesheet" href="{% static 'tvplataforma/tokens.css' %}">
+<link rel="stylesheet" href="{% static 'tvplataforma/base.css' %}">
+<link rel="stylesheet" href="{% static 'tvplataforma/componentes.css' %}">
+{% include "herramientas/pwa/_cabeza.html" %}
+<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">
+<link rel="stylesheet" href="{% static 'herramientas/cad/tactil.css' %}">
+<script src="{% static 'tvplataforma/js/base.js' %}" defer></script>
+</head>
+<body class="cad-campo">
+<main class="cad-campo__lista" id="sc-lista">
+  <header class="cad-campo__cabeza">
+    <a class="tv-boton tv-boton--fantasma tv-boton--icono" href="{% url 'herramientas:cad' %}" id="sc-volver" aria-label="Planos">{% icono "arrow-left" %}</a>
+    <div><h1>Planos en este teléfono</h1><p class="tv-subtitulo" id="sc-red" role="status">Sin conexión</p></div>
+  </header>
+  <div id="sc-mensaje" class="cad-aviso" data-tipo="info" hidden>{% icono "info" %}<p id="sc-mensaje-texto"></p></div>
+  <ul class="cad-campo__planos" id="sc-planos"></ul>
+  <div class="cad-campo__vacio" id="sc-vacio" hidden>{% icono "cloud-off" %}<p>No hay planos en este teléfono.</p><p class="tv-tenue">Con conexión, abre un plano y en «Más» activa «Disponible sin conexión».</p></div>
+</main>
+
+{# El contrato que usa la capa táctil (tactil.js), el mismo que en plano.html. #}
+<div class="cad-avisos" id="cad-avisos"></div>
+<div hidden><h1 id="cad-nombre"></h1><span class="cad-estado" id="cad-estado" data-estado="cargando"><span class="tv-punto tv-punto--neutro"></span><span id="cad-estado-texto">Abriendo…</span></span>
+  <button type="button" id="cad-guardar" disabled>Guardar en este teléfono</button><a href="{% url 'herramientas:cad_sin_conexion' %}" id="cad-volver">Planos</a></div>
+<div class="cad-lienzo" id="cad-lienzo" hidden>
+  <iframe id="cad-editor" title="Editor de planos" src="about:blank" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+  <div class="cad-lienzo__carga" id="cad-carga" role="status"><span class="cad-giro" aria-hidden="true"></span><span id="cad-carga-texto">Abriendo el plano…</span></div>
+</div>
+{% include "herramientas/cad/tactil.html" %}
+<div class="tv-avisos" id="tv-avisos" aria-live="polite"></div>
+{{ config|json_script:"cad-config" }}
+<script src="{% static 'herramientas/cad/control.js' %}"></script>
+<script src="{% static 'herramientas/cad/campo.js' %}"></script>
+<script src="{% static 'herramientas/cad/sin-conexion.js' %}"></script>
+<script src="{% static 'herramientas/cad/tactil.js' %}"></script>
+</body>
+</html>

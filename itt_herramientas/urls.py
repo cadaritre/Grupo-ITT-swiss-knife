@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import views
 from .convertidor import vistas as convertidor
+from .cad import tactil as cad_tactil
 from .cad import vistas as cad
 from .civil import vistas as civil
 from .cotizaciones import vistas as cotizaciones
@@ -94,6 +95,8 @@ urlpatterns = [
     path("cad/desde/croquis/<uuid:pk>/", cad.desde_croquis, name="cad_desde_croquis"),
     path("cad/editor/<str:version>/<path:ruta>", cad.editor_archivo, name="cad_editor_archivo"),
     path("cad/fuentes/", cad.fuentes_lista, name="cad_fuentes"),
+    path("cad/tactil/paquete/", cad_tactil.paquete, name="cad_tactil_paquete"),
+    path("cad/sin-conexion/", cad_tactil.sin_conexion, name="cad_sin_conexion"),
     path("cad/fuentes/subir/", cad.fuentes_subir, name="cad_fuentes_subir"),
     path("cad/fuentes/<str:nombre>/", cad.fuente_archivo, name="cad_fuente"),
     path("cad/fuentes/<str:nombre>/eliminar/", cad.fuente_eliminar, name="cad_fuente_eliminar"),

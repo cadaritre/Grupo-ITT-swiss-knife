@@ -14,10 +14,12 @@
  *   TVCad.estado()                     { listo, editable, plano: { id, nombre, formato, revision } }
  *                                      `editable` = esta página tiene el bloqueo de edición (si es false, el plano se ve en solo lectura:
  *                                      se puede dibujar en pantalla, pero no se guarda).
- *   await TVCad.pedir(peticion, { tiempoMs = 30000 })
+ *   await TVCad.pedir(peticion, { tiempoMs = 30000, sondeoMs })
  *                                      Manda una petición del canal (`{op: "state"}`, `{op: "run", cmd: "LINE 0,0 10,10"}`,
  *                                      `{op: "entities_set", …}`) y devuelve la respuesta final. Completa lo que falte del sobre del
  *                                      protocolo: `protocol: 1`, un `request_id` único y el `document_id` del plano abierto.
+ *                                      `sondeoMs`: cada cuánto se mira si ya respondió (por omisión el del editor, 50 ms); el modo
+ *                                      táctil usa 4 ms para que la referencia siga al dedo.
  *                                      Rechaza con `TVCad.ErrorEditor` (propiedad `codigo`):
  *                                        "no_listo"  el editor aún no abrió el plano (espera `TVCad.listo`);
  *                                        "sin_canal" el editor no tiene canal de control (versión sin él, o la página cambió);
@@ -90,7 +92,7 @@
   });
   document.addEventListener("tvcad:editable", (ev) => { estado.editable = !!(ev.detail && ev.detail.editable); });
 
-  async function pedir(peticion, { tiempoMs = 30000 } = {}) {
+  async function pedir(peticion, { tiempoMs = 30000, sondeoMs } = {}) {
     if (!estado.listo) throw new ErrorEditor("no_listo", "El editor todavía no abre el plano. Espera a TVCad.listo.");
     const c = canal();
     if (!c || typeof c.request !== "function") throw new ErrorEditor("sin_canal", "El editor no tiene canal de control.");
@@ -99,7 +101,7 @@
       n += 1;
       const sobre = { protocol: 1, request_id: `tvcad-${Date.now().toString(36)}-${n}`, ...peticion };
       if (sobre.document_id === undefined && estado.documento && !["state", "new", "open", "capabilities"].includes(sobre.op)) sobre.document_id = estado.documento;
-      respuesta = await c.request(sobre, { timeoutMs: tiempoMs });
+      respuesta = await c.request(sobre, sondeoMs ? { timeoutMs: tiempoMs, pollMs: sondeoMs } : { timeoutMs: tiempoMs });
     } catch (err) {
       throw new ErrorEditor("tiempo", "El editor no respondió a tiempo.", undefined);
     }

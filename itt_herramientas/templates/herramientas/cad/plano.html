@@ -1,7 +1,7 @@
 {% extends "herramientas/base_comun.html" %}
 {% load static tv herramientas %}
 {% block titulo_pagina %}{{ p.nombre }}{% endblock %}
-{% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">{% endblock %}
+{% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">{% if tactil %}<link rel="stylesheet" href="{% static 'herramientas/cad/tactil.css' %}">{% endif %}{% endblock %}
 {% block titulo_h1 %}<div class="cad-titulo"><span class="itt-formato cad-formato" data-formato="{{ p.formato }}" id="cad-formato">{{ p.formato|upper }}</span>
 <h1 id="cad-nombre">{{ p.nombre }}</h1>
 <span class="cad-estado" id="cad-estado" role="status" aria-live="polite" data-estado="cargando"><span class="tv-punto tv-punto--neutro" aria-hidden="true"></span><span id="cad-estado-texto">Abriendo…</span></span></div>
@@ -10,6 +10,7 @@
 {% block acciones_pagina %}
 <a class="tv-boton tv-boton--fantasma cad-volver" href="{% url 'herramientas:cad' %}" id="cad-volver">{% icono "arrow-left" %}<span>Planos</span></a>
 {% if puede_editar and not v %}<button type="button" class="tv-boton" id="cad-guardar" disabled>{% icono "save" %}<span>Guardar</span><kbd class="tv-tecla cad-tecla" data-tv-tecla-cmd>Ctrl S</kbd></button>{% endif %}
+{% if tactil and editor_listo %}<button type="button" class="tv-boton tv-boton--secundario cad-tactil-entrar" id="cad-tactil-entrar" hidden>{% icono "hand" %}<span>Modo táctil</span></button>{% endif %}
 <button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-versiones" id="cad-boton-versiones">{% icono "history" %}<span>Versiones</span></button>
 <button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-imprimir" id="cad-boton-imprimir"{% if not nativo %} hidden{% endif %}>{% icono "printer" %}<span>Imprimir PDF</span></button>
 <details class="cad-menu" id="cad-menu">
@@ -147,6 +148,7 @@
     <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton" id="cad-perdida-seguir">{% icono "file-output" %}<span>Descargar de todos modos</span></button></div>
   </div>
 </dialog>
+{% if tactil and editor_listo %}{% include "herramientas/cad/tactil.html" %}{% endif %}
 <div id="cad-iconos" hidden><span data-cad-icono="eye">{% icono "eye" %}</span><span data-cad-icono="download">{% icono "download" %}</span><span data-cad-icono="rotate-ccw">{% icono "rotate-ccw" %}</span></div>
 {% csrf_token %}
 {% endblock %}
@@ -157,5 +159,7 @@
 {{ config|json_script:"cad-config" }}
 <script src="{% static 'herramientas/cad/control.js' %}"></script>
 <script src="{% static 'herramientas/cad/editor.js' %}"></script>
+{% if tactil and editor_listo %}<script src="{% static 'herramientas/cad/campo.js' %}"></script>
+<script src="{% static 'herramientas/cad/tactil.js' %}"></script>{% endif %}
 {% block extensiones_cad %}{% if civil %}{% include "herramientas/cad/civil.html" %}{% endif %}{% endblock %}
 {% endblock %}

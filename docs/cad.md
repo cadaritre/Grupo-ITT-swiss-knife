@@ -55,7 +55,18 @@ La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` d
   plano cambió o se perdió el bloqueo, responde 409 y se ofrece «Guardar como copia». Nada se pisa.
 - «Sin guardar» sale de la revisión del dibujo en el editor (`op: state`, cada segundo) contra la del último guardado.
 - Bloqueo con latido (30 s; caduca a los 90), borrador de recuperación cada 2 minutos con cambios, sin el aviso «¿Abandonar el sitio?».
-- En el teléfono (pantalla ≤ 767 px y puntero táctil) los planos se abren para ver.
+- En el teléfono (pantalla ≤ 767 px y puntero táctil) los planos se abren para ver, salvo con el «Modo táctil» encendido (abajo).
+- **Si no se puede guardar** (biblioteca llena, plano demasiado grande, servidor caído, sin red) el aviso ofrece «Descargar mis cambios»
+  (también en la hoja de conflicto): los bytes del editor bajan a este equipo con el nombre del plano. Nada se da por guardado.
+- **Si la sesión termina** (cerrarla en otra pestaña, la revoca quien administra) la página no se recarga: una franja fija dice que hay que
+  entrar de nuevo en otra pestaña, el latido se pausa y se ofrece descargar los cambios; al volver a la pestaña con sesión, todo sigue.
+- **Borrador pendiente**: mientras el aviso «Tienes cambios sin guardar de la última vez» no se resuelve, no se guardan borradores nuevos
+  (pisarían ese); al primer cambio una hoja pide elegir: recuperarlos, descartarlos o guardarlos como copia.
+- **Bloqueo retomado tras dormir**: si el latido vuelve a tomar el bloqueo y el plano tiene una versión nueva de otra persona, se suelta el
+  bloqueo, se dice quién guardó y lo de aquí se guarda como copia (o «Editar ahora» abre la versión nueva).
+- **Copias en el navegador**: el editor guarda una copia de cada plano que abre (sus «recientes»), su autoguardado y los nombres de su
+  sesión en el almacenamiento del navegador. Herramientas los borra al arrancar el editor (antes de cargarlo), al salir de la página del
+  plano, al cargar cualquier otra página de Herramientas y al cerrar sesión (`cad/editor/arranque.js`, `static/herramientas/cad/sesion.js`).
 
 ## Extensiones de la página: `window.TVCad`
 
@@ -78,6 +89,51 @@ La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` d
 
 El canal (`?automation=1`) solo se alcanza desde el mismo origen: el editor vive en un marco de `tools.tresvizo.com`, su CSP pone
 `frame-ancestors 'self'` y el navegador no deja que otro origen toque el marco.
+
+## Modo táctil (teléfono y tableta) — detrás de `TV_CAD_TACTIL`
+
+Apagado por omisión (`settings.TV_CAD_TACTIL` o la variable de entorno del mismo nombre: «1»). Apagado, nada cambia: la página del plano es
+la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` y `/cad/tactil/paquete/` responden 404 (`cad/tactil.py`).
+
+- **Qué es.** Una capa táctil en nuestra página (`static/herramientas/cad/tactil.{js,css}`, `templates/herramientas/cad/tactil.html`) encima
+  del editor, que lo maneja por su canal de control (`window.TVCad`). El editor dibuja; la página (`editor.js`) sigue siendo la dueña de
+  guardar, versiones, bloqueo y borradores. Diseño (a) de la compuerta del 15-11-2026.
+- **Cuándo.** Interruptor «Modo táctil» en la cabecera del plano, recordado por dispositivo (`localStorage tv.cad.tactil`); la primera vez en
+  un dispositivo solo táctil abre ya en modo táctil. «Más › Modo completo» vuelve al editor de siempre sin recargar el plano.
+- **Gestos.** Un dedo mueve; dos dedos acercan alrededor de los dedos; doble toque = ver todo; mantener pulsado = el puntero; tocar =
+  elegir un objeto; «Seleccionar área» = ventana (izquierda → derecha, lo que queda dentro; al revés, lo que toca). Durante el gesto el
+  marco del editor se mueve en el compositor del navegador y al soltar un `ZOOM W` exacto (f64) lo deja donde se ve.
+- **Puntero con desfase.** La punta queda 88 px arriba del asa (96 en tableta; a la izquierda para zurdos). Referencias del editor
+  (`op: snap`, con `from` para la perpendicular), lectura X/Y y Δ/azimut desde el último punto, «Poner punto» para confirmar.
+- **Herramientas (cada figura o edición, un paso de deshacer):** polilínea, línea, rectángulo, círculo (centro y radio, o radio escrito),
+  círculo por coordenada, arco por 3 puntos, punto y punto por coordenada, perpendicular, texto, cotas horizontal/vertical y alineada;
+  borrar, mover, copiar, girar (por puntos o ángulo), desfasar (línea, polilínea, círculo, arco), capa y color; medir coordenadas,
+  distancia, distancia continua, área y perímetro (por puntos o de un objeto cerrado), ángulo, longitud, info del objeto; decimales 0–4.
+  Capas: actual, encender/apagar, apagar las demás, encender todas, como estaban, nueva; color de lo nuevo (ACI, por capa, por bloque).
+  Modelo y presentaciones (en una presentación solo se ve y se mide).
+- **Hoja numérica propia** (el teclado del sistema no trae signo menos en iOS y tapa medio plano): coordenadas, distancia y azimut desde el
+  último punto, radio, ángulo, altura de texto.
+- **Área de dibujo siempre oscura** (decisión del dueño): lo claro del plano se lee bien; la interfaz alrededor sigue el tema de la cuenta.
+- **El marco del editor** en modo táctil: solo el área de dibujo, con la opción «solo lienzo» del editor (op `canvas_only`, o
+  `?canvas=1` en la página sin conexión; build tv-v2026.45-6). Es un estado de la sesión que el editor no guarda: el editor completo del
+  mismo dispositivo queda como estaba. Ocultar sus barras con órdenes (MENUBAR, FILETAB, COMMANDLINEHIDE) sí quedaría guardado: no se usa.
+  Al soltar un gesto, `view_set` (centro y altura en f64) deja la vista donde se ve.
+
+## CAD sin conexión (teléfono) — detrás de `TV_CAD_TACTIL`
+
+- **El editor, una vez por versión.** «Más › Sin conexión › Descargar CAD en este teléfono» (≈ 39 MB con compresión, 123 MB guardados; sin las letras chinas, japonesas y coreanas, que se bajan solas con conexión si un plano las usa),
+  solo en la app instalada (iOS borra lo de un sitio no instalado a los 7 días sin uso) y con `navigator.storage.persist()`. Cache Storage
+  `itt-cad-editor-<versión>`; `/cad/tactil/paquete/` da la lista (ruta, SHA-256, tamaño y tamaño comprimido, del `MANIFIESTO.json`).
+  Al cambiar la versión fijada se baja solo lo que cambió (lo de igual SHA-256 se copia de la versión anterior) y la anterior se borra. La
+  versión instalada se lee de la propia caché: también sin conexión. Las páginas de campo que no usan CAD nunca bajan el editor.
+- **El service worker** (`offline/sw_cad.js`, agregado por `sw.py` solo con el ajuste) sirve el editor descargado, abre la página sin
+  conexión al navegar a `/cad/…` sin señal y sus estilos y scripts desde `itt-cad-pagina`. Nunca guarda planos ni páginas con datos.
+- **«Disponible sin conexión» por plano** (base `tv-cad-campo` de IndexedDB, de la cuenta): llevarlo **no** toma el bloqueo. Sin conexión
+  se ve, se mide y se dibuja en `/cad/sin-conexion/`; lo cambiado queda como «cambios en el teléfono», nunca una versión. Con conexión:
+  versión nueva solo si la del servidor sigue siendo la base y nadie tiene el bloqueo; si no, una copia. El servidor lo exige igual.
+- **Cerrar sesión**: las copias de planos se borran; los cambios sin subir no se pierden sin avisar (se ofrece descargarlos; si se sale
+  igual, quedan ocultos en el teléfono hasta que vuelva a entrar la misma cuenta). Con la sesión cerrada la página sin conexión no muestra
+  nada. Al quitar el CAD del teléfono se borra el editor; un plano con cambios sin subir no se puede quitar.
 
 ## Espacio, archivos que faltan y autoría
 

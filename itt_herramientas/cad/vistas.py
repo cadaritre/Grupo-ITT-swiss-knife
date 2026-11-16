@@ -27,7 +27,7 @@ from ..comun import zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
 from ..civil import pagina as civil_pagina
-from . import editor, fuentes, nativo, salidas, servicio
+from . import editor, fuentes, nativo, salidas, servicio, tactil
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
 editar = requiere_rol("herramientas", "cad", "admin")
@@ -164,7 +164,7 @@ def lista(request):
         "limite_bytes": servicio.limites()["bytes"], "limite_mb": servicio.limites()["bytes"] // (1024 * 1024), "maximo_zip": zips.MAXIMO,
         "drive": _drive_disponible(usuario), "espacio": servicio.espacio(),
         # Declara el campo para que la subida lo mande; el navegador lo llena con lo que se escriba en «Proyecto o cliente».
-        "meta_subida": {"proyecto": ""}}))
+        "meta_subida": {"proyecto": ""}, "tactil": tactil.activo()}))
 
 
 def _drive_disponible(usuario) -> bool:
@@ -240,6 +240,8 @@ def plano(request, pk):
         "autoguardado_s": int(getattr(settings, "HERRAMIENTAS_CAD_AUTOGUARDADO_S", 120)), "latido_s": int(getattr(settings, "HERRAMIENTAS_CAD_LATIDO_S", 30)),
         "nativo": nativo.disponible(), "puente": bool(editor.upstream().get("puente")),
         "fuentes": fuentes.para_editor(),
+        # Modo táctil (teléfono y tableta): solo con el ajuste TV_CAD_TACTIL encendido; si no, `None` y la página es la de siempre.
+        "tactil": tactil.config_de_pagina(usuario),
     }
     return _privado(render(request, "herramientas/cad/plano.html", {
         "p": p, "v": v, "config": config, "versiones": _versiones(p), "puede_editar": puede, "es_admin": servicio.es_admin(usuario),
@@ -249,7 +251,8 @@ def plano(request, pk):
         "editor_listo": editor.disponible() and not sin_archivo, "sin_archivo": sin_archivo,
         "versiones_max": servicio.limites()["versiones"], "versiones_minimas": servicio.VERSIONES_MINIMAS,
         # Civil (topografía) solo dibuja: aparece para quien puede editar, en la versión vigente y con el editor disponible.
-        "civil": civil_pagina.contexto(p) if puede and v is None and editor.disponible() and not sin_archivo else None}))
+        "civil": civil_pagina.contexto(p) if puede and v is None and editor.disponible() and not sin_archivo else None,
+        "tactil": bool(config["tactil"])}))
 
 
 @ver

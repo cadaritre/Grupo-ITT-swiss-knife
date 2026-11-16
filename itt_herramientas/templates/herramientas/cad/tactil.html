@@ -1,0 +1,122 @@
+{% load tv %}{# CAD · «Modo táctil»: la capa táctil sobre el editor (static/herramientas/cad/tactil.js). Se incluye en plano.html y en sin_conexion.html solo con TV_CAD_TACTIL encendido. Nada de esto se ve fuera del modo táctil. #}
+<div class="tt" id="tt" hidden data-estado="cargando">
+  <header class="tt-barra" role="toolbar" aria-label="Plano">
+    <button type="button" class="tt-ib" id="tt-cerrar" aria-label="Cerrar el plano">{% icono "x" %}</button>
+    <div class="tt-titulo"><strong id="tt-nombre"></strong><span class="tt-sub" id="tt-sub"><span class="tt-punto" aria-hidden="true"></span><span id="tt-sub-texto">Abriendo…</span></span></div>
+    <button type="button" class="tt-ib" id="tt-deshacer" aria-label="Deshacer" disabled>{% icono "undo-2" %}</button>
+    <button type="button" class="tt-ib" id="tt-rehacer" aria-label="Rehacer" disabled>{% icono "redo-2" %}</button>
+    <button type="button" class="tt-ib tt-ib--primario" id="tt-guardar" aria-label="Guardar" disabled>{% icono "save" %}</button>
+    <button type="button" class="tt-ib" id="tt-mas" aria-label="Más acciones" aria-haspopup="dialog">{% icono "ellipsis" %}</button>
+  </header>
+
+  <div class="tt-zona" id="tt-zona">
+    <div class="tt-capa" id="tt-capa" role="application" aria-label="Plano. Un dedo mueve, dos dedos acercan, mantén pulsado para el puntero."></div>
+    <svg class="tt-svg" id="tt-svg" aria-hidden="true">
+      <g id="tt-sel"></g>
+      <rect id="tt-ventana" class="tt-ventana" x="0" y="0" width="0" height="0" visibility="hidden"/>
+      <g id="tt-previa" class="tt-previa"></g>
+      <g id="tt-vertices"></g>
+      <g id="tt-puntero" class="tt-puntero" visibility="hidden">
+        <line id="tt-astil" class="tt-astil" x1="0" y1="0" x2="0" y2="0"/>
+        <g id="tt-mira" class="tt-mira"><line x1="-15" y1="0" x2="-5" y2="0"/><line x1="5" y1="0" x2="15" y2="0"/><line x1="0" y1="-15" x2="0" y2="-5"/><line x1="0" y1="5" x2="0" y2="15"/><circle r="1.8"/></g>
+        <g id="tt-marca" class="tt-marca" visibility="hidden"><path id="tt-marca-forma" d=""/></g>
+        <circle id="tt-asa" class="tt-asa" r="26" cx="0" cy="0"/>
+        <path id="tt-asa-flecha" class="tt-asa-flecha" d=""/>
+      </g>
+    </svg>
+    <div class="tt-guia" id="tt-guia" hidden></div>
+    <div class="tt-lectura" id="tt-lectura" hidden>
+      <span class="tt-lectura__snap" id="tt-lectura-snap" hidden></span>
+      <span class="tt-lectura__xy"><span class="tt-et">X</span><span id="tt-x">—</span></span>
+      <span class="tt-lectura__xy"><span class="tt-et">Y</span><span id="tt-y">—</span></span>
+      <span class="tt-lectura__delta" id="tt-delta" hidden></span>
+    </div>
+    <div class="tt-tarjeta" id="tt-tarjeta" role="status" hidden>
+      <div class="tt-tarjeta__cabeza"><strong id="tt-tarjeta-titulo"></strong><button type="button" class="tt-ib tt-ib--chico" id="tt-tarjeta-cerrar" aria-label="Cerrar">{% icono "x" %}</button></div>
+      <dl class="tt-tarjeta__datos" id="tt-tarjeta-datos"></dl>
+      <div class="tt-tarjeta__acciones"><button type="button" class="tt-boton tt-boton--secundario" id="tt-tarjeta-copiar">{% icono "copy" %}<span>Copiar</span></button></div>
+    </div>
+    <div class="tt-aviso" id="tt-aviso" role="status" aria-live="polite" hidden></div>
+    <div class="tt-nota" id="tt-nota" hidden><p id="tt-nota-texto"></p><div class="tt-nota__acciones" id="tt-nota-acciones"></div></div>
+  </div>
+
+  <div class="tt-abajo" id="tt-abajo">
+    <nav class="tt-pestanas" id="tt-pestanas" aria-label="Herramientas">
+      <button type="button" data-grupo="dibujar" aria-haspopup="dialog" aria-expanded="false">{% icono "pen-line" %}<span>Dibujar</span></button>
+      <button type="button" data-grupo="editar" aria-haspopup="dialog" aria-expanded="false">{% icono "move" %}<span>Editar</span></button>
+      <button type="button" data-grupo="medir" aria-haspopup="dialog" aria-expanded="false">{% icono "ruler" %}<span>Medir</span></button>
+      <button type="button" data-grupo="cota" aria-haspopup="dialog" aria-expanded="false">{% icono "ruler-dimension-line" %}<span>Cota</span></button>
+      <button type="button" data-grupo="texto" aria-haspopup="dialog" aria-expanded="false">{% icono "type" %}<span>Texto</span></button>
+      <button type="button" data-grupo="capas" aria-haspopup="dialog" aria-expanded="false">{% icono "layers" %}<span>Capas</span></button>
+    </nav>
+
+    <div class="tt-accion" id="tt-accion" hidden>
+      <div class="tt-accion__fila">
+        <button type="button" class="tt-boton tt-boton--fantasma" id="tt-cancelar">{% icono "x" %}<span>Cancelar</span></button>
+        <button type="button" class="tt-boton tt-boton--secundario" id="tt-coord">{% icono "hash" %}<span id="tt-coord-texto">Coordenada</span></button>
+        <button type="button" class="tt-boton tt-boton--secundario" id="tt-atras" disabled>{% icono "undo-2" %}<span>Punto</span></button>
+        <button type="button" class="tt-boton tt-boton--secundario" id="tt-cerrar-figura" hidden>{% icono "square-dashed" %}<span>Cerrar</span></button>
+        <button type="button" class="tt-boton" id="tt-terminar" disabled>{% icono "check" %}<span>Terminar</span></button>
+        <button type="button" class="tt-boton tt-boton--confirmar" id="tt-confirmar">{% icono "plus" %}<span id="tt-confirmar-texto">Poner punto</span></button>
+      </div>
+    </div>
+
+    <div class="tt-seleccion" id="tt-seleccion" hidden>
+      <div class="tt-seleccion__cabeza"><strong id="tt-seleccion-cuenta"></strong><button type="button" class="tt-ib tt-ib--chico" id="tt-seleccion-quitar" aria-label="Quitar la selección">{% icono "x" %}</button></div>
+      <div class="tt-seleccion__fila" id="tt-seleccion-fila">
+        <button type="button" class="tt-chip" data-editar="mover">{% icono "move" %}<span>Mover</span></button>
+        <button type="button" class="tt-chip" data-editar="copiar">{% icono "copy" %}<span>Copiar</span></button>
+        <button type="button" class="tt-chip" data-editar="girar">{% icono "rotate-cw" %}<span>Girar</span></button>
+        <button type="button" class="tt-chip" data-editar="desfasar"><svg class="tv-icono" viewBox="0 0 24 24" aria-hidden="true"><use href="#tt-s-desfasar"/></svg><span>Desfasar</span></button>
+        <button type="button" class="tt-chip" data-editar="propiedades">{% icono "palette" %}<span>Capa y color</span></button>
+        <button type="button" class="tt-chip" data-editar="info">{% icono "info" %}<span>Info</span></button>
+        <button type="button" class="tt-chip tt-chip--peligro" data-editar="borrar">{% icono "trash-2" %}<span>Borrar</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tt-hoja" id="tt-hoja" hidden role="dialog" aria-modal="false" aria-labelledby="tt-hoja-titulo">
+  <div class="tt-hoja__asa" aria-hidden="true"></div>
+  <div class="tt-hoja__cabeza"><h2 id="tt-hoja-titulo"></h2><button type="button" class="tt-ib tt-ib--chico" data-tt-cerrar aria-label="Cerrar">{% icono "x" %}</button></div>
+  <div class="tt-hoja__cuerpo" id="tt-hoja-cuerpo"></div>
+</div>
+
+<div class="tt-hoja tt-hoja--numerica" id="tt-num" hidden role="dialog" aria-modal="true" aria-labelledby="tt-num-titulo">
+  <div class="tt-hoja__asa" aria-hidden="true"></div>
+  <div class="tt-hoja__cabeza"><h2 id="tt-num-titulo"></h2><button type="button" class="tt-ib tt-ib--chico" id="tt-num-cerrar" aria-label="Cerrar">{% icono "x" %}</button></div>
+  <div class="tt-num__cuerpo">
+    <div class="tt-num__lado">
+      <div class="tt-campos" id="tt-campos"></div>
+      <div class="tt-texto-campo" id="tt-texto-campo" hidden><label for="tt-texto">Texto</label><input id="tt-texto" type="text" maxlength="250" autocomplete="off" enterkeyhint="done"></div>
+      <p class="tt-num__error" id="tt-num-error" role="alert" hidden></p>
+    </div>
+    <div class="tt-teclado" id="tt-teclado">
+      <button type="button" data-t="7">7</button><button type="button" data-t="8">8</button><button type="button" data-t="9">9</button><button type="button" data-t="borrar" aria-label="Borrar">{% icono "delete" %}</button>
+      <button type="button" data-t="4">4</button><button type="button" data-t="5">5</button><button type="button" data-t="6">6</button><button type="button" data-t="signo" aria-label="Cambiar el signo">±</button>
+      <button type="button" data-t="1">1</button><button type="button" data-t="2">2</button><button type="button" data-t="3">3</button><button type="button" data-t="siguiente" class="tt-teclado__sig">Siguiente</button>
+      <button type="button" data-t="0" class="tt-teclado__cero">0</button><button type="button" data-t=".">.</button><button type="button" data-t="listo" class="tt-teclado__listo" id="tt-num-listo">Listo</button>
+    </div>
+  </div>
+</div>
+<div class="tt-velo" id="tt-velo" hidden></div>
+
+{# Iconos que tactil.js pone en las hojas (Lucide por {% icono %} y los propios de dibujo). #}
+<div id="tt-iconos" hidden><span data-tt-icono="pen-line">{% icono "pen-line" %}</span><span data-tt-icono="minus">{% icono "minus" %}</span><span data-tt-icono="circle">{% icono "circle" %}</span><span data-tt-icono="circle-dot">{% icono "circle-dot" %}</span><span data-tt-icono="locate-fixed">{% icono "locate-fixed" %}</span><span data-tt-icono="type">{% icono "type" %}</span><span data-tt-icono="ruler">{% icono "ruler" %}</span><span data-tt-icono="move">{% icono "move" %}</span><span data-tt-icono="copy">{% icono "copy" %}</span><span data-tt-icono="rotate-cw">{% icono "rotate-cw" %}</span><span data-tt-icono="trash-2">{% icono "trash-2" %}</span><span data-tt-icono="palette">{% icono "palette" %}</span><span data-tt-icono="info">{% icono "info" %}</span><span data-tt-icono="layers">{% icono "layers" %}</span><span data-tt-icono="eye">{% icono "eye" %}</span><span data-tt-icono="eye-off">{% icono "eye-off" %}</span><span data-tt-icono="plus">{% icono "plus" %}</span><span data-tt-icono="check">{% icono "check" %}</span><span data-tt-icono="star">{% icono "star" %}</span><span data-tt-icono="history">{% icono "history" %}</span><span data-tt-icono="maximize">{% icono "maximize" %}</span><span data-tt-icono="scan">{% icono "scan" %}</span><span data-tt-icono="layout-template">{% icono "layout-template" %}</span><span data-tt-icono="crosshair">{% icono "crosshair" %}</span><span data-tt-icono="hand">{% icono "hand" %}</span><span data-tt-icono="monitor">{% icono "monitor" %}</span><span data-tt-icono="download">{% icono "download" %}</span><span data-tt-icono="cloud-download">{% icono "cloud-download" %}</span><span data-tt-icono="cloud-off">{% icono "cloud-off" %}</span><span data-tt-icono="smartphone">{% icono "smartphone" %}</span><span data-tt-icono="file-stack">{% icono "file-stack" %}</span><span data-tt-icono="radius">{% icono "radius" %}</span><span data-tt-icono="arrow-left-right">{% icono "arrow-left-right" %}</span><span data-tt-icono="lock-open">{% icono "lock-open" %}</span><span data-tt-icono="scissors">{% icono "scissors" %}</span><span data-tt-icono="mouse-pointer-2">{% icono "mouse-pointer-2" %}</span><span data-tt-icono="square-dashed">{% icono "square-dashed" %}</span><span data-tt-icono="hard-drive-download">{% icono "hard-drive-download" %}</span><span data-tt-icono="wifi-off">{% icono "wifi-off" %}</span></div>
+<svg width="0" height="0" class="tt-simbolos" aria-hidden="true" focusable="false">
+  <symbol id="tt-s-polilinea" viewBox="0 0 24 24"><path d="M3 19 8 8l6 7 7-11"/><circle cx="3" cy="19" r="1.6"/><circle cx="8" cy="8" r="1.6"/><circle cx="14" cy="15" r="1.6"/><circle cx="21" cy="4" r="1.6"/></symbol>
+  <symbol id="tt-s-linea" viewBox="0 0 24 24"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.6"/><circle cx="20" cy="4" r="1.6"/></symbol>
+  <symbol id="tt-s-rectangulo" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx=".5"/><circle cx="3" cy="18" r="1.6"/><circle cx="21" cy="6" r="1.6"/></symbol>
+  <symbol id="tt-s-circulo" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 12h8"/><circle cx="12" cy="12" r="1.3"/></symbol>
+  <symbol id="tt-s-circuloxy" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v10M7 12h10"/></symbol>
+  <symbol id="tt-s-arco" viewBox="0 0 24 24"><path d="M4 18A10 10 0 0 1 20 12"/><circle cx="4" cy="18" r="1.6"/><circle cx="10.5" cy="8.6" r="1.6"/><circle cx="20" cy="12" r="1.6"/></symbol>
+  <symbol id="tt-s-punto" viewBox="0 0 24 24"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><circle cx="12" cy="12" r="2.2"/></symbol>
+  <symbol id="tt-s-perpendicular" viewBox="0 0 24 24"><path d="M3 20h18M12 20V5M12 15h5v5"/><circle cx="12" cy="5" r="1.6"/></symbol>
+  <symbol id="tt-s-desfasar" viewBox="0 0 24 24"><path d="M4 18 10 8h10"/><path d="M4 13l3-5h13" stroke-dasharray="2.5 2.5"/></symbol>
+  <symbol id="tt-s-cota" viewBox="0 0 24 24"><path d="M4 6v12M20 6v12M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3"/></symbol>
+  <symbol id="tt-s-cota-alineada" viewBox="0 0 24 24"><path d="m3 15 6 6M15 3l6 6M6 18 18 6M6 13.5 6 18l4.5 0M18 10.5 18 6l-4.5 0"/></symbol>
+  <symbol id="tt-s-area" viewBox="0 0 24 24"><path d="M4 18 6 6l9-2 5 9-6 7z" fill="currentColor" fill-opacity=".18"/></symbol>
+  <symbol id="tt-s-angulo" viewBox="0 0 24 24"><path d="M20 19H4L15 5"/><path d="M10 19a6 6 0 0 0-2.3-4.7"/></symbol>
+  <symbol id="tt-s-continua" viewBox="0 0 24 24"><path d="M3 18 8 9l5 6 8-10"/><path d="M3 22h18" stroke-dasharray="2 2"/></symbol>
+  <symbol id="tt-s-arco-largo" viewBox="0 0 24 24"><path d="M4 18A10 10 0 0 1 20 18"/><path d="M4 22h16" stroke-dasharray="2 2"/></symbol>
+</svg>

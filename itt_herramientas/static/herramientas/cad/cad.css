@@ -185,3 +185,8 @@
 .cad-fuentes__acciones { display: flex; gap: var(--tv-espacio-1); justify-content: flex-end; flex-wrap: wrap; }
 .cad-fuentes__acciones form { margin: 0; }
 .cad-fuentes__reemplazar label { cursor: pointer; }
+
+/* Lista: «N planos en este teléfono» (CAD sin conexión, solo con TV_CAD_TACTIL) */
+.cad-campo-tarjeta { text-decoration: none; color: inherit; margin: 0 0 var(--tv-espacio-4); min-height: 44px; }
+.cad-campo-tarjeta[hidden] { display: none; }
+.cad-campo-tarjeta:hover p { text-decoration: underline; }

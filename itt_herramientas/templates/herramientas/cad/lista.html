@@ -15,6 +15,7 @@
 {% endif %}{% if es_admin %}<a class="tv-boton tv-boton--fantasma" href="{% url 'herramientas:cad_fuentes' %}" id="cad-boton-fuentes">{% icono "type" %}<span>Fuentes</span></a>{% endif %}{% endblock %}
 {% block cuerpo %}
 <div class="cad" id="cad">
+{% if tactil %}<a class="cad-aviso cad-campo-tarjeta" data-tipo="info" id="cad-campo-tarjeta" href="{% url 'herramientas:cad_sin_conexion' %}" hidden>{% icono "smartphone" %}<p id="cad-campo-tarjeta-texto"></p></a>{% endif %}
 {% if puede_editar %}
 <section class="cad-subir" id="cad-subir" aria-labelledby="cad-subir-titulo" hidden>
   <h2 id="cad-subir-titulo" class="tv-solo-lectores">Subir planos</h2>
@@ -114,5 +115,6 @@
 {% block scripts %}
 <script src="{% static 'herramientas/offline/combobox.js' %}"></script>
 {{ proyectos|json_script:"cad-proyectos" }}
+{% if tactil %}<script src="{% static 'herramientas/cad/campo.js' %}"></script>{% endif %}
 <script src="{% static 'herramientas/cad/lista.js' %}" id="cad-script" data-url-tarea="{% url 'tvplataforma:tarea' '00000000-0000-0000-0000-000000000000' %}"></script>
 {% endblock %}

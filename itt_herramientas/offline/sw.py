@@ -59,8 +59,19 @@ def version() -> str:
     return resumen.hexdigest()[:12]
 
 
+def _cad() -> str:
+    """CAD sin conexión (solo con TV_CAD_TACTIL encendido): con el ajuste apagado el service worker queda igual byte a byte."""
+    from ..cad import tactil
+
+    return (AQUI / "sw_cad.js").read_text(encoding="utf-8") if tactil.activo() else ""
+
+
 def contenido() -> str:
     plantilla = (AQUI / "sw.js.tpl").read_text(encoding="utf-8")
-    return (plantilla.replace("__VERSION__", version())
+    cad = _cad()
+    if cad:
+        plantilla = plantilla.replace("importScripts(...__SCRIPTS_SW__);", "importScripts(...__SCRIPTS_SW__);\n\n" + cad, 1)
+    version_sw = version() if not cad else hashlib.sha256((version() + cad).encode()).hexdigest()[:12]
+    return (plantilla.replace("__VERSION__", version_sw)
             .replace("__ACTIVOS__", json.dumps([static(f"herramientas/{a}") for a in ACTIVOS] + [static(f"tvplataforma/{a}") for a in ACTIVOS_PLATAFORMA]))
             .replace("__SCRIPTS_SW__", json.dumps([static(f"herramientas/{a}") for a in SCRIPTS_SW])))

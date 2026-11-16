@@ -17,7 +17,8 @@
   const espera = (ms) => new Promise((r) => setTimeout(r, ms));
   const frame = $("cad-editor");
   const SESION = (() => { const b = new Uint8Array(18); crypto.getRandomValues(b); return btoa(String.fromCharCode(...b)).replace(/[+/=]/g, (c) => ({ "+": "-", "/": "_", "=": "" }[c])); })();
-  const TELEFONO = matchMedia("(max-width: 767px) and (pointer: coarse)").matches;
+  // Sin el modo táctil (ajuste TV_CAD_TACTIL apagado), en el teléfono los planos solo se ven. Con él, el teléfono edita en modo táctil.
+  const TELEFONO = !C.tactil && matchMedia("(max-width: 767px) and (pointer: coarse)").matches;
 
   const e = {
     revision: C.revision, base: C.revision, formato: C.version_formato || C.formato, nombre: C.nombre,
@@ -836,6 +837,9 @@
   // Sugerencias de proyecto o cliente al renombrar.
   const proyectos = JSON.parse(($("cad-proyectos") || {}).textContent || "[]");
   if (window.ITT && ITT.combobox) document.querySelectorAll("[data-cad-proyectos]").forEach((i) => ITT.combobox(i, () => proyectos));
+
+  // Para el modo táctil y CAD sin conexión (campo.js): la sesión de esta página (dueña del bloqueo) y volver a abrir la versión vigente.
+  if (C.tactil) window.TVCadPagina = Object.freeze({ sesion: () => SESION, reabrir: () => (e.editable ? editarAhora(false) : location.reload()) });
 
   // -- Arranque -------------------------------------------------------------------------------------------------------------------
   refrescarEstado();
