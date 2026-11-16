@@ -22,6 +22,7 @@ def test_b7_la_espera_del_zip_termina_si_la_tarea_no_responde(navegar, crear_usu
         servicio.crear_vacio(ana, f"Predio {i}", "", "dwg")
     n = navegar(ana, motor)
     p = n.ir("/cad/")
+    esperar(p, "!!document.getElementById('cad-sel-zip')", 15000)
     tarea = "11111111-2222-3333-4444-555555555555"
     p.route("**/cad/zip/**", lambda r: r.fulfill(status=202, content_type="application/json",
                                                   body=json.dumps({"tarea": tarea, "terminada": False, "estado": "pendiente"})))
@@ -30,7 +31,12 @@ def test_b7_la_espera_del_zip_termina_si_la_tarea_no_responde(navegar, crear_usu
     p.locator("[data-cad-sel]").first.check()
     t = time.monotonic()
     p.locator("#cad-sel-zip").click()
-    esperar(p, "window.__avisos.some(a => a[1] === 'error')", 15000)
+    try:
+        esperar(p, "window.__avisos.some(a => a[1] === 'error')", 15000)
+    except AssertionError:
+        print("\nB-7:", p.evaluate("window.__avisos"), p.evaluate("document.getElementById('cad-zip-estado').textContent"),
+              p.evaluate("document.getElementById('cad-sel-zip').disabled"), n.errores, flush=True)
+        raise
     assert time.monotonic() - t < 15
     avisos = p.evaluate("window.__avisos")
     assert any("Se perdió el seguimiento" in a[0] for a in avisos), avisos
