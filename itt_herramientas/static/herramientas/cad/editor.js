@@ -703,12 +703,29 @@
   });
 
   // -- Tareas del servidor: imprimir y convertir ----------------------------------------------------------------------------
+  // La espera termina siempre (auditoría B-7): con dos respuestas seguidas que no son la tarea (404, 500, una página de error), con tres
+  // fallos de red seguidos o a los 10 minutos.
   async function esperarTarea(inicial, decir) {
-    let t = inicial;
+    let t = inicial, malas = 0, sinRed = 0;
+    const limite = Date.now() + 10 * 60 * 1000;
     while (!t.terminada) {
+      if (Date.now() > limite) throw new Error("Tardó demasiado. Inténtalo de nuevo más tarde.");
       await espera(1200);
-      const r = await pedir(`${C.urls.tarea.replace(MARCA, t.tarea || t.id)}?formato=json`);
-      t = { ...(await datos(r)), tarea: t.tarea || t.id };
+      let r;
+      try { r = await pedir(`${C.urls.tarea.replace(MARCA, t.tarea || t.id)}?formato=json`); }
+      catch (err) {
+        if (e.sinSesion) throw err;
+        if (++sinRed >= 3) throw new Error("Se perdió la conexión mientras se preparaba. Inténtalo de nuevo.");
+        continue;
+      }
+      sinRed = 0;
+      const d = r.ok ? await datos(r) : {};
+      if (!r.ok || typeof d.terminada !== "boolean") {
+        if (++malas >= 2) throw new Error("No se pudo saber cómo va. Inténtalo de nuevo.");
+        continue;
+      }
+      malas = 0;
+      t = { ...d, tarea: t.tarea || t.id };
       if (!t.terminada && decir) decir(`${t.mensaje || "Preparando…"} ${Math.round((t.fraccion || 0) * 100)} %`);
     }
     if (t.estado !== "completada") throw new Error(t.error || "No se pudo completar. Inténtalo de nuevo.");

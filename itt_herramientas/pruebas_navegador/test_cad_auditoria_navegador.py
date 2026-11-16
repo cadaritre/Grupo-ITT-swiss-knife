@@ -262,3 +262,23 @@ def test_guardar_y_salir_que_falla_no_deja_la_salida_programada(cad, navegar, cr
     p.wait_for_timeout(1500)
     assert p.url.rstrip("/").endswith(str(p0.pk))
     assert not n.errores, n.errores
+
+
+def test_la_espera_de_una_tarea_termina_si_el_servidor_no_responde_la_tarea(cad, navegar, crear_usuario, roles, settings):
+    """Auditoría B-7: con una página de error en lugar del estado de la tarea, «Descargar como…» avisa en vez de esperar para siempre."""
+    import json
+    import uuid
+
+    settings.HERRAMIENTAS_CAD_NATIVO = "/bin/sh"                              # el botón aparece; la tarea no llega a correr (ruta interceptada)
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Predio Norte", "", "dxf")
+    n = navegar(ana, "chromium")
+    tarea = str(uuid.uuid4())
+    n.contexto.route(f"**/cad/{p0.pk}/convertir/", lambda r: r.fulfill(status=202, content_type="application/json",
+                                                                          body=json.dumps({"tarea": tarea, "terminada": False})))
+    n.contexto.route(f"**/tareas/{tarea}/**", lambda r: r.fulfill(status=500, content_type="text/html", body="<h1>Error del servidor</h1>"))
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    p.locator("#cad-menu summary").click()
+    p.locator("#cad-convertir").click()
+    expect(p.locator("#tv-avisos")).to_contain_text("No se pudo saber cómo va", timeout=15000)
