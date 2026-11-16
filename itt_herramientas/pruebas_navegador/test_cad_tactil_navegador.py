@@ -156,6 +156,19 @@ def test_mover_acercar_y_ver_todo_son_exactos_en_utm(tactil, navegar, crear_usua
     assert not n.errores, n.errores
 
 
+@pytest.mark.parametrize("tam", ["telefono", "horizontal"])
+def test_al_abrir_se_ve_todo_lo_dibujado_con_margen(tactil, navegar, crear_usuario, roles, tam):
+    """iOS: en un plano chico el círculo salía cortado a la derecha al abrir. Se ajusta a la extensión real de los objetos."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_utm(ana)
+    n, p = abrir(navegar, ana, "chromium", tam=tam, p0=p0)
+    v = p.evaluate("TVCadTactil.vista()")
+    for x, y in ((X0 - 10, Y0 - 10), (X0 + 45, Y0 + 30), (X0 + 45, Y0 + 5), (X0 + 10, Y0 + 30)):   # esquinas de lo dibujado; borde del círculo
+        sx, sy = punto_en_pantalla(p, x, y)
+        assert v["ox"] + 4 < sx < v["ox"] + v["w"] - 4 and v["oy"] + 4 < sy < v["oy"] + v["h"] - 4, (x, y, sx, sy, v)
+    assert not n.errores, n.errores
+
+
 @pytest.mark.parametrize("motor", ["chromium", "webkit"])
 def test_puntero_con_referencias_polilinea_y_un_deshacer(tactil, navegar, crear_usuario, roles, motor):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")

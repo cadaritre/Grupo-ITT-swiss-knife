@@ -115,8 +115,36 @@
     })();
     return fijando.promesa;
   }
+  // Ver todo: la extensión real de lo dibujado en el modelo (la caja de cada objeto), con un margen, en el área que se ve. ZOOM Extensión
+  // del editor usa la extensión guardada en el plano, que puede quedar vieja o no venir (en un plano chico el círculo salía cortado).
+  async function extensionReal() {
+    let caja = null, offset = 0;
+    for (let i = 0; i < 30; i++) {
+      const r = await pedirSuave({ op: "query", detail: "full", fields: ["bounds", "space"], limit: 10000, offset }, 60000);
+      if (!r) return caja;
+      for (const e of lista(r)) {
+        if (e.space !== "*Model_Space") continue;
+        const c = cajaDe(e);
+        if (!c || !c.every(Number.isFinite)) continue;
+        caja = caja ? [Math.min(caja[0], c[0]), Math.min(caja[1], c[1]), Math.max(caja[2], c[2]), Math.max(caja[3], c[3])] : c.slice();
+      }
+      if (r.next_offset === null || r.next_offset === undefined) break;
+      offset = r.next_offset;
+    }
+    return caja;
+  }
   async function verTodo() {
-    try { await ejecutar("ZOOM E"); await pintado(); await leerVista(); } catch (_) { /* nada que ver */ }
+    try {
+      const caja = est.presentacion ? null : await extensionReal();
+      if (caja) {
+        const st = deEstado({}, await pedir({ op: "state" }));
+        const ancho = Math.max(caja[2] - caja[0], 1e-6), alto = Math.max(caja[3] - caja[1], 1e-6);
+        const altura = Math.max(alto, (ancho * st.h) / Math.max(1, st.w)) * 1.12;      // 6 % de margen por lado
+        const ok = await pedir({ op: "view_set", center: [(caja[0] + caja[2]) / 2, (caja[1] + caja[3]) / 2], height: altura }).then(() => true, () => false);
+        if (!ok) await ejecutar("ZOOM E");
+      } else await ejecutar("ZOOM E");
+      await pintado(); await leerVista();
+    } catch (_) { /* nada que ver */ }
     if (puntero.visible) consultarSnap();
   }
   // Lleva a la vista un punto (o caja) que quedó fuera, sin cambiar la escala salvo que no quepa.
@@ -599,9 +627,7 @@
       const st = window.TVCad.estado();
       est.editable = !!st.editable;
       await prepararEditor();
-      await pedirSuave({ op: "run", cmd: "ZOOM E" });
-      await pintado();
-      await leerVista();
+      await verTodo();
       await fijarVista();                // primer cuadro: el editor vuelve a pintar a su tamaño final (en vertical quedaba en blanco)
       listo = true;
       reflejarEstado();
