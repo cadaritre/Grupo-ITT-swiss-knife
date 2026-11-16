@@ -39,6 +39,9 @@
     <button type="button" class="tv-boton tv-boton--fantasma" id="cad-descartar-borrador">Descartar</button></div></div>
   <div class="cad-aviso" data-tipo="aviso" id="cad-aviso-fuentes" hidden>{% icono "type" %}<p id="cad-aviso-fuentes-texto"></p>
     <div class="cad-aviso__acciones"><a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_fuentes' %}">Revisar fuentes</a></div></div>
+  <div class="cad-aviso" data-tipo="error" id="cad-aviso-sesion" role="alert" hidden>{% icono "log-in" %}<p>Tu sesión terminó. Entra de nuevo en otra pestaña y vuelve aquí para guardar: tus cambios siguen en el editor.</p>
+    <div class="cad-aviso__acciones"><a class="tv-boton" href="{% url 'herramientas:cad' %}" target="_blank" rel="noopener" id="cad-entrar">{% icono "log-in" %}<span>Entrar de nuevo</span></a>
+    <button type="button" class="tv-boton tv-boton--secundario" data-cad-descargar-cambios hidden>{% icono "download" %}<span>Descargar mis cambios</span></button></div></div>
   <div class="cad-aviso" data-tipo="error" id="cad-aviso-error" role="alert" hidden>{% icono "triangle-alert" %}<p id="cad-aviso-error-texto"></p>
     <div class="cad-aviso__acciones" id="cad-aviso-error-acciones" hidden><button type="button" class="tv-boton tv-boton--secundario" data-cad-descargar-cambios>{% icono "download" %}<span>Descargar mis cambios</span></button></div></div>
 </div>

@@ -75,9 +75,40 @@
     if (json !== undefined) { opciones.headers["Content-Type"] = "application/json"; opciones.body = JSON.stringify(json); }
     else if (cuerpo !== undefined) opciones.body = cuerpo;
     const r = await fetch(url, opciones);
-    if (r.status === 401) { location.reload(); throw new Error("Tu sesión terminó. Vuelve a entrar."); }
+    if (r.status === 401) { sesionTerminada(); throw new Error("Tu sesión terminó. Entra de nuevo en otra pestaña y vuelve aquí para guardar."); }
     return r;
   }
+
+  // -- Sesión terminada (auditoría M-4) -----------------------------------------------------------------------------------------
+  // Nunca se recarga la página: se perdería lo que no alcanzó a entrar al borrador. Se avisa con una franja fija, se pausa el latido y
+  // se ofrece entrar en otra pestaña y descargar los cambios; al volver a esta pestaña con la sesión de nuevo, todo sigue como estaba.
+  function sesionTerminada() {
+    if (e.sinSesion) return;
+    e.sinSesion = true;
+    clearInterval(latido);
+    const caja = $("cad-aviso-sesion");
+    if (caja) {
+      caja.hidden = false;
+      const b = caja.querySelector("[data-cad-descargar-cambios]");
+      if (b) b.hidden = !(e.sucio || e.recuperado);
+    }
+  }
+  async function comprobarSesion() {
+    if (!e.sinSesion) return;
+    let r;
+    try { r = await fetch(`${C.urls.estado}?sesion=${SESION}`, { credentials: "same-origin", headers: { Accept: "application/json" } }); }
+    catch (_) { return; }                                                  // sin red: se vuelve a intentar al volver a la pestaña
+    if (r.status === 401 || !r.ok) return;
+    e.sinSesion = false;
+    const caja = $("cad-aviso-sesion"); if (caja) caja.hidden = true;
+    if (e.editable) {
+      latir();
+      try { const d = await bloqueo("latido"); if (d.perdido) perderBloqueo(d); } catch (_) { /* el latido sigue */ }
+    }
+    avisar("Sesión recuperada: ya puedes guardar.");
+  }
+  addEventListener("focus", comprobarSesion);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") comprobarSesion(); });
   async function datos(r) { try { return await r.json(); } catch (_) { return {}; } }
 
   // -- El editor: canal de control oficial (`?automation=1`) y, si la versión fijada lo trae, el puente `?embed=1` ---------------------
@@ -482,7 +513,7 @@
   function latir() {
     clearInterval(latido);
     latido = setInterval(async () => {
-      if (!e.editable) return;
+      if (!e.editable || e.sinSesion) return;
       try {
         const d = await bloqueo("latido");
         if (d.perdido) perderBloqueo(d);
