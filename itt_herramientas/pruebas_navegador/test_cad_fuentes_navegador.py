@@ -41,3 +41,24 @@ def test_la_fuente_txt_de_la_empresa_cambia_el_texto(cad, navegar, crear_usuario
     assert p.locator("#cad-aviso-fuentes").is_hidden()
     assert fuentes.FuenteCad.objects.get().error == ""
     assert not n.errores, n.errores
+
+
+def test_el_motivo_de_una_fuente_rechazada_va_en_espanol(cad, navegar, crear_usuario, roles):
+    """Auditoría B-9: el motivo que ve quien administra en «Fuentes» es un texto fijo en español, no el mensaje (en inglés) del editor."""
+    import re
+
+    jefa = _persona(crear_usuario, roles, "jefa", "Jefa Mora", "cad", "admin")
+    plano = servicio.crear_vacio(jefa, "Textos", "", "dxf")
+    fuentes.guardar("txt.shx", shx_de_prueba(), jefa)
+    n = navegar(jefa, "chromium")
+    # El servidor la aceptó, pero al navegador le llega un archivo que el editor no puede leer.
+    n.contexto.route(re.compile(r".*/cad/fuentes/txt\.shx/(\?.*)?$"), lambda r: r.fulfill(status=200, body=b"esto no es una fuente de dibujo" * 8))
+    p = n.ir(f"/cad/{plano.pk}/")
+    esperar_estado(p, "guardado")
+    esperar(p, "!document.getElementById('cad-aviso-fuentes').hidden", LARGO)
+    for _ in range(50):
+        f = fuentes.FuenteCad.objects.get()
+        if f.error:
+            break
+        p.wait_for_timeout(200)
+    assert f.error == "El editor no pudo leer este archivo de fuente."
