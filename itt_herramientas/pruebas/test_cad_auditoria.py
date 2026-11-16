@@ -378,3 +378,49 @@ def test_b10_la_lista_de_autores_es_una_consulta(cliente_de, ana, beto, django_a
     with django_assert_max_num_queries(1):
         autores = vistas._autores()
     assert [a["nombre"] for a in autores] == ["Ana", "Beto"]
+
+
+# -- M-8: los ZIP de planos tienen tope y van en la reserva de CAD -------------------------------------------------------------
+
+def test_m8_zip_de_planos_con_tope_uno_por_cuenta_y_en_cad(cliente_de, ana, sara, settings, monkeypatch):
+    import json
+    from pathlib import Path
+
+    from itt_herramientas.comun import zips
+
+    ids = [str(servicio.crear_vacio(ana, f"P{i}", "", "dwg").pk) for i in range(3)]
+    cl = cliente_de(sara)
+    for _ in range(4):                                            # la misma selección, cuatro veces
+        r = cl.post(url("cad_zip"), json.dumps({"elementos": ids}), content_type="application/json")
+        assert r.status_code == 202 and r.json()["estado"] == "completada", r.json()
+    assert not list((Path(settings.TV_HERRAMIENTAS_ARCHIVOS) / "zips").glob("*.zip"))   # nada en la reserva de Herramientas
+    hechos = list(servicio.carpeta_salidas().glob(f"{sara.pk}-*-planos.zip"))
+    assert len(hechos) == 1                                        # solo el último de la cuenta
+    assert cl.get(r.json()["resultado"]["url"]).status_code == 200
+    monkeypatch.setattr(zips, "MAX_BYTES_PLANOS", len(DWG) * 2)
+    r = cl.post(url("cad_zip"), json.dumps({"elementos": ids}), content_type="application/json")
+    assert r.status_code == 422 and "Elige menos planos" in r.json()["error"]
+
+
+def test_m8_los_zip_de_planos_viven_dos_horas(ana, sara):
+    import os
+    import time
+
+    from itt_herramientas.comun import zips
+
+    viejo = servicio.carpeta_salidas() / f"{sara.pk}-{'a' * 32}-planos.zip"
+    viejo.write_bytes(b"PK")
+    hace = time.time() - 3 * 3600
+    os.utime(viejo, (hace, hace))
+    assert zips.limpiar() >= 1 and not viejo.exists()
+
+
+# -- B-12: la subida usa un temporal propio --------------------------------------------------------------------------------------
+
+def test_b12_el_temporal_de_una_subida_es_unico():
+    import inspect
+
+    from itt_herramientas.cad import destinos
+
+    fuente = inspect.getsource(destinos.recibir)
+    assert "uuid.uuid4().hex" in fuente and "archivo.sha256[:16]" not in fuente

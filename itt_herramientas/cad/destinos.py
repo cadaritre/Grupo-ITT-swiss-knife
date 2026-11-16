@@ -1,6 +1,8 @@
 """Destino de subida `herramientas.cad_plano`: un DWG o DXF que entra a la biblioteca de planos como plano nuevo."""
 from __future__ import annotations
 
+import uuid
+
 from django.urls import reverse
 from tvplataforma.middleware import urlconf_de
 from tvplataforma.subidas import ErrorDeSubida, destino_subida
@@ -24,7 +26,8 @@ def recibir(archivo, metadatos, usuario):
         raise ErrorDeSubida("El archivo no es un DWG ni un DXF válido.")
     if formato != extension:
         raise ErrorDeSubida(f"El archivo dice ser {extension.upper()} pero es un {formato.upper()}. Corrige su extensión y vuelve a subirlo.")
-    temporal = servicio.carpeta_temporal() / f"subida-{archivo.sha256[:16]}-{usuario.pk}.tmp"
+    # nombre único: el mismo archivo subido dos veces a la vez no comparte temporal
+    temporal = servicio.carpeta_temporal() / f"subida-{uuid.uuid4().hex}.tmp"
     archivo.mover_a(temporal)
     try:
         p = servicio.crear(usuario, temporal, archivo.nombre, metadatos.get("proyecto") or "", {"tipo": "subida", "nombre": archivo.nombre})

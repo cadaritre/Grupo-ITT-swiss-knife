@@ -3,6 +3,9 @@
 El ZIP se arma en una tarea: los reportes sin PDF o con un PDF de una versión anterior se generan primero (con su avance) y
 cada PDF entra al ZIP desde el disco, uno a la vez, así la memoria no crece con el tamaño del lote. El archivo queda en
 `zips/` con el id de la cuenta que lo pidió (solo ella lo descarga) y se borra al día siguiente.
+
+Los ZIP de planos de CAD van en la reserva de CAD (`cad/salidas/`), no en la de Herramientas: pesan hasta `MAX_BYTES_PLANOS`, cada cuenta
+tiene uno a la vez (el anterior se borra al pedir otro) y viven `VIDA_HORAS_PLANOS`.
 """
 from __future__ import annotations
 
@@ -24,6 +27,9 @@ TIPOS = ("reporte", "cotizacion", "plano")
 PREFIJOS = {"reportes": "Reportes", "cotizaciones": "Cotizaciones", "documentos": "Documentos", "planos": "Planos"}
 _TOKEN = re.compile(r"^[0-9a-f]{32}$")
 VIDA_HORAS = 24
+#: Tope de un ZIP de planos (suma de las versiones vigentes) y su vida: 50 planos de 50 MB serían 2.5 GB en el disco de CAD.
+MAX_BYTES_PLANOS = 1024 ** 3
+VIDA_HORAS_PLANOS = 2
 
 
 class LoteInvalido(ErrorUsuario):
@@ -49,14 +55,18 @@ def validar_lote(elementos) -> list[tuple[str, str]]:
     return limpios
 
 
-def _carpeta() -> Path:
+def _carpeta(tipo: str = "") -> Path:
+    if tipo == "planos":
+        from ..cad import servicio as cad
+
+        return cad.carpeta_salidas()
     carpeta = capturas.raiz() / "zips"
     carpeta.mkdir(parents=True, exist_ok=True)
     return carpeta
 
 
 def ruta(cuenta_id: int, token: str, tipo: str) -> Path:
-    return _carpeta() / f"{cuenta_id}-{token}-{tipo}.zip"
+    return _carpeta(tipo) / f"{cuenta_id}-{token}-{tipo}.zip"
 
 
 def nuevo_token() -> str:
@@ -67,7 +77,7 @@ def de_la_cuenta(cuenta_id: int, token: str) -> tuple[Path, str] | None:
     """El ZIP `token` de ESTA cuenta y su nombre para descargarlo («Reportes 2026-11-14.zip»), o None."""
     if not _TOKEN.match(token or ""):
         return None
-    for archivo in _carpeta().glob(f"{int(cuenta_id)}-{token}-*.zip"):
+    for archivo in [*_carpeta().glob(f"{int(cuenta_id)}-{token}-*.zip"), *_carpeta("planos").glob(f"{int(cuenta_id)}-{token}-planos.zip")]:
         tipo = archivo.stem.rsplit("-", 1)[-1]
         fecha = timezone.localtime(timezone.datetime.fromtimestamp(archivo.stat().st_mtime, tz=timezone.get_current_timezone())).date()
         return archivo, f"{PREFIJOS.get(tipo, 'Documentos')} {fecha.isoformat()}.zip"
@@ -97,6 +107,10 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
     lote = validar_lote(elementos)
     usuario = get_user_model().objects.filter(pk=cuenta_id).first()
     destino = ruta(cuenta_id, token, tipo)
+    if tipo == "planos":                                           # uno a la vez por cuenta: el anterior se borra
+        for viejo in _carpeta("planos").glob(f"{int(cuenta_id)}-*-planos.zip"):
+            if viejo != destino:
+                viejo.unlink(missing_ok=True)
     temporal = destino.with_suffix(".tmp")
     usados: set[str] = set()
     omitidos: list[str] = []
@@ -162,17 +176,26 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
 
 
 def limpiar() -> int:
-    """`tv_limpiar` (diario): borra los ZIP de más de un día y los que quedaron a medias."""
-    carpeta = capturas.raiz() / "zips"
-    if not carpeta.is_dir():
-        return 0
-    limite = time.time() - VIDA_HORAS * 3600
+    """`tv_limpiar`: borra los ZIP de más de un día (los de planos, de más de `VIDA_HORAS_PLANOS`) y los que quedaron a medias."""
     n = 0
-    for archivo in carpeta.iterdir():
-        if archivo.suffix in (".zip", ".tmp") and archivo.stat().st_mtime < limite:
-            archivo.unlink(missing_ok=True)
-            n += 1
+    for carpeta, patron, horas in ((capturas.raiz() / "zips", "*", VIDA_HORAS), (_carpeta("planos"), "*-planos.*", VIDA_HORAS_PLANOS)):
+        if not carpeta.is_dir():
+            continue
+        limite = time.time() - horas * 3600
+        for archivo in carpeta.glob(patron):
+            if archivo.suffix in (".zip", ".tmp") and archivo.stat().st_mtime < limite:
+                archivo.unlink(missing_ok=True)
+                n += 1
     return n
+
+
+def _bytes_de_planos(lote) -> int:
+    from django.db.models import F, Sum
+
+    from ..models import VersionPlano
+
+    ids = [pk for clase, pk in lote if clase == "plano"]
+    return VersionPlano.objects.filter(plano_id__in=ids, plano__eliminado__isnull=True, numero=F("plano__revision")).aggregate(t=Sum("bytes"))["t"] or 0
 
 
 def responder(request, elementos, tipo: str, supervision: bool = False):
@@ -183,6 +206,8 @@ def responder(request, elementos, tipo: str, supervision: bool = False):
 
     try:
         lote = validar_lote(elementos)
+        if tipo == "planos" and _bytes_de_planos(lote) > MAX_BYTES_PLANOS:
+            raise LoteInvalido(f"Esos planos pesan más de {MAX_BYTES_PLANOS // 1024 ** 3} GB juntos. Elige menos planos y descárgalos en varias partes.")
     except LoteInvalido as exc:
         return JsonResponse({"error": str(exc)}, status=422)
     tarea = armar_zip.encolar(nuevo_token(), request.user.pk, [list(e) for e in lote], tipo, supervision, usuario=request.user)
