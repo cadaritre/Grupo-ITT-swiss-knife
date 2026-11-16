@@ -90,6 +90,16 @@ La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` d
 El canal (`?automation=1`) solo se alcanza desde el mismo origen: el editor vive en un marco de `tools.tresvizo.com`, su CSP pone
 `frame-ancestors 'self'` y el navegador no deja que otro origen toque el marco.
 
+## El tamaño del editor y «Pantalla completa»
+
+- El editor llega siempre hasta abajo de la ventana: su alto es lo que queda debajo de la cabecera, los avisos y la barra de Civil,
+  medido de verdad (`static/herramientas/cad/pantalla.js`); si lo de arriba no deja ni 360 px (teléfono), mide 360 y la página se desplaza.
+- **«Pantalla completa»** (botón en la cabecera del plano, Ctrl/⌘+Mayús+F, F11; también en «Más» del modo táctil): fuera el lateral,
+  la cabecera de Herramientas y los datos del plano. Quedan una tira con el nombre, el estado, Guardar, Versiones y «Salir de pantalla
+  completa», la barra de Civil y el editor en todo lo demás. Usa la pantalla completa del navegador donde existe; donde no (Safari de
+  iPhone), la página se maximiza dentro de la ventana. Esc sale. Se recuerda en el dispositivo (`localStorage tv.cad.completa`): al
+  volver se abre maximizado en la página, porque el navegador solo deja entrar a su pantalla completa con un toque o una tecla.
+
 ## Modo táctil (teléfono y tableta) — detrás de `TV_CAD_TACTIL`
 
 Apagado por omisión (`settings.TV_CAD_TACTIL` o la variable de entorno del mismo nombre: «1»). Apagado, nada cambia: la página del plano es

@@ -11,6 +11,7 @@
 <a class="tv-boton tv-boton--fantasma cad-volver" href="{% url 'herramientas:cad' %}" id="cad-volver">{% icono "arrow-left" %}<span>Planos</span></a>
 {% if puede_editar and not v %}<button type="button" class="tv-boton" id="cad-guardar" disabled>{% icono "save" %}<span>Guardar</span><kbd class="tv-tecla cad-tecla" data-tv-tecla-cmd>Ctrl S</kbd></button>{% endif %}
 {% if tactil and editor_listo %}<button type="button" class="tv-boton tv-boton--secundario cad-tactil-entrar" id="cad-tactil-entrar" hidden>{% icono "hand" %}<span>Modo táctil</span></button>{% endif %}
+{% if editor_listo %}<button type="button" class="tv-boton tv-boton--secundario cad-completa-boton" id="cad-completa" aria-pressed="false" data-tv-tooltip="Ctrl Mayús F"><span data-cad-completa-icono="entrar">{% icono "maximize" %}</span><span data-cad-completa-icono="salir" hidden>{% icono "minimize" %}</span><span data-cad-completa-texto>Pantalla completa</span></button>{% endif %}
 <button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-versiones" id="cad-boton-versiones">{% icono "history" %}<span>Versiones</span></button>
 <button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-imprimir" id="cad-boton-imprimir"{% if not nativo %} hidden{% endif %}>{% icono "printer" %}<span>Imprimir PDF</span></button>
 <details class="cad-menu" id="cad-menu">
@@ -159,6 +160,7 @@
 {{ config|json_script:"cad-config" }}
 <script src="{% static 'herramientas/cad/control.js' %}"></script>
 <script src="{% static 'herramientas/cad/editor.js' %}"></script>
+<script src="{% static 'herramientas/cad/pantalla.js' %}"></script>
 {% if tactil and editor_listo %}<script src="{% static 'herramientas/cad/campo.js' %}"></script>
 <script src="{% static 'herramientas/cad/tactil.js' %}"></script>{% endif %}
 {% block extensiones_cad %}{% if civil %}{% include "herramientas/cad/civil.html" %}{% endif %}{% endblock %}

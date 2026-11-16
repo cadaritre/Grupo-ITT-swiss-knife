@@ -115,7 +115,7 @@
 .cad-extensiones { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2); margin: 0 0 var(--tv-espacio-2); padding: var(--tv-espacio-1) var(--tv-espacio-2);
   border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); background: var(--tv-superficie); min-height: 52px; box-sizing: border-box; }
 .cad-extensiones[hidden] { display: none; }
-.cad-lienzo { position: relative; height: max(420px, calc(100dvh - 210px)); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); overflow: hidden;
+.cad-lienzo { position: relative; height: var(--cad-alto-editor, max(420px, calc(100dvh - 210px))); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); overflow: hidden;
   background: #1e1e1e; box-shadow: var(--tv-sombra-1); }
 .cad-lienzo iframe { display: block; width: 100%; height: 100%; border: 0; }
 .cad-lienzo__carga { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--tv-espacio-3);
@@ -123,7 +123,34 @@
 .cad-lienzo__carga[hidden] { display: none; }
 .cad-giro { width: 28px; height: 28px; border: 3px solid var(--tv-separador); border-top-color: var(--tv-primario); border-radius: 50%; animation: cad-giro .8s linear infinite; }
 @keyframes cad-giro { to { transform: rotate(360deg); } }
-@media (max-width: 599px) { .cad-lienzo { height: max(360px, calc(100dvh - 250px)); border-radius: var(--tv-radio); } }
+@media (max-width: 599px) { .cad-lienzo { height: var(--cad-alto-editor, max(360px, calc(100dvh - 250px))); border-radius: var(--tv-radio); } }
+
+/* -- Pantalla completa (pantalla.js): fuera el lateral, la cabecera y los datos del plano; quedan una tira con el nombre, el estado,
+   Guardar, Versiones y «Salir», la barra de Civil y el editor en todo lo demás. No aplica al modo táctil, que ya ocupa la ventana. -- */
+.cad-completa-boton [hidden] { display: none; }
+.cad-completa-boton > span { display: inline-flex; }
+html.cad-completa:not(.cad-tactil), html.cad-completa:not(.cad-tactil) body { height: 100%; overflow: hidden; }
+html.cad-completa:not(.cad-tactil) :is(.tv-lateral, .tv-cabecera, .tv-pie, .tv-velo, .tv-saltar, .tv-mensajes, #cad-subtitulo, #cad-autoria, #cad-volver,
+  #cad-boton-imprimir, #cad-menu, #cad-tactil-entrar, .cad-formato, .cad-tecla) { display: none !important; }
+html.cad-completa:not(.cad-tactil) body.tv-con-lateral { display: block; }       /* sin el lateral, su columna «max-content» encogía todo */
+html.cad-completa:not(.cad-tactil) body.tv-con-lateral .tv-cuerpo, html.cad-completa:not(.cad-tactil) .tv-cuerpo { margin: 0; padding: 0; max-width: none; min-height: 0; }
+html.cad-completa:not(.cad-tactil) .tv-principal { margin: 0; padding: 4px 6px 0; max-width: none; }
+html.cad-completa:not(.cad-tactil) .tv-encabezado { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--tv-espacio-2); margin: 0 0 4px;
+  padding: 0 2px; min-height: 44px; }
+html.cad-completa:not(.cad-tactil) .tv-encabezado__titulos { flex: 1 1 auto; min-width: 0; }
+html.cad-completa:not(.cad-tactil) .cad-titulo { flex-wrap: nowrap; }
+html.cad-completa:not(.cad-tactil) .cad-titulo h1 { font-size: var(--tv-texto-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html.cad-completa:not(.cad-tactil) .tv-acciones { flex: none; flex-wrap: nowrap; gap: var(--tv-espacio-1); }
+html.cad-completa:not(.cad-tactil) .tv-acciones .tv-boton { min-height: 36px; padding-block: 4px; }
+html.cad-completa:not(.cad-tactil) #cad-avisos { margin: 0 0 4px; }
+html.cad-completa:not(.cad-tactil) .cad-extensiones { margin: 0 0 4px; min-height: 44px; }
+html.cad-completa:not(.cad-tactil) .cad-lienzo { border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; box-shadow: none; margin: 0 -6px; }
+/* Teléfono: los botones de la tira solo con su icono (el texto queda para los lectores de pantalla) y el nombre se ve. */
+@media (max-width: 599px) {
+  html.cad-completa:not(.cad-tactil) :is(#cad-completa span[data-cad-completa-texto], #cad-boton-versiones > span, #cad-guardar > span) {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  html.cad-completa:not(.cad-tactil) .tv-acciones .tv-boton { padding-inline: 10px; }
+}
 
 /* Menú «Más acciones» */
 .cad-menu { position: relative; }

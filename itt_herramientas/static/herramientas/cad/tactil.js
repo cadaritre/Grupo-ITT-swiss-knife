@@ -1234,6 +1234,7 @@
     fila("Referencias a objetos", "crosshair", hojaReferencias);
     if (window.TVCadCampo) fila("Sin conexión", "cloud-download", () => window.TVCadCampo.hoja({ abrirHoja, nodo, boton, interruptor, aviso, icono, cerrarHojas }));
     if ($("cad-descargar")) fila("Descargar el plano", "download", () => $("cad-descargar").click());
+    if (window.TVCadPantalla) fila(window.TVCadPantalla.completa() ? "Salir de pantalla completa" : "Pantalla completa", "maximize", () => window.TVCadPantalla.alternar());
     if (!CAMPO) fila(TABLETA.matches ? "Modo completo" : "Modo completo (pensado para pantallas grandes)", "monitor", () => salir(true));
     const cont = nodo("div"); cont.append(...filas);
     cont.append(interruptor("Puntero para zurdos", pref.zurdo, (si) => { pref.zurdo = si; guardado.poner("zurdo", si); pintar(); }));
