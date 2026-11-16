@@ -279,31 +279,61 @@ def reconciliar(simular: bool = False) -> dict:
             "planos_ya": len(planos_ya), "borradores_borrados": borradores}
 
 
-def asegurar_espacio(nuevos: int) -> None:
+#: Clave del candado de PostgreSQL que hace de uno en uno el cálculo del espacio y el recorte («tvcad» en ASCII).
+_CANDADO_ESPACIO = 0x7476636164
+
+
+def _candado_espacio() -> None:
+    """Candado de transacción: dos guardados a la vez no pasan los dos el tope ni recortan las mismas versiones."""
+    from django.db import connection
+
+    if connection.vendor == "postgresql":
+        with connection.cursor() as c:
+            c.execute("SELECT pg_advisory_xact_lock(%s)", [_CANDADO_ESPACIO])
+
+
+def _sin_espacio(tope: int) -> ErrorUsuario:
+    return ErrorUsuario(f"La biblioteca de planos llegó a su límite ({tope / 1024 ** 3:.0f} GB). Vacía la papelera o elimina planos que ya no uses.")
+
+
+def asegurar_espacio(nuevos: int, conservar=(), recortar: bool = True) -> None:
     """Si lo nuevo no cabe en la biblioteca, recorta las versiones más viejas (siempre deja `VERSIONES_MINIMAS` de cada plano).
 
+    Va DENTRO de la transacción de lo que se guarda, después de comprobar bloqueo y versión: así un guardado rechazado no recorta nada,
+    y si la transacción se deshace los archivos siguen ahí (`_borrar_version` los borra al confirmar). `conservar`: claves de versiones
+    que no se tocan (la que se restaura). Con `recortar=False` (borradores) no se borra historia: si no cabe, se niega.
     Si aun así no cabe, se niega con un mensaje claro: nunca se borra la versión vigente ni un borrador.
     """
+    from django.db.models import F, Window
+    from django.db.models.functions import RowNumber
+
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError("asegurar_espacio va dentro de una transacción")
+    _candado_espacio()
     tope = limites()["biblioteca_bytes"]
     usado = uso()
     if usado + nuevos <= tope:
         return
-    candidatas = []
-    for plano_id in VersionPlano.objects.values_list("plano_id", flat=True).distinct():
-        numeros = list(VersionPlano.objects.filter(plano_id=plano_id).order_by("-numero").values_list("pk", flat=True))
-        candidatas += numeros[VERSIONES_MINIMAS:]
-    for v in VersionPlano.objects.filter(pk__in=candidatas).order_by("creada"):
+    if not recortar:
+        raise _sin_espacio(tope)
+    # una sola consulta: de cada plano, las versiones más allá de las VERSIONES_MINIMAS más recientes, de la más vieja a la más nueva
+    candidatas = (VersionPlano.objects.annotate(orden=Window(RowNumber(), partition_by=[F("plano_id")], order_by=F("numero").desc()))
+                  .filter(orden__gt=VERSIONES_MINIMAS).exclude(pk__in=list(conservar)).order_by("creada"))
+    for v in candidatas:
         if usado + nuevos <= tope:
             break
-        usado -= v.bytes
+        if v.sin_archivo is None:
+            usado -= v.bytes
         _borrar_version(v)
     if usado + nuevos > tope:
-        raise ErrorUsuario(f"La biblioteca de planos llegó a su límite ({tope / 1024 ** 3:.0f} GB). Vacía la papelera o elimina planos que ya no uses.")
+        raise _sin_espacio(tope)
 
 
 def _borrar_version(v: VersionPlano) -> None:
-    (raiz() / v.ruta).unlink(missing_ok=True)
+    """Borra el renglón ya y el archivo cuando la transacción se confirme: una transacción deshecha nunca deja renglones sin archivo."""
+    ruta = raiz() / v.ruta
     v.delete()
+    transaction.on_commit(lambda: ruta.unlink(missing_ok=True))
 
 
 def _recortar_versiones(plano: Plano) -> None:
@@ -345,8 +375,8 @@ def crear(usuario, temporal: Path, nombre: str, proyecto: str = "", origen: dict
     if tam > limites()["bytes"]:
         temporal.unlink(missing_ok=True)
         raise ErrorUsuario(f"El plano pesa más de {megas(limites()['bytes'])}, el máximo en la web.")
-    asegurar_espacio(tam)
     with transaction.atomic():
+        asegurar_espacio(tam)
         p = Plano(cuenta_id=usuario.pk, nombre=nombre_limpio(nombre), proyecto=proyecto_limpio(proyecto), formato=formato, bytes=tam,
                   revision=0, origen=origen or {"tipo": "subida"})
         p.save()
@@ -396,7 +426,6 @@ def ruta_version(v: VersionPlano) -> Path:
 def guardar(plano_id, usuario, sesion: str, revision_base: int, temporal: Path) -> Plano:
     """Guarda una versión nueva desde el editor. Exige el bloqueo de ESTA página y que la versión base sea la vigente."""
     formato = formato_de_archivo(temporal)
-    asegurar_espacio(temporal.stat().st_size)
     with transaction.atomic():
         p = Plano.objects.select_for_update().filter(pk=plano_id).first()
         if p is None or p.eliminado:
@@ -410,6 +439,7 @@ def guardar(plano_id, usuario, sesion: str, revision_base: int, temporal: Path) 
         if int(revision_base) != p.revision:
             raise Conflicto(f"{p.modificado_por_nombre or 'Alguien'} guardó una versión nueva mientras editabas. Guarda tus cambios como copia.",
                             "cambio", revision=p.revision, quien=p.modificado_por_nombre)
+        asegurar_espacio(temporal.stat().st_size)          # solo un guardado que sí se aplica puede recortar versiones
         _nueva_version(p, temporal, formato, usuario)
         _tomar(p, usuario, sesion, ahora)
         BorradorPlano.objects.filter(plano=p, cuenta_id=usuario.pk).delete()
@@ -449,10 +479,14 @@ def restaurar_version(plano_id, numero: int, usuario, sesion: str = "") -> Plano
             raise ErrorUsuario("El archivo de esa versión no está en el servidor: no se puede restaurar.")
         if v.numero == p.revision:
             raise ErrorUsuario("Esa ya es la versión vigente.")
-        asegurar_espacio(v.bytes)
+        # Primero la copia y después el espacio, sin tocar la versión que se restaura: con la biblioteca llena el recorte nunca la alcanza.
         temporal = carpeta_temporal() / f"{uuid.uuid4().hex}.tmp"
-        shutil.copyfile(ruta_version(v), temporal)
-        _nueva_version(p, temporal, v.formato, usuario, nota=f"Restaurada de la versión {v.numero}")
+        try:
+            shutil.copyfile(ruta_version(v), temporal)
+            asegurar_espacio(v.bytes, conservar={v.pk})
+            _nueva_version(p, temporal, v.formato, usuario, nota=f"Restaurada de la versión {v.numero}")
+        finally:
+            temporal.unlink(missing_ok=True)
     return p
 
 
@@ -547,15 +581,17 @@ def _borrar_borrador_archivo(plano: Plano, cuenta_id: int) -> None:
 
 def guardar_borrador(plano: Plano, usuario, revision_base: int, temporal: Path) -> BorradorPlano:
     formato = formato_de_archivo(temporal)
-    previo = BorradorPlano.objects.filter(plano=plano, cuenta_id=usuario.pk).first()
-    asegurar_espacio(max(0, temporal.stat().st_size - (previo.bytes if previo else 0)))
-    destino = _ruta_borrador(plano, usuario.pk, formato)
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    tam = temporal.stat().st_size
-    _borrar_borrador_archivo(plano, usuario.pk)
-    os.replace(temporal, destino)
-    b, _ = BorradorPlano.objects.update_or_create(plano=plano, cuenta_id=usuario.pk, defaults={
-        "formato": formato, "ruta": str(destino.relative_to(raiz())), "bytes": tam, "revision_base": int(revision_base), "actualizado": timezone.now()})
+    with transaction.atomic():
+        previo = BorradorPlano.objects.select_for_update().filter(plano=plano, cuenta_id=usuario.pk).first()
+        # un borrador nunca recorta la historia de nadie: si no cabe, no hay borrador (la página lo dice y el trabajo sigue en el editor)
+        asegurar_espacio(max(0, temporal.stat().st_size - (previo.bytes if previo else 0)), recortar=False)
+        destino = _ruta_borrador(plano, usuario.pk, formato)
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        tam = temporal.stat().st_size
+        _borrar_borrador_archivo(plano, usuario.pk)
+        os.replace(temporal, destino)
+        b, _ = BorradorPlano.objects.update_or_create(plano=plano, cuenta_id=usuario.pk, defaults={
+            "formato": formato, "ruta": str(destino.relative_to(raiz())), "bytes": tam, "revision_base": int(revision_base), "actualizado": timezone.now()})
     return b
 
 

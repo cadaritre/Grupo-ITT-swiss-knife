@@ -296,12 +296,13 @@ def test_guardar_un_plano_eliminado_se_ofrece_como_copia(cliente_de, dibujante, 
     assert r.status_code == 409 and r.json()["motivo"] == "eliminado"
 
 
-def test_se_conservan_las_versiones_mas_recientes(cliente_de, dibujante, plano, settings):
+def test_se_conservan_las_versiones_mas_recientes(cliente_de, dibujante, plano, settings, django_capture_on_commit_callbacks):
     settings.TV_HERRAMIENTAS_LIMITES = {**(settings.TV_HERRAMIENTAS_LIMITES or {}), "cad": {"versiones": 3}}
     cl = cliente_de(dibujante)
     for _ in range(4):
         plano.refresh_from_db()
-        assert guardar(cl, plano).status_code == 200
+        with django_capture_on_commit_callbacks(execute=True):     # el archivo se borra al confirmar la transacción
+            assert guardar(cl, plano).status_code == 200
     assert list(VersionPlano.objects.filter(plano=plano).values_list("numero", flat=True)) == [5, 4, 3]
     assert not (servicio.carpeta(plano) / "v1.dwg").exists()
 
@@ -315,9 +316,11 @@ def test_la_biblioteca_llena_recorta_versiones_viejas_y_luego_se_niega(dibujante
     servicio.guardar(plano.pk, dibujante, SESION_A, 8, _temporal(DWG))
     assert VersionPlano.objects.filter(plano=plano).count() <= 7 and VersionPlano.objects.filter(plano=plano, numero=9).exists()
     settings.TV_HERRAMIENTAS_LIMITES = {**(settings.TV_HERRAMIENTAS_LIMITES or {}), "cad": {"biblioteca_bytes": tam * 3}}
+    antes = VersionPlano.objects.filter(plano=plano).count()
     with pytest.raises(servicio.ErrorUsuario, match="límite"):
         servicio.guardar(plano.pk, dibujante, SESION_A, 9, _temporal(DWG))
-    assert VersionPlano.objects.filter(plano=plano).count() == servicio.VERSIONES_MINIMAS
+    # el guardado que se niega no deja nada a medias: el recorte que intentó se deshace con su transacción
+    assert VersionPlano.objects.filter(plano=plano).count() == antes
 
 
 def _temporal(contenido: bytes) -> Path:
