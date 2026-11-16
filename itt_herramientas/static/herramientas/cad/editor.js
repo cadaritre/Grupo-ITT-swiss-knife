@@ -422,11 +422,28 @@
 
   // -- Borrador de recuperación ---------------------------------------------------------------------------------------------
   let borradorEnCurso = false;
+  // El borrador lleva la sesión de esta página y, tras recuperar o guardar como copia el de la última vez, cuál era ese
+  // (`X-TV-Borrador-Previo`): el servidor nunca deja que otra página pise en silencio un borrador que nadie ha decidido (auditoría
+  // M-6). Si lo hay (409 `borrador_pendiente`), se pide elegir.
   async function guardarBorrador(buffer) {
     try {
-      const r = await pedir(C.urls.borrador, { metodo: "POST", cuerpo: buffer, cabeceras: { "Content-Type": "application/octet-stream", "X-TV-Revision": String(e.base) } });
-      if (r.ok) e.ultimoBorrador = Date.now();
+      const cabeceras = { "Content-Type": "application/octet-stream", "X-TV-Revision": String(e.base), "X-TV-Sesion": SESION };
+      if (e.borradorVisto) cabeceras["X-TV-Borrador-Previo"] = e.borradorVisto;
+      const r = await pedir(C.urls.borrador, { metodo: "POST", cuerpo: buffer, cabeceras });
+      if (r.ok) { e.ultimoBorrador = Date.now(); return; }
+      const d = await datos(r);
+      if (r.status === 409 && d.motivo === "borrador_pendiente") await borradorAjeno(d.actualizado);
     } catch (_) { /* sin red: se intenta en la siguiente vuelta */ }
+  }
+  async function borradorAjeno(actualizado) {
+    try {
+      const r = await pedir(`${C.urls.estado}?sesion=${SESION}`);
+      const d = await datos(r);
+      C.borrador = d.borrador ? { ...(C.borrador || {}), ...d.borrador } : { ...(C.borrador || {}), actualizado };
+    } catch (_) { C.borrador = { ...(C.borrador || {}), actualizado }; }
+    if (!C.borrador.revision_base) C.borrador.revision_base = e.base;
+    mostrarBorrador();
+    elegirBorrador();
   }
   const extensionOcupada = () => !!(window.TVCad && window.TVCad.ocupado && window.TVCad.ocupado());
   async function borrador() {
@@ -473,6 +490,7 @@
         const d = await datos(r);
         if (!r.ok) throw new Error(d.error || "No se pudo guardar la copia.");
         await pedir(C.urls.borrador_descartar, { metodo: "POST" });
+        e.borradorVisto = C.borrador && C.borrador.actualizado;
         ocultarBorrador();
         $("cad-borrador-elegir").close();
         avisar(`Tus cambios de la última vez quedaron en «${d.nombre}».`);
@@ -484,6 +502,7 @@
     ocultarBorrador();
     try {
       e.base = C.borrador.revision_base;
+      e.borradorVisto = C.borrador.actualizado;
       await abrir("borrador", false);
       e.recuperado = true; e.sucioDesde = Date.now();
       anunciar("cambio", { sucio: true });

@@ -282,3 +282,24 @@ def test_la_espera_de_una_tarea_termina_si_el_servidor_no_responde_la_tarea(cad,
     p.locator("#cad-menu summary").click()
     p.locator("#cad-convertir").click()
     expect(p.locator("#tv-avisos")).to_contain_text("No se pudo saber cómo va", timeout=15000)
+
+
+def test_un_borrador_de_otra_pagina_no_se_pisa_en_silencio(cad, navegar, crear_usuario, roles):
+    """M-6, con el servidor: mientras esta página edita, otra página de la misma cuenta deja un borrador; el borrador automático de esta
+    no lo reemplaza (409 `borrador_pendiente`) y se pide elegir."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Predio Norte", "", "dxf")
+    n = navegar(ana, "chromium")
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    otro = _borrador(p0, ana, "DE OTRA VENTANA")                              # sin sesión de esta página
+    antes = (servicio.raiz() / otro.ruta).read_bytes()
+    dibujar(p)
+    expect(p.locator("#cad-borrador-elegir")).to_be_visible(timeout=LARGO)
+    assert (servicio.raiz() / otro.ruta).read_bytes() == antes
+    p.locator("#cad-borrador-elegir-copia").click()
+    expect(p.locator("#cad-borrador-elegir")).to_be_hidden()
+    from itt_herramientas.models import Plano
+
+    assert Plano.objects.filter(nombre="Predio Norte (copia)").exists()
+    assert not n.errores, n.errores
