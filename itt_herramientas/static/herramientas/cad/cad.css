@@ -160,7 +160,7 @@
 .cad-espacio .tv-icono { width: 1rem; height: 1rem; flex: none; }
 .cad-espacio--aviso { color: var(--tv-estado-aviso-texto); font-weight: 600; }
 .cad-espacio__detalle { margin-top: var(--tv-espacio-1); font-size: var(--tv-texto-sm); }
-.cad-espacio__detalle > summary { cursor: pointer; color: var(--tv-tenue); min-height: 32px; display: inline-flex; align-items: center; }
+.cad-espacio__detalle > summary { cursor: pointer; color: var(--tv-tenue); min-height: 44px; display: inline-flex; align-items: center; }
 .cad-espacio__detalle dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--tv-espacio-2) var(--tv-espacio-4); margin: var(--tv-espacio-2) 0; }
 .cad-espacio__detalle dt { color: var(--tv-tenue); }
 .cad-espacio__detalle dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }

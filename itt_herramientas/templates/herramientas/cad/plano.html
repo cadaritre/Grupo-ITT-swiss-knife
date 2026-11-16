@@ -14,15 +14,15 @@
 <button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-imprimir" id="cad-boton-imprimir"{% if not nativo %} hidden{% endif %}>{% icono "printer" %}<span>Imprimir PDF</span></button>
 <details class="cad-menu" id="cad-menu">
   <summary class="tv-boton tv-boton--secundario tv-boton--icono" data-tv-tooltip="Más acciones">{% icono "ellipsis" etiqueta="Más acciones" %}</summary>
-  <div class="cad-menu__lista" role="menu">
-    <a role="menuitem" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1{% if v %}&version={{ v.numero }}{% endif %}" id="cad-descargar">{% icono "download" %}<span>Descargar {% if v %}{{ v.formato|upper }}{% else %}{{ p.formato|upper }}{% endif %}</span></a>
-    {% if nativo %}<button type="button" role="menuitem" id="cad-convertir" data-formato="{% if v %}{% if v.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% else %}{% if p.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% endif %}">{% icono "file-output" %}<span>Descargar como {% if v %}{% if v.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% else %}{% if p.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% endif %}</span></button>{% endif %}
-    {% if drive %}<button type="button" role="menuitem" id="cad-drive">{% icono "hard-drive-upload" %}<span>Enviar a Google Drive</span></button>{% endif %}
+  <div class="cad-menu__lista" role="group" aria-label="Más acciones">
+    <a href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1{% if v %}&version={{ v.numero }}{% endif %}" id="cad-descargar">{% icono "download" %}<span>Descargar {% if v %}{{ v.formato|upper }}{% else %}{{ p.formato|upper }}{% endif %}</span></a>
+    {% if nativo %}<button type="button" id="cad-convertir" data-formato="{% if v %}{% if v.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% else %}{% if p.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% endif %}">{% icono "file-output" %}<span>Descargar como {% if v %}{% if v.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% else %}{% if p.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% endif %}</span></button>{% endif %}
+    {% if drive %}<button type="button" id="cad-drive">{% icono "hard-drive-upload" %}<span>Enviar a Google Drive</span></button>{% endif %}
     {% if puede_editar %}
-    <button type="button" role="menuitem" data-tv-abrir="cad-renombrar">{% icono "pencil" %}<span>Renombrar</span></button>
-    <form method="post" action="{% url 'herramientas:cad_duplicar' p.pk %}">{% csrf_token %}<button type="submit" role="menuitem">{% icono "copy" %}<span>Duplicar</span></button></form>
+    <button type="button" data-tv-abrir="cad-renombrar">{% icono "pencil" %}<span>Renombrar</span></button>
+    <form method="post" action="{% url 'herramientas:cad_duplicar' p.pk %}">{% csrf_token %}<button type="submit">{% icono "copy" %}<span>Duplicar</span></button></form>
     {% endif %}
-    {% if puede_eliminar %}<button type="button" role="menuitem" class="cad-menu__peligro" data-tv-abrir="cad-eliminar">{% icono "trash-2" %}<span>Eliminar</span></button>{% endif %}
+    {% if puede_eliminar %}<button type="button" class="cad-menu__peligro" data-tv-abrir="cad-eliminar">{% icono "trash-2" %}<span>Eliminar</span></button>{% endif %}
   </div>
 </details>
 {% endblock %}
