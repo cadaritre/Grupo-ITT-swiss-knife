@@ -39,11 +39,27 @@ PAPELES = {
 }
 PAPEL_POR_OMISION = "Letter_(8.50_x_11.00_Inches)"
 ORIENTACIONES = {"landscape": "Horizontal", "portrait": "Vertical"}
-AREAS = {"modelo": "Espacio modelo (todo el dibujo)", "presentaciones": "Presentaciones (una página por cada una)"}
+AREAS = {"modelo": "Espacio modelo (todo el dibujo)", "presentaciones": "Presentaciones (una página por cada una con dibujo)"}
 ESCALAS = ("ajustar", "1:1", "1:50", "1:100", "1:200", "1:250", "1:500", "1:1000", "1:2000", "1:2500", "1:5000", "1:10000")
+#: Milímetros por unidad de dibujo según $INSUNITS. El motor entiende «1:100» como «1 mm de papel = 100 unidades de dibujo» (convención de
+#: AutoCAD) y no mira las unidades: en un plano en metros «1:1000» salía a 1:1 000 000 (medido, 15-11-2026). Sin unidades (0), metros:
+#: los planos de la empresa son topográficos en coordenadas UTM.
+MM_POR_UNIDAD = {0: 1000.0, 1: 25.4, 2: 304.8, 3: 1609344.0, 4: 1.0, 5: 10.0, 6: 1000.0, 7: 1_000_000.0, 8: 0.0000254, 9: 0.0254,
+                 10: 914.4, 14: 100.0, 15: 10_000.0, 16: 100_000.0}
 TIEMPO_ARRANQUE = 30
 TIEMPO_ABRIR = 120
 TIEMPO_TRABAJO = 300
+#: Tope de cualquier archivo que escriba el motor (el PDF, sus temporales): un plano que se desborda falla, no llena el disco.
+TOPE_ARCHIVO = 2 * 1024 ** 3
+#: Margen del trabajador dentro del MemoryMax de tv-tareas-cad: el motor tiene como tope de datos (RLIMIT_DATA) ese MemoryMax menos esto.
+#: Un plano que no cabe hace fallar la petición de memoria del propio motor (aborta con «memory allocation of … failed») en vez de llevar al
+#: grupo al tope, donde el núcleo mató una vez al trabajador junto con el motor (ensayo de L, 15-11-2026). Medido: el plano más pesado que sí
+#: cabe usa 1.15 GB de datos.
+MARGEN_TRABAJADOR_MB = 256
+
+
+def tope_datos() -> int:
+    return (int(getattr(settings, "HERRAMIENTAS_CAD_MEMORIA_MB", 2048) or 2048) - MARGEN_TRABAJADOR_MB) * 1024 ** 2
 
 
 class MotorNoDisponible(ErrorUsuario):
@@ -69,6 +85,36 @@ def _primero_en_caer() -> None:
             f.write("1000")
     except OSError:
         pass
+    # Defensa en profundidad (el motor interpreta planos ajenos): archivos de 2 GB como máximo y sin volcados de memoria.
+    import resource
+
+    _tope = tope_datos()
+    for limite, valor in ((resource.RLIMIT_FSIZE, TOPE_ARCHIVO), (resource.RLIMIT_CORE, 0), (resource.RLIMIT_DATA, _tope)):
+        try:
+            _, duro = resource.getrlimit(limite)
+            resource.setrlimit(limite, (valor if duro == resource.RLIM_INFINITY else min(valor, duro),) * 2)
+        except (ValueError, OSError):
+            pass
+
+
+def _poner_fuentes(carpeta: Path) -> None:
+    """Las fuentes SHX de la empresa (CAD → Fuentes) en la carpeta de fuentes del motor: `<XDG_CONFIG_HOME>/OpenCADStudio/fonts`.
+
+    El motor busca la .shx de un estilo junto al plano y después ahí (por nombre, sin importar mayúsculas). Los planos de la biblioteca se
+    guardan con otro nombre y sin sus fuentes, así que sin esto el PDF sale con la letra sustituta aunque el editor muestre la SHX real.
+    Un enlace por fuente con el nombre que usan los estilos («txt.shx»); si algo falla, se imprime igual con la sustituta.
+    """
+    try:
+        from ..models import FuenteCad
+        from . import fuentes
+
+        carpeta.mkdir(parents=True, exist_ok=True)
+        for f in FuenteCad.objects.all():
+            origen = fuentes.ruta(f)
+            if origen.is_file():
+                (carpeta / f.nombre).symlink_to(origen)
+    except Exception:  # noqa: BLE001
+        log.warning("CAD nativo: no se pudieron poner las fuentes SHX para el motor", exc_info=True)
 
 
 def binario() -> Path | None:
@@ -97,6 +143,13 @@ def escala_valida(texto: str) -> str:
     return f"{a:g}:{b:g}"
 
 
+def escala_del_motor(escala: str, unidades) -> str:
+    """«1:100» real (papel:terreno) -> la escala del motor (mm de papel : unidades de dibujo), según las unidades del plano."""
+    mm = MM_POR_UNIDAD.get(unidades if isinstance(unidades, int) else 0, 1000.0)
+    a, b = (float(x) for x in escala.split(":"))
+    return f"{a * mm:g}:{b:g}"
+
+
 class Sesion:
     """Un proceso `--serve` con su propia carpeta de usuario temporal. Úsalo con `with`."""
 
@@ -104,17 +157,26 @@ class Sesion:
         b = binario()
         if b is None:
             raise MotorNoDisponible("La impresión y la conversión en el servidor no están disponibles en este momento.")
+        self._proc = None
         self._hogar = Path(tempfile.mkdtemp(prefix="ocs-"))
-        entorno = {"HOME": str(self._hogar), "XDG_CONFIG_HOME": str(self._hogar / "config"), "XDG_CACHE_HOME": str(self._hogar / "cache"),
-                   "XDG_DATA_HOME": str(self._hogar / "data"), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": str(self._hogar)}
-        self._proc = subprocess.Popen([str(b), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                      env=entorno, cwd=self._hogar, start_new_session=True, preexec_fn=_primero_en_caer)
-        self._resto = b""
-        self._n = 0
-        banner = self._leer(TIEMPO_ARRANQUE)
-        if not banner.get("ready"):
+        _poner_fuentes(self._hogar / "config" / "OpenCADStudio" / "fonts")
+        try:
+            # Entorno mínimo: nada del trabajador (ni sus credenciales ni las variables de la base) llega al motor.
+            entorno = {"HOME": str(self._hogar), "XDG_CONFIG_HOME": str(self._hogar / "config"), "XDG_CACHE_HOME": str(self._hogar / "cache"),
+                       "XDG_DATA_HOME": str(self._hogar / "data"), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": str(self._hogar)}
+            # Los avisos del motor van a un archivo, no a una tubería que nadie lee: con más de 64 kB el motor se quedaría esperando.
+            self._avisos = self._hogar / "motor.log"
+            with open(self._avisos, "wb") as avisos:
+                self._proc = subprocess.Popen([str(b), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=avisos,
+                                              env=entorno, cwd=self._hogar, start_new_session=True, close_fds=True, preexec_fn=_primero_en_caer)
+            self._resto = b""
+            self._n = 0
+            banner = self._leer(TIEMPO_ARRANQUE)
+            if not banner.get("ready"):
+                raise MotorNoDisponible("El motor de impresión no arrancó. Inténtalo de nuevo en unos minutos.")
+        except BaseException:
             self.cerrar()
-            raise MotorNoDisponible("El motor de impresión no arrancó. Inténtalo de nuevo en unos minutos.")
+            raise
         self.version = banner.get("version", "")
         self.documento = None
 
@@ -146,11 +208,33 @@ class Sesion:
             log.error("CAD nativo: respuesta ilegible: %r", linea[:300])
             raise ErrorUsuario("El motor de impresión respondió algo inesperado. Inténtalo de nuevo.") from None
 
+    def _primer_aviso(self) -> str:
+        """La primera línea de los avisos del motor, corta: el registro no guarda textos del plano (pueden traer datos de clientes)."""
+        try:
+            with open(self._avisos, "rb") as f:
+                return f.readline(200).decode("utf-8", "replace").strip()
+        except OSError:
+            return ""
+
+    def _sin_memoria(self) -> bool:
+        """El motor abortó porque no le dieron memoria (llegó a tope_datos()): Rust lo dice en sus avisos antes de abortar."""
+        try:
+            with open(self._avisos, "rb") as f:
+                f.seek(max(0, f.seek(0, 2) - 8192))
+                return b"memory allocation of" in f.read()
+        except OSError:
+            return False
+
     def _terminado(self):
-        codigo = self._proc.wait(timeout=5)
-        error = (self._proc.stderr.read() or b"")[-800:].decode("utf-8", "replace") if self._proc.stderr else ""
-        log.error("CAD nativo terminó con código %s: %s", codigo, error)
-        if codigo in (-signal.SIGKILL, 137):
+        try:
+            codigo = self._proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            # cerró su salida pero sigue vivo: se detiene y se dice como cualquier otra caída
+            self._matar()
+            log.error("CAD nativo cerró su salida sin terminar (%s)", self._primer_aviso())
+            raise ErrorUsuario("El motor de impresión se detuvo de forma inesperada. Inténtalo de nuevo.") from None
+        log.error("CAD nativo terminó con código %s (%s)", codigo, self._primer_aviso())
+        if codigo in (-signal.SIGKILL, 137) or (codigo in (-signal.SIGABRT, 134) and self._sin_memoria()):
             raise DemasiadoGrande("El plano es demasiado grande para procesarlo en el servidor (se acabó la memoria). Imprime una parte o "
                                   "ábrelo en el programa de escritorio.")
         raise ErrorUsuario("El motor de impresión se detuvo de forma inesperada. Inténtalo de nuevo.")
@@ -194,6 +278,74 @@ class Sesion:
             pass
 
 
+def _todos(s: "Sesion", **peticion) -> list[dict]:
+    """Todos los registros de una consulta `records`, de 10 000 en 10 000."""
+    salida, offset = [], 0
+    while True:
+        r = s.pedir("records", TIEMPO_ABRIR, limit=10000, offset=offset, **peticion)
+        if not r.get("ok"):
+            raise ErrorUsuario("No se pudieron leer las presentaciones del plano. Imprime el espacio modelo.")
+        salida += r.get("records") or []
+        if r.get("next_offset") is None:
+            return salida
+        offset = r["next_offset"]
+
+
+def _manija(valor) -> int | None:
+    """Una manija del motor (número, o texto hexadecimal en los registros) como entero."""
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, int):
+        return valor
+    try:
+        return int(str(valor), 16)
+    except (TypeError, ValueError):
+        return None
+
+
+def presentaciones_con_dibujo(s: "Sesion") -> list[str]:
+    """Las presentaciones que tienen algo dibujado, en el orden de sus pestañas. Sin el espacio modelo.
+
+    El motor, con `layout:"all"`, imprime también el espacio modelo y una hoja en blanco por cada presentación vacía (las «Presentación1»
+    que traen casi todos los planos). Una presentación tiene dibujo si su bloque de papel tiene alguna entidad que no sea la ventana
+    general del papel (la Viewport de id 1, que toda presentación abierta alguna vez tiene).
+    """
+    capas = _todos(s, collection="objects", type="Layout", paths=["/name", "/tab_order", "/block_record"])
+    bloques = {_manija(b.get("handle")): str(b.get("name") or "") for b in _todos(s, collection="block_records", paths=["/flags"])}
+    modelo = {h for h, n in bloques.items() if n.upper() == "*MODEL_SPACE"}
+    con_dibujo: set[int] = set()
+    for e in _todos(s, collection="entities", paths=["/common/owner_handle", "/id"]):
+        v = e.get("values") or {}
+        if str(e.get("type", "")).lower() == "viewport" and v.get("/id") == 1:
+            continue
+        dueno = _manija(v.get("/common/owner_handle"))
+        if dueno is not None:
+            con_dibujo.add(dueno)
+    hojas = []
+    for c in capas:
+        v = c.get("values") or {}
+        bloque, nombre = _manija(v.get("/block_record")), str(v.get("/name") or "")
+        if not nombre or nombre.lower() == "model" or bloque in modelo or bloque not in con_dibujo:
+            continue
+        orden = v.get("/tab_order")
+        hojas.append((orden if isinstance(orden, int) and not isinstance(orden, bool) else 1 << 15, len(hojas), nombre))
+    return [n for _, _, n in sorted(hojas)]
+
+
+def _unir_pdf(partes: list[Path], salida: Path) -> None:
+    """Une los PDF de cada presentación en uno, en ese orden."""
+    from pypdf import PdfWriter
+
+    escritor = PdfWriter()
+    for parte in partes:
+        escritor.append(str(parte))
+    temporal = salida.with_suffix(".uniendo")
+    with open(temporal, "wb") as f:
+        escritor.write(f)
+    escritor.close()
+    temporal.replace(salida)
+
+
 def imprimir(entrada: Path, salida: Path, papel: str, orientacion: str, escala: str, area: str, grosores: bool = True) -> dict:
     """PDF del plano. `escala`: «ajustar» o «1:100»; `area`: «modelo» o «presentaciones». Devuelve {paginas, tamanos}."""
     if papel not in PAPELES:
@@ -207,24 +359,44 @@ def imprimir(entrada: Path, salida: Path, papel: str, orientacion: str, escala: 
     if area == "modelo":
         campos.update(layout="Model", area="extents")
     else:
-        campos.update(layout="all", area="layout")
+        campos.update(area="layout")
     if escala == "ajustar":
         campos["fit"] = True
-    else:
-        campos["scale"] = escala
-    with Sesion() as s:
-        s.abrir(entrada)
-        r = s.pedir("plot", **campos)
-    if not r.get("ok"):
-        codigo = r.get("code") or ""
-        log.warning("CAD nativo: plot falló: %s %s", codigo, r.get("error"))
-        if codigo == "layout_missing" or "layout" in codigo:
-            raise ErrorUsuario("Este plano no tiene presentaciones. Imprime el espacio modelo.")
-        raise ErrorUsuario("No se pudo imprimir el plano con estas opciones. Prueba con «Ajustar al papel».")
-    if not salida.is_file():
-        raise ErrorUsuario("No se pudo imprimir el plano. Inténtalo de nuevo.")
-    res = r.get("result") or {}
-    return {"paginas": int(res.get("pages") or 1), "tamanos": res.get("page_sizes") or []}
+    paginas, tamanos, partes = 0, [], []
+    try:
+        with Sesion() as s:
+            s.abrir(entrada)
+            if escala != "ajustar":   # las presentaciones ya están en mm de papel; el espacio modelo, en las unidades del plano
+                campos["scale"] = escala if area != "modelo" else escala_del_motor(escala, (s.pedir("header", TIEMPO_ABRIR) or {}).get("insertion_units"))
+            if area == "modelo":
+                trabajos = [("Model", salida)]
+            else:
+                # una impresión por cada presentación con dibujo, en el orden de sus pestañas, y después se unen
+                hojas = presentaciones_con_dibujo(s)
+                if not hojas:
+                    raise ErrorUsuario("Este plano no tiene presentaciones con dibujo. Imprime el espacio modelo.")
+                trabajos = [(h, salida if len(hojas) == 1 else salida.with_name(f"{salida.stem}.hoja{k}.pdf")) for k, h in enumerate(hojas)]
+            for hoja, destino in trabajos:
+                if destino != salida:
+                    partes.append(destino)
+                r = s.pedir("plot", **{**campos, "layout": hoja, "path": str(destino)})
+                if not r.get("ok"):
+                    codigo = r.get("code") or ""
+                    log.warning("CAD nativo: plot falló: %s %s", codigo, r.get("error"))
+                    if codigo == "layout_missing" or "layout" in codigo:
+                        raise ErrorUsuario("Este plano no tiene presentaciones. Imprime el espacio modelo.")
+                    raise ErrorUsuario("No se pudo imprimir el plano con estas opciones. Prueba con «Ajustar al papel».")
+                if not destino.is_file():
+                    raise ErrorUsuario("No se pudo imprimir el plano. Inténtalo de nuevo.")
+                res = r.get("result") or {}
+                paginas += int(res.get("pages") or 1)
+                tamanos += res.get("page_sizes") or []
+        if partes:
+            _unir_pdf(partes, salida)
+    finally:
+        for parte in partes:
+            parte.unlink(missing_ok=True)
+    return {"paginas": paginas, "tamanos": tamanos}
 
 
 def convertir(entrada: Path, salida: Path, formato: str, permitir_perdida: bool = False) -> dict:

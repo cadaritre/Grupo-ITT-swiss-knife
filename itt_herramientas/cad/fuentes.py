@@ -96,15 +96,22 @@ def eliminar(f: FuenteCad) -> None:
         (carpeta() / f"{sha}.shx").unlink(missing_ok=True)
 
 
-def informar(nombre: str, ok: bool, glifos=None, error: str = "") -> None:
-    """Lo que dijo el editor al registrarla (glifos o rechazo); solo cambia si es distinto."""
+#: Por qué el editor no pudo usar una fuente: lista cerrada (la página no manda texto libre al catálogo). Lo que no esté aquí es «rechazada».
+MOTIVOS = {
+    "rechazada": "El editor no la pudo usar. Revisa que sea una fuente válida o vuelve a subirla.",
+    "sin_letras": "La fuente no trae letras que el editor pueda dibujar.",
+}
+
+
+def informar(nombre: str, ok: bool, glifos=None, codigo: str = "") -> None:
+    """Lo que dijo el editor al registrarla (letras o rechazo, con un código de `MOTIVOS`); solo cambia si es distinto."""
     f = FuenteCad.objects.filter(nombre=nombre).first()
     if f is None:
         return
     cambios = {}
-    if ok and isinstance(glifos, int) and glifos >= 0 and f.glifos != glifos:
+    if ok and isinstance(glifos, int) and 0 <= glifos <= 1_000_000 and f.glifos != glifos:
         cambios["glifos"] = glifos
-    nuevo_error = "" if ok else (str(error or "El editor no la pudo usar.")[:200])
+    nuevo_error = "" if ok else MOTIVOS.get(codigo, MOTIVOS["rechazada"])
     if f.error != nuevo_error:
         cambios["error"] = nuevo_error
     if cambios:

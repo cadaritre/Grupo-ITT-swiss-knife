@@ -129,9 +129,23 @@
         const r = await fetch(barra.dataset.urlZip, { method: "POST", credentials: "same-origin", headers: { "X-CSRFToken": csrf(), "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ elementos: elegidos }) });
         let d = await r.json().catch(() => ({}));
         if (!r.ok && r.status !== 202) throw new Error(d.error || "No se pudo armar el ZIP. Inténtalo de nuevo.");
+        // Espera la tarea, pero no para siempre: dos respuestas malas seguidas (404, 500, algo que no es JSON) o 10 minutos la terminan.
+        const limite = Date.now() + 10 * 60 * 1000;
+        let fallos = 0;
         while (!d.terminada) {
+          if (Date.now() > limite) throw new Error("El ZIP tardó demasiado. Inténtalo de nuevo con menos planos.");
           await espera(1200);
-          d = { ...(await (await fetch(`${URL_TAREA.replace(MARCA, d.tarea)}?formato=json`, { credentials: "same-origin", headers: { Accept: "application/json" } })).json()), tarea: d.tarea };
+          let t = null;
+          try {
+            const rt = await fetch(`${URL_TAREA.replace(MARCA, d.tarea)}?formato=json`, { credentials: "same-origin", headers: { Accept: "application/json" } });
+            t = rt.ok ? await rt.json() : null;
+          } catch (_) { t = null; }
+          if (!t || typeof t !== "object") {
+            if (++fallos >= 2) throw new Error("Se perdió el seguimiento del ZIP. Recarga la página e inténtalo de nuevo.");
+            continue;
+          }
+          fallos = 0;
+          d = { ...t, tarea: d.tarea };
           if (!d.terminada) decir(`${d.mensaje || "Preparando…"} ${Math.round((d.fraccion || 0) * 100)} %`);
         }
         if (d.estado !== "completada" || !d.resultado || !d.resultado.url) throw new Error(d.error || "No se pudo armar el ZIP.");

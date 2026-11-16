@@ -296,12 +296,13 @@ def test_guardar_un_plano_eliminado_se_ofrece_como_copia(cliente_de, dibujante, 
     assert r.status_code == 409 and r.json()["motivo"] == "eliminado"
 
 
-def test_se_conservan_las_versiones_mas_recientes(cliente_de, dibujante, plano, settings):
+def test_se_conservan_las_versiones_mas_recientes(cliente_de, dibujante, plano, settings, django_capture_on_commit_callbacks):
     settings.TV_HERRAMIENTAS_LIMITES = {**(settings.TV_HERRAMIENTAS_LIMITES or {}), "cad": {"versiones": 3}}
     cl = cliente_de(dibujante)
     for _ in range(4):
         plano.refresh_from_db()
-        assert guardar(cl, plano).status_code == 200
+        with django_capture_on_commit_callbacks(execute=True):     # el archivo se borra al confirmar la transacción
+            assert guardar(cl, plano).status_code == 200
     assert list(VersionPlano.objects.filter(plano=plano).values_list("numero", flat=True)) == [5, 4, 3]
     assert not (servicio.carpeta(plano) / "v1.dwg").exists()
 
@@ -315,9 +316,11 @@ def test_la_biblioteca_llena_recorta_versiones_viejas_y_luego_se_niega(dibujante
     servicio.guardar(plano.pk, dibujante, SESION_A, 8, _temporal(DWG))
     assert VersionPlano.objects.filter(plano=plano).count() <= 7 and VersionPlano.objects.filter(plano=plano, numero=9).exists()
     settings.TV_HERRAMIENTAS_LIMITES = {**(settings.TV_HERRAMIENTAS_LIMITES or {}), "cad": {"biblioteca_bytes": tam * 3}}
+    antes = VersionPlano.objects.filter(plano=plano).count()
     with pytest.raises(servicio.ErrorUsuario, match="límite"):
         servicio.guardar(plano.pk, dibujante, SESION_A, 9, _temporal(DWG))
-    assert VersionPlano.objects.filter(plano=plano).count() == servicio.VERSIONES_MINIMAS
+    # el guardado que se niega no deja nada a medias: el recorte que intentó se deshace con su transacción
+    assert VersionPlano.objects.filter(plano=plano).count() == antes
 
 
 def _temporal(contenido: bytes) -> Path:
@@ -698,6 +701,32 @@ MOTOR = textwrap.dedent('''\
         sys.exit(2)
     print(json.dumps({{"ok": True, "ready": True, "version": "2026.45"}}), flush=True)
     abierto = None
+
+    def pdf(ancho):
+        # un PDF de una página, válido, cuyo ancho dice qué presentación es
+        objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d 600] >>" % ancho).encode()]
+        out, offs = b"%PDF-1.4\\n", []
+        for i, o in enumerate(objs, 1):
+            offs.append(len(out))
+            out += b"%d 0 obj\\n" % i + o + b"\\nendobj\\n"
+        x = len(out)
+        out += b"xref\\n0 4\\n0000000000 65535 f \\n" + b"".join(b"%010d 00000 n \\n" % o for o in offs)
+        return out + b"trailer\\n<< /Size 4 /Root 1 0 R >>\\nstartxref\\n%d\\n%%%%EOF\\n" % x
+
+    # Presentaciones del plano: (nombre, orden de pestaña, bloque). «HOJAS»: dos con dibujo y una vacía, en desorden; las demás, una.
+    def hojas():
+        if "HOJAS" in (abierto or ""):
+            return [("Hoja B", 3, 0x24), ("Model", 0, 0x1F), ("Vacía", 2, 0x23), ("Hoja A", 1, 0x22)]
+        if "SINHOJAS" in (abierto or ""):
+            return [("Model", 0, 0x1F), ("Presentación1", 1, 0x22)]
+        return [("Model", 0, 0x1F), ("Presentación1", 1, 0x22)]
+
+    def entidades():
+        e = [("Line", 0x1F, None), ("Viewport", 0x23, 1)]                  # la vacía solo tiene su ventana general
+        if "SINHOJAS" not in (abierto or ""):
+            e += [("Viewport", 0x22, 1), ("Viewport", 0x22, 2), ("Text", 0x24, None)]
+        return [{{"type": t, "handle": "%X" % (0x100 + k), "values": {{"/common/owner_handle": dueno, "/id": i}}}} for k, (t, dueno, i) in enumerate(e)]
     for linea in sys.stdin:
         r = json.loads(linea)
         op = r.get("op")
@@ -706,9 +735,34 @@ MOTOR = textwrap.dedent('''\
             print(json.dumps({{"ok": True, "request_id": r["request_id"], "result": {{}}, "state": {{"document_id": 2}}}}), flush=True)
         elif "ENORME" in (abierto or ""):
             os.kill(os.getpid(), signal.SIGKILL)
+        elif "SINMEMORIA" in (abierto or ""):
+            sys.stderr.write("memory allocation of 1048576 bytes failed\\n"); sys.stderr.flush()
+            os.abort()
+        elif op == "header":
+            print(json.dumps({{"ok": True, "insertion_units": 6}}), flush=True)
+        elif op == "records":
+            c = r["collection"]
+            if c == "objects":
+                regs = [{{"type": "Layout", "handle": "%X" % b, "values": {{"/name": n, "/tab_order": t, "/block_record": b}}}} for n, t, b in hojas()]
+            elif c == "block_records":
+                regs = [{{"type": "BlockRecord", "handle": "%X" % b, "name": "*Model_Space" if n == "Model" else "*Paper_Space%d" % t, "values": {{}}}} for n, t, b in hojas()]
+            else:
+                regs = entidades()
+            o, l = r.get("offset", 0), r.get("limit", 1000)
+            pagina = regs[o:o + 2]                                           # de dos en dos: la página debe pedir las siguientes
+            siguiente = o + 2 if o + 2 < len(regs) else None
+            print(json.dumps({{"ok": True, "records": pagina, "count": len(regs), "next_offset": siguiente}}), flush=True)
         elif op == "plot":
             assert r["document_id"] == 2
-            open(r["path"], "wb").write(b"%PDF-1.3\\n" + json.dumps(r).encode())
+            fuentes = os.path.join(os.environ["XDG_CONFIG_HOME"], "OpenCADStudio", "fonts")
+            r["fuentes"] = sorted(n for n in os.listdir(fuentes) if os.path.isfile(os.path.join(fuentes, n))) if os.path.isdir(fuentes) else []
+            if "HOJAS" in (abierto or ""):
+                if r["layout"] not in [n for n, _, _ in hojas()]:
+                    print(json.dumps({{"ok": False, "code": "layout_missing", "error": "x"}}), flush=True)
+                    continue
+                open(r["path"], "wb").write(pdf({{"Hoja A": 400, "Hoja B": 500, "Vacía": 300, "Model": 200}}[r["layout"]]))
+            else:
+                open(r["path"], "wb").write(b"%PDF-1.3\\n" + json.dumps(r).encode())
             print(json.dumps({{"ok": True, "request_id": r["request_id"], "result": {{"pages": 1, "page_sizes": [[279.4, 215.9]]}}}}), flush=True)
         elif op == "save":
             if "PERDIDA" in abierto and not r.get("allow_lossy"):
@@ -738,7 +792,64 @@ def test_imprimir_pdf_por_la_cola(cliente_de, supervisora, plano, motor):
     contenido = b"".join(salida.streaming_content)
     pedido = json.loads(contenido.split(b"\n", 1)[1])
     assert contenido.startswith(b"%PDF") and 'filename="Predio Norte.pdf"' in salida["Content-Disposition"]
-    assert (pedido["paper"], pedido["orientation"], pedido["scale"], pedido["layout"], pedido["lineweights"]) == ("ISO_A3_(297.00_x_420.00_MM)", "portrait", "1:500", "Model", True)
+    # 1:500 en un plano en metros: el motor recibe «1000:500» (1000 mm de papel por cada 500 m del plano).
+    assert (pedido["paper"], pedido["orientation"], pedido["scale"], pedido["layout"], pedido["lineweights"]) == ("ISO_A3_(297.00_x_420.00_MM)", "portrait", "1000:500", "Model", True)
+
+
+def test_la_escala_del_motor_sigue_las_unidades_del_plano():
+    assert nativo.escala_del_motor("1:500", 6) == "1000:500"          # metros
+    assert nativo.escala_del_motor("1:500", 4) == "1:500"             # milímetros
+    assert nativo.escala_del_motor("1:100", 5) == "10:100"            # centímetros
+    assert nativo.escala_del_motor("1:1000", 0) == "1000:1000"        # sin unidades: metros (planos topográficos en UTM)
+    assert nativo.escala_del_motor("1:1000", None) == "1000:1000"
+
+
+def test_el_motor_imprime_con_las_fuentes_shx_de_la_empresa(cliente_de, supervisora, dibujante, plano, motor):
+    from itt_herramientas.cad import fuentes
+    from .test_cad_fuentes import shx_de_prueba
+    fuentes.guardar("TXT.SHX", shx_de_prueba(), dibujante)
+    cl = cliente_de(supervisora)
+    d = cl.post(url("cad_imprimir", pk=plano.pk), {"area": "presentaciones", "escala": "1:1"}).json()
+    contenido = b"".join(cl.get(d["resultado"]["url"]).streaming_content)
+    pedido = json.loads(contenido.split(b"\n", 1)[1])
+    assert pedido["fuentes"] == ["txt.shx"] and pedido["scale"] == "1:1"   # las presentaciones ya están en mm de papel
+
+
+def _plano_llamado(dibujante, nombre):
+    """Un plano cuyo archivo lleva `nombre` en la ruta (el motor de prueba se comporta según lo que abre)."""
+    p = servicio.crear_vacio(dibujante, nombre, "", "dwg")
+    nuevo = servicio.carpeta(p) / f"v1-{nombre}.dwg"
+    servicio.carpeta(p).joinpath("v1.dwg").rename(nuevo)
+    VersionPlano.objects.filter(plano=p).update(ruta=str(nuevo.relative_to(servicio.raiz())))
+    return p
+
+
+def test_presentaciones_solo_las_que_tienen_dibujo_en_el_orden_de_sus_pestanas(cliente_de, supervisora, dibujante, motor):
+    from pypdf import PdfReader
+
+    p = _plano_llamado(dibujante, "HOJAS")
+    cl = cliente_de(supervisora)
+    d = cl.post(url("cad_imprimir", pk=p.pk), {"area": "presentaciones", "escala": "ajustar"}).json()
+    assert d["estado"] == "completada", d
+    lector = PdfReader(io.BytesIO(b"".join(cl.get(d["resultado"]["url"]).streaming_content)))
+    # «Hoja A» (pestaña 1) y «Hoja B» (pestaña 3); ni el espacio modelo (200) ni «Vacía» (300, solo su ventana general)
+    assert [float(pg.mediabox.width) for pg in lector.pages] == [400, 500]
+    assert not list(servicio.carpeta_salidas().glob("*.hoja*.pdf"))   # las partes no se quedan
+
+
+def test_presentaciones_vacias_se_dicen(dibujante, motor):
+    from itt_herramientas.cad import salidas
+
+    p = _plano_llamado(dibujante, "SINHOJAS")
+    with pytest.raises(servicio.ErrorUsuario, match="no tiene presentaciones con dibujo"):
+        salidas.imprimir(p.pk, 1, dibujante.pk, {"area": "presentaciones", "escala": "ajustar"})
+
+
+def test_presentaciones_de_una_sola_hoja_no_se_reescriben(cliente_de, supervisora, plano, motor):
+    cl = cliente_de(supervisora)
+    d = cl.post(url("cad_imprimir", pk=plano.pk), {"area": "presentaciones", "escala": "ajustar"}).json()
+    pedido = json.loads(b"".join(cl.get(d["resultado"]["url"]).streaming_content).split(b"\n", 1)[1])
+    assert pedido["layout"] == "Presentación1" and pedido["area"] == "layout"
 
 
 def test_la_salida_es_solo_de_quien_la_pidio(cliente_de, supervisora, dibujante, plano, motor):
@@ -768,6 +879,19 @@ def test_un_plano_que_no_cabe_en_memoria_falla_con_un_mensaje_claro(dibujante, m
 
         salidas.imprimir(p.pk, 1, dibujante.pk, {})
 
+
+
+def test_el_motor_sin_memoria_por_su_tope_de_datos_falla_igual_y_su_tope_esta_puesto(dibujante, motor, settings):
+    # Con su tope de datos el motor aborta (SIGABRT, «memory allocation of … failed») antes de que el grupo llegue a MemoryMax: mismo mensaje.
+    p = servicio.crear_vacio(dibujante, "SINMEMORIA", "", "dwg")
+    servicio.carpeta(p).joinpath("v1.dwg").rename(servicio.carpeta(p) / "v1-SINMEMORIA.dwg")
+    VersionPlano.objects.filter(plano=p).update(ruta=str((servicio.carpeta(p) / "v1-SINMEMORIA.dwg").relative_to(servicio.raiz())))
+    from itt_herramientas.cad import salidas
+
+    with pytest.raises(nativo.DemasiadoGrande):
+        salidas.imprimir(p.pk, 1, dibujante.pk, {})
+    settings.HERRAMIENTAS_CAD_MEMORIA_MB = 2048                      # el MemoryMax de tv-tareas-cad (limites.env)
+    assert nativo.tope_datos() == 1792 * 1024 ** 2
 
 def test_convertir_avisa_la_perdida_y_la_permite_con_confirmacion(cliente_de, dibujante, motor):
     p = servicio.crear_vacio(dibujante, "Con PERDIDA", "", "dwg")

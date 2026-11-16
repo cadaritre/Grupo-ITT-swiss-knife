@@ -1,13 +1,13 @@
 {% extends "herramientas/base_comun.html" %}
-{% load static tv %}
+{% load static tv herramientas %}
 {% block titulo_pagina %}Fuentes de CAD{% endblock %}
 {% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">{% endblock %}
-{% block titulo_h1 %}<h1>Fuentes</h1><p class="tv-subtitulo">Las fuentes SHX de tu AutoCAD (txt, romans, simplex, isocp…) para que los textos de los planos se vean igual que allá.</p>{% endblock %}
+{% block titulo_h1 %}<h1>Fuentes</h1><p class="tv-subtitulo">Las fuentes de texto de tu programa de dibujo (txt, romans, simplex, isocp…) para que los textos de los planos se vean igual que allá.</p>{% endblock %}
 {% block acciones_pagina %}<a class="tv-boton tv-boton--fantasma" href="{% url 'herramientas:cad' %}">{% icono "arrow-left" %}<span>Planos</span></a>{% endblock %}
 {% block cuerpo %}
 <form method="post" action="{% url 'herramientas:cad_fuentes_subir' %}" enctype="multipart/form-data" class="cad-fuentes-subir" id="cad-fuentes-subir" data-tv-una-vez>{% csrf_token %}
   <label class="cad-fuentes-subir__zona" for="cad-fuentes-archivos">{% icono "file-up" clase="tv-icono--lg" %}
-    <span><strong>Elige los archivos .shx</strong><span class="tv-tenue">Están en la carpeta «Fonts» de AutoCAD. Hasta {{ max_mb }} MB cada uno.</span></span>
+    <span><strong>Elige los archivos .shx</strong><span class="tv-tenue">Están en la carpeta «Fonts» de tu programa de dibujo. Hasta {{ max_mb }} MB cada uno.</span></span>
     <input id="cad-fuentes-archivos" name="archivos" type="file" accept=".shx" multiple required></label>
   <button type="submit" class="tv-boton">{% icono "upload" %}<span>Subir fuentes</span></button>
 </form>
@@ -27,7 +27,7 @@
           <input type="hidden" name="reemplazar" value="{{ f.nombre }}">
           <label class="tv-boton tv-boton--secundario"><input type="file" name="archivos" accept=".shx" class="tv-solo-lectores" aria-label="Reemplazar {{ f.nombre }}">{% icono "replace" %}<span>Reemplazar</span></label>
         </form>
-        <form method="post" action="{% url 'herramientas:cad_fuente_eliminar' f.nombre %}">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--fantasma cad-menu__peligro" aria-label="Eliminar {{ f.nombre }}">{% icono "trash-2" %}<span>Eliminar</span></button></form>
+        {% url 'herramientas:cad_fuente_eliminar' f.nombre as u_eliminar %}{% confirmar_accion id="cad-fuente-eliminar-"|add:f.nombre accion=u_eliminar abrir="Eliminar" titulo="¿Eliminar la fuente «"|add:f.nombre|add:"»?" texto="Los textos de los planos que la usan se verán con una fuente de reemplazo hasta que la vuelvas a subir." aceptar="Eliminar" icono="trash-2" clase="tv-boton tv-boton--fantasma cad-menu__peligro" %}
       </td>
     </tr>{% endfor %}
   </tbody></table></div>

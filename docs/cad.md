@@ -81,16 +81,22 @@ El canal (`?automation=1`) solo se alcanza desde el mismo origen: el editor vive
 
 ## Espacio, archivos que faltan y autoría
 
-- **Espacio:** la biblioteca tiene su propia reserva de **20 GiB** (`cad/servicio.py`, `LIMITES["biblioteca_bytes"]`), que cuenta versiones
-  vigentes y anteriores, papelera y borradores, aparte de los 12 GB de Herramientas (Portal, `docs/arquitectura.md` §9.1 y §13). Al
-  llenarse se recortan las versiones más viejas (siempre quedan `VERSIONES_MINIMAS` = 5 por plano); si aun así no cabe, se dice claro.
+- **Espacio:** CAD tiene su propia reserva de 20 GB, aparte de los 12 GB de Herramientas (Portal, `docs/arquitectura.md` §9.1 y §13). La
+  biblioteca usa **18 GiB** de ella (`cad/servicio.py`, `LIMITES["biblioteca_bytes"]`: versiones vigentes y anteriores, papelera y
+  borradores) y deja el resto a salidas (PDF, conversiones, ZIP) y temporales, para que tv-salud no quede en «crítico» con la biblioteca
+  llena. Al llenarse se recortan las versiones más viejas (siempre quedan `VERSIONES_MINIMAS` = 5 por plano); si aun así no cabe, se dice
+  claro. El recorte va dentro de la transacción del guardado, después de comprobar bloqueo y versión, y de uno en uno (candado de
+  PostgreSQL): un guardado rechazado no borra nada, restaurar nunca recorta la versión que se restaura y los archivos se borran al
+  confirmar. Un borrador de recuperación nunca recorta versiones: si no cabe, se niega.
   CAD **no** cuenta en la cuota de 5 GB por cuenta de Herramientas (`TV_HERRAMIENTAS_CUOTA`), que solo mide las fotos de campo.
-- La biblioteca muestra «Planos: x de 20 GB» (aviso desde el 90 %); quien administra ve además el desglose.
+- La biblioteca muestra «Planos: x de 18 GB» (aviso desde el 90 %); quien administra ve además el desglose.
 - **Sin respaldo:** por decisión del propietario (15-11-2026) los planos no van al respaldo en R2 (`/srv/tresvizo/herramientas/cad` está
   excluido). Tras restaurar o cambiar de servidor puede haber renglones sin archivo: la lista los muestra como «Archivo no disponible», el
   plano lo explica en vez de abrir el editor, se pueden eliminar y nunca hay un error. `manage.py cad_reconciliar` (sin argumentos;
   `--simular` opcional; idempotente) marca las versiones sin archivo (`VersionPlano.sin_archivo`), desmarca las que volvieron y quita los
-  borradores sin archivo; `tvctl cad-reconciliar` lo corre.
+  borradores sin archivo; `tvctl cad-reconciliar` lo corre. También cuenta lo que hay en el disco sin renglón (carpetas y archivos de más
+  de una hora, p. ej. tras restaurar la base a un punto anterior con el disco intacto) y solo lo borra con `--borrar-huerfanos`: puede ser
+  la única copia de versiones posteriores, así que ni el comando sin argumentos ni la limpieza diaria lo tocan.
 - **Autoría:** la lista dice quién creó cada plano y quién lo guardó y cuándo; el plano, su línea de guardado y creación; cada versión,
   «Guardada por … · fecha».
 
@@ -128,6 +134,17 @@ Los textos dominan (~50 kB cada uno). De ahí el trabajador propio `tv-tareas-ca
 núcleo mata solo al motor (que se marca primero con `oom_score_adj` 1000) y el siguiente trabajo sale bien sin reiniciar el trabajador. Con
 `MemoryHigh` el motor solo se frenaba hasta agotar su tiempo (5 min), y sin marcarse primero el núcleo de la VM mataba a los trabajadores de
 Python. Un proceso por trabajo: la memoria se libera completa. El AppImage se extrae al desplegar (sin FUSE). El de x86_64 se comprueba al desplegar (`tvctl` lo arranca sin pantalla).
+
+**Lo que hace la página al imprimir** (`cad/nativo.py`):
+- **Presentaciones:** con `layout:"all"` el motor imprimiría también el espacio modelo y una hoja en blanco por cada presentación vacía
+  (la «Presentación1» que traen casi todos los planos). Por eso se leen las presentaciones (`records` de `objects/Layout`), se descartan
+  las que no tienen nada en su bloque de papel salvo la ventana general (Viewport de id 1), se imprime cada una aparte en el orden de sus
+  pestañas y se unen con `pypdf` (BSD, Python puro). Sin ninguna con dibujo se dice «Imprime el espacio modelo».
+- **Escala:** el motor toma «1:100» como 1 mm de papel = 100 unidades; en espacio modelo se convierte según las unidades del plano
+  (`header.insertion_units`; sin unidades, metros). Las presentaciones ya están en mm de papel.
+- **Fuentes:** las de CAD → Fuentes se enlazan en la carpeta de fuentes del motor antes de arrancarlo.
+- **Memoria:** el motor corre con `RLIMIT_DATA` = `HERRAMIENTAS_CAD_MEMORIA_MB` − 256 MB y su aborto por memoria se dice como «demasiado
+  grande»; además, tope de archivo de 2 GB, sin volcados y con sus avisos en un archivo (no en una tubería que nadie lee).
 
 ## Pruebas
 

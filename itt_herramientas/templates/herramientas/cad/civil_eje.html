@@ -1,0 +1,7 @@
+{% load tv %}<div class="civil-elecciones">
+  <div class="civil-eleccion"><div><strong>Eje</strong><span class="tv-tenue" data-civil-cuenta="eje">Sin elegir</span></div><button type="button" class="tv-boton" data-civil-elegir="eje">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
+</div>
+<div class="civil-fila">
+  <div class="tv-campo"><label for="civil-{{ pre }}-inicio">Cadenamiento inicial</label><input id="civil-{{ pre }}-inicio" name="inicio" value="0+000.00" autocomplete="off" inputmode="decimal" data-civil-estacion></div>
+  <div class="tv-campo"><label for="civil-{{ pre }}-int">Estación cada</label><div class="civil-unidad"><select id="civil-{{ pre }}-int" name="intervalo"><option value="5">5</option><option value="10">10</option><option value="20" selected>20</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select><span>m</span></div></div>
+</div>

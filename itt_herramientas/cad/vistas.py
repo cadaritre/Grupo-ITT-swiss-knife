@@ -26,6 +26,7 @@ from tvplataforma.permisos import requiere_rol
 from ..comun import zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
+from ..civil import pagina as civil_pagina
 from . import editor, fuentes, nativo, salidas, servicio
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
@@ -46,6 +47,18 @@ def _json(datos, status=200):
 
 def _error(texto: str, status=422, **extra):
     return _json({"error": texto, **extra}, status=status)
+
+
+_ENTERO = re.compile(r"[0-9]{1,10}")
+
+
+def _entero(texto, maximo: int = 2 ** 31 - 1) -> int | None:
+    """Un entero positivo de una cadena de la petición, o None. Solo cifras ASCII (``"²".isdigit()`` es verdadero) y dentro de un entero de 32 bits."""
+    texto = str(texto or "").strip()
+    if not _ENTERO.fullmatch(texto):
+        return None
+    n = int(texto)
+    return n if n <= maximo else None
 
 
 def _plano(pk, eliminado=False) -> Plano:
@@ -76,7 +89,7 @@ class Filtros:
         self.proyecto = servicio.proyecto_limpio(g.get("proyecto", ""))
         self.orden = g.get("orden", "") if g.get("orden") in ORDENES else "recientes"
         autor = str(g.get("autor", "")).strip()
-        self.autor = int(autor) if autor.isdigit() else None
+        self.autor = _entero(autor)
         self.avisos = []
         self.desde = self.hasta = None
         for nombre in ("desde", "hasta"):
@@ -117,10 +130,11 @@ class Filtros:
 
 
 def _autores() -> list[dict]:
-    vistos: dict[int, dict] = {}
-    for cuenta, nombre, correo in Plano.objects.filter(eliminado__isnull=True).order_by("cuenta_id", "-creado").values_list("cuenta_id", "autor_nombre", "autor_correo"):
-        vistos.setdefault(cuenta, {"cuenta_id": cuenta, "nombre": nombre or correo or "Sin nombre"})
-    return sorted(vistos.values(), key=lambda a: a["nombre"].casefold())
+    # un renglón por cuenta (el de su plano más reciente), en SQL: no se recorre toda la biblioteca en cada visita
+    filas = (Plano.objects.filter(eliminado__isnull=True).order_by("cuenta_id", "-creado").distinct("cuenta_id")
+             .values_list("cuenta_id", "autor_nombre", "autor_correo"))
+    autores = [{"cuenta_id": cuenta, "nombre": nombre or correo or "Sin nombre"} for cuenta, nombre, correo in filas]
+    return sorted(autores, key=lambda a: a["nombre"].casefold())
 
 
 def _marcar_edicion(planos) -> None:
@@ -177,9 +191,10 @@ def _version_pedida(request, p: Plano) -> VersionPlano | None:
     texto = request.GET.get("version", "")
     if not texto:
         return None
-    if not texto.isdigit():
+    numero = _entero(texto)
+    if numero is None:
         raise Http404
-    v = VersionPlano.objects.filter(plano=p, numero=int(texto)).first()
+    v = VersionPlano.objects.filter(plano=p, numero=numero).first()
     if v is None:
         raise Http404
     return v
@@ -231,7 +246,10 @@ def plano(request, pk):
         "puede_eliminar": servicio.puede_eliminar(usuario, p), "papeles": nativo.PAPELES, "papel": nativo.PAPEL_POR_OMISION,
         "orientaciones": nativo.ORIENTACIONES, "areas": nativo.AREAS, "escalas": nativo.ESCALAS, "nativo": nativo.disponible() and not sin_archivo,
         "proyectos": servicio.sugerencias_proyecto(usuario.pk), "drive": _drive_disponible(usuario) and not sin_archivo,
-        "editor_listo": editor.disponible() and not sin_archivo, "sin_archivo": sin_archivo}))
+        "editor_listo": editor.disponible() and not sin_archivo, "sin_archivo": sin_archivo,
+        "versiones_max": servicio.limites()["versiones"], "versiones_minimas": servicio.VERSIONES_MINIMAS,
+        # Civil (topografía) solo dibuja: aparece para quien puede editar, en la versión vigente y con el editor disponible.
+        "civil": civil_pagina.contexto(p) if puede and v is None and editor.disponible() and not sin_archivo else None}))
 
 
 @ver
@@ -272,7 +290,7 @@ def estado(request, pk):
 def bloqueo(request, pk):
     try:
         datos = _cuerpo_json(request)
-        r = servicio.bloqueo(pk, request.user, str(datos.get("sesion", "")), str(datos.get("accion", "")))
+        r = servicio.bloqueo(pk, request.user, str(datos.get("sesion", "")), str(datos.get("accion", "")), _entero(datos.get("revision")))
     except servicio.SinPermiso as exc:
         return _error(str(exc), 403)
     except ErrorUsuario as exc:
@@ -302,12 +320,12 @@ def _con_cuerpo(request, trabajo):
 @require_POST
 def guardar(request, pk):
     """Versión nueva desde el editor. Cabeceras: X-TV-Sesion (la página) y X-TV-Revision (la versión sobre la que se editó)."""
-    revision = request.headers.get("X-TV-Revision", "")
-    if not revision.isdigit():
+    revision = _entero(request.headers.get("X-TV-Revision", ""))
+    if revision is None:
         return _error("Falta la versión de base. Recarga la página.", 400)
 
     def trabajo(temporal):
-        p = servicio.guardar(pk, request.user, request.headers.get("X-TV-Sesion", ""), int(revision), temporal)
+        p = servicio.guardar(pk, request.user, request.headers.get("X-TV-Sesion", ""), revision, temporal)
         return _json({"revision": p.revision, "formato": p.formato, "bytes": p.bytes, "nombre": p.nombre, "versiones": _versiones(p),
                       "proyecto": p.proyecto, "modificado_por": p.modificado_por_nombre})
     return _con_cuerpo(request, trabajo)
@@ -329,12 +347,14 @@ def borrador(request, pk):
     p = _plano(pk)
     if request.method == "GET":
         return archivo(request, pk) if request.GET.get("borrador") == "1" else _error("", 400)
-    revision = request.headers.get("X-TV-Revision", "")
-    if not revision.isdigit():
+    revision = _entero(request.headers.get("X-TV-Revision", ""))
+    if revision is None:
         return _error("Falta la versión de base.", 400)
 
     def trabajo(temporal):
-        b = servicio.guardar_borrador(p, request.user, int(revision), temporal)
+        sesion = request.headers.get("X-TV-Sesion", "")
+        b = servicio.guardar_borrador(p, request.user, revision, temporal, sesion if servicio.sesion_valida(sesion) else "",
+                                      request.headers.get("X-TV-Borrador-Previo", "")[:64])
         return _json({"actualizado": b.actualizado.isoformat()})
     return _con_cuerpo(request, trabajo)
 
@@ -457,9 +477,9 @@ def _tarea_json(tarea):
 
 
 def _numero(request, p: Plano) -> int:
-    texto = str(request.POST.get("version", "") or "")
-    if texto.isdigit() and VersionPlano.objects.filter(plano=p, numero=int(texto)).exists():
-        return int(texto)
+    numero = _entero(request.POST.get("version", ""))
+    if numero is not None and VersionPlano.objects.filter(plano=p, numero=numero).exists():
+        return numero
     return p.revision
 
 
@@ -728,16 +748,24 @@ def fuente_archivo(request, nombre):
     return r
 
 
-@ver
+@editar
 @require_POST
 def fuente_informe(request, nombre):
-    """Lo que respondió el editor al registrarla: glifos, o por qué la rechazó (se muestra a quien administra)."""
+    """Lo que respondió el editor al registrarla: cuántas letras tiene, o que la rechazó. Solo de quien edita (es el catálogo de todos) y
+    sin texto libre: el motivo es un código de una lista cerrada (`fuentes.MOTIVOS`)."""
     from . import fuentes
 
+    if len(request.body) > 2000:
+        return _error("Datos no válidos.")
     try:
         d = json.loads(request.body or b"{}")
     except ValueError:
         return _error("Datos no válidos.")
+    if not isinstance(d, dict):
+        return _error("Datos no válidos.")
+    glifos = d.get("glifos")
+    if not (isinstance(glifos, int) and not isinstance(glifos, bool) and 0 <= glifos <= 1_000_000):
+        glifos = None
     f = _fuente(nombre)
-    fuentes.informar(f.nombre, bool(d.get("ok")), d.get("glifos"), str(d.get("error") or ""))
+    fuentes.informar(f.nombre, d.get("ok") is True, glifos, str(d.get("codigo") or ""))
     return _json({"ok": True})
