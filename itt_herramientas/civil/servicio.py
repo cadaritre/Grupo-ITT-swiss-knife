@@ -4,12 +4,13 @@ La página lee el dibujo por el canal del editor, manda aquí lo necesario y esc
 motor fijado en `civil/motor/` (tvcivil): nada se guarda en la biblioteca de planos.
 
 - Las órdenes ligeras (puntos, cuadros, invertir, borrar o agregar triángulos) responden en la misma petición.
-- Las pesadas (triangular, revisar la triangulación, curvas, perfil, secciones, volúmenes) van a la cola `herramientas` (hasta 3 min, ≤ 768 MB): los datos de
+- Las pesadas (triangular, revisar la triangulación, insertar puntos, curvas, perfil, secciones, volúmenes) van a la cola `herramientas` (hasta 3 min, ≤ 768 MB): los datos de
   entrada pasan por un archivo temporal (las tareas solo llevan identificadores) y el resultado queda como salida de la cuenta, que se
   borra al día siguiente como las de CAD.
 """
 from __future__ import annotations
 
+import base64
 import gzip
 import io
 import json
@@ -74,6 +75,7 @@ _REQUISITOS = {
     "perfil": (("caras", 1, "No hay triangulación en el dibujo. Primero triangula."),),
     "secciones": (("caras", 1, "No hay triangulación en el dibujo. Primero triangula."),),
     "revisar_tin": (("caras", 1, "No hay triangulación en el dibujo. Primero triangula."),),
+    "insertar_puntos": (("caras", 1, "No hay triangulación en el dibujo. Primero triangula."), ("puntos", 1, "Elige los puntos que vas a insertar.")),
     "volumen_superficies": (("caras_terreno", 1, "Falta la triangulación del terreno."), ("caras_proyecto", 1, "Falta la triangulación de proyecto.")),
 }
 
@@ -90,9 +92,19 @@ def calcular(orden: str, datos: dict) -> dict:
     if orden not in ORDENES:
         raise ErrorUsuario("Esa acción no existe.")
     try:
-        return ordenes.ejecutar(orden, datos)
+        r = ordenes.ejecutar(orden, datos)
     except ordenes.ErrorOrden as exc:
         raise ErrorUsuario(str(exc)) from None
+    if "documento" in r and datos.get("formato"):
+        # memoria descriptiva y reporte de puntos: el contenido del motor se entrega como archivo
+        from . import documentos
+
+        formato = datos.get("formato")
+        if formato not in documentos.FORMATOS:
+            raise ErrorUsuario("Elige PDF o DOCX.")
+        contenido, tipo, ext = documentos.archivo(r.pop("documento"), formato)
+        r["archivo"], r["tipo"], r["extension"] = base64.b64encode(contenido).decode("ascii"), tipo, ext
+    return r
 
 
 # -- Órdenes en la cola de tareas ---------------------------------------------------------------------------------------------------

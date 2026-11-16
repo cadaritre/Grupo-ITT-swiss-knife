@@ -7,17 +7,18 @@ motor, `cadaritre/TresVizo-Civil`.
 Código: `itt_herramientas/civil/` (servidor y motor fijado), `templates/herramientas/cad/civil*.html`, `static/herramientas/cad/civil.js` y
 `civil.css`. Pruebas: `pruebas/test_civil.py` y `pruebas_navegador/test_civil_navegador.py`.
 
-## Qué hay (v1)
+## Qué hay (v1 y v1.1)
 
 | Menú | Acciones |
 | --- | --- |
-| Puntos | Importar (PNEZD, PENZD, NEZ… con orden y separador reconocidos, vista previa, renglones descartados con su motivo; terreno o proyecto) · Exportar |
-| Triangulación | Triangular (líneas de quiebre, límite, islas, arista máxima; reemplaza la anterior) · Invertir triángulos · Borrar triángulos (fuera de un límite, dentro de un polígono, lados largos) · Agregar triángulo |
+| Puntos | Importar (PNEZD, PENZD, NEZ… con orden y separador reconocidos, vista previa, renglones descartados con su motivo; terreno o proyecto) · Exportar · Renumerar (desde N, de cuánto en cuánto, prefijo; por número actual, de oeste a este o de norte a sur) · Localizar punto (por número: la vista va a él y queda seleccionado) · Reporte de puntos (PDF o Word, con latitud y longitud si se pide) |
+| Triangulación | Triangular (líneas de quiebre, límite, islas, arista máxima, sin los puntos de ciertas descripciones —ARBOL, POSTE, BAR*—; reemplaza la anterior) · Invertir triángulos · Borrar triángulos (los que elija, fuera de un límite, dentro de un polígono, lados largos) · Agregar triángulo · Insertar puntos (parten su triángulo o lado y los vecinos se ajustan a Delaunay) · Revisar triangulación (repetidos, encimados, sin superficie, lados con más de dos triángulos, muy delgados: marcados en rojo y seleccionados) |
 | Curvas | Curvas de nivel (intervalo, maestras, suavizado sin cruces, etiquetas) · Actualizar curvas (desde los triángulos que hay en el dibujo) |
-| Cuadros | Cuadro de construcción (rumbos N 45°30'15" E, lados curvos, ha-a-ca; también «Descargar DXF», el antiguo IT-10) |
+| Cuadros | Cuadro de construcción (rumbos N 45°30'15" E, lados curvos, ha-a-ca; formatos normal, RAN —coordenadas UTM y geográficas— y UTM-GPS —además factor de escala y convergencia por vértice y la superficie sobre el terreno—; también «Descargar DXF», el antiguo IT-10) · Cuadro de curvas · Rumbo y distancia de lados · Numerar vértices · Memoria descriptiva (PDF o Word, con colindancias lado por lado) |
+| Plano | Cuadrícula UTM (todo el plano o dos esquinas; líneas o cruces; marco; coordenadas al margen y latitud y longitud en las esquinas; reemplaza la anterior) |
 | Perfiles y secciones | Perfil del eje (cadenamiento, rasante con curvas verticales) · Secciones transversales (plantilla, taludes, áreas) |
 | Volúmenes | Por secciones (áreas medias y curva masa) · Entre superficies (exacto, línea de ceros opcional, resultado en la hoja o también en el plano) |
-| 1:1000 (botón) | Escala del plano y altura de los textos en mm de papel |
+| 1:1000 (botón) | Escala del plano, zona UTM y altura de los textos en mm de papel |
 
 Civil aparece para quien puede editar planos (`cad`, `admin`) en la versión vigente; para dibujar hace falta tener el control del plano
 (exportar puntos solo lee y funciona sin él). En una barra angosta los menús se compactan (sin flechas y, más angosta, solo iconos);
@@ -107,3 +108,12 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor uv run pytest itt_herramienta
   volumen contra una plataforma, guardar en DWG y volver a abrir; 360 px; y el camino sin `user_select` (selección + «Listo»).
   `ITT_CAPTURAS=carpeta` deja capturas de cada hoja y de lo dibujado.
 - El motor tiene sus propias pruebas con resultados conocidos (128) en su repositorio.
+
+## Geodesia y documentos (v1.1)
+
+- **UTM ↔ geográficas** con pyproj sobre GRS80 (ITRF2008, el marco oficial; con WGS84 la diferencia del elipsoide es de una décima de
+  milímetro). La zona y el hemisferio se eligen en la escala del plano y se guardan con ella en el navegador. Convergencia γ con su signo
+  (negativa al oeste del meridiano central en el norte); factor de escala de la proyección, sin factor de elevación.
+- **Memoria descriptiva y reporte de puntos:** el motor da el contenido (título, datos, párrafos, tabla, notas) y el servidor lo entrega
+  como PDF (ReportLab con Liberation Sans) o como DOCX escrito a mano (Office Open XML mínimo: abre en Word, LibreOffice, Pages y Google
+  Docs, sin otra dependencia). Nada se guarda en el servidor: el archivo vuelve en la respuesta y la página lo descarga.

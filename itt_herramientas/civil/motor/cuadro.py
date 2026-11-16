@@ -10,6 +10,13 @@ La superficie incluye los segmentos circulares; el perímetro usa la longitud de
 Los ángulos interiores se miden entre cuerdas.
 
 Signo de la comba (convención DXF): positiva = arco antihorario de un vértice al siguiente.
+
+Formatos (`OpcionesCuadro.formato`):
+- «normal»: el de arriba.
+- «ran»: el de los planos agrarios: las coordenadas se titulan UTM y se agregan las geográficas (LATITUD, LONGITUD) de cada vértice,
+  con la zona y el elipsoide al pie.
+- «utm_gps»: además de las geográficas, el factor de escala y la convergencia de cada vértice; al pie el factor medio y la superficie
+  y el perímetro topográficos (sobre el terreno: UTM ÷ k y UTM ÷ k²).
 """
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 from .angulos import angulo_interior, azimut, formato_dms, formato_rumbo
+from .geodesia import datos_geo, formato_latitud, formato_longitud
 from .entidades import Capa, Dibujo, EstiloTexto, Linea, Polilinea, Texto
 from .escala import Escala
 from .superficie import formato_ha_a_ca, formato_miles
@@ -152,6 +160,13 @@ class OpcionesCuadro:
     angulos_interiores: bool = False
     repetir_cierre: bool = True
     titulo: str = "CUADRO DE CONSTRUCCIÓN"
+    formato: str = "normal"  # "normal", "ran" o "utm_gps"
+    zona: int = 14
+    hemisferio: str = "N"
+    decimales_geo: int = 4  # segundos de latitud y longitud
+
+
+FORMATOS = ("normal", "ran", "utm_gps")
 
 
 def _orientar(vertices, combas, sentido):
@@ -280,8 +295,35 @@ def _columnas(op: OpcionesCuadro) -> list[_Columna]:
         cols.append(_Columna("azimut", "AZIMUT", 24))
     if op.angulos_interiores:
         cols.append(_Columna("angulo", "ÁNG. INT.", 24))
-    cols += [_Columna("v", "V", 10), _Columna("y", "Y", 27, "COORDENADAS"), _Columna("x", "X", 27, "COORDENADAS")]
+    grupo = "COORDENADAS" if op.formato == "normal" else "COORDENADAS UTM"
+    cols += [_Columna("v", "V", 10), _Columna("y", "Y", 27, grupo), _Columna("x", "X", 27, grupo)]
+    if op.formato in ("ran", "utm_gps"):
+        cols += [_Columna("lat", "LATITUD", 30, "COORDENADAS GEOGRÁFICAS"), _Columna("lon", "LONGITUD", 31, "COORDENADAS GEOGRÁFICAS")]
+    if op.formato == "utm_gps":
+        cols += [_Columna("k", "FACTOR ESC.", 19), _Columna("conv", "CONVERGENCIA", 24)]
     return cols
+
+
+def _geo(fila: dict, x: float, y: float, op: OpcionesCuadro) -> None:
+    """Agrega a un renglón con coordenadas sus datos geográficos (formatos RAN y UTM-GPS)."""
+    if op.formato == "normal":
+        return
+    d = datos_geo(x, y, op.zona, op.hemisferio)
+    fila["lat"] = formato_latitud(d.latitud, op.decimales_geo)
+    fila["lon"] = formato_longitud(d.longitud, op.decimales_geo, op.oeste)
+    if op.formato == "utm_gps":
+        fila["k"] = f"{d.factor:.8f}"
+        fila["conv"] = ("-" if d.convergencia < 0 else "") + formato_dms(abs(d.convergencia), max(op.decimales_segundos, 2))
+
+
+def resumen_geo(cuadro: "Cuadro", op: OpcionesCuadro) -> dict:
+    """Factor medio y superficie y perímetro topográficos (sobre el terreno) de un cuadro UTM. Vacío en el formato normal."""
+    if op.formato == "normal":
+        return {}
+    from .geodesia import factor_medio
+
+    k = factor_medio(cuadro.vertices, op.zona, op.hemisferio)
+    return {"factor_medio": k, "superficie_topografica": cuadro.superficie / (k * k), "perimetro_topografico": cuadro.perimetro / k}
 
 
 def filas_texto(cuadro: Cuadro, op: OpcionesCuadro | None = None) -> list[dict[str, str]]:
@@ -290,6 +332,7 @@ def filas_texto(cuadro: Cuadro, op: OpcionesCuadro | None = None) -> list[dict[s
     dc, dd = op.decimales_coordenadas, op.decimales_distancia
     coord = lambda val: formato_miles(val, dc, op.separador_miles)
     filas: list[dict[str, str]] = [{"v": cuadro.vertice_inicial[0], "y": coord(cuadro.vertice_inicial[2]), "x": coord(cuadro.vertice_inicial[1])}]
+    _geo(filas[0], cuadro.vertice_inicial[1], cuadro.vertice_inicial[2], op)
     for k, lado in enumerate(cuadro.lados):
         ultimo = k == len(cuadro.lados) - 1
         fila = {"est": lado.est, "pv": lado.pv, "rumbo": lado.rumbo, "distancia": formato_miles(lado.distancia, dd, op.separador_miles), "v": lado.v}
@@ -305,8 +348,10 @@ def filas_texto(cuadro: Cuadro, op: OpcionesCuadro | None = None) -> list[dict[s
                 "distancia": f"LC = {formato_miles(cv.longitud, dd, op.separador_miles)}  ST = {formato_miles(cv.subtangente, dd, op.separador_miles)}",
                 "v": cv.etiqueta_centro, "y": coord(cv.centro[1]), "x": coord(cv.centro[0]),
             })
+            _geo(filas[-1], cv.centro[0], cv.centro[1], op)
         if not ultimo or op.repetir_cierre:
             fila["y"], fila["x"] = coord(lado.y), coord(lado.x)
+            _geo(fila, lado.x, lado.y, op)
         filas.append(fila)
     return filas
 
@@ -393,9 +438,24 @@ def dibujar_cuadro(
     alto_sup = h_sup * 2.2
     m2 = formato_miles(cuadro.superficie, op.decimales_superficie, op.separador_miles)
     texto(f"SUPERFICIE = {m2} m²     ({formato_ha_a_ca(cuadro.superficie)})", x0 + ancho_total / 2, y - alto_sup / 2, h_sup, capa_ti)
-    vline(x0, y, y - alto_sup)
-    vline(xs[-1], y, y - alto_sup)
-    hline(y - alto_sup)
+    pie = []
+    if op.formato != "normal":
+        g = resumen_geo(cuadro, op)
+        pie.append(f"PROYECCIÓN UTM ZONA {op.zona} {'NORTE' if op.hemisferio == 'N' else 'SUR'} · ELIPSOIDE GRS80 (ITRF2008)")
+        if op.formato == "utm_gps":
+            sup_t = formato_miles(g["superficie_topografica"], op.decimales_superficie, op.separador_miles)
+            per_t = formato_miles(g["perimetro_topografico"], op.decimales_distancia, op.separador_miles)
+            pie.append(f"FACTOR DE ESCALA MEDIO = {g['factor_medio']:.8f}     SUPERFICIE TOPOGRÁFICA = {sup_t} m²     PERÍMETRO TOPOGRÁFICO = {per_t} m")
+            pie.append("RUMBOS Y DISTANCIAS DE CUADRÍCULA UTM")
+    alto_pie = h_dato * 2.0
+    abajo = y - alto_sup - alto_pie * len(pie)
+    for k, linea in enumerate(pie):
+        texto(linea, x0 + ancho_total / 2, y - alto_sup - alto_pie * (k + 0.5), h_dato, capa_ti)
+    vline(x0, y, abajo)
+    vline(xs[-1], y, abajo)
+    if pie:
+        hline(y - alto_sup)
+    hline(abajo)
     if numerar_vertices:
         hv = esc.altura("vertice_numero")
         etiquetas = [cuadro.vertice_inicial[0]] + [l.v for l in cuadro.lados[:-1]]

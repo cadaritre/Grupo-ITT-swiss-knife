@@ -19,7 +19,7 @@
   class ErrorCivil extends Error {}
 
   // -- Estado de la extensión ---------------------------------------------------------------------------------------------------
-  const est = { ocupado: false, escala: { denominador: 1000, alturas_mm: { ...C.alturas_mm } }, sinBatch: null, sinPicks: false, elegidos: {} };
+  const est = { ocupado: false, escala: { denominador: 1000, alturas_mm: { ...C.alturas_mm }, zona: 14, hemisferio: "N" }, sinBatch: null, sinPicks: false, elegidos: {} };
   try { Object.assign(est.escala, JSON.parse(localStorage.getItem(LLAVE) || "{}").escala || {}); } catch (_) { /* sin almacenamiento */ }
   const guardarAjustes = () => { try { localStorage.setItem(LLAVE, JSON.stringify({ escala: est.escala })); } catch (_) { /* nada */ } };
 
@@ -38,7 +38,13 @@
     const salida = [];
     let offset = 0;
     for (;;) {
-      const r = await pedir({ op: "query", limit: 10000, offset, ...filtro }, 120000);
+      let r;
+      try { r = await pedir({ op: "query", limit: 10000, offset, ...filtro }, 120000); }
+      catch (err) {
+        // con `fields`, el editor rechaza la consulta cuando no hay ninguna entidad que la cumpla: es una lista vacía
+        if (filtro.fields && /no matched entity/i.test(String((err && err.message) || ""))) return salida;
+        throw err;
+      }
       for (const e of r.entities || []) if (!e.space || e.space === "*Model_Space") salida.push(e);
       if (r.next_offset === null || r.next_offset === undefined) return salida;
       offset = r.next_offset;
@@ -116,7 +122,7 @@
   }
 
   /** Capas que dibuja Civil como resultado: nunca sirven como eje, límite o polígono (las marcas de estación tocan el eje). */
-  const CAPAS_DE_RESULTADO = /^(EJE_ESTACIONES|PERFIL_|SECCION_|CURVAS_|CUADRO_|VOLUMEN_|VERTICES_POLIGONO|PUNTOS_|TRIANGULACION_REVISION)/;
+  const CAPAS_DE_RESULTADO = /^(EJE_ESTACIONES|PERFIL_|SECCION_|CURVAS_|CUADRO_|VOLUMEN_|VERTICES_POLIGONO|PUNTOS_|TRIANGULACION_REVISION|LADOS_|RETICULA_)/;
 
   /** Entidades elegidas por la persona. `tipos`: nombres del editor (p. ej. ["Polyline", "Polyline3D"]). */
   async function elegir({ mensaje, tipo, capa, tipos, minimo = 1, maximo = Infinity, sinResultados = false }) {
@@ -344,7 +350,12 @@
   }
 
   // -- Escala ---------------------------------------------------------------------------------------------------------------------
-  function pintarEscala() { const t = $("civil-escala-texto"); if (t) t.textContent = `1:${est.escala.denominador}`; }
+  function pintarEscala() {
+    const t = $("civil-escala-texto"); if (t) t.textContent = `1:${est.escala.denominador}`;
+    const z = `zona ${est.escala.zona} ${est.escala.hemisferio === "S" ? "sur" : "norte"}`;
+    document.querySelectorAll("[data-civil-zona-texto]").forEach((n) => { n.textContent = z; });
+  }
+  const zona = () => ({ zona: est.escala.zona, hemisferio: est.escala.hemisferio });
 
   async function detectarEscala() {
     // La escala viaja con el plano: los bloques de punto se insertan a escala E/1000.
@@ -364,6 +375,9 @@
       const sel = f.elements.denominador;
       if ([...sel.options].some((o) => o.value === den)) sel.value = den; else { sel.value = "otra"; f.elements.otra.value = `1:${den}`; }
       for (const [k, v] of Object.entries(est.escala.alturas_mm)) if (f.elements[`alt_${k}`]) f.elements[`alt_${k}`].value = v;
+      const z = String(est.escala.zona);
+      if ([...f.elements.zona.options].some((o) => o.value === z)) f.elements.zona.value = z; else { f.elements.zona.value = "otra"; f.elements.zona_otra.value = z; }
+      f.elements.hemisferio.value = est.escala.hemisferio;
       sel.dispatchEvent(new Event("change", { bubbles: true }));
     };
     f.addEventListener("submit", (ev) => {
@@ -373,6 +387,9 @@
         if (den === "otra") den = String(f.elements.otra.value).replace(/^\s*1\s*[:/]\s*/, "");
         const n = parseFloat(String(den).replace(",", "."));
         if (!(n > 0)) throw new ErrorCivil("Escribe la escala como 1:750.");
+        const z = parseInt(f.elements.zona.value === "otra" ? f.elements.zona_otra.value : f.elements.zona.value, 10);
+        if (!(z >= 1 && z <= 60)) throw new ErrorCivil("La zona UTM va de 1 a 60.");
+        est.escala.zona = z; est.escala.hemisferio = f.elements.hemisferio.value === "S" ? "S" : "N";
         const anterior = est.escala.denominador;
         est.escala.denominador = n;
         for (const k of Object.keys(est.escala.alturas_mm)) {
@@ -475,6 +492,7 @@
     a.href = url; a.download = nombre.replace(/[\\/:*?"<>|]+/g, "-"); document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
+  function descargarDocumento(r, nombre) { descargar(r.archivo, `${nombre}.${r.extension}`, r.tipo); }
   const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   // -- Elecciones de las hojas (eje, límite, quiebres…) ------------------------------------------------------------------------
@@ -485,10 +503,11 @@
     poligono: { mensaje: "Elige el polígono (polilínea cerrada)", tipos: ["Polyline", "LwPolyline"], maximo: 1, cerrada: true, texto: (_, d) => `${d[0].vertices.length} vértices` },
     curvas: { mensaje: "Elige las polilíneas con curvas", tipos: ["Polyline", "LwPolyline"], maximo: Infinity,
       texto: (n, d) => { const k = d.reduce((t, p) => t + p.combas.slice(0, p.cerrada ? p.combas.length : p.combas.length - 1).filter((b) => b).length, 0); return `${n} polilínea${n === 1 ? "" : "s"} · ${k} curva${k === 1 ? "" : "s"}`; } },
+    lineas: { mensaje: "Elige las polilíneas o líneas", tipos: ["Polyline", "LwPolyline", "Line", "Polyline3D"], maximo: Infinity, texto: (n) => `${n} elegida${n === 1 ? "" : "s"}` },
     eje: { mensaje: "Elige el eje (polilínea o línea)", tipos: ["Polyline", "LwPolyline", "Line", "Polyline3D"], maximo: 1, texto: (_, d) => `${d[0].vertices.length} vértices` },
   };
 
-  function prepararElecciones(form) {
+  function prepararElecciones(form, alElegir) {
     const clave = form.dataset.civilForm;
     est.elegidos[clave] = est.elegidos[clave] || {};
     form.querySelectorAll("[data-civil-elegir]").forEach((b) => {
@@ -512,6 +531,7 @@
           est.elegidos[clave][que] = datos;
           cuenta.textContent = def.texto(datos.length, datos);
           cuenta.classList.add("civil-elegido");
+          if (alElegir) await alElegir(que, datos);
         } catch (err) { avisar(err instanceof ErrorCivil ? err.message : "No se pudo leer lo elegido.", "error"); if (!(err instanceof ErrorCivil)) console.error(err); }
       });
     });
@@ -545,13 +565,13 @@
           tipo, puntos: pts, quiebres,
           limite: lim ? { vertices: lim.vertices.map((v) => (lim.tres_d ? v : [v[0], v[1]])) } : null,
           islas: (el.islas || []).map((i) => ({ vertices: i.vertices.map((v) => [v[0], v[1]]) })),
-          arista_maxima: numero(f, "arista_maxima", null) || null,
+          arista_maxima: numero(f, "arista_maxima", null) || null, excluir: valor(f, "excluir") || "",
         }, decir);
         decir("Dibujando la triangulación…");
         await insertarDxf(r.dxf, "triangulacion.dxf");
         await borrar(anteriores);
         cerrarHoja();
-        avisar(`${r.resumen.triangulos.toLocaleString("es-MX")} triángulos`);
+        avisar(`${r.resumen.triangulos.toLocaleString("es-MX")} triángulos` + (r.resumen.excluidos ? ` · ${r.resumen.excluidos} puntos fuera por su descripción` : ""));
         for (const a of r.avisos || []) avisar(a);
       });
     });
@@ -735,7 +755,7 @@
       opciones: { sentido: valor(f, "sentido"), numeracion: valor(f, "numeracion"), primer_numero: parseInt(valor(f, "primer_numero"), 10) || 0,
         azimut: valor(f, "azimut"), angulos_interiores: valor(f, "angulos_interiores"), separador_miles: valor(f, "separador_miles") ? "," : "", oeste: valor(f, "oeste_o") ? "O" : "W",
         decimales_distancia: +valor(f, "decimales_distancia"), decimales_coordenadas: +valor(f, "decimales_coordenadas"), decimales_segundos: +valor(f, "decimales_segundos"),
-        decimales_superficie: +valor(f, "decimales_superficie"), titulo: valor(f, "titulo") },
+        decimales_superficie: +valor(f, "decimales_superficie"), titulo: valor(f, "titulo"), formato: valor(f, "formato") || "normal", ...zona() },
     };
   }
   function prepararCuadro() {
@@ -934,6 +954,179 @@
     });
   }
 
+  // -- v1.1: localizar, reporte, insertar puntos, anotar lados, numerar vértices, memoria, cuadrícula --------------------------
+  const polisDe = (lista) => (lista || []).map((p) => ({ vertices: p.vertices.map((v) => [v[0], v[1]]), combas: p.combas, cerrada: p.cerrada }));
+  const nombrePlano = () => (window.TVCad.estado().plano || {}).nombre || "Plano";
+
+  /** Acerca la vista a un punto (una ventana de unos 4 cm de papel) y lo deja seleccionado. */
+  async function irA(x, y, handle) {
+    const r = est.escala.denominador / 50;
+    await pedir({ op: "run", cmd: `ZOOM W ${x - r},${y - r} ${x + r},${y + r}` });
+    const s = await pedir({ op: "state" });
+    if (s.command) await pedir({ op: "cancel" }).catch(() => {});
+    if (handle) await pedir({ op: "select", clear: true, handles: [handle] }).catch(() => {});
+  }
+
+  function prepararLocalizar() {
+    const f = document.querySelector('[data-civil-form="localizar"]');
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Buscando…", async () => {
+        const buscado = String(valor(f, "numero") || "").trim().toUpperCase();
+        if (!buscado) throw new ErrorCivil("Escribe el número del punto.");
+        const pts = await insercionesDe(null);
+        const p = pts.find((q) => String(q.atributos.NUM || "").trim().toUpperCase() === buscado);
+        if (!p) throw new ErrorCivil(`No hay un punto ${valor(f, "numero")} en el plano.`);
+        cerrarHoja();
+        await irA(p.x, p.y, p.handle);
+        avisar(`Punto ${p.atributos.NUM}: Y ${mil(p.y, 3)} · X ${mil(p.x, 3)}${p.atributos.ELEV ? ` · Z ${p.atributos.ELEV}` : ""}`);
+      }, { soloLee: true });
+    });
+  }
+
+  function prepararReporte() {
+    const f = document.querySelector('[data-civil-form="reporte"]');
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Leyendo los puntos…", async () => {
+        const cuales = valor(f, "cuales");
+        let pts;
+        if (cuales === "seleccion") {
+          const e = await elegir({ mensaje: "Elige los puntos", tipos: ["Block Reference", "INSERT", "Insert", "Point"] });
+          if (!e) return;
+          pts = e.map(punto);
+        } else pts = await puntosDe(cuales);
+        if (!pts.length) throw new ErrorCivil("No hay puntos de ese tipo en el plano.");
+        const datos = [["Proyecto", valor(f, "proyecto") || ""], ["Plano", nombrePlano()]];
+        const r = await calcular("reporte_puntos", { puntos: pts, decimales: parseInt(valor(f, "decimales"), 10), titulo: valor(f, "titulo"), datos, formato: valor(f, "formato"),
+          ...(valor(f, "geograficas") ? zona() : {}) });
+        descargarDocumento(r, `Reporte de puntos ${nombrePlano()}`);
+        avisar(`Reporte de ${r.resumen.puntos.toLocaleString("es-MX")} puntos`);
+      }, { soloLee: true });
+    });
+  }
+
+  function prepararInsertar() {
+    const f = document.querySelector('[data-civil-form="insertar"]');
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Leyendo la triangulación…", async (decir) => {
+        const tipo = valor(f, "tipo");
+        const e = await elegir({ mensaje: "Elige los puntos que vas a insertar", tipos: ["Block Reference", "INSERT", "Insert", "Point"] });
+        if (!e) return;
+        const pts = e.map(punto).filter((p) => p[2] !== null && p[2] !== undefined);
+        const caras = await carasDe(tipo);
+        if (!caras.length) throw new ErrorCivil("No hay triangulación de ese tipo. Triangula primero.");
+        decir(`Insertando ${pts.length.toLocaleString("es-MX")} puntos…`);
+        const r = await calcular("insertar_puntos", { caras, puntos: pts, tipo, ajustar: !!valor(f, "ajustar") }, decir);
+        await insertarDxf(r.dxf, "triangulos.dxf");
+        await borrar(r.borrar);
+        cerrarHoja();
+        avisar(`${r.resumen.insertados} punto${r.resumen.insertados === 1 ? "" : "s"} insertado${r.resumen.insertados === 1 ? "" : "s"}. Actualiza las curvas.`);
+        for (const a of r.avisos || []) avisar(a);
+      });
+    });
+  }
+
+  function opcionesLados(f) {
+    return { decimales_distancia: +valor(f, "decimales_distancia"), decimales_segundos: +valor(f, "decimales_segundos"),
+      separador_miles: valor(f, "separador_miles") ? "," : "", oeste: valor(f, "oeste_o") ? "O" : "W" };
+  }
+  function prepararRumbos() {
+    const f = document.querySelector('[data-civil-form="rumbos"]');
+    prepararElecciones(f);
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Calculando…", async () => {
+        const el = est.elegidos.rumbos || {};
+        if (!el.lineas) throw new ErrorCivil("Elige las polilíneas o líneas.");
+        const r = await calcular("anotar_lados", { polilineas: polisDe(el.lineas), numerar_vertices: !!valor(f, "numerar_vertices"), opciones: opcionesLados(f) });
+        await insertarDxf(r.dxf, "lados.dxf");
+        cerrarHoja();
+        avisar(`${r.resumen.lados} lado${r.resumen.lados === 1 ? "" : "s"} anotado${r.resumen.lados === 1 ? "" : "s"}`);
+      });
+    });
+  }
+  function prepararNumerar() {
+    const f = document.querySelector('[data-civil-form="numerar"]');
+    prepararElecciones(f); enlazarDependientes(f);
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Numerando…", async () => {
+        const el = est.elegidos.numerar || {};
+        if (!el.lineas) throw new ErrorCivil("Elige las polilíneas o líneas.");
+        const r = await calcular("numerar_vertices", { polilineas: polisDe(el.lineas), opciones: { numeracion: valor(f, "numeracion"), primer_numero: parseInt(valor(f, "primer_numero"), 10) || 1 } });
+        await insertarDxf(r.dxf, "vertices.dxf");
+        cerrarHoja();
+        avisar(`${r.resumen.vertices} vértices numerados`);
+      });
+    });
+  }
+
+  function prepararMemoria() {
+    const f = document.querySelector('[data-civil-form="memoria"]');
+    const caja = f.querySelector("[data-civil-colindancias]"), lista = f.querySelector("[data-civil-colindancias-lista]");
+    const datosMemoria = () => {
+      const el = est.elegidos.memoria || {};
+      if (!el.poligono) throw new ErrorCivil("Elige el polígono.");
+      const p = el.poligono[0];
+      return { poligono: { vertices: p.vertices.map((v) => [v[0], v[1]]), combas: p.combas, cerrada: true },
+        opciones: { sentido: valor(f, "sentido"), formato: valor(f, "formato_cuadro"), ...zona() } };
+    };
+    async function lados() {
+      // los lados en el orden del cuadro (cambia con el sentido): una colindancia por lado, conservando lo ya escrito
+      const previas = Object.fromEntries([...lista.querySelectorAll("input")].map((i) => [i.dataset.lado, i.value]));
+      const r = await calcular("memoria", datosMemoria());
+      const filas = r.documento.filas.filter((x) => x[0] && x[1] && x[0] !== "CURVA");
+      lista.innerHTML = filas.map((x, k) => { const clave = `${x[0]}-${x[1]}`; return `<div class="tv-campo"><label for="civil-mem-col-${k}">Lado ${esc(x[0])}–${esc(x[1])}</label><input id="civil-mem-col-${k}" data-lado="${esc(clave)}" maxlength="200" autocomplete="off" placeholder="Colindancia" value="${esc(previas[clave] || "")}"></div>`; }).join("");
+      caja.hidden = !filas.length;
+    }
+    prepararElecciones(f, async () => { await lados(); });
+    f.addEventListener("change", (ev) => { if (["sentido", "formato_cuadro"].includes(ev.target.name) && (est.elegidos.memoria || {}).poligono) lados().catch(() => {}); });
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Redactando…", async () => {
+        const d = datosMemoria();
+        d.colindancias = [...lista.querySelectorAll("input")].map((i) => i.value.trim());
+        d.datos = [["Predio", valor(f, "predio") || ""], ["Ubicación", valor(f, "ubicacion") || ""], ["Propietario", valor(f, "propietario") || ""]];
+        d.formato = valor(f, "formato");
+        const r = await calcular("memoria", d);
+        descargarDocumento(r, `Memoria descriptiva ${valor(f, "predio") || nombrePlano()}`);
+        avisar("Memoria descriptiva lista");
+      }, { soloLee: true });
+    });
+  }
+
+  function prepararCuadricula() {
+    const f = document.querySelector('[data-civil-form="cuadricula"]');
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Calculando…", async () => {
+        let caja;
+        if (valor(f, "zona_dibujo") === "senalar") {
+          const a = await senalar("Señala una esquina de la cuadrícula");
+          if (!a) return;
+          const b = await senalar("Señala la esquina opuesta");
+          if (!b) return;
+          caja = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+        } else {
+          const r = await pedir({ op: "sysvar", get: ["extmin", "extmax"] });
+          const v = (r.result && r.result.values) || r.values || {};
+          if (!v.extmin || !v.extmax) throw new ErrorCivil("El plano está vacío. Señala las esquinas.");
+          caja = [v.extmin[0], v.extmin[1], v.extmax[0], v.extmax[1]];
+        }
+        const anteriores = [];
+        if (valor(f, "reemplazar")) for (const capa of ["RETICULA_UTM", "RETICULA_MARCO", "RETICULA_TEXTOS"]) anteriores.push(...(await consultar({ layer: capa, detail: "summary" })).map((e) => e.handle));
+        const r = await calcular("cuadricula", { caja, intervalo: numero(f, "intervalo", 0), tipo: valor(f, "tipo"), marco: !!valor(f, "marco"),
+          ...(valor(f, "geograficas") ? zona() : {}) });
+        await insertarDxf(r.dxf, "cuadricula.dxf");
+        await borrar(anteriores);
+        cerrarHoja();
+        avisar(`Cuadrícula UTM cada ${mil(r.resumen.intervalo, 0)} m`);
+      });
+    });
+  }
+
   // -- Volumen entre superficies -------------------------------------------------------------------------------------------------
   function prepararVolumen() {
     const f = document.querySelector('[data-civil-form="volumen"]');
@@ -965,6 +1158,13 @@
     renumerar: () => abrirHoja("civil-hoja-renumerar"),
     revisar: () => abrirHoja("civil-hoja-revisar"),
     cuadro_curvas: () => abrirHoja("civil-hoja-cuadro-curvas"),
+    localizar: () => { abrirHoja("civil-hoja-localizar"); $("civil-loc-num").focus(); },
+    reporte: () => abrirHoja("civil-hoja-reporte"),
+    insertar: () => abrirHoja("civil-hoja-insertar"),
+    rumbos: () => abrirHoja("civil-hoja-rumbos"),
+    numerar: () => abrirHoja("civil-hoja-numerar"),
+    memoria: () => abrirHoja("civil-hoja-memoria"),
+    cuadricula: () => abrirHoja("civil-hoja-cuadricula"),
     triangular: () => abrirHoja("civil-hoja-triangular"),
     invertir: invertirTriangulos,
     borrar: () => abrirHoja("civil-hoja-borrar"),
@@ -1015,7 +1215,7 @@
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") barra.querySelectorAll(".civil-menu[open]").forEach((d) => d.removeAttribute("open")); });
     document.querySelectorAll("[data-civil-cuenta]").forEach((c) => { c.dataset.vacio = c.textContent; });
     llenarEscala = prepararEscala();
-    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararPerfil(); prepararSecciones(); prepararVolumen();
+    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararPerfil(); prepararSecciones(); prepararVolumen();
     pintarEscala();
     const editable = () => barra.toggleAttribute("data-solo-lectura", !window.TVCad.estado().editable);
     editable();
