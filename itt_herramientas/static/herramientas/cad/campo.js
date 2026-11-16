@@ -36,11 +36,16 @@
   }
 
   // ------------------------------------------------------------------------------------------------------------- el editor
+  // La marca de «versión completa» vive en la base del teléfono (y, por compatibilidad, en la caché): WebKit no conserva entre páginas
+  // una respuesta guardada con un cuerpo hecho en la página.
   async function marcaDe(nombre) {
+    const v = nombre.slice(PREFIJO.length);
     try {
-      const c = await caches.open(nombre);
-      const v = nombre.slice(PREFIJO.length);
-      const r = await c.match(`/cad/editor/${v}/${MARCA}`, { ignoreVary: true });
+      const x = await con("estado", "readonly", (e) => req(e.get(`editor:${v}`)));
+      if (x && x.marca) return x.marca;
+    } catch (_) { /* sin base */ }
+    try {
+      const r = await (await caches.open(nombre)).match(`/cad/editor/${v}/${MARCA}`, { ignoreVary: true });
       return r ? await r.json() : null;
     } catch (_) { return null; }
   }
@@ -105,8 +110,12 @@
       await guardarPagina();
       const marca = { version: paquete.version, fecha: new Date().toISOString(), bytes: paquete.bytes, descarga: paquete.descarga,
         archivos: Object.fromEntries(paquete.archivos.map((a) => [a.ruta, a.sha256])) };
-      await cache.put(`/cad/editor/${paquete.version}/${MARCA}`, new Response(JSON.stringify(marca), { headers: { "Content-Type": "application/json" } }));
-      for (const ant of await versionesGuardadas()) if (ant.nombre !== nombre) await caches.delete(ant.nombre);
+      await con("estado", "readwrite", (e) => req(e.put({ clave: `editor:${paquete.version}`, marca })));
+      for (const ant of await versionesGuardadas()) {
+        if (ant.nombre === nombre) continue;
+        await caches.delete(ant.nombre);
+        await con("estado", "readwrite", (e) => req(e.delete(`editor:${ant.version}`))).catch(() => {});
+      }
       return marca;
     })().finally(() => { bajando = null; });
     return bajando;
@@ -117,34 +126,41 @@
     if (!url) return;
     const r = await fetch(url, { credentials: "same-origin", cache: "no-store" });
     if (!r.ok) return;
+    const r2 = r.clone();
     const html = await r.text();
     const doc = new DOMParser().parseFromString(html, "text/html");
     const recursos = [...doc.querySelectorAll("link[rel=stylesheet][href], script[src], link[rel=manifest][href], link[rel=icon][href]")]
       .map((e) => e.getAttribute("href") || e.getAttribute("src")).filter((u) => u && u.startsWith("/"));
     // Se rehace entera: primero se bajan todas las piezas y después se escriben (si algo falla, queda la de antes).
-    const piezas = [[url, new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } })]];
+    const piezas = [[url, copiaDe(r2)]];
     for (const u of recursos) {
-      try { const x = await fetch(u, { credentials: "same-origin" }); if (x.ok) piezas.push([u, await copiaDe(x)]); } catch (_) { /* el que falte lo sirve el service worker de su caché */ }
+      try { const x = await fetch(u, { credentials: "same-origin" }); if (x.ok) piezas.push([u, copiaDe(x)]); } catch (_) { /* el que falte lo sirve el service worker de su caché */ }
     }
     // Fuentes SHX de la empresa: el editor sin conexión las registra igual que la página del plano.
     for (const f of C.fuentes || []) {
-      try { const x = await fetch(f.url, { credentials: "same-origin" }); if (x.ok) piezas.push([f.url, await copiaDe(x)]); } catch (_) { /* sin esa fuente */ }
+      try { const x = await fetch(f.url, { credentials: "same-origin" }); if (x.ok) piezas.push([f.url, copiaDe(x)]); } catch (_) { /* sin esa fuente */ }
     }
-    piezas.push(["/cad/sin-conexion/__fuentes__.json", new Response(JSON.stringify((C.fuentes || []).map((f) => ({ nombre: f.nombre, url: f.url }))),
-      { headers: { "Content-Type": "application/json" } })]);
+    // La lista de fuentes va en la base del teléfono, no como respuesta inventada en la caché.
+    await con("estado", "readwrite", (e) => req(e.put({ clave: "fuentes", lista: (C.fuentes || []).map((f) => ({ nombre: f.nombre, url: f.url })) }))).catch(() => {});
     // Se escribe encima y se quitan las piezas que ya no usa (borrar la caché y volver a abrirla en seguida pierde lo escrito en WebKit).
     const cache = await caches.open(PAGINA);
     for (const [u, resp] of piezas) await cache.put(u, resp);
     const vigentes = new Set(piezas.map(([u]) => new URL(u, location.href).href));
     for (const req of await cache.keys()) if (!vigentes.has(req.url)) await cache.delete(req);
+    // Se lee de vuelta cada pieza: en WebKit una escritura que no terminó se pierde si la persona cambia de página en seguida.
+    for (const [u] of piezas) { const x = await cache.match(u, { ignoreVary: true }); if (!x) throw new Error("No se pudo guardar la página sin conexión."); await x.arrayBuffer(); }
   }
-  // Una copia sin las cabeceras de la red (compresión, Vary, Set-Cookie): así WebKit la guarda y la sirve igual que Chromium.
-  async function copiaDe(resp) {
+  // Una copia sin las cabeceras de la red (compresión, Vary, Set-Cookie), con el cuerpo de la red tal cual llega (en WebKit, una
+  // respuesta guardada con un cuerpo hecho en la página se pierde al cambiar de página).
+  function copiaDe(resp) {
     const tipo = resp.headers.get("Content-Type") || "application/octet-stream";
-    return new Response(await resp.blob(), { status: 200, headers: { "Content-Type": tipo } });
+    return new Response(resp.body, { status: 200, headers: { "Content-Type": tipo } });
   }
   async function quitarEditor() {
-    for (const n of await caches.keys()) if (n.startsWith(PREFIJO) || n.startsWith(PAGINA)) await caches.delete(n);
+    for (const n of await caches.keys()) {
+      if (n.startsWith(PREFIJO)) await con("estado", "readwrite", (e) => req(e.delete(`editor:${n.slice(PREFIJO.length)}`))).catch(() => {});
+      if (n.startsWith(PREFIJO) || n.startsWith(PAGINA)) await caches.delete(n);
+    }
   }
   async function usoEditor() {
     let total = 0;
@@ -404,7 +420,8 @@
 
   window.TVCadCampo = Object.freeze({ instalada, estadoEditor, descargarEditor, quitarEditor, versionInstalada, llevar, quitar, plano, planos,
     cambios, todosLosCambios, guardarCambios, descartarCambios, subir, decidir, hoja, uso, recordarSesion, cuentaActual, confirmar,
-    ponerCsrf: (t) => { tokenCsrf = String(t || ""); }, guardarPagina });
+    ponerCsrf: (t) => { tokenCsrf = String(t || ""); }, guardarPagina,
+    fuentes: async () => { const x = await con("estado", "readonly", (e) => req(e.get("fuentes"))).catch(() => null); return (x && x.lista) || []; } });
   // En la lista de Planos: cuántos planos hay en este teléfono y cuántos con cambios sin subir (lleva a la página sin conexión).
   async function enLaLista() {
     const t = $("cad-campo-tarjeta");

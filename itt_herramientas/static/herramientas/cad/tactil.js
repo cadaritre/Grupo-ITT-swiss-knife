@@ -542,7 +542,14 @@
   // estado de esta sesión que el editor nunca guarda: el editor completo en este dispositivo queda como estaba. (Ocultar sus barras con
   // órdenes como MENUBAR o FILETAB sí se guardaría y se colaría en el editor completo: no se usan.) El área de dibujo del editor ya es
   // oscura (sigue su tema), como pidió el dueño.
+  // El editor puede abrir un aviso propio (p. ej. «sin GPU»): en modo táctil no se puede tocar, así que se cierra.
+  async function cerrarAvisoDelEditor() {
+    const st = await pedirSuave({ op: "state" }, 3000);
+    if (st && st.modal) await pedirSuave({ op: "action", name: "close_modal" }, 3000);
+  }
+  setInterval(() => { if (activo && listo && document.visibilityState === "visible") cerrarAvisoDelEditor(); }, 1500);
   async function prepararEditor() {
+    await cerrarAvisoDelEditor();
     const r = await pedirSuave({ op: "canvas_only", on: true });
     if (!r) console.warn("El editor fijado no tiene la opción «solo lienzo» (hace falta tv-v2026.45-6 o posterior).");
     medirZona();

@@ -29,7 +29,8 @@ html.cad-tactil .tt { position: fixed; inset: 0; z-index: 10; display: grid; gri
 html.cad-tactil .tt[hidden] { display: none; }
 html.cad-tactil .tt > * { pointer-events: auto; }
 .tt [hidden] { display: none !important; }
-.tt button, .tt-hoja button { font: inherit; color: inherit; -webkit-user-select: none; user-select: none; }
+/* Sin especificidad: los colores de .tt-boton, .tt-teclado__listo… mandan. */
+:where(.tt, .tt-hoja) button { font: inherit; color: inherit; -webkit-user-select: none; user-select: none; }
 .tt .tv-icono, .tt-hoja .tv-icono { width: 22px; height: 22px; flex: none; }
 .tt-simbolos symbol, .tt-hoja svg use, .tt svg use { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -78,7 +79,7 @@ html.cad-tactil .tt > * { pointer-events: auto; }
 .tt-lectura__delta { flex-basis: 100%; text-align: center; font-size: 12.5px; color: var(--tv-tenue); }
 .tt-et { color: var(--tv-tenue); font-family: var(--tv-fuente); font-weight: 600; }
 .tt-lectura__snap { font: 600 12px/1 var(--tv-fuente); color: #fff; background: #c4006a; padding: 4px 8px; border-radius: 999px; }
-.tt-guia { position: absolute; left: 50%; bottom: 66px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 7px 14px; border-radius: 18px;
+.tt-guia { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 7px 14px; border-radius: 18px;
   background: color-mix(in srgb, var(--tv-superficie) 94%, transparent); box-shadow: var(--tt-sombra); font-size: 13.5px; text-align: center; }
 .tt-aviso { position: absolute; left: 12px; right: 12px; top: 54px; margin: 0 auto; max-width: 480px; padding: 10px 14px; border-radius: 12px;
   background: var(--tv-superficie); box-shadow: var(--tt-sombra); font-size: 14px; text-align: center; }
@@ -206,6 +207,7 @@ html.cad-tactil .tt-velo { display: block; position: fixed; inset: 0; z-index: 3
   .tt-num__cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
   html.cad-tactil .tt-hoja--numerica { width: min(720px, 96vw); }
   .tt-teclado button { min-height: 44px; }
+  .tt-teclado__sig { font-size: 13px !important; }
   .tt-campo { min-height: 46px; }
   .tt-lectura { font-size: 13px; padding: 5px 12px; }
 }

@@ -336,9 +336,14 @@ def test_solo_lectura_deja_ver_y_medir(tactil, navegar, crear_usuario, roles):
     expect(pb.locator("#cad-aviso-lectura")).to_contain_text("Ana López está editando este plano")
     pb.locator('.tt-pestanas [data-grupo="medir"]').click()
     pb.locator("#tt-hoja").get_by_role("button", name="Distancia", exact=True).click()
-    llevar_punta(pb, X0, Y0); poner(pb)
-    llevar_punta(pb, X0 + 20, Y0 + 20); poner(pb)
-    expect(pb.locator("#tt-tarjeta")).to_contain_text("28.284")
+    llevar_punta(pb, X0, Y0)
+    a = pb.evaluate("TVCadTactil.puntero()"); poner(pb)
+    llevar_punta(pb, X0 + 20, Y0 + 20)
+    b = pb.evaluate("TVCadTactil.puntero()"); poner(pb)
+    try:
+        expect(pb.locator("#tt-tarjeta")).to_contain_text("28.284", timeout=5000)
+    except AssertionError:
+        raise AssertionError((a, b, pb.locator("#tt-tarjeta").text_content(), pb.evaluate("TVCadTactil.vista()"))) from None
     assert not nb.errores, nb.errores
 
 
@@ -376,11 +381,10 @@ def test_capturas_de_cada_pantalla(tactil, navegar, crear_usuario, roles, tam, t
     p.wait_for_timeout(300)
     p.screenshot(path=f"{base}-6-resultado.png")
     p.locator("#tt-tarjeta-cerrar").click()
-    p.locator("#tt-cancelar").click()
     p.locator('.tt-pestanas [data-grupo="capas"]').click()
     p.wait_for_timeout(500)
     p.screenshot(path=f"{base}-7-capas.png")
-    p.locator("#tt-velo").click()
+    p.locator("#tt-hoja [data-tt-cerrar]").click()
     sx, sy = punto_en_pantalla(p, X0 + 10, Y0)
     p.evaluate("([x, y]) => __g.tocar(x, y)", [sx, sy])
     p.wait_for_timeout(900)
@@ -392,6 +396,40 @@ def test_capturas_de_cada_pantalla(tactil, navegar, crear_usuario, roles, tam, t
 
 
 # -- CAD sin conexión -------------------------------------------------------------------------------------------------------------
+
+class TelefonoInstalado:
+    """Como la app instalada: un perfil que se guarda (launch_persistent_context). Un contexto sin perfil de WebKit se porta como una
+    ventana privada (no conserva Cache Storage al cambiar de página), y el CAD sin conexión solo se ofrece en la app instalada."""
+
+    def __init__(self, playwright_, motor, servidor, cookie, carpeta, ancho=375, alto=812):
+        tipo = getattr(playwright_, motor)
+        args = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] if motor == "chromium" else []
+        self.contexto = tipo.launch_persistent_context(str(carpeta), headless=True, args=args, viewport={"width": ancho, "height": alto},
+                                                       is_mobile=motor == "chromium", has_touch=True, locale="es-MX", accept_downloads=True)
+        self.contexto.add_cookies([cookie])
+        self.errores = []
+        self.pagina = self.contexto.pages[0] if self.contexto.pages else self.contexto.new_page()
+        self.pagina.set_default_timeout(LARGO)
+        self.pagina.on("pageerror", lambda e: self.errores.append(f"pageerror: {e}"))
+        self.servidor = servidor
+
+    def ir(self, ruta):
+        self.pagina.goto(self.servidor.url + ruta)
+        return self.pagina
+
+
+@pytest.fixture
+def telefono(playwright_, servidor, sesion_de, tmp_path):
+    abiertos = []
+
+    def abrir_(usuario, motor="chromium"):
+        t = TelefonoInstalado(playwright_, motor, servidor, sesion_de(usuario), tmp_path / f"perfil-{motor}-{len(abiertos)}")
+        abiertos.append(t)
+        return t
+    yield abrir_
+    for t in abiertos:
+        t.contexto.close()
+
 
 INSTALADA = """(() => { const mm = window.matchMedia.bind(window);
   window.matchMedia = (q) => /display-mode:\\s*standalone/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} } : mm(q); })()"""
@@ -431,11 +469,10 @@ def _llevar_al_telefono(n, p, p0):
 
 
 @pytest.mark.parametrize("motor", ["chromium", "webkit"])
-def test_sin_conexion_se_dibuja_en_el_telefono_y_al_volver_es_version_nueva(tactil, navegar, crear_usuario, roles, motor):
+def test_sin_conexion_se_dibuja_en_el_telefono_y_al_volver_es_version_nueva(tactil, telefono, crear_usuario, roles, motor):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = plano_utm(ana)
-    w, h = TAMANOS["telefono"]
-    n = navegar(ana, motor, ancho=w, alto=h, movil=True)
+    n = telefono(ana, motor)
     n.contexto.add_init_script("try { localStorage.setItem('tv.cad.tactil', 'true') } catch (e) {}")
     n.contexto.add_init_script(INSTALADA)
     p = n.ir(f"/cad/{p0.pk}/")
@@ -444,6 +481,8 @@ def test_sin_conexion_se_dibuja_en_el_telefono_y_al_volver_es_version_nueva(tact
     p.goto(n.servidor.url + "/cad/")                                         # suelta el bloqueo de esta página
     p0.refresh_from_db()
     assert not servicio.bloqueo_activo(p0)                                   # llevarlo al teléfono no tomó el bloqueo
+    tras = p.evaluate("caches.open('itt-cad-pagina').then(c => c.keys()).then(k => k.length)")
+    assert tras > 5, f"la página sin conexión se perdió al cambiar de página: {tras}"
     # Modo avión: el mismo enlace del plano abre la página sin conexión con el editor descargado.
     consola = []
     p.on("console", lambda m: consola.append(f"{m.type}: {m.text[:160]}"))
@@ -478,13 +517,13 @@ def test_sin_conexion_se_dibuja_en_el_telefono_y_al_volver_es_version_nueva(tact
     assert not n.errores, n.errores
 
 
-def test_sin_conexion_si_otro_guardo_mientras_tanto_es_una_copia(tactil, navegar, crear_usuario, roles):
+def test_sin_conexion_si_otro_guardo_mientras_tanto_es_una_copia(tactil, telefono, crear_usuario, roles):
     from itt_herramientas.models import Plano
 
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     beto = _persona(crear_usuario, roles, "beto", "Beto Ruiz", "cad")
     p0 = plano_utm(ana)
-    n = navegar(ana, "chromium", ancho=375, alto=812, movil=True)
+    n = telefono(ana)
     n.contexto.add_init_script("try { localStorage.setItem('tv.cad.tactil', 'true') } catch (e) {}")
     n.contexto.add_init_script(INSTALADA)
     p = n.ir(f"/cad/{p0.pk}/")

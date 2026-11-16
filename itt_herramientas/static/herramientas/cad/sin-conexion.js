@@ -136,9 +136,7 @@
   }
   async function fuentes() {
     try {
-      const r = await caches.match("/cad/sin-conexion/__fuentes__.json", { ignoreVary: true });
-      if (!r) return;
-      for (const f of await r.json()) {
+      for (const f of await Campo.fuentes()) {
         const x = await caches.match(f.url, { ignoreVary: true });
         if (x) await canal({ op: "font_register", file_name: f.nombre, data_base64: base64(await x.arrayBuffer()) }, 15000).catch(() => {});
       }
