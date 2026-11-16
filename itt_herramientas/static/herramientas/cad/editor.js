@@ -547,6 +547,7 @@
       try {
         const d = await bloqueo("latido");
         if (d.perdido) perderBloqueo(d);
+        else if (!e.guardando && Number.isInteger(d.revision) && d.revision > e.base) cambioAjeno();
       } catch (_) { /* sin red un momento: el bloqueo dura 90 s */ }
     }, C.latido_s * 1000);
   }
@@ -556,6 +557,22 @@
     anunciar("editable", { editable: false });
     e.lecturaMotivo = d.otra_ventana ? "Abriste este plano para editar en otra ventana." : `${d.quien || "Otra persona"} tomó el control de este plano.`;
     lectura(`${e.lecturaMotivo} ${e.sucio ? "Guarda tus cambios como copia para no perderlos." : ""}`.trim());
+    if (botonGuardar) { botonGuardar.querySelector("span").textContent = "Guardar como copia"; }
+    refrescarEstado();
+  }
+
+  // El bloqueo caducó (el equipo durmió más de 90 s), otra persona guardó una versión nueva y el latido lo volvió a tomar (auditoría M-7):
+  // seguir sería dibujar sobre una versión vieja. Se suelta el bloqueo, se dice quién guardó y lo de aquí se guarda como copia.
+  async function cambioAjeno() {
+    if (!e.editable) return;
+    let quien = "";
+    try { const r = await pedir(`${C.urls.estado}?sesion=${SESION}`); if (r.ok) quien = (await datos(r)).modificado_por || ""; } catch (_) { /* sin nombre */ }
+    if (!e.editable) return;
+    soltar();
+    e.perdido = true;
+    anunciar("editable", { editable: false });
+    e.lecturaMotivo = `${quien || "Otra persona"} guardó una versión nueva de este plano mientras no estabas.`;
+    lectura(`${e.lecturaMotivo} ${e.sucio || e.recuperado ? "Guarda tus cambios como copia para no perderlos." : "Toca «Editar ahora» para abrir la versión nueva."}`.trim(), { reintentar: !(e.sucio || e.recuperado) });
     if (botonGuardar) { botonGuardar.querySelector("span").textContent = "Guardar como copia"; }
     refrescarEstado();
   }

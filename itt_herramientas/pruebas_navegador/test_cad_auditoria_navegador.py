@@ -204,3 +204,40 @@ def test_el_borrador_pendiente_no_se_pisa_y_se_pide_elegir(cad, navegar, crear_u
         p.wait_for_timeout(250)
     assert b is not None and b"BORRADOR VIEJO" not in (servicio.raiz() / b.ruta).read_bytes()
     assert not n.errores, n.errores
+
+
+def test_si_otro_guardo_mientras_el_bloqueo_caduco_se_avisa_y_se_guarda_como_copia(cad, navegar, crear_usuario, roles):
+    import datetime as dt
+    import uuid
+
+    from django.utils import timezone
+
+    from itt_herramientas.models import Plano
+
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    beto = _persona(crear_usuario, roles, "beto", "Beto Ruiz", "cad")
+    p0 = servicio.crear_vacio(ana, "Predio Norte", "", "dxf")
+    n = navegar(ana, "chromium")
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    dibujar(p)
+    esperar_estado(p, "sucio")
+    # El equipo de Ana «durmió»: su bloqueo caducó y Beto guardó la versión 2 y salió.
+    Plano.objects.filter(pk=p0.pk).update(bloqueo_latido=timezone.now() - dt.timedelta(minutes=5))
+    sesion_beto = uuid.uuid4().hex[:24]
+    assert servicio.bloqueo(p0.pk, beto, sesion_beto, "tomar")["mio"]
+    t = servicio.carpeta_temporal() / f"{uuid.uuid4().hex}.tmp"
+    t.write_bytes(servicio.ruta_version(servicio.version_vigente(p0)).read_bytes())
+    servicio.guardar(p0.pk, beto, sesion_beto, 1, t)
+    servicio.bloqueo(p0.pk, beto, sesion_beto, "soltar")
+    # El siguiente latido de Ana (2 s en pruebas) se da cuenta: lo dice, suelta el bloqueo y guardar crea una copia.
+    expect(p.locator("#cad-aviso-lectura")).to_contain_text("Beto Ruiz guardó una versión nueva de este plano mientras no estabas", timeout=LARGO)
+    expect(p.locator("#cad-guardar")).to_contain_text("Guardar como copia")
+    p0.refresh_from_db()
+    assert not servicio.bloqueo_activo(p0)
+    p.locator("#cad-guardar").click()
+    p.wait_for_url(lambda u: str(p0.pk) not in u, timeout=LARGO)
+    assert Plano.objects.filter(nombre="Predio Norte (copia)").exists()
+    p0.refresh_from_db()
+    assert p0.revision == 2                                                    # nada se pisó
+    assert not n.errores, n.errores
