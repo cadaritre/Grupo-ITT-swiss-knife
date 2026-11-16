@@ -45,10 +45,14 @@
     if (e.sucio || e.recuperado) return pintarEstado("sucio", "Sin guardar");
     pintarEstado("guardado", "Guardado");
   }
-  function error(texto) {
+  // `descargar`: el error es de guardar; se ofrece bajar los cambios a este equipo (auditoría M-3: con la biblioteca llena, un plano
+  // demasiado grande, el servidor caído o sin red, la persona no tenía otra forma de conservar su trabajo).
+  function error(texto, { descargar = false } = {}) {
     const caja = $("cad-aviso-error");
     caja.hidden = !texto;
     $("cad-aviso-error-texto").textContent = texto || "";
+    const acciones = $("cad-aviso-error-acciones");
+    if (acciones) acciones.hidden = !(texto && descargar && e.cargado);
   }
   function lectura(texto, { tomar = false, reintentar = false } = {}) {
     const caja = $("cad-aviso-lectura");
@@ -264,6 +268,23 @@
     return deBase64(r.result.data_base64);
   }
 
+  // Los cambios tal como están en el editor, a un archivo de este equipo (no cambia nada en la biblioteca).
+  async function descargarCambios(boton) {
+    if (!e.cargado || !documento) return;
+    if (boton) boton.setAttribute("aria-busy", "true");
+    try {
+      const buffer = await bytesDelEditor();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([buffer], { type: "application/octet-stream" }));
+      a.download = `${e.nombre} (cambios sin guardar).${e.formato}`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      avisar("Tus cambios se descargaron a este equipo.");
+    } catch (err) { avisar(err.message || "No se pudieron descargar los cambios.", "error"); }
+    finally { if (boton) boton.removeAttribute("aria-busy"); }
+  }
+  document.addEventListener("click", (ev) => { const b = ev.target.closest("[data-cad-descargar-cambios]"); if (b) descargarCambios(b); });
+
   async function pedirGuardado(destino) {
     if (!e.cargado || e.guardando) return false;
     if (destino !== "borrador" && !e.editable && !e.perdido) { avisar(e.lecturaMotivo || "Este plano está abierto en solo lectura.", "error"); return false; }
@@ -320,11 +341,11 @@
       responder(false, d.error || "No se guardó.");
       e.guardando = false; refrescarEstado();
       if (r.status === 409) { e.bufferPendiente = buffer; return conflicto(d.error); }
-      error(d.error || "No se pudo guardar. Inténtalo de nuevo.");
+      error(d.error || "No se pudo guardar. Inténtalo de nuevo.", { descargar: true });
     } catch (err) {
       responder(false, "Sin conexión: no se guardó.");
       e.guardando = false; refrescarEstado();
-      error("No se pudo guardar: revisa tu conexión e inténtalo de nuevo. Tus cambios siguen en el editor.");
+      error("No se pudo guardar: revisa tu conexión e inténtalo de nuevo. Tus cambios siguen en el editor.", { descargar: true });
     }
   }
 
@@ -347,7 +368,7 @@
     } catch (err) {
       if (saveId) alEditor("ocs:saved", { ok: false, saveId, error: err.message });
       e.guardando = false; refrescarEstado();
-      error(err.message);
+      error(err instanceof TypeError ? "No se pudo guardar la copia: revisa tu conexión e inténtalo de nuevo. Tus cambios siguen en el editor." : err.message, { descargar: true });
     }
   }
 

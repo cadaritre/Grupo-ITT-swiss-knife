@@ -96,3 +96,32 @@ def test_cerrar_sesion_borra_las_copias_y_avisa_de_los_cambios_sin_subir(cad, na
       db.close(); return x; }""")
     assert quedan["planos"] == [] and quedan["cambios"] == ["p2"] and quedan["estado"]["cerrada"] is True
     assert not n.errores, n.errores
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_si_no_se_puede_guardar_se_pueden_descargar_los_cambios(cad, navegar, crear_usuario, roles, motor):
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Predio Norte", "", "dxf")
+    n = navegar(ana, motor)
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    dibujar(p, "CIRCLE 390000,3168000 25")
+    esperar_estado(p, "sucio")
+    # Biblioteca llena: el servidor no recibe el plano (422) y la persona puede bajar su trabajo.
+    n.contexto.route(f"**/cad/{p0.pk}/guardar/", lambda r: r.fulfill(status=422, content_type="application/json",
+                                                                         body='{"error": "La biblioteca de planos está llena."}'))
+    p.locator("#cad-guardar").click()
+    caja = p.locator("#cad-aviso-error")
+    expect(caja).to_contain_text("La biblioteca de planos está llena.")
+    with p.expect_download() as bajada:
+        caja.get_by_role("button", name="Descargar mis cambios").click()
+    assert bajada.value.suggested_filename == "Predio Norte (cambios sin guardar).dxf"
+    assert b"CIRCLE" in open(bajada.value.path(), "rb").read()
+    esperar_estado(p, "sucio")                                               # sigue sin guardar: nada se dio por guardado
+    # Sin red: igual.
+    n.contexto.unroute(f"**/cad/{p0.pk}/guardar/")
+    n.contexto.route(f"**/cad/{p0.pk}/guardar/", lambda r: r.abort())
+    p.locator("#cad-guardar").click()
+    expect(caja).to_contain_text("revisa tu conexión")
+    expect(caja.get_by_role("button", name="Descargar mis cambios")).to_be_visible()
+    assert not n.errores, n.errores

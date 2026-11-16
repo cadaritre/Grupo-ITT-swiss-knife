@@ -39,7 +39,8 @@
     <button type="button" class="tv-boton tv-boton--fantasma" id="cad-descartar-borrador">Descartar</button></div></div>
   <div class="cad-aviso" data-tipo="aviso" id="cad-aviso-fuentes" hidden>{% icono "type" %}<p id="cad-aviso-fuentes-texto"></p>
     <div class="cad-aviso__acciones"><a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_fuentes' %}">Revisar fuentes</a></div></div>
-  <div class="cad-aviso" data-tipo="error" id="cad-aviso-error" role="alert" hidden>{% icono "triangle-alert" %}<p id="cad-aviso-error-texto"></p></div>
+  <div class="cad-aviso" data-tipo="error" id="cad-aviso-error" role="alert" hidden>{% icono "triangle-alert" %}<p id="cad-aviso-error-texto"></p>
+    <div class="cad-aviso__acciones" id="cad-aviso-error-acciones" hidden><button type="button" class="tv-boton tv-boton--secundario" data-cad-descargar-cambios>{% icono "download" %}<span>Descargar mis cambios</span></button></div></div>
 </div>
 {% if editor_listo %}
 {# Lugar para las extensiones de la página (p. ej. «Civil»): lo llenan con window.TVCad.barra() (static/herramientas/cad/control.js). #}
@@ -112,8 +113,8 @@
   <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
     <h2 id="cad-conflicto-titulo">No se guardó sobre el plano</h2>
     <p id="cad-conflicto-texto"></p>
-    <p class="tv-tenue">Tus cambios no se pierden: guárdalos como un plano nuevo.</p>
-    <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Ahora no</button><button type="button" class="tv-boton" id="cad-guardar-copia">{% icono "copy" %}<span>Guardar como copia</span></button></div>
+    <p class="tv-tenue">Tus cambios no se pierden: guárdalos como un plano nuevo, o descárgalos a este equipo.</p>
+    <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Ahora no</button><button type="button" class="tv-boton tv-boton--secundario" data-cad-descargar-cambios>{% icono "download" %}<span>Descargar mis cambios</span></button><button type="button" class="tv-boton" id="cad-guardar-copia">{% icono "copy" %}<span>Guardar como copia</span></button></div>
   </div>
 </dialog>
 <dialog id="cad-salir" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-salir-titulo">
