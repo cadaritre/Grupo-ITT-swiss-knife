@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import math
 import os
+import re
 import uuid
 
 import pytest
@@ -558,6 +559,8 @@ def _llevar_al_telefono(n, p, p0):
     """«Más › Sin conexión»: descargar el CAD (app instalada) y marcar el plano como disponible sin conexión."""
     p.locator("#tt-mas").click()
     p.locator("#tt-hoja").get_by_role("button", name="Sin conexión").click()
+    # Antes de bajar se dice cuánto se descarga y cuánto ocupa (después decía otra cifra y confundía).
+    expect(p.locator("#tt-hoja")).to_contain_text(re.compile(r"Se descarga una sola vez \(unos \d+ MB; ocupa unos \d+ MB en el teléfono\)"))
     p.locator("#tt-hoja").get_by_role("button", name="Descargar CAD en este teléfono").click()
     expect(p.locator("#tt-aviso")).to_contain_text("el CAD funciona sin conexión", timeout=LARGO * 3)
     p.locator("#tt-hoja").get_by_role("switch", name="Disponible sin conexión").check()

@@ -63,7 +63,7 @@
   }
   async function estadoEditor() {
     const instal = await versionInstalada();
-    return { instalada: instal, fijada: T.version || null, alDia: !!(instal && T.version && instal.version === T.version), descarga: T.descarga || 0 };
+    return { instalada: instal, fijada: T.version || null, alDia: !!(instal && T.version && instal.version === T.version), descarga: T.descarga || 0, ocupa: T.bytes || 0 };
   }
   let bajando = null;
   // Baja el editor fijado (o lo que cambió desde la versión instalada). alProgreso({hechos, total, bytes, totalBytes}).
@@ -299,7 +299,7 @@
       const a = nodo("a", "tt-boton tt-boton--secundario", "Cómo instalar la app"); a.href = T.urls.instalar; cont.append(a);
     } else {
       cont.append(nodo("p", "tt-nota-hoja", ed.instalada ? `Hay una versión nueva del CAD. Se baja solo lo que cambió.`
-        : `Se descarga una sola vez (unos ${MB(ed.descarga)}). Mejor con wifi.`));
+        : `Se descarga una sola vez (unos ${MB(ed.descarga)}; ocupa unos ${MB(ed.ocupa)} en el teléfono). Mejor con wifi.`));
       const barra = nodo("div", "tt-barra-uso"); const lleno = nodo("span"); barra.append(lleno); barra.hidden = true;
       const estado = nodo("p", "tt-nota-hoja", "");
       const b = boton(ed.instalada ? "Actualizar el CAD" : "Descargar CAD en este teléfono", "cloud-download", async () => {
