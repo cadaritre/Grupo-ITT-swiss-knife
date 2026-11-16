@@ -19,7 +19,7 @@ from typing import Sequence
 
 import numpy as np
 
-from .entidades import Capa, Dibujo, EstiloTexto, Polilinea, Polilinea3D, Texto
+from .entidades import Capa, Dibujo, EstiloTexto, Polilinea, Polilinea3D, TextoMultiple
 from .escala import Escala
 
 __all__ = [
@@ -30,6 +30,9 @@ __all__ = [
     "suavizar",
     "Etiqueta",
     "etiquetar",
+    "ancho_etiqueta",
+    "texto_etiqueta",
+    "unir_cortadas",
     "dibujar_curvas",
     "CAPAS_CURVAS",
 ]
@@ -266,6 +269,16 @@ class Etiqueta:
     curva: int
 
 
+#: Margen del fondo de las etiquetas (veces la altura del texto, como el «factor de borde» de MTEXT): tapa la curva bajo el
+#: texto sin cortarla. La curva sigue siendo UNA polilínea continua; el fondo se pinta con el color del fondo del dibujo.
+FONDO_ETIQUETA = 1.3
+
+
+def ancho_etiqueta(texto: str, altura: float) -> float:
+    """Largo aproximado de una etiqueta de curva sobre la curva (texto romans.shx a 0.85 de ancho más el margen del fondo)."""
+    return altura * (0.8 * len(texto) + 1.0)
+
+
 def _formato_elev(z: float, decimales: int) -> str:
     texto = f"{z:.{decimales}f}"
     return "0" if decimales == 0 and texto == "-0" else texto
@@ -278,40 +291,37 @@ def etiquetar(
     decimales: int = 0,
     solo_maestras: bool = True,
     longitud_minima: float | None = None,
-    hueco: bool = True,
-) -> tuple[list[Etiqueta], list[Curva]]:
+) -> list[Etiqueta]:
     """Etiquetas a lo largo de las curvas cada `separacion` (unidades de dibujo).
 
-    Una curva más corta que `longitud_minima` (por omisión 4 alturas) no se etiqueta. Con
-    `hueco` la curva se interrumpe bajo el texto: devuelve las piezas que se dibujan.
+    Una curva más corta que `longitud_minima` (por omisión 4 alturas) no se etiqueta. Las curvas nunca se cortan: cada
+    etiqueta se dibuja con fondo (máscara) encima de la curva continua.
     """
     if separacion <= 0 or altura <= 0:
         raise ValueError("Separación y altura deben ser positivas.")
     minimo = 4 * altura if longitud_minima is None else longitud_minima
     etiquetas: list[Etiqueta] = []
-    piezas: list[Curva] = []
     for ic, c in enumerate(curvas):
         v = np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices
         d = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(v, axis=0).T))])
         total = d[-1]
         if (solo_maestras and not c.maestra) or total < minimo or len(v) < 2:
-            piezas.append(c)
             continue
         texto = _formato_elev(c.elevacion, decimales)
-        ancho = altura * (0.8 * len(texto) + 1.0)
+        ancho = ancho_etiqueta(texto, altura)
         n = max(1, int(total // separacion))
         posiciones = [total * (k + 0.5) / n for k in range(n)] if not c.cerrada else [total * k / n for k in range(n)]
-        cortes = []
         for s in posiciones:
             s = min(max(s, ancho / 2), total - ancho / 2) if not c.cerrada else s
             x, y, ang = _en(v, d, s)
             etiquetas.append(Etiqueta(texto, x, y, ang, ic))
-            cortes.append((s - ancho / 2, s + ancho / 2))
-        if hueco:
-            piezas += _partir(c, v, d, cortes)
-        else:
-            piezas.append(c)
-    return etiquetas, piezas
+    return etiquetas
+
+
+def texto_etiqueta(capa: str, texto: str, x: float, y: float, rotacion: float, altura: float, estilo: str = "CIVIL") -> TextoMultiple:
+    """La etiqueta de una curva: texto centrado sobre la curva, alineado con ella, con fondo del color del dibujo."""
+    return TextoMultiple(capa, valor=texto, posicion=(x, y), altura=altura, rotacion=rotacion, estilo=estilo, anclaje="medio_centro",
+                         fondo=True, fondo_escala=FONDO_ETIQUETA)
 
 
 def _en(v, d, s):
@@ -328,37 +338,193 @@ def _en(v, d, s):
     return float(p[0]), float(p[1]), ang
 
 
-def _subcurva(v, d, s0, s1):
-    total = d[-1]
-    s0, s1 = max(0.0, s0), min(total, s1)
-    if s1 - s0 <= 1e-9:
-        return None
-    dentro = [v[k] for k in range(len(v)) if s0 < d[k] < s1]
-    a = _en(v, d, s0)[:2]
-    b = _en(v, d, s1)[:2]
-    return np.array([a, *dentro, b])
+# --- curvas cortadas por versiones anteriores ---------------------------------------------------------------------------
+
+@dataclass
+class UnionCurvas:
+    """Un hueco cerrado: el extremo `a` (curva, 0 inicio / 1 fin) con el extremo `b`, y los puntos del puente entre ellos."""
+    a: tuple[int, int]
+    b: tuple[int, int]
+    puente: np.ndarray  # (k, 2), sin los extremos
 
 
-def _partir(c: Curva, v, d, cortes):
-    total = d[-1]
-    cortes = sorted(cortes)
-    piezas = []
-    if c.cerrada:
-        # la curva cerrada se recorre dos veces para que el tramo que cruza el inicio salga entero
-        tramos = [(cortes[k][1], cortes[k + 1][0]) for k in range(len(cortes) - 1)] + [(cortes[-1][1], cortes[0][0] + total)]
-        doble_v = np.vstack([v, v[1:] + 0])
-        doble_d = np.concatenate([d, d[1:] + total])
-        for s0, s1 in tramos:
-            pts = _subcurva(doble_v, doble_d, s0, s1)
-            if pts is not None:
-                piezas.append(Curva(c.elevacion, pts, False, c.maestra, c.triangulos))
-        return piezas
-    tramos = [(0.0, cortes[0][0])] + [(cortes[k][1], cortes[k + 1][0]) for k in range(len(cortes) - 1)] + [(cortes[-1][1], total)]
-    for s0, s1 in tramos:
-        pts = _subcurva(v, d, s0, s1)
-        if pts is not None:
-            piezas.append(Curva(c.elevacion, pts, False, c.maestra, c.triangulos))
-    return piezas
+def _cuerda(w: np.ndarray, d: np.ndarray, s: float) -> np.ndarray:
+    """Dirección de la cuerda del punto a distancia `s` (medida desde el extremo) hasta el extremo."""
+    k = int(np.searchsorted(d, s))
+    q = w[min(max(k, 1), len(w) - 1)]
+    t = w[0] - q
+    n = float(np.hypot(*t))
+    return t / n if n > 0 else t
+
+
+def _salida(v: np.ndarray, extremo: int, alcance: float) -> tuple[np.ndarray, np.ndarray]:
+    """El punto del extremo y su dirección hacia afuera de la curva.
+
+    La cuerda de largo `a` tiene la dirección de la tangente a `a/2` del extremo; con las cuerdas de `a` y `a/2` se extrapola el
+    ángulo hasta el extremo mismo (exacto en un arco de círculo), sin que el ruido de un solo segmento cuente de más.
+    """
+    w = v[::-1] if extremo == 1 else v            # w[0] es el extremo
+    d = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(w, axis=0).T))])
+    larga, corta = _cuerda(w, d, alcance), _cuerda(w, d, alcance / 2)
+    a1, a2 = math.atan2(larga[1], larga[0]), math.atan2(corta[1], corta[0])
+    delta = (a2 - a1 + math.pi) % (2 * math.pi) - math.pi
+    ang = a2 + delta
+    return w[0], np.array([math.cos(ang), math.sin(ang)])
+
+
+def _puente(pa, ta, pb, tb, muestras: int = 5) -> np.ndarray:
+    """Hermite cúbica de `pa` (saliendo en `ta`) a `pb` (entrando contra `tb`): cierra el hueco con la misma curvatura."""
+    dist = float(np.hypot(*(pb - pa)))
+    m0, m1 = ta * dist, -tb * dist
+    t = np.linspace(0.0, 1.0, muestras + 2)[1:-1][:, None]
+    h00, h10, h01, h11 = 2 * t**3 - 3 * t**2 + 1, t**3 - 2 * t**2 + t, -2 * t**3 + 3 * t**2, t**3 - t**2
+    return h00 * pa + h10 * m0 + h01 * pb + h11 * m1
+
+
+def unir_cortadas(curvas: Sequence[Curva], tolerancia: float, otras: Sequence[Curva] = (), marcas=None) -> tuple[list[Curva], list[list[int]], list[UnionCurvas]]:
+    """Vuelve a unir las curvas que una versión anterior cortó bajo sus etiquetas.
+
+    Dos extremos se unen si son de la misma elevación, están a no más de `tolerancia`, ambos «miran» al otro (la dirección de
+    salida de cada pieza apunta hacia el hueco, a menos de 60°) y el puente no cruza ninguna otra curva. Con `marcas` (las
+    posiciones de las etiquetas que hay en el plano), además debe haber una etiqueta en el hueco: así nunca se juntan dos curvas
+    que de verdad terminan frente a frente (en la orilla de una isla). Se unen primero los huecos más cortos; cada extremo se
+    usa una vez. Las piezas encadenadas salen como una sola polilínea; si la cadena vuelve a su inicio, cerrada.
+
+    Devuelve (curvas resultantes, índices de las piezas que forman cada una, uniones hechas). Una curva sin uniones sale tal cual.
+    """
+    import shapely
+    from shapely.strtree import STRtree
+
+    if tolerancia <= 0:
+        raise ValueError("La tolerancia debe ser positiva.")
+    abiertas = [i for i, c in enumerate(curvas) if not c.cerrada and len(c.vertices) >= 2]
+    geo = lambda c: shapely.LineString(np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices)
+    todas = [geo(c) for c in curvas] + [geo(c) for c in otras if len(c.vertices) >= 2]
+    arbol = STRtree(todas)
+    extremos = {}
+    for i in abiertas:
+        alcance = min(tolerancia / 2, curvas[i].longitud / 3)
+        for e in (0, 1):
+            extremos[(i, e)] = _salida(np.asarray(curvas[i].vertices, float), e, alcance)
+    claves = list(extremos)
+    candidatos = []
+    # solo numpy y shapely: Herramientas lleva el motor sin scipy
+    arbol_marcas = None
+    if marcas is not None:
+        m = np.asarray(marcas, float).reshape(-1, 2)
+        puntos_marcas = shapely.points(m) if len(m) else None
+        arbol_marcas = STRtree(puntos_marcas) if len(m) else None
+    if claves:
+        pts = np.array([extremos[k][0] for k in claves])
+        arbol_ext = STRtree(shapely.points(pts))
+        pares = set()
+        for a, q in enumerate(shapely.points(pts)):
+            for b in arbol_ext.query(q.buffer(tolerancia)):
+                b = int(b)
+                if b > a and float(np.hypot(*(pts[b] - pts[a]))) <= tolerancia:
+                    pares.add((a, b))
+        for a, b in sorted(pares):
+            ka, kb = claves[a], claves[b]
+            ca, cb = curvas[ka[0]], curvas[kb[0]]
+            if abs(ca.elevacion - cb.elevacion) > 1e-6:
+                continue
+            (pa, ta), (pb, tb) = extremos[ka], extremos[kb]
+            hueco = pb - pa
+            dist = float(np.hypot(*hueco))
+            if dist <= 1e-9:
+                candidatos.append((0.0, ka, kb, np.empty((0, 2))))
+                continue
+            u = hueco / dist
+            if float(ta @ u) < 0.5 or float(tb @ -u) < 0.5:
+                continue
+            if marcas is not None:
+                medio = shapely.Point(*((pa + pb) / 2))
+                cerca = [] if arbol_marcas is None else arbol_marcas.query(medio.buffer(0.5 * dist + 1e-6))
+                if not any(puntos_marcas[int(j)].distance(medio) <= 0.5 * dist + 1e-6 for j in cerca):
+                    continue                                       # sin etiqueta en el hueco: no es un corte de Civil
+            if ka[0] == kb[0] and ca.longitud < 3 * dist:
+                continue                                       # una pieza corta no se cierra sobre sí misma
+            puente = _puente(pa, ta, pb, tb)
+            candidatos.append((dist, ka, kb, puente))
+    candidatos.sort(key=lambda x: x[0])
+    usados: set = set()
+    uniones: list[UnionCurvas] = []
+    for dist, ka, kb, puente in candidatos:
+        if ka in usados or kb in usados:
+            continue
+        if dist > 0:
+            linea = shapely.LineString(np.vstack([extremos[ka][0], puente, extremos[kb][0]]))
+            cruza = False
+            for j in arbol.query(linea):
+                if j in (ka[0], kb[0]):
+                    continue
+                if linea.intersects(todas[j]):
+                    cruza = True
+                    break
+            if cruza:
+                linea = shapely.LineString([extremos[ka][0], extremos[kb][0]])
+                if any(j not in (ka[0], kb[0]) and linea.intersects(todas[j]) for j in arbol.query(linea)):
+                    continue
+                puente = np.empty((0, 2))
+        usados.update((ka, kb))
+        uniones.append(UnionCurvas(ka, kb, puente))
+    # encadenar: cada extremo usado apunta a su pareja
+    pareja = {}
+    for u in uniones:
+        pareja[u.a] = (u.b, u)
+        pareja[u.b] = (u.a, u)
+    visto: set[int] = set()
+    salida: list[Curva] = []
+    grupos: list[list[int]] = []
+    for i, c in enumerate(curvas):
+        if i in visto:
+            continue
+        if c.cerrada or i not in abiertas or ((i, 0) not in pareja and (i, 1) not in pareja):
+            visto.add(i)
+            salida.append(c)
+            grupos.append([i])
+            continue
+        # ir hacia atrás por el inicio hasta el principio de la cadena (o dar la vuelta)
+        inicio, lado = i, 0
+        recorridos = {i}
+        while (inicio, lado) in pareja:
+            (j, e), _ = pareja[(inicio, lado)]
+            if j in recorridos:
+                break
+            recorridos.add(j)
+            inicio, lado = j, 1 - e
+        # recorrer hacia adelante: entrar a `inicio` por `lado`, salir por el otro
+        partes, indices = [], []
+        actual, entrada = inicio, lado
+        cerrada = False
+        while True:
+            v = np.asarray(curvas[actual].vertices, float)
+            v = v if entrada == 0 else v[::-1]
+            partes.append(v)
+            indices.append(actual)
+            visto.add(actual)
+            sale = (actual, 1 - entrada)
+            if sale not in pareja:
+                break
+            (j, e), u = pareja[sale]
+            puente = u.puente if u.a == sale else u.puente[::-1]
+            if j in visto:
+                if j == inicio and e == lado:
+                    cerrada = True
+                    if len(puente):
+                        partes.append(puente)
+                break
+            if len(puente):
+                partes.append(puente)
+            actual, entrada = j, e
+        v = np.vstack(partes)
+        limpio = np.vstack([v[:1], v[1:][np.hypot(*np.diff(v, axis=0).T) > 1e-9]])
+        if cerrada and len(limpio) > 2 and np.hypot(*(limpio[-1] - limpio[0])) <= 1e-9:
+            limpio = limpio[:-1]
+        base = curvas[indices[0]]
+        salida.append(Curva(base.elevacion, limpio, cerrada, any(curvas[k].maestra for k in indices)))
+        grupos.append(indices)
+    return salida, grupos, uniones
 
 
 # --- dibujo ---------------------------------------------------------------------------------
@@ -369,7 +535,6 @@ def dibujar_curvas(
     separacion_mm: float = 80.0,
     decimales: int = 0,
     solo_maestras: bool = True,
-    hueco: bool = True,
     tres_d: bool = False,
     estilo: str = "CIVIL",
     sufijo: str = "",
@@ -388,14 +553,14 @@ def dibujar_curvas(
     d.estilo(EstiloTexto(estilo, "romans.shx", 0.85))
     h = esc.altura("curva_etiqueta")
     separacion = separacion_mm * float(esc.denominador) / 1000.0 * esc.unidades_por_metro
-    etiquetas, piezas = etiquetar(curvas, separacion, h, decimales, solo_maestras, hueco=hueco)
-    for c in piezas:
+    etiquetas = etiquetar(curvas, separacion, h, decimales, solo_maestras)
+    for c in curvas:
         capa = capas["maestras" if c.maestra else "intermedias"].nombre
         datos = {"TVCIVIL": [(1000, "curva"), (1040, float(c.elevacion))]}
         if tres_d:
             d.agregar(Polilinea3D(capa, vertices=[(float(x), float(y), float(c.elevacion)) for x, y in c.vertices], cerrada=c.cerrada, datos=datos))
         else:
             d.agregar(Polilinea(capa, vertices=[(float(x), float(y)) for x, y in c.vertices], cerrada=c.cerrada, elevacion=float(c.elevacion), datos=datos))
-    for e in etiquetas:
-        d.agregar(Texto(capas["etiquetas"].nombre, valor=e.texto, posicion=(e.x, e.y), altura=h, rotacion=e.rotacion, estilo=estilo, alineacion_h="centro", alineacion_v="medio"))
+    for e in etiquetas:                                   # después de las curvas: su fondo las tapa sin cortarlas
+        d.agregar(texto_etiqueta(capas["etiquetas"].nombre, e.texto, e.x, e.y, e.rotacion, h, estilo))
     return d

@@ -38,7 +38,17 @@
 .civil-pick[hidden] { display: none; }
 .civil-pick > .tv-icono { flex: none; color: var(--tv-primario); }
 .civil-pick > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.civil-pick > .tv-boton { flex: none; white-space: nowrap; }
 @keyframes civil-aparece { from { opacity: 0; transform: translate(-50%, -4px); } }
+
+/* Vista previa al colocar un resultado: su caja real sigue al puntero (no recibe clics: el clic es del editor) */
+.civil-previa { position: fixed; inset: 0; z-index: 15; pointer-events: none; }
+.civil-previa__caja { position: absolute; box-sizing: border-box; border: 1.5px dashed var(--tv-primario);
+  background: color-mix(in srgb, var(--tv-primario) 10%, transparent); border-radius: 2px; }
+.civil-previa__titulo { position: absolute; left: 0; bottom: 100%; margin-bottom: 4px; padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+  background: var(--tv-primario); color: var(--tv-sobre-primario, #fff); font-size: var(--tv-texto-xs, 0.75rem); font-weight: 500; }
+.civil-previa__ancla { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%;
+  background: var(--tv-primario); box-shadow: 0 0 0 2px var(--tv-superficie); }
 
 /* Hojas */
 .civil-form { display: grid; gap: var(--tv-espacio-3); }
@@ -50,6 +60,16 @@
 .civil-fila .tv-campo { margin: 0; }
 .civil-fila--4 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
 .civil-nota { margin: 0; font-size: var(--tv-texto-sm); }
+.civil-cortes { display: grid; gap: var(--tv-espacio-2); padding: var(--tv-espacio-3); border-radius: var(--tv-radio);
+  background: var(--tv-estado-aviso-fondo); color: var(--tv-estado-aviso-texto); font-size: var(--tv-texto-sm); }
+.civil-cortes[hidden] { display: none; }
+.civil-cortes p { margin: 0; }
+.civil-cortes__acciones { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--tv-espacio-2); }
+.civil-conteo { margin: 0; font-size: var(--tv-texto-sm); font-weight: 500; color: var(--tv-texto); }
+.civil-conteo:empty { display: none; }
+.civil-conteo--vacio { color: var(--tv-estado-error-texto); }
+.civil-nota--colocar { display: flex; align-items: flex-start; gap: var(--tv-espacio-2); }
+.civil-nota--colocar > .tv-icono { flex: none; margin-top: 2px; }
 .civil-unidad { display: flex; align-items: center; gap: var(--tv-espacio-2); }
 .civil-unidad > input, .civil-unidad > select { flex: 1 1 auto; min-width: 0; }
 .civil-unidad > span { color: var(--tv-tenue); font-size: var(--tv-texto-sm); white-space: nowrap; }

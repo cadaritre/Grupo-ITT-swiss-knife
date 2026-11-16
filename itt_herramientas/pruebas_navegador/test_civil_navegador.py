@@ -36,6 +36,24 @@ def archivo_pnezd(n=5000, semilla=3, lado=300.0, f=terreno, prefijo=""):
     return ("\r\n".join(filas) + "\r\n").encode()
 
 
+TIPO_MTEXT = "MText"
+
+
+def fondo(e):
+    """La etiqueta lleva máscara del color del fondo del dibujo (MTEXT con relleno de fondo)."""
+    return (e.get("properties") or {}).get("background_fill_flags", 0) & 3 == 3
+
+
+def xyz_de(e):
+    q = (e.get("properties") or {}).get("insertion_point") or {}
+    return q.get("x"), q.get("y"), q.get("z")
+
+
+def caja_de(e):
+    b = e["bounds"]
+    return b["min"][0], b["min"][1], b["max"][0], b["max"][1]
+
+
 def pedir(p, peticion, ms=120000):
     return p.evaluate("([q, t]) => TVCad.pedir(q, {tiempoMs: t})", [peticion, ms])
 
@@ -77,6 +95,15 @@ def foto(p, nombre, ancho, tema="claro"):
     if CAPTURAS and p.context.browser.browser_type.name == "chromium":
         p.wait_for_timeout(500)
         p.screenshot(path=f"{CAPTURAS}/civil-{ancho}-{tema}-{nombre}.png")
+
+
+def poner_aqui(p, timeout=LARGO * 2):
+    """Civil pide dónde va lo que dibuja (vista previa de su tamaño real): «Poner aquí» lo deja en el lugar sugerido."""
+    esperar(p, "!document.getElementById('civil-pick-poner').hidden && !!document.querySelector('.civil-previa__caja')", timeout)
+    p.wait_for_timeout(300)
+    p.locator("#civil-pick-poner").click()
+    esperar(p, "document.getElementById('civil-pick').hidden", timeout)
+    esperar_libre(p, timeout)                                              # ya se copió al plano
 
 
 def esperar_libre(p, timeout=LARGO * 2):
@@ -309,7 +336,7 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     foto(p, "07-curvas", 1280)
     p.locator('[data-civil-form="curvas"] button[type=submit]').click()
     esperar(p, "!document.getElementById('civil-hoja-curvas').open", LARGO * 3)
-    assert cuenta(p, None, "CURVAS_MAESTRAS") > 0 and cuenta(p, None, "CURVAS_INTERMEDIAS") > 0 and cuenta(p, "Text", "CURVAS_ETIQUETAS") > 0
+    assert cuenta(p, None, "CURVAS_MAESTRAS") > 0 and cuenta(p, None, "CURVAS_INTERMEDIAS") > 0 and cuenta(p, TIPO_MTEXT, "CURVAS_ETIQUETAS") > 0
     pedir(p, {"op": "action", "name": "zoom_extents"})
     foto(p, "08-curvas-dibujadas", 1280)
 
@@ -325,6 +352,7 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     esperar(p, "document.querySelector('[data-civil-form=cuadro] [data-civil-cuenta=poligono]').classList.contains('civil-elegido')", LARGO)
     foto(p, "09-cuadro", 1280)
     p.locator('[data-civil-form="cuadro"] button[type=submit]').click()
+    poner_aqui(p)
     esperar(p, "!document.getElementById('civil-hoja-cuadro').open", LARGO)
     assert "4 vértices" in p.locator('[data-civil-form="cuadro"] [data-civil-cuenta="poligono"]').inner_text()
     textos = [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "CUADRO_TITULO", "detail": "geometry"})["entities"]]
@@ -345,6 +373,7 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     assert "1 curva" in p.locator('[data-civil-cuenta="curvas"]').inner_text()
     foto(p, "09b-cuadro-curvas", 1280)
     p.locator('[data-civil-form="cuadro_curvas"] button[type=submit]').click()
+    poner_aqui(p)
     esperar(p, "!document.getElementById('civil-hoja-cuadro-curvas').open", LARGO)
     claves = [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "CUADRO_CURVAS_CLAVE", "detail": "geometry"})["entities"]]
     titulos = [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "CUADRO_TITULO", "detail": "geometry"})["entities"]]
@@ -365,6 +394,7 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     filas.nth(1).locator("[name=piv_z]").fill("118")
     foto(p, "10-perfil", 1280)
     p.locator('[data-civil-form="perfil"] button[type=submit]').click()
+    poner_aqui(p)
     esperar(p, "!document.getElementById('civil-hoja-perfil').open", LARGO * 3)
     assert cuenta(p, None, "PERFIL_TERRENO") >= 1 and cuenta(p, None, "PERFIL_RASANTE") == 1
 
@@ -387,6 +417,7 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     fs.nth(1).locator("[name=piv_z]").fill("118")
     foto(p, "11-secciones", 1280)
     p.locator('[data-civil-form="secciones"] button[type=submit]').click()
+    poner_aqui(p)
     esperar(p, "!document.querySelector('[data-civil-form=secciones] [data-civil-resultado]').hidden", LARGO * 3)
     assert "Corte" in p.locator('[data-civil-form="secciones"] [data-civil-resultado]').inner_text()
     p.locator("#civil-hoja-secciones [data-tv-cerrar]").first.click()
@@ -506,6 +537,7 @@ def test_civil_v11(cad, navegar, crear_usuario, roles, motor, tmp_path):
     elegir_en_dibujo(p, [(X0 + 40, Y0 + 75)], mapa)
     esperar(p, "document.querySelector('[data-civil-form=cuadro] [data-civil-cuenta=poligono]').classList.contains('civil-elegido')", LARGO)
     p.locator('[data-civil-form="cuadro"] button[type=submit]').click()
+    poner_aqui(p)
     esperar(p, "!document.getElementById('civil-hoja-cuadro').open", LARGO)
     titulos = [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "CUADRO_TEXTOS", "detail": "geometry"})["entities"]]
     assert "LATITUD" in titulos and "COORDENADAS GEOGRÁFICAS" in titulos
@@ -560,16 +592,28 @@ def test_civil_v11(cad, navegar, crear_usuario, roles, motor, tmp_path):
     apagar(p, "LOTE", "CUADRO_LINEAS", "CUADRO_TEXTOS", "CUADRO_TITULO")
     mapa = enfocar(p, (X0 + 70, Y0 + 70, X0 + 80, Y0 + 80))
     menu(p, "terreno", "insertar")
-    p.locator('[data-civil-form="insertar"] button[type=submit]').click()
+    p.locator('[data-civil-form="insertar"] [data-civil-elegir="puntos"]').click()
     elegir_en_dibujo(p, [(X0 + 75.7, Y0 + 75.3)], mapa)
+    esperar(p, "document.querySelector('[data-civil-form=insertar] [data-civil-conteo]').textContent.startsWith('1 punto')", LARGO)
+    p.locator('[data-civil-form="insertar"] button[type=submit]').click()
     esperar_aviso(p, "insertado", LARGO * 2)
     assert cuenta(p, "3DFACE", "TRIANGULACION") == caras + 2
 
+    # nada de Civil quedó en el origen (lo dibujado está en UTM)
+    cerca = [(e.get("type"), e.get("layer"), e["bounds"]) for e in pedir(p, {"op": "query", "detail": "full", "fields": ["layer", "bounds", "space"], "limit": 20000})["entities"]
+             if e.get("space") == "*Model_Space" and e.get("bounds") and e["bounds"]["min"][0] < 1000]
+    assert not cerca, cerca[:10]
     # cuadrícula de todo el plano, dos veces: la segunda reemplaza a la primera
     for _ in range(2):
         menu(p, "plano", "cuadricula")
         p.locator('[data-civil-form="cuadricula"] button[type=submit]').click()
-        esperar(p, "!document.getElementById('civil-hoja-cuadricula').open", LARGO)
+        try:
+            esperar(p, "!document.getElementById('civil-hoja-cuadricula').open", LARGO)
+        except AssertionError:
+            p.screenshot(path=os.path.expanduser("~/.tresvizo/agentes/G/salida/depurar-cuadricula.png"))
+            print("\ncuadricula:", p.evaluate("window.__avisos"), pedir(p, {"op": "sysvar", "get": ["extmin", "extmax"]}), flush=True)
+            print("cerca del origen:", [(e.get("type"), e.get("layer"), e.get("bounds")) for e in pedir(p, {"op": "query", "detail": "full", "fields": ["handle", "layer", "bounds"], "limit": 10000})["entities"] if e.get("bounds") and e["bounds"]["min"][0] < 1000][:20], flush=True)
+            raise
         esperar_libre(p)
         marcos = cuenta(p, None, "RETICULA_MARCO")
     assert marcos == 1 and cuenta(p, "Text", "RETICULA_TEXTOS") > 8
@@ -663,7 +707,7 @@ def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_pa
     c = max(curvas, key=lambda e: len(e["properties"]["vertices"]))
     v = c["properties"]["vertices"][len(c["properties"]["vertices"]) // 2]["location"]
     mapa = enfocar(p, (v["x"] - 8, v["y"] - 8, v["x"] + 8, v["y"] + 8))
-    antes = cuenta(p, "Text", "CURVAS_ETIQUETAS")
+    antes = cuenta(p, TIPO_MTEXT, "CURVAS_ETIQUETAS")
     menu(p, "curvas", "etiquetar_curvas")
     foto(p, "27-etiquetar-curvas", 1280)
     p.locator('[data-civil-form="etiquetar_curvas"] button[type=submit]').click()
@@ -673,7 +717,7 @@ def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_pa
     p.wait_for_timeout(500)
     p.locator("#civil-pick-cancelar").click()                                 # terminar con el botón del aviso
     esperar_aviso(p, "1 etiqueta")
-    assert cuenta(p, "Text", "CURVAS_ETIQUETAS") == antes + 1
+    assert cuenta(p, TIPO_MTEXT, "CURVAS_ETIQUETAS") == antes + 1
 
     # suavizar las intermedias que se elijan con una ventana
     menu(p, "curvas", "suavizar_curvas")
@@ -731,6 +775,7 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     p.locator("#civil-lot-pref").fill("L")
     foto(p, "30-lotes", 1280)
     p.locator('[data-civil-form="lotes"] button[type=submit]').click()
+    poner_aqui(p)
     esperar(p, "!document.querySelector('[data-civil-form=lotes] [data-civil-resultado]').hidden", LARGO)
     assert "5 lotes" in p.locator('[data-civil-form="lotes"] [data-civil-resultado]').inner_text()
     p.locator("#civil-hoja-lotes [data-tv-cerrar]").first.click()
@@ -748,6 +793,7 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     assert "1 curva" in texto and "TE" in texto, texto
     foto(p, "32-eje-espirales", 1280)
     p.locator('[data-civil-form="eje_espirales"] button[type=submit]').click()
+    poner_aqui(p)
     esperar_aviso(p, "Eje con 1 curva")
     p.locator("#civil-hoja-eje-espirales [data-tv-cerrar]").first.click()
     assert cuenta(p, None, "EJE_PROYECTO") == 1 and cuenta(p, "Text", "EJE_PUNTOS") == 4
@@ -769,6 +815,7 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     p.locator('[data-civil-form="masa"] [name=vehiculo]').select_option("T3S3")
     foto(p, "29-curva-masa", 1280)
     p.locator('[data-civil-form="masa"] button[type=submit]').click()
+    poner_aqui(p)
     esperar(p, "!document.querySelector('[data-civil-form=masa] [data-civil-resultado]').hidden", LARGO * 3)
     texto = p.locator('[data-civil-form="masa"] [data-civil-resultado]').inner_text().lower()
     assert "sobreacarreo" in texto and "préstamo" in texto and "despalme" in texto, texto
@@ -781,6 +828,222 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     pedir(p, {"op": "action", "name": "zoom_extents"})
     cerrar_aviso_gpu(p)
     foto(p, "31-carretera-masa-lotes-dibujado", 1280)
+    assert not [a for a in p.evaluate("window.__avisos") if a[1] == "error"], p.evaluate("window.__avisos")
+    assert not n.dialogos and not n.errores, (n.dialogos, n.errores)
+
+
+def curvas_cortadas_v07(x0, y0):
+    """Un plano de las versiones 0.7 y anteriores: dos curvas partidas bajo sus etiquetas (TEXT sin fondo en cada hueco)."""
+    import base64
+
+    import ezdxf
+
+    doc = ezdxf.new("R2018", setup=True, units=6)
+    msp = doc.modelspace()
+    huecos = 0
+    for k, z in enumerate((200, 201)):
+        xs = np.linspace(0, 120, 241)
+        v = np.c_[x0 + xs, y0 + 10 * k + 3 * np.sin(xs / 20)]
+        dist = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(v, axis=0).T))])
+        cortes = [40.0, 80.0]
+        bordes = [0.0] + [b for c in cortes for b in (c - 3, c + 3)] + [dist[-1]]
+        for a, b in zip(bordes[::2], bordes[1::2]):
+            pts = v[(dist >= a) & (dist <= b)]
+            msp.add_lwpolyline([tuple(q) for q in pts], dxfattribs={"layer": "CURVAS_MAESTRAS", "elevation": z})
+        for c in cortes:
+            i = int(np.searchsorted(dist, c))
+            t = msp.add_text(str(z), height=2, rotation=float(np.degrees(np.arctan2(*(v[i + 1] - v[i])[::-1]))), dxfattribs={"layer": "CURVAS_ETIQUETAS"})
+            t.dxf.halign, t.dxf.valign = 1, 2
+            t.dxf.insert = t.dxf.align_point = (float(v[i][0]), float(v[i][1]))
+            huecos += 1
+    s = io.StringIO()
+    doc.write(s)
+    return base64.b64encode(s.getvalue().encode()).decode(), huecos
+
+
+def ventana_en_dibujo(p, esquina_a, esquina_b, mapa):
+    """Selección con ventana (clic en una esquina y clic en la opuesta, de izquierda a derecha) mientras Civil espera, y Enter."""
+    esperar(p, "!document.getElementById('civil-pick').hidden", LARGO)
+    for x, y in (esquina_a, esquina_b):
+        clic_lento(p, *mapa.pantalla(x, y))
+        p.wait_for_timeout(400)
+    p.wait_for_timeout(600)
+    if os.environ.get("CIVIL_DEPURAR"):
+        print("\nventana: sel", len(pedir(p, {"op": "state"}).get("selection") or []), flush=True)
+    p.keyboard.press("Enter")
+
+
+@pytest.mark.parametrize("completa", [False, True], ids=["normal", "pantalla_completa"])
+@pytest.mark.parametrize("motor", MOTORES)
+def test_civil_seleccion_de_puntos_curvas_continuas_y_colocar(cad, navegar, crear_usuario, roles, motor, completa, tmp_path):
+    """Pedidos del dueño (16-11): triangular solo los puntos elegidos en el plano (ventana o polígono, con su cuenta antes de correr);
+    curvas que nunca se cortan bajo su etiqueta (y unir las que cortó una versión anterior); y todo bloque nuevo va donde la persona
+    diga, con la vista previa de su tamaño real (Esc no dibuja nada)."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    plano = servicio.crear_vacio(ana, "Predio selección", "", "dwg")
+    n = navegar(ana, motor)
+    if os.environ.get("CIVIL_DEPURAR"):
+        n.pagina.on("console", lambda m: print("consola:", m.type, m.text[:800], flush=True) if m.type in ("error", "warning") else None)
+    p = n.ir(f"/cad/{plano.pk}/")
+    esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
+    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
+    if completa:                                                            # «Pantalla completa» de H: la barra de Civil se queda
+        p.locator("#cad-completa").click()
+        esperar(p, "document.documentElement.classList.contains('cad-completa')", LARGO)
+        esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]') && document.querySelector('.civil-barra').getBoundingClientRect().height > 0", LARGO)
+        p.wait_for_timeout(1500)                                            # el editor toma el tamaño nuevo
+    archivo = tmp_path / "puntos.txt"
+    archivo.write_bytes(archivo_pnezd(300, lado=120.0))
+    menu(p, "puntos", "importar")
+    p.locator("#civil-imp-archivo").set_input_files(str(archivo))
+    esperar(p, "document.querySelector('[data-civil-form=importar] [data-civil-enviar]').disabled === false", LARGO)
+    p.locator('[data-civil-form="importar"] [data-civil-enviar]').click()
+    esperar(p, "!document.getElementById('civil-hoja-importar').open", LARGO)
+    apagar(p, "PUNTOS_NUMERO", "PUNTOS_ELEVACION", "PUNTOS_DESCRIPCION")
+    rng = np.random.default_rng(3)                                          # las mismas coordenadas que archivo_pnezd
+    xy = np.vstack([rng.uniform(0, 120.0, (296, 2)), [[0, 0], [120, 0], [120, 120], [0, 120]]])
+
+    # 1a. «Todos los puntos»: la cuenta sale al abrir la hoja
+    mapa = enfocar(p, (X0, Y0, X0 + 120, Y0 + 120))                        # (antes de abrir la hoja: calibrar hace clic en el lienzo)
+    menu(p, "terreno", "triangular")
+    esperar(p, "document.querySelector('[data-civil-form=triangular] [data-civil-conteo]').textContent.startsWith('300 puntos de terreno')", LARGO)
+    p.locator("#civil-hoja-triangular details.civil-mas").evaluate("d => d.open = true")
+    p.locator("#civil-tri-excluir").fill("TN")                               # el filtro de descripción también se cuenta antes
+    esperar(p, "document.querySelector('[data-civil-form=triangular] [data-civil-conteo]').textContent.includes('300 fuera por su descripción')", LARGO)
+    p.locator("#civil-tri-excluir").fill("")
+    # 1b. «Seleccionar puntos en el plano» con una ventana: solo esos se triangulan
+    p.locator('[data-civil-form="triangular"] input[name=origen][value=seleccion]').check()
+    p.locator('[data-civil-form="triangular"] [data-civil-elegir="puntos"]').click()
+    ventana_en_dibujo(p, (X0 - 6, Y0 + 126), (X0 + 70.3, Y0 + 50.3), mapa)   # el primer clic en vacío (en un punto lo elegiría)
+    try:
+        esperar(p, "document.querySelector('[data-civil-form=triangular] [data-civil-cuenta=puntos]').classList.contains('civil-elegido')", LARGO)
+    except AssertionError:
+        p.screenshot(path=os.path.expanduser("~/.tresvizo/agentes/G/salida/depurar-ventana.png"))
+        print("\nventana:", p.evaluate("window.__avisos"), flush=True)
+        raise
+    conteo = p.locator('[data-civil-form="triangular"] [data-civil-conteo]').inner_text()
+    elegidos = int(conteo.split(" ")[0].replace(",", ""))
+    dentro = int(((xy[:, 0] < 70.3) & (xy[:, 1] > 50.3)).sum())
+    assert 0.8 * dentro <= elegidos <= dentro < 300, (conteo, dentro)        # un punto en la orilla, con su símbolo afuera, no entra
+    if not completa:
+        foto(p, "33-triangular-seleccion", 1280)
+    p.locator('[data-civil-form="triangular"] button[type=submit]').click()
+    esperar_aviso(p, f"con {elegidos} puntos", LARGO * 2)
+    caras_ventana = cuenta(p, "3DFACE", "TRIANGULACION")
+    # 1c. «Dentro de un polígono»: exactamente los que caen dentro
+    pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 20, Y0 + 20], [X0 + 100, Y0 + 20], [X0 + 100, Y0 + 90], [X0 + 20, Y0 + 90]], "closed": True, "layer": "ZONA"}]})
+    apagar(p, "TRIANGULACION")
+    mapa = enfocar(p, (X0, Y0, X0 + 120, Y0 + 120))
+    menu(p, "terreno", "triangular")
+    p.locator('[data-civil-form="triangular"] input[name=origen][value=poligono]').check()
+    p.locator('[data-civil-form="triangular"] [data-civil-elegir="zona"]').click()
+    elegir_en_dibujo(p, [(X0 + 60, Y0 + 20)], mapa)
+    en_zona = int(((xy[:, 0] >= 20) & (xy[:, 0] <= 100) & (xy[:, 1] >= 20) & (xy[:, 1] <= 90)).sum())
+    esperar(p, f"document.querySelector('[data-civil-form=triangular] [data-civil-conteo]').textContent.startsWith('{en_zona} puntos de terreno')", LARGO)
+    p.locator('[data-civil-form="triangular"] button[type=submit]').click()
+    esperar_aviso(p, f"con {en_zona} puntos", LARGO * 2)
+    assert cuenta(p, "3DFACE", "TRIANGULACION") != caras_ventana             # «Reemplazar»: la de la ventana se fue
+
+    # 2. Curvas con todas sus etiquetas: una polilínea por curva y cada etiqueta con fondo, nunca piezas
+    menu(p, "curvas", "curvas")
+    p.locator('[data-civil-form="curvas"] input[name=cuales][value=todas]').check()
+    p.locator('[data-civil-form="curvas"] button[type=submit]').click()
+    esperar_aviso(p, " maestra", LARGO * 2)
+    curvas_n = int(next(a[0] for a in p.evaluate("window.__avisos") if " maestra" in a[0]).split(" ")[0].replace(",", ""))
+    assert cuenta(p, None, "CURVAS_MAESTRAS") + cuenta(p, None, "CURVAS_INTERMEDIAS") == curvas_n
+    etiquetas = pedir(p, {"op": "query", "layer": "CURVAS_ETIQUETAS", "detail": "full", "limit": 2000})["entities"]
+    assert etiquetas and all(e["type"] == TIPO_MTEXT and fondo(e) for e in etiquetas), etiquetas[:1]
+    apagar(p, "PUNTOS_TERRENO", "ZONA", "TRIANGULACION")
+    c = max(pedir(p, {"op": "query", "layer": "CURVAS_MAESTRAS", "detail": "full", "limit": 100})["entities"], key=lambda e: len(e["properties"]["vertices"]))
+    e = min(etiquetas, key=lambda t: abs(xyz_de(t)[0] - c["properties"]["vertices"][0]["location"]["x"]))
+    x, y = xyz_de(e)[:2]
+    enfocar(p, (x - 6, y - 4, x + 6, y + 4))
+    foto(p, "34-etiqueta-con-fondo" + ("-completa" if completa else ""), 1280)
+
+    # 3. Un plano de la versión anterior con curvas cortadas: «Etiquetar curvas» ofrece unirlas primero
+    b64, huecos = curvas_cortadas_v07(X0 + 300, Y0)
+    p.evaluate("(b) => TVCivil.insertarDxf(b, 'v07.dxf')", b64)
+    piezas_antes = cuenta(p, None, "CURVAS_MAESTRAS")
+    mapa = enfocar(p, (X0 + 300, Y0 - 5, X0 + 420, Y0 + 15))
+    menu(p, "curvas", "etiquetar_curvas")
+    p.locator('[data-civil-form="etiquetar_curvas"] button[type=submit]').click()
+    esperar(p, "!document.getElementById('civil-pick').hidden", LARGO)
+    clic_lento(p, *mapa.pantalla(X0 + 360, Y0 + 10 + 3 * np.sin(60 / 20)))
+    esperar(p, "document.getElementById('civil-pick-texto').textContent.includes('(1)')", LARGO)
+    p.locator("#civil-pick-cancelar").click()
+    try:
+        esperar(p, "!document.querySelector('[data-civil-cortes]').hidden", LARGO)
+    except AssertionError:
+        p.screenshot(path=os.path.expanduser("~/.tresvizo/agentes/G/salida/depurar-cortes.png"))
+        print("\ncortes:", p.evaluate("window.__avisos"), pedir(p, {"op": "query", "layer": "CURVAS_ETIQUETAS", "type": "Text", "detail": "full", "limit": 3}), flush=True)
+        raise
+    assert f"cortadas en {huecos} lugares" in p.locator("[data-civil-cortes]").inner_text()
+    if not completa:
+        foto(p, "35-curvas-cortadas", 1280)
+    p.locator("[data-civil-cortes-si]").click()
+    esperar_aviso(p, f"{huecos} cortes unidos", LARGO)
+    assert cuenta(p, None, "CURVAS_MAESTRAS") == piezas_antes - huecos         # cada curva vieja vuelve a ser una sola
+    textos = pedir(p, {"op": "query", "layer": "CURVAS_ETIQUETAS", "detail": "full", "limit": 2000})["entities"]
+    assert all(t["type"] == TIPO_MTEXT and fondo(t) for t in textos)          # las etiquetas viejas, reescritas con fondo
+    assert len(textos) == len(etiquetas) + huecos + 1
+
+    # 4. Colocar: el cuadro de construcción va donde la persona señala, con la vista previa de su tamaño; Esc no dibuja nada
+    lote = {"type": "LwPolyline", "vertices": [[X0 + 20, Y0 + 20], [X0 + 20, Y0 + 60], [X0 + 60, Y0 + 60], [X0 + 60, Y0 + 20]], "closed": True, "layer": "LOTE"}
+    pedir(p, {"op": "entities_create", "entities": [lote]})
+    apagar(p, "CURVAS_MAESTRAS", "CURVAS_INTERMEDIAS", "CURVAS_ETIQUETAS")
+    mapa = enfocar(p, (X0 + 20, Y0 - 100, X0 + 260, Y0 + 60))
+    menu(p, "cuadros", "cuadro")
+    p.locator('[data-civil-form="cuadro"] [data-civil-elegir="poligono"]').click()
+    elegir_en_dibujo(p, [(X0 + 20, Y0 + 40)], mapa)
+    esperar(p, "document.querySelector('[data-civil-form=cuadro] [data-civil-cuenta=poligono]').classList.contains('civil-elegido')", LARGO)
+    p.locator('[data-civil-form="cuadro"] button[type=submit]').click()
+    esperar(p, "!document.getElementById('civil-pick-poner').hidden && !!document.querySelector('.civil-previa__caja')", LARGO)
+    destino = (X0 + 120, Y0 + 40)
+    sx, sy = mapa.pantalla(*destino)
+    p.mouse.move(sx - 40, sy - 40)
+    p.mouse.move(sx, sy, steps=10)
+    p.wait_for_timeout(400)
+    caja = p.locator(".civil-previa__caja").bounding_box()
+    assert abs(caja["x"] - sx) < 3 and abs(caja["y"] - sy) < 3 and caja["width"] > 50, (caja, sx, sy)   # la esquina sigue al puntero
+    foto(p, "36-colocar-cuadro" + ("-completa" if completa else ""), 1280)
+    clic_lento(p, sx, sy)
+    try:
+        esperar(p, "!document.getElementById('civil-hoja-cuadro').open", LARGO)
+    except AssertionError:
+        p.screenshot(path=os.path.expanduser("~/.tresvizo/agentes/G/salida/depurar-colocar.png"))
+        print("\ncolocar:", p.evaluate("window.__avisos"), pedir(p, {"op": "state"}).get("operation"), flush=True)
+        raise
+    esperar_libre(p)
+    lineas = pedir(p, {"op": "query", "layer": "CUADRO_LINEAS", "detail": "full", "fields": ["bounds"], "limit": 1000})["entities"]
+    x0 = min(caja_de(e)[0] for e in lineas)
+    y1 = max(caja_de(e)[3] for e in lineas)
+    paso = abs(mapa.k[0]) * 3
+    assert abs(x0 - destino[0]) < paso and abs(y1 - destino[1]) < paso, (x0, y1, destino)
+    # la caja, del ancho de la tabla real: exacto cuando el editor dice dónde está su área de dibujo (state.viewport_rect, desde -8);
+    # con -7 y las cintas del editor alrededor, la vista previa sale de otro tamaño (ver docs/civil.md)
+    if "viewport_rect" in pedir(p, {"op": "state"}):
+        assert abs(caja["width"] * abs(mapa.k[0]) - (max(caja_de(e)[2] for e in lineas) - x0)) < paso * 2
+    vertices = pedir(p, {"op": "query", "layer": "VERTICES_POLIGONO", "detail": "full", "fields": ["bounds"], "limit": 100})["entities"]
+    assert vertices and all(X0 + 10 < caja_de(e)[0] < X0 + 70 for e in vertices)   # los números de vértice se quedan en el lote
+    antes = cuenta(p, None, "CUADRO_LINEAS")
+    menu(p, "cuadros", "cuadro")
+    p.locator('[data-civil-form="cuadro"] button[type=submit]').click()
+    esperar(p, "!document.getElementById('civil-pick-poner').hidden", LARGO)
+    p.mouse.move(sx + 30, sy + 30)
+    if completa and p.evaluate("!!document.fullscreenElement && !(navigator.keyboard && navigator.keyboard.lock)"):
+        # pantalla completa del navegador sin bloqueo de Esc (WebKit): Esc es del navegador; «Cancelar» del aviso cancela
+        p.locator("#civil-pick-cancelar").click()
+    else:
+        p.keyboard.press("Escape")
+    esperar_aviso(p, "Cancelado: no se dibujó nada")
+    assert cuenta(p, None, "CUADRO_LINEAS") == antes and not p.locator(".civil-previa").count()
+    p.locator("#civil-hoja-cuadro [data-tv-cerrar]").first.click()
+    # un solo paso de deshacer quita el cuadro colocado entero
+    pedir(p, {"op": "undo"})
+    assert cuenta(p, None, "CUADRO_LINEAS") == 0
+    if completa:
+        assert p.evaluate("document.documentElement.classList.contains('cad-completa')")    # cancelar no sacó de la pantalla completa
     assert not [a for a in p.evaluate("window.__avisos") if a[1] == "error"], p.evaluate("window.__avisos")
     assert not n.dialogos and not n.errores, (n.dialogos, n.errores)
 

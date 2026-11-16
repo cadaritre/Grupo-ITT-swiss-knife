@@ -28,12 +28,12 @@ from .cuadro import FORMATOS as FORMATOS_CUADRO
 from .cuadro import OpcionesCuadro, calcular_cuadro, dibujar_cuadro, resumen_geo
 from .cuadro_curvas import curvas_de_polilineas, dibujar_cuadro_curvas
 from .anotacion import CAPAS_ANOTACION, CAPAS_RETICULA, anotar_lados, cuadricula_utm, intervalo_reticula, numerar_vertices
-from .curvas import CAPAS_CURVAS, Curva, curvas_de_nivel, dibujar_curvas, etiquetar, suavizar
-from .curvas import _en as _en_curva, _partir as _partir_curva
+from .curvas import CAPAS_CURVAS, Curva, ancho_etiqueta, curvas_de_nivel, dibujar_curvas, etiquetar, suavizar, texto_etiqueta, unir_cortadas
+from .curvas import _en as _en_curva
 from .dibujos import APP, BLOQUES, CAPAS_PUNTOS, bloque_punto, dibujar_puntos, dibujar_tin
 from .edicion_tin import ErrorEdicion, agregar, invertir, normalizar_cara, insertar_puntos, quitar_dentro, quitar_fuera, quitar_largos, revisar
 from .eje import Eje, EjePI, TramoEspiral, formato_estacion
-from .entidades import Capa, Dibujo, EstiloTexto, Insercion, Linea, Polilinea, Texto
+from .entidades import Capa, Dibujo, EstiloTexto, Insercion, Linea, Polilinea, Polilinea3D, Texto
 from .escala import ALTURAS_MM, Escala
 from .memoria import memoria_descriptiva, reporte_puntos
 from .perfiles import PIV, Rasante, dibujar_perfil, perfil_terreno
@@ -351,10 +351,10 @@ def curvas(d: dict) -> dict:
             avisos.append(f"{sin} curvas muy juntas se dejaron sin suavizar para que no se toquen.")
     e = d.get("etiquetas") or {}
     dib = dibujar_curvas(lista, _escala(d), _num(e, "separacion_mm", 80.0, minimo=5), int(e.get("decimales", 0)),
-                         e.get("cuales", "maestras") == "maestras", bool(e.get("hueco", True)), bool(d.get("tres_d")),
+                         e.get("cuales", "maestras") == "maestras", bool(d.get("tres_d")),
                          sufijo="_PROYECTO" if d.get("tipo") == PROYECTO else "")
     if e.get("cuales") == "ninguna":
-        dib.entidades = [x for x in dib.entidades if x.tipo != "texto"]
+        dib.entidades = [x for x in dib.entidades if x.tipo != "texto_multiple"]
     return {"dxf": _dxf(dib), "resumen": {"curvas": len(lista), "maestras": sum(1 for c in lista if c.maestra),
                                          "desde": min((c.elevacion for c in lista), default=None), "hasta": max((c.elevacion for c in lista), default=None)},
             "avisos": avisos}
@@ -379,34 +379,132 @@ def _curvas_del_plano(lista) -> list[tuple[dict, Curva]]:
     return salida
 
 
-def _polilinea_curva(p: dict, c: Curva) -> Polilinea:
-    return Polilinea(str(p.get("capa") or CAPAS_CURVAS["intermedias"].nombre), vertices=[(float(x), float(y)) for x, y in c.vertices], cerrada=c.cerrada,
-                     elevacion=float(c.elevacion), datos={"TVCIVIL": [(1000, "curva"), (1040, float(c.elevacion))]})
+def _polilinea_curva(p: dict, c: Curva):
+    datos = {"TVCIVIL": [(1000, "curva"), (1040, float(c.elevacion))]}
+    capa = str(p.get("capa") or CAPAS_CURVAS["intermedias"].nombre)
+    if p.get("tres_d"):
+        return Polilinea3D(capa, vertices=[(float(x), float(y), float(c.elevacion)) for x, y in c.vertices], cerrada=c.cerrada, datos=datos)
+    return Polilinea(capa, vertices=[(float(x), float(y)) for x, y in c.vertices], cerrada=c.cerrada, elevacion=float(c.elevacion), datos=datos)
+
+
+def _tolerancia_union(d: dict, h: float) -> float:
+    """El hueco más grande que se cierra: el que dejaba una etiqueta de 8 caracteres (p. ej. «1234.50») más un margen."""
+    if d.get("tolerancia"):
+        return _num(d, "tolerancia", minimo=0.001)
+    return 1.25 * ancho_etiqueta("x" * 8, h)
+
+
+def _etiquetas_del_plano(lista) -> list[dict]:
+    salida = []
+    for t in lista or []:
+        try:
+            x, y = float(t["posicion"][0]), float(t["posicion"][1])
+            salida.append({"handle": t.get("handle"), "valor": str(t.get("valor") or "")[:40], "x": x, "y": y,
+                           "rotacion": float(t.get("rotacion") or 0.0), "altura": float(t.get("altura") or 0.0), "capa": t.get("capa")})
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+    return salida
+
+
+def _unir(curvas: list[tuple[dict, Curva]], tolerancia: float, etiquetas: list[dict] | None):
+    """Las curvas del plano unidas donde estaban cortadas: [(propiedades de la primera pieza, curva, handles que reemplaza)], uniones.
+
+    Con `etiquetas`, solo se cierran los huecos que tienen una etiqueta (los que dejaron las versiones anteriores); con None, cualquiera."""
+    marcas = None if etiquetas is None else [(t["x"], t["y"]) for t in etiquetas]
+    unidas, grupos, uniones = unir_cortadas([c for _, c in curvas], tolerancia, marcas=marcas)
+    salida = []
+    for c, g in zip(unidas, grupos):
+        if len(g) == 1 and c is curvas[g[0]][1]:
+            salida.append((curvas[g[0]][0], c, []))
+        else:
+            salida.append((curvas[g[0]][0], c, [curvas[k][0].get("handle") for k in g]))
+    return salida, uniones
+
+
+def _reponer_etiquetas(dib: Dibujo, etiquetas: list[dict], unidas: list, h: float, capa_et: str) -> list:
+    """Las etiquetas viejas sobre una curva que se vuelve a dibujar se vuelven a escribir después de ella, con fondo: así tapan la curva
+    nueva en vez de quedar debajo. Devuelve los handles de las que reemplazan."""
+    import shapely
+
+    lineas = [shapely.LineString(np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices) for _, c, rem in unidas if rem]
+    if not lineas or not etiquetas:
+        return []
+    arbol = shapely.STRtree(lineas)
+    borrar = []
+    for t in etiquetas:
+        alto = t["altura"] or h
+        pt = shapely.Point(t["x"], t["y"])
+        if not any(lineas[j].distance(pt) <= 1.5 * alto for j in arbol.query(pt.buffer(1.5 * alto))):
+            continue
+        dib.agregar(texto_etiqueta(str(t.get("capa") or capa_et), t["valor"], t["x"], t["y"], t["rotacion"], alto))
+        borrar.append(t["handle"])
+    return borrar
+
+
+def unir_curvas(d: dict) -> dict:
+    """«Unir curvas cortadas»: las curvas que una versión anterior cortó bajo sus etiquetas vuelven a ser una sola polilínea continua.
+
+    Se cierran los huecos con una de las `etiquetas` del plano (así cortaban las versiones anteriores); con `sin_etiquetas`, también los
+    huecos sin etiqueta. Las etiquetas sobre las curvas unidas se reescriben con fondo (máscara). Con `solo_contar` solo dice cuántos
+    cortes hay.
+    """
+    curvas = _curvas_del_plano(d.get("polilineas"))
+    esc = _escala(d)
+    h = esc.altura("curva_etiqueta")
+    etiquetas = _etiquetas_del_plano(d.get("etiquetas"))
+    unidas, uniones = _unir(curvas, _tolerancia_union(d, h), None if d.get("sin_etiquetas") else etiquetas)
+    resumen = {"cortes": len(uniones), "antes": len(curvas), "despues": len(unidas)}
+    if d.get("solo_contar"):
+        return {"resumen": resumen, "avisos": []}
+    if not uniones:
+        raise ErrorOrden("Esas curvas no están cortadas: ya son continuas.")
+    capa_et = str(d.get("capa_etiquetas") or CAPAS_CURVAS["etiquetas"].nombre)
+    dib = Dibujo()
+    dib.estilo(EstiloTexto("CIVIL", "romans.shx", 0.85))
+    dib.capa(Capa(capa_et, CAPAS_CURVAS["etiquetas"].color, descripcion=CAPAS_CURVAS["etiquetas"].descripcion))
+    borrar = []
+    for p, c, rem in unidas:
+        if rem:
+            dib.agregar(_polilinea_curva(p, c))
+            borrar += rem
+    borrar += _reponer_etiquetas(dib, etiquetas, unidas, h, capa_et)
+    resumen["etiquetas"] = len(borrar) - sum(len(r) for _, _, r in unidas)
+    return {"dxf": _dxf(dib), "borrar": [b for b in borrar if b], "resumen": resumen, "avisos": []}
 
 
 def etiquetar_curvas(d: dict) -> dict:
-    """Etiquetas de elevación en curvas que ya están dibujadas.
+    """Etiquetas de elevación en curvas que ya están dibujadas. La curva nunca se corta: cada etiqueta lleva fondo (máscara).
 
     - `puntos` (señalados en el plano): una etiqueta en cada uno, en la curva más cercana, alineada con ella.
     - sin puntos: a lo largo de cada curva cada `separacion_mm` de papel (todas las elegidas, maestras o no).
-    Con `hueco` la curva se corta bajo cada etiqueta: se devuelven las piezas y los handles de las curvas que reemplazan.
+    - `unir`: antes de etiquetar, las curvas cortadas por una versión anterior se vuelven a unir (como «Unir curvas cortadas»); las
+      piezas se reemplazan (`borrar`) por la curva continua y las etiquetas viejas de los huecos se reescriben con fondo.
     """
     curvas = _curvas_del_plano(d.get("polilineas"))
     esc = _escala(d)
     h = esc.altura("curva_etiqueta")
     dec = int(d.get("decimales", 0))
-    hueco = bool(d.get("hueco", False))
     capa_et = str(d.get("capa_etiquetas") or CAPAS_CURVAS["etiquetas"].nombre)
     dib = Dibujo()
     dib.estilo(EstiloTexto("CIVIL", "romans.shx", 0.85))
     dib.capa(Capa(capa_et, CAPAS_CURVAS["etiquetas"].color, descripcion=CAPAS_CURVAS["etiquetas"].descripcion))
-    borrar, n = [], 0
+    borrar: list = []
+    uniones = []
+    if d.get("unir"):
+        etiquetas = _etiquetas_del_plano(d.get("etiquetas"))
+        unidas, uniones = _unir(curvas, _tolerancia_union(d, h), None if d.get("sin_etiquetas") else etiquetas)
+        for p, c, rem in unidas:
+            if rem:
+                dib.agregar(_polilinea_curva(p, c))          # primero las curvas: las etiquetas van encima
+                borrar += rem
+        borrar += _reponer_etiquetas(dib, etiquetas, unidas, h, capa_et)
+        curvas = [(p, c) for p, c, _ in unidas]
+    n = 0
     puntos = d.get("puntos") or []
     if puntos:
         import shapely
 
         lineas = [shapely.LineString(np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices) for _, c in curvas]
-        cortes: dict[int, list[float]] = {}
         for q in puntos:
             pt = shapely.Point(float(q[0]), float(q[1]))
             i = min(range(len(lineas)), key=lambda k: lineas[k].distance(pt))
@@ -415,38 +513,21 @@ def etiquetar_curvas(d: dict) -> dict:
             c = curvas[i][1]
             v = np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices
             dist = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(v, axis=0).T))])
-            s_ = float(lineas[i].project(pt))
-            x, y, ang = _en_curva(v, dist, s_)
-            texto = f"{c.elevacion:.{dec}f}"
-            dib.agregar(Texto(capa_et, valor=texto, posicion=(x, y), altura=h, rotacion=ang, estilo="CIVIL", alineacion_h="centro", alineacion_v="medio"))
-            ancho = h * (0.8 * len(texto) + 1.0)
-            cortes.setdefault(i, []).append((s_ - ancho / 2, s_ + ancho / 2))
+            x, y, ang = _en_curva(v, dist, float(lineas[i].project(pt)))
+            dib.agregar(texto_etiqueta(capa_et, f"{c.elevacion:.{dec}f}", x, y, ang, h))
             n += 1
-        if hueco:
-            for i, cs in cortes.items():
-                p, c = curvas[i]
-                v = np.vstack([c.vertices, c.vertices[:1]]) if c.cerrada else c.vertices
-                dist = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(v, axis=0).T))])
-                for pieza in _partir_curva(c, v, dist, cs):
-                    dib.agregar(_polilinea_curva(p, pieza))
-                borrar.append(p.get("handle"))
     else:
         sep = _num(d, "separacion_mm", 80.0, minimo=5) * float(esc.denominador) / 1000.0 * esc.unidades_por_metro
-        for p, c in curvas:                                   # curva por curva: así cada pieza sabe de qué curva viene
-            try:
-                etiquetas, piezas = etiquetar([c], sep, h, dec, solo_maestras=False, hueco=hueco)
-            except ValueError as exc:
-                raise ErrorOrden(str(exc)) from None
-            for e in etiquetas:
-                dib.agregar(Texto(capa_et, valor=e.texto, posicion=(e.x, e.y), altura=h, rotacion=e.rotacion, estilo="CIVIL", alineacion_h="centro", alineacion_v="medio"))
-            n += len(etiquetas)
-            if hueco and etiquetas:
-                for pieza in piezas:
-                    dib.agregar(_polilinea_curva(p, pieza))
-                borrar.append(p.get("handle"))
+        try:
+            etiquetas = etiquetar([c for _, c in curvas], sep, h, dec, solo_maestras=False)
+        except ValueError as exc:
+            raise ErrorOrden(str(exc)) from None
+        for e in etiquetas:
+            dib.agregar(texto_etiqueta(capa_et, e.texto, e.x, e.y, e.rotacion, h))
+        n = len(etiquetas)
     if not n:
         raise ErrorOrden("No quedó ninguna etiqueta: señala más cerca de las curvas o elige curvas más largas.")
-    return {"dxf": _dxf(dib), "borrar": [b for b in borrar if b], "resumen": {"etiquetas": n}, "avisos": []}
+    return {"dxf": _dxf(dib), "borrar": [b for b in borrar if b], "resumen": {"etiquetas": n, "cortes_unidos": len(uniones)}, "avisos": []}
 
 
 def suavizar_curvas(d: dict) -> dict:
@@ -1005,6 +1086,7 @@ ORDENES: dict[str, Callable[[dict], dict]] = {
     "revisar_tin": revisar_tin,
     "curvas": curvas,
     "etiquetar_curvas": etiquetar_curvas,
+    "unir_curvas": unir_curvas,
     "suavizar_curvas": suavizar_curvas,
     "cuadro": cuadro,
     "cuadro_curvas": cuadro_curvas,

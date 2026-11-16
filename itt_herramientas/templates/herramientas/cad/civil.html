@@ -16,6 +16,7 @@
 <div class="civil-pick" id="civil-pick" role="status" aria-live="polite" hidden>
   {% icono "mouse-pointer-click" %}<span id="civil-pick-texto"></span>
   <button type="button" class="tv-boton tv-boton--secundario" id="civil-pick-listo" hidden>{% icono "check" %}<span>Listo</span></button>
+  <button type="button" class="tv-boton tv-boton--secundario" id="civil-pick-poner" hidden>{% icono "check" %}<span>Poner aquí</span></button>
   <button type="button" class="tv-boton tv-boton--fantasma" id="civil-pick-cancelar">Cancelar</button>
 </div>
 
@@ -194,7 +195,16 @@
 {% hoja_inferior "civil-hoja-triangular" titulo="Triangular" %}
 <form class="tv-formulario civil-form" data-civil-form="triangular">
   <fieldset class="tv-campo"><legend>Superficie</legend><div class="tv-segmentado"><label><input type="radio" name="tipo" value="terreno" checked><span>Terreno</span></label><label><input type="radio" name="tipo" value="proyecto"><span>Proyecto</span></label></div></fieldset>
-  <fieldset class="tv-campo"><legend>Puntos</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="origen" value="capa" checked><span>Todos los del tipo</span></label><label><input type="radio" name="origen" value="seleccion"><span>Los que elija</span></label></div></fieldset>
+  <fieldset class="tv-campo"><legend>Puntos</legend><div class="civil-opciones">
+    <label><input type="radio" name="origen" value="capa" checked><span><strong>Todos los puntos</strong><span class="tv-tenue">Los de la superficie que elegiste, en todo el plano</span></span></label>
+    <label><input type="radio" name="origen" value="seleccion"><span><strong>Seleccionar puntos en el plano</strong><span class="tv-tenue">Con clic, ventana o captura, como en el editor; Enter para terminar</span></span></label>
+    <label><input type="radio" name="origen" value="poligono"><span><strong>Dentro de un polígono</strong><span class="tv-tenue">Los que caen dentro de una polilínea cerrada</span></span></label>
+  </div></fieldset>
+  <div class="civil-elecciones">
+    <div class="civil-eleccion" data-civil-si="origen=seleccion" hidden><div><strong>Puntos</strong><span class="tv-tenue" data-civil-cuenta="puntos" data-vacio="Sin elegir">Sin elegir</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="puntos">{% icono "mouse-pointer-click" %}<span>Seleccionar</span></button></div>
+    <div class="civil-eleccion" data-civil-si="origen=poligono" hidden><div><strong>Polígono</strong><span class="tv-tenue" data-civil-cuenta="zona" data-vacio="Sin elegir">Sin elegir</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="zona">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
+  </div>
+  <p class="civil-conteo" data-civil-conteo role="status" aria-live="polite"></p>
   <div class="civil-elecciones">
     <div class="civil-eleccion"><div><strong>Líneas de quiebre</strong><span class="tv-tenue" data-civil-cuenta="quiebres">Ninguna</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="quiebres">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
     <div class="civil-eleccion"><div><strong>Límite</strong><span class="tv-tenue" data-civil-cuenta="limite">Toda la zona de puntos</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="limite">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
@@ -231,9 +241,19 @@
 <form class="tv-formulario civil-form" data-civil-form="insertar">
   <p class="tv-tenue civil-nota">Mete los puntos elegidos en la triangulación que ya está en el plano: parte los triángulos donde caen y ajusta los vecinos.</p>
   <fieldset class="tv-campo"><legend>Superficie</legend><div class="tv-segmentado"><label><input type="radio" name="tipo" value="terreno" checked><span>Terreno</span></label><label><input type="radio" name="tipo" value="proyecto"><span>Proyecto</span></label></div></fieldset>
+  <fieldset class="tv-campo"><legend>Puntos que vas a insertar</legend><div class="civil-opciones">
+    <label><input type="radio" name="origen" value="seleccion" checked><span><strong>Seleccionar puntos en el plano</strong><span class="tv-tenue">Con clic, ventana o captura; Enter para terminar</span></span></label>
+    <label><input type="radio" name="origen" value="poligono"><span><strong>Dentro de un polígono</strong><span class="tv-tenue">Los que caen dentro de una polilínea cerrada</span></span></label>
+  </div></fieldset>
+  <div class="civil-elecciones">
+    <div class="civil-eleccion" data-civil-si="origen=seleccion"><div><strong>Puntos</strong><span class="tv-tenue" data-civil-cuenta="puntos" data-vacio="Sin elegir">Sin elegir</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="puntos">{% icono "mouse-pointer-click" %}<span>Seleccionar</span></button></div>
+    <div class="civil-eleccion" data-civil-si="origen=poligono" hidden><div><strong>Polígono</strong><span class="tv-tenue" data-civil-cuenta="zona" data-vacio="Sin elegir">Sin elegir</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="zona">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
+  </div>
+  <p class="civil-conteo" data-civil-conteo role="status" aria-live="polite"></p>
+  <div class="tv-campo"><label for="civil-ins-excluir">No usar los puntos con descripción</label><input id="civil-ins-excluir" name="excluir" autocomplete="off" placeholder="ARBOL, POSTE, BAR*"></div>
   <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-ins-ajustar" name="ajustar" value="1" checked><label for="civil-ins-ajustar">Ajustar los triángulos vecinos</label></div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
-  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "map-pin-plus" %}<span>Elegir puntos e insertar</span></button></div>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "map-pin-plus" %}<span>Insertar</span></button></div>
 </form>
 {% endhoja_inferior %}
 
@@ -264,7 +284,6 @@
       <div class="tv-campo"><label for="civil-cur-sep">Una etiqueta cada</label><div class="civil-unidad"><input id="civil-cur-sep" name="separacion_mm" type="number" min="10" max="500" step="5" value="80" inputmode="decimal"><span>mm de papel</span></div></div>
       <div class="tv-campo"><label for="civil-cur-dec">Decimales</label><select id="civil-cur-dec" name="decimales"><option value="0" selected>0</option><option value="1">1</option><option value="2">2</option></select></div>
     </div>
-    <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-cur-hueco" name="hueco" value="1" checked><label for="civil-cur-hueco">Cortar la curva bajo la etiqueta</label></div>
     <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-cur-3d" name="tres_d" value="1"><label for="civil-cur-3d">Dibujar como polilíneas 3D</label></div>
   </details>
   <p class="itt-estado civil-estado" role="status" hidden></p>
@@ -283,9 +302,27 @@
     <div class="tv-campo" data-civil-si="modo=largo" hidden><label for="civil-etc-sep">Una etiqueta cada</label><div class="civil-unidad"><input id="civil-etc-sep" name="separacion_mm" type="number" min="10" max="500" step="5" value="80" inputmode="decimal"><span>mm de papel</span></div></div>
     <div class="tv-campo"><label for="civil-etc-dec">Decimales</label><select id="civil-etc-dec" name="decimales"><option value="0" selected>0</option><option value="1">1</option><option value="2">2</option></select></div>
   </div>
-  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-etc-hueco" name="hueco" value="1" checked><label for="civil-etc-hueco">Cortar la curva bajo la etiqueta</label></div>
+  <p class="tv-tenue civil-nota">La curva nunca se corta: cada etiqueta lleva un fondo del color del dibujo que tapa la curva bajo el texto.</p>
+  <div class="civil-cortes" data-civil-cortes role="alert" hidden>
+    <p><strong data-civil-cortes-texto></strong> Las cortó una versión anterior de Civil bajo sus etiquetas. Al unirlas, cada curva vuelve a ser una sola polilínea continua y sus etiquetas quedan con fondo.</p>
+    <div class="civil-cortes__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-civil-cortes-no>Etiquetar sin unir</button><button type="button" class="tv-boton" data-civil-cortes-si>{% icono "link" %}<span>Unir y etiquetar</span></button></div>
+  </div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "tag" %}<span>Etiquetar</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Unir curvas cortadas ---------------------------------------------------------------------------------------------------- #}
+{% hoja_inferior "civil-hoja-unir-curvas" titulo="Unir curvas cortadas" %}
+<form class="tv-formulario civil-form" data-civil-form="unir_curvas">
+  <p class="tv-tenue civil-nota">Las versiones anteriores de Civil cortaban la curva bajo cada etiqueta. Esto vuelve a unir cada curva en una sola polilínea continua, siguiendo su curvatura en el hueco, y deja sus etiquetas con fondo.</p>
+  <fieldset class="tv-campo"><legend>Cuáles</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="cuales" value="todas" checked><span>Todas las del plano</span></label><label><input type="radio" name="cuales" value="elegidas"><span>Las que elija</span></label></div></fieldset>
+  <details class="civil-mas"><summary>Más opciones</summary>
+    <div class="tv-campo"><label for="civil-uni-tol">Unir huecos de hasta</label><div class="civil-unidad"><input id="civil-uni-tol" name="tolerancia" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Según la escala"><span>m</span></div></div>
+    <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-uni-sin" name="sin_etiquetas" value="1"><label for="civil-uni-sin">Unir también los huecos sin etiqueta</label></div>
+  </details>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "link" %}<span>Unir curvas</span></button></div>
 </form>
 {% endhoja_inferior %}
 
@@ -330,7 +367,7 @@
     </div>
     <div class="tv-campo"><label for="civil-cua-titulo">Título</label><input id="civil-cua-titulo" name="titulo" maxlength="80" value="CUADRO DE CONSTRUCCIÓN" autocomplete="off"></div>
   </details>
-  <fieldset class="tv-campo"><legend>Dónde va la tabla</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="ubicacion" value="auto" checked><span>Junto al polígono</span></label><label><input type="radio" name="ubicacion" value="senalar"><span>La señalo</span></label></div></fieldset>
+  <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "mouse-pointer-click" %}<span>Al terminar señalas en el plano dónde va la tabla; Esc cancela sin dibujar.</span></p>
   <div class="civil-resultado" data-civil-resultado hidden></div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones civil-acciones-3">
@@ -360,7 +397,7 @@
     <div class="civil-casillas"><label><input type="checkbox" name="separador_miles"> Separar miles</label><label><input type="checkbox" name="oeste_o"> Oeste como «O»</label></div>
     <div class="tv-campo"><label for="civil-cc-titulo">Título</label><input id="civil-cc-titulo" name="titulo" maxlength="80" value="CUADRO DE CURVAS" autocomplete="off"></div>
   </details>
-  <fieldset class="tv-campo"><legend>Dónde va la tabla</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="ubicacion" value="auto" checked><span>A un lado del plano</span></label><label><input type="radio" name="ubicacion" value="senalar"><span>La señalo</span></label></div></fieldset>
+  <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "mouse-pointer-click" %}<span>Al terminar señalas en el plano dónde va la tabla; Esc cancela sin dibujar.</span></p>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "spline" %}<span>Dibujar cuadro</span></button></div>
 </form>
@@ -466,7 +503,7 @@
   {% include "herramientas/cad/civil_eje.html" with pre="per" %}
   <div class="tv-campo"><label for="civil-per-exag">Exageración vertical</label><select id="civil-per-exag" name="exageracion"><option value="1">1 ×</option><option value="2">2 ×</option><option value="5">5 ×</option><option value="10" selected>10 ×</option><option value="20">20 ×</option></select></div>
   {% include "herramientas/cad/civil_rasante.html" with pre="per" %}
-  <fieldset class="tv-campo"><legend>Dónde va el perfil</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="ubicacion" value="auto" checked><span>Debajo del plano</span></label><label><input type="radio" name="ubicacion" value="senalar"><span>Lo señalo</span></label></div></fieldset>
+  <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "mouse-pointer-click" %}<span>Al terminar señalas en el plano dónde va el perfil; Esc cancela sin dibujar.</span></p>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "chart-line" %}<span>Dibujar perfil</span></button></div>
 </form>
@@ -485,7 +522,7 @@
     {% include "herramientas/cad/civil_plantilla.html" with pre="sec" %}
     <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-sec-tabla" name="tabla" value="1" checked><label for="civil-sec-tabla">Tabla de volúmenes</label></div>
   </details>
-  <fieldset class="tv-campo"><legend>Dónde van las secciones</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="ubicacion" value="auto" checked><span>A un lado del plano</span></label><label><input type="radio" name="ubicacion" value="senalar"><span>Lo señalo</span></label></div></fieldset>
+  <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "mouse-pointer-click" %}<span>Al terminar señalas en el plano dónde van las secciones; Esc cancela sin dibujar.</span></p>
   <div class="civil-resultado" data-civil-resultado hidden></div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "panels-top-left" %}<span>Dibujar secciones</span></button></div>
@@ -509,7 +546,7 @@
     <fieldset class="tv-campo"><legend>Línea compensadora</legend><div class="tv-segmentado"><label><input type="radio" name="linea_modo" value="auto" checked><span>La mejor</span></label><label><input type="radio" name="linea_modo" value="dada"><span>En una ordenada</span></label></div></fieldset>
     <div class="tv-campo" data-civil-si="linea_modo=dada" hidden><label for="civil-mas-lin">Ordenada</label><div class="civil-unidad"><input id="civil-mas-lin" name="linea" type="number" step="any" value="0" inputmode="decimal"><span>m³</span></div></div>
   </div>
-  <fieldset class="tv-campo"><legend>Dónde va la curva masa</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="ubicacion" value="auto" checked><span>Debajo del plano</span></label><label><input type="radio" name="ubicacion" value="senalar"><span>La señalo</span></label></div></fieldset>
+  <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "mouse-pointer-click" %}<span>Al terminar señalas en el plano dónde va la curva masa; Esc cancela sin dibujar.</span></p>
   <div class="civil-resultado" data-civil-resultado hidden></div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cerrar</button><button type="submit" class="tv-boton">{% icono "chart-spline" %}<span>Dibujar curva masa</span></button></div>

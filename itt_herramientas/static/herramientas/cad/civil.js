@@ -17,6 +17,8 @@
   const LLAVE = `tv-civil-${C.plano}`;
 
   class ErrorCivil extends Error {}
+  /** Lo que una hoja hace al abrirse (p. ej. contar los puntos que va a usar). */
+  const alAbrir = {};
 
   // -- Estado de la extensión ---------------------------------------------------------------------------------------------------
   const est = { ocupado: false, escala: { denominador: 1000, alturas_mm: { ...C.alturas_mm }, zona: 14, hemisferio: "N" }, sinBatch: null, sinPicks: false, elegidos: {} };
@@ -93,6 +95,153 @@
     }
   }
 
+  // -- Colocar un resultado: la persona dice dónde ------------------------------------------------------------------------------
+  // Todo lo que agrega un bloque de dibujo (perfil, secciones, curva masa, cuadros, tablas) se coloca como en CivilCAD: el resultado
+  // ya calculado se abre en un dibujo temporal, se mide su caja y un rectángulo de su tamaño real sigue al puntero sobre el plano. Clic
+  // (o «Poner aquí», que deja la vista previa donde está) lo pone; Esc o «Cancelar», no dibuja nada. La vista previa empieza en el
+  // lugar sugerido (a un lado de lo dibujado). Se mueve solo lo que es del bloque (`mover`): la numeración de vértices o las claves en
+  // el plano se quedan donde van. Un solo paso de deshacer: la copia al plano.
+  const cajaDe = (e) => {
+    const b = e.bounds || (e.properties && e.properties.bounds);
+    if (!b) return null;
+    if (Array.isArray(b) && b.length === 4 && typeof b[0] === "number") return b;
+    if (b.min && b.max) return [b.min[0] ?? b.min.x, b.min[1] ?? b.min.y, b.max[0] ?? b.max.x, b.max[1] ?? b.max.y];
+    if (Array.isArray(b) && b.length === 2) return [b[0][0], b[0][1], b[1][0], b[1][1]];
+    return null;
+  };
+  const unirCajas = (cajas) => cajas.reduce((a, c) => (!c || !c.every(Number.isFinite) ? a : a ? [Math.min(a[0], c[0]), Math.min(a[1], c[1]), Math.max(a[2], c[2]), Math.max(a[3], c[3])] : c.slice()), null);
+
+  /** La vista del editor en px de la página: la de `TVCad.vista()` (control.js), la misma que usa el modo táctil. */
+  async function vistaEditor() {
+    const m = await window.TVCad.vista();
+    return { k: m.k, aPantalla: m.aPagina, aMundo: m.dePagina };
+  }
+
+  const ANCLAS = { arriba_izquierda: (c) => [c[0], c[3]], abajo_izquierda: (c) => [c[0], c[1]] };
+  const fmtM = (v) => `${mil(v, v < 100 ? 1 : 0)} m`;
+
+  /** Rectángulo de vista previa sobre el editor, siguiendo al puntero. Devuelve { poner(punto), fin(), actual() }. */
+  function vistaPrevia(caja, ancla, titulo) {
+    const capa = document.createElement("div");
+    capa.className = "civil-previa";
+    capa.setAttribute("aria-hidden", "true");
+    capa.innerHTML = '<div class="civil-previa__caja"><span class="civil-previa__titulo"></span></div><span class="civil-previa__ancla"></span>';
+    document.body.append(capa);
+    const marco = capa.firstElementChild, punta = capa.lastElementChild;
+    marco.firstElementChild.textContent = `${titulo} · ${fmtM(caja[2] - caja[0])} × ${fmtM(caja[3] - caja[1])}`;
+    const a0 = ANCLAS[ancla](caja), dx0 = caja[0] - a0[0], dy0 = caja[3] - a0[1];     // del ancla a la esquina superior izquierda
+    const ancho = caja[2] - caja[0], alto = caja[3] - caja[1];
+    let vista = null, punto = a0.slice(), pantalla = null, vivo = true, releer = null;
+    const pintar = () => {
+      if (!vista || !vivo) return;
+      const p = pantalla ? vista.aMundo(pantalla[0], pantalla[1]) : punto;
+      punto = p;
+      const [sx, sy] = vista.aPantalla(p[0] + dx0, p[1] + dy0), [ax, ay] = vista.aPantalla(p[0], p[1]);
+      Object.assign(marco.style, { left: `${sx}px`, top: `${sy}px`, width: `${Math.max(2, ancho / vista.k)}px`, height: `${Math.max(2, alto / vista.k)}px` });
+      Object.assign(punta.style, { left: `${ax}px`, top: `${ay}px` });
+      const area = $("cad-editor").getBoundingClientRect();
+      capa.style.clipPath = `inset(${area.top}px ${innerWidth - area.right}px ${innerHeight - area.bottom}px ${area.left}px)`;
+    };
+    const leer = async () => { try { vista = await vistaEditor(); pintar(); } catch (_) { /* el editor ocupado: la siguiente lectura */ } };
+    const releerPronto = () => { clearTimeout(releer); releer = setTimeout(leer, 60); };
+    let doc = null;
+    const mover = (ev) => {
+      const r = $("cad-editor").getBoundingClientRect();
+      pantalla = [r.left + ev.clientX, r.top + ev.clientY];
+      pintar();
+    };
+    try {
+      doc = $("cad-editor").contentDocument;
+      doc.addEventListener("pointermove", mover, { passive: true });
+      doc.addEventListener("wheel", releerPronto, { passive: true });
+      doc.addEventListener("pointerup", releerPronto, { passive: true });
+    } catch (_) { doc = null; }
+    const sondeo = setInterval(leer, 400);                     // pan con el botón de en medio, zoom por teclado: la vista se vuelve a leer
+    leer();
+    return {
+      actual: () => punto.slice(),
+      fin() {
+        vivo = false; clearInterval(sondeo); clearTimeout(releer); capa.remove();
+        if (doc) { doc.removeEventListener("pointermove", mover); doc.removeEventListener("wheel", releerPronto); doc.removeEventListener("pointerup", releerPronto); }
+      },
+    };
+  }
+
+  /**
+   * Inserta el resultado `b64` donde la persona diga. `mover`: capas que forman el bloque (RegExp; por omisión todo). `ancla`: la esquina
+   * que sigue al puntero ("arriba_izquierda" o "abajo_izquierda"). Devuelve los handles creados, o null si la persona canceló (no se
+   * dibuja nada).
+   */
+  async function colocarDxf(b64, nombre, { titulo, mover = null, ancla = "arriba_izquierda" } = {}) {
+    if (est.sinPicks) return insertarDxf(b64, nombre);               // sin getpoint en el editor no se puede preguntar: va al lugar sugerido
+    const plano = await documentoActivo();
+    const que = (titulo || "el resultado").toLowerCase();
+    // 1. Medir: el resultado se abre, se mide su caja y se cierra (mientras la persona señala, en el editor solo está su plano)
+    let medida;
+    await conTemporal(b64, nombre, plano, async (temporal) => {
+      const todas = await consultar({ detail: "full", fields: ["handle", "layer", "bounds", "space"], document_id: temporal });
+      const bloque = mover ? todas.filter((e) => mover.test(e.layer || "")) : todas;
+      medida = { vacio: !todas.length, caja: bloque.length ? unirCajas(bloque.map(cajaDe)) : null };
+    });
+    if (medida.vacio) return [];
+    // 2. Dónde: vista previa de su tamaño real siguiendo al puntero; clic, «Poner aquí», o Esc / «Cancelar» (nada se dibuja)
+    let destino = null;
+    if (medida.caja) {
+      const caja = medida.caja;
+      destino = await conHojaCerrada(async () => {
+        const previa = vistaPrevia(caja, ancla, titulo || "Resultado");
+        let aqui = null;
+        mostrarChip(`Señala dónde va ${que}`, false);
+        chipPoner.hidden = false;
+        cancelarPick = () => pedir({ op: "cancel" }).catch(() => {});
+        ponerAqui = () => { aqui = previa.actual(); pedir({ op: "cancel" }).catch(() => {}); };
+        try {
+          const r = await pedir({ op: "getpoint", prompt: `Señala dónde va ${que}` }, 30 * 60000);
+          if (r.result && !r.result.cancelled && r.result.point) return r.result.point;
+          return aqui;
+        } catch (err) {
+          if (codigo(err) === "gui_required") { est.sinPicks = true; return ANCLAS[ancla](caja); }
+          throw err;
+        } finally { previa.fin(); chipPoner.hidden = true; ponerAqui = null; }
+      });
+      if (!destino) return null;
+    }
+    // 3. Poner: se abre otra vez, se mueve el bloque en el temporal y se copia de una vez (un solo paso de deshacer en el plano)
+    return conTemporal(b64, nombre, plano, async (temporal) => {
+      const todas = await consultar({ detail: "full", fields: ["handle", "layer", "bounds", "space"], document_id: temporal });
+      if (destino) {
+        const bloque = mover ? todas.filter((e) => mover.test(e.layer || "")) : todas;
+        const a = ANCLAS[ancla](unirCajas(bloque.map(cajaDe))), v = [destino[0] - a[0], destino[1] - a[1], 0];
+        if (Math.hypot(v[0], v[1]) > 1e-9) await pedir({ op: "entities_transform", action: "move", handles: bloque.map((e) => e.handle), vector: v, document_id: temporal }, 300000);
+      }
+      const r = await pedir({ op: "entities_copy_to", handles: todas.map((e) => e.handle), document_id: plano }, 300000);
+      return (r.result && r.result.created) || [];
+    });
+  }
+
+  /** Abre `b64` como dibujo temporal (queda activo), corre `fn(id)` y lo cierra sin guardar, volviendo al plano. */
+  async function conTemporal(b64, nombre, plano, fn) {
+    const antes = new Set(((await pedir({ op: "state" })).documents || []).map((d) => d.id));
+    let temporal = null;
+    try {
+      for (let i = 0; ; i++) {
+        try { await pedir({ op: "open", name: nombre, data_base64: b64 }, 300000); break; }
+        catch (err) { if (codigo(err) !== "busy") break; if (i > 40) throw err; await espera(250); }
+      }
+      for (let i = 0; i < 1200 && temporal === null; i++) {
+        const s = await pedir({ op: "state" });
+        const nuevo = (s.documents || []).find((d) => !antes.has(d.id));
+        if (nuevo && s.document_id === nuevo.id && !s.operation) temporal = nuevo.id;
+        else await espera(100);
+      }
+      if (temporal === null) throw new ErrorCivil("El editor no abrió el resultado. Inténtalo de nuevo.");
+      return await fn(temporal);
+    } finally {
+      await pedir({ op: "activate", document_id: plano }).catch(() => {});
+      if (temporal !== null) await pedir({ op: "close", discard: true, document_id: temporal }).catch(() => {});
+    }
+  }
+
   async function borrar(handles) {
     const lista = (handles || []).filter(Boolean);
     if (lista.length) await pedir({ op: "entities_delete", handles: lista }, 300000);
@@ -100,8 +249,8 @@
 
   // -- Elegir y señalar -----------------------------------------------------------------------------------------------------------
   let hojaAbierta = null;
-  const chip = $("civil-pick"), chipTexto = $("civil-pick-texto"), chipListo = $("civil-pick-listo");
-  let cancelarPick = null;
+  const chip = $("civil-pick"), chipTexto = $("civil-pick-texto"), chipListo = $("civil-pick-listo"), chipPoner = $("civil-pick-poner");
+  let cancelarPick = null, ponerAqui = null;
 
   function mostrarChip(texto, conListo) {
     chipTexto.textContent = texto;
@@ -112,6 +261,14 @@
   }
   const ocultarChip = () => { chip.hidden = true; };
   $("civil-pick-cancelar").addEventListener("click", () => { if (cancelarPick) cancelarPick(); });
+  chipPoner.addEventListener("click", () => { if (ponerAqui) ponerAqui(); });
+  // Esc con el foco en la página (no en el editor) mientras Civil espera un punto o una elección: cancela eso, y nada más (en la pantalla
+  // completa maximizada en la página, Esc también la quitaría). Va antes que los demás oyentes de la página.
+  window.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape" || !cancelarPick || chip.hidden) return;
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    cancelarPick();
+  }, true);
 
   async function conHojaCerrada(fn) {
     const hoja = hojaAbierta;
@@ -509,7 +666,7 @@
     eje: { mensaje: "Elige el eje (polilínea o línea)", tipos: ["Polyline", "LwPolyline", "Line", "Polyline3D"], maximo: 1, texto: (_, d) => `${d[0].vertices.length} vértices` },
   };
 
-  function prepararElecciones(form, alElegir) {
+  function prepararElecciones(form, alElegir, especiales = {}) {
     const clave = form.dataset.civilForm;
     est.elegidos[clave] = est.elegidos[clave] || {};
     form.querySelectorAll("[data-civil-elegir]").forEach((b) => {
@@ -517,6 +674,7 @@
         const que = b.dataset.civilElegir;
         const cuenta = form.querySelector(`[data-civil-cuenta="${que}"]`);
         try {
+          if (especiales[que]) { await especiales[que](cuenta); return; }
           if (que === "frente") {
             const p = await senalar("Señala el lado del frente (el que da a la calle)");
             if (!p) return;
@@ -553,20 +711,114 @@
   }
 
   // -- Triangulación --------------------------------------------------------------------------------------------------------------
+  /** Patrones de descripción («ARBOL, POSTE, BAR*»), como los usa el servidor (fnmatch, sin distinguir mayúsculas). */
+  function patronesDescripcion(texto) {
+    return String(texto || "").split(/[,;]/).map((t) => t.trim().toUpperCase()).filter(Boolean)
+      .map((t) => new RegExp(`^${t.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`));
+  }
+  const excluidoPor = (p, pats) => pats.length > 0 && pats.some((re) => re.test(String(p[4] || "").trim().toUpperCase()));
+
+  /** Dentro del polígono (par-impar; un punto en la orilla cuenta como dentro). */
+  function dentroDe(x, y, v) {
+    let dentro = false;
+    for (let i = 0, j = v.length - 1; i < v.length; j = i++) {
+      const [xi, yi] = v[i], [xj, yj] = v[j];
+      if (Math.abs((xj - xi) * (y - yi) - (yj - yi) * (x - xi)) < 1e-9 && Math.min(xi, xj) - 1e-9 <= x && x <= Math.max(xi, xj) + 1e-9 && Math.min(yi, yj) - 1e-9 <= y && y <= Math.max(yi, yj) + 1e-9) return true;
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) dentro = !dentro;
+    }
+    return dentro;
+  }
+
+  /**
+   * Elegir los puntos de una triangulación (Triangular, Insertar puntos), como en CivilCAD: todos los de la superficie, los que la persona
+   * selecciona en el plano (clic, ventana o captura del editor) o los que caen dentro de un polígono. Cuántos hay se dice antes de correr,
+   * con los que deja fuera el filtro de descripción. Devuelve { leer(): puntos a usar, contar() }.
+   */
+  function eleccionDePuntos(f, { todos = true, porTipo = true } = {}) {
+    const clave = f.dataset.civilForm, conteo = f.querySelector("[data-civil-conteo]");
+    const el = () => est.elegidos[clave] || (est.elegidos[clave] = {});
+    // triangular: los puntos de la superficie elegida; insertar: los que la persona diga, de terreno o de proyecto
+    const tipo = () => (porTipo ? valor(f, "tipo") : "todos");
+    const usa = (t) => !porTipo || t === "Point" || t === tipo();
+    let todosCache = null;
+    const delPlano = async () => {
+      if (!todosCache || todosCache.tipo !== tipo()) todosCache = { tipo: tipo(), pts: porTipo ? await puntosDe(tipo()) : [...(await puntosDe("terreno")), ...(await puntosDe("proyecto"))] };
+      return todosCache.pts;
+    };
+    async function candidatos() {
+      const modo = valor(f, "origen");
+      if (modo === "seleccion") return el().puntos ? el().puntos.filter((x) => usa(x.tipo)).map((x) => x.p) : null;
+      if (modo === "poligono") {
+        if (!el().zona) return null;
+        const v = el().zona.vertices;
+        return (await delPlano()).filter((p) => dentroDe(p[0], p[1], v));
+      }
+      return delPlano();
+    }
+    async function contar() {
+      if (!conteo) return;
+      try {
+        const c = await candidatos();
+        if (!c) { conteo.textContent = ""; return; }
+        const pats = patronesDescripcion(valor(f, "excluir"));
+        const fuera = c.filter((p) => excluidoPor(p, pats)).length, sinZ = c.filter((p) => !Number.isFinite(p[2])).length;
+        const n = c.length - fuera;
+        conteo.textContent = `${n.toLocaleString("es-MX")} punto${n === 1 ? "" : "s"}${porTipo ? ` de ${tipo()}` : ""}` + (fuera ? ` · ${fuera.toLocaleString("es-MX")} fuera por su descripción` : "")
+          + (sinZ ? ` · ${sinZ} sin elevación no se usan` : "");
+        conteo.classList.toggle("civil-conteo--vacio", n === 0);
+      } catch (_) { conteo.textContent = ""; }
+    }
+    const especiales = {
+      async puntos(cuenta) {
+        const e = await elegir({ mensaje: "Selecciona los puntos (clic, ventana o captura) y pulsa Enter", tipos: ["Block Reference", "INSERT", "Insert", "Point"] });
+        if (!e) return;
+        const pts = e.filter((x) => x.type === "Point" || esPuntoCivil(x)).map((x) => ({ tipo: x.type === "Point" ? "Point" : puntoCivil(x).tipo, p: punto(x) }));
+        if (!pts.length) throw new ErrorCivil("Lo que seleccionaste no son puntos de Civil.");
+        el().puntos = pts;
+        const otros = pts.filter((x) => !usa(x.tipo)).length;
+        cuenta.textContent = `${(pts.length - otros).toLocaleString("es-MX")} seleccionado${pts.length - otros === 1 ? "" : "s"}` + (otros ? ` · ${otros} de otra superficie` : "");
+        cuenta.classList.add("civil-elegido");
+        await contar();
+      },
+      async zona(cuenta) {
+        const e = await elegir({ mensaje: "Elige el polígono (polilínea cerrada)", tipos: ["Polyline", "LwPolyline", "Polyline3D"], maximo: 1, sinResultados: true });
+        if (!e) return;
+        const d = polilinea(e[0]);
+        const v = d.vertices.map((q) => [q[0], q[1]]);
+        const cerrada = d.cerrada || (v.length > 3 && v[0][0] === v[v.length - 1][0] && v[0][1] === v[v.length - 1][1]);
+        if (!cerrada || v.length < 3) throw new ErrorCivil("La polilínea debe estar cerrada.");
+        el().zona = { vertices: v };
+        cuenta.textContent = `${v.length} vértices`; cuenta.classList.add("civil-elegido");
+        await contar();
+      },
+    };
+    f.addEventListener("change", (ev) => { if (["origen", "tipo"].includes(ev.target.name)) contar(); });
+    f.addEventListener("input", (ev) => { if (ev.target.name === "excluir") contar(); });
+    return {
+      especiales, contar,
+      reiniciar() { todosCache = null; contar(); },
+      async leer() {
+        const modo = valor(f, "origen");
+        if (modo === "seleccion" && !el().puntos) throw new ErrorCivil("Selecciona los puntos en el plano.");
+        if (modo === "poligono" && !el().zona) throw new ErrorCivil("Elige el polígono.");
+        if (!todos && modo === "capa") throw new ErrorCivil("Elige los puntos.");
+        todosCache = null;
+        return (await candidatos()) || [];
+      },
+    };
+  }
+
   function prepararTriangular() {
     const f = document.querySelector('[data-civil-form="triangular"]');
-    prepararElecciones(f);
+    const eleccion = eleccionDePuntos(f);
+    prepararElecciones(f, null, eleccion.especiales); enlazarDependientes(f);
+    alAbrir.triangular = () => eleccion.reiniciar();
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Leyendo los puntos…", async (decir) => {
         const tipo = valor(f, "tipo"), el = est.elegidos.triangular;
-        let pts;
-        if (valor(f, "origen") === "seleccion") {
-          const e = await elegir({ mensaje: "Elige los puntos", tipos: ["Block Reference", "INSERT", "Insert", "Point"], minimo: 3 });
-          if (!e) return;
-          pts = e.map(punto);
-        } else pts = await puntosDe(tipo);
-        if (pts.length < 3) throw new ErrorCivil(`No hay puntos de ${tipo} en el plano. Impórtalos primero.`);
+        const pts = await eleccion.leer();
+        if (pts.length < 3) throw new ErrorCivil(valor(f, "origen") === "capa" ? `No hay puntos de ${tipo} en el plano. Impórtalos primero.` : "Se necesitan al menos tres puntos.");
         const anteriores = valor(f, "reemplazar") ? (await consultar({ type: "3DFACE", layer: C.capas.tin[tipo], detail: "summary" })).map((e) => e.handle) : [];
         decir(`Triangulando ${pts.length.toLocaleString("es-MX")} puntos…`);
         const quiebres = (el.quiebres || []).map((q) => ({ vertices: q.vertices.map((v) => (q.tres_d ? v : [v[0], v[1], null])) }));
@@ -581,7 +833,7 @@
         await insertarDxf(r.dxf, "triangulacion.dxf");
         await borrar(anteriores);
         cerrarHoja();
-        avisar(`${r.resumen.triangulos.toLocaleString("es-MX")} triángulos` + (r.resumen.excluidos ? ` · ${r.resumen.excluidos} puntos fuera por su descripción` : ""));
+        avisar(`${r.resumen.triangulos.toLocaleString("es-MX")} triángulos con ${r.resumen.puntos.toLocaleString("es-MX")} puntos` + (r.resumen.excluidos ? ` · ${r.resumen.excluidos} fuera por su descripción` : ""));
         for (const a of r.avisos || []) avisar(a);
       });
     });
@@ -717,7 +969,7 @@
   let ultimasCurvas = null;
   function datosCurvas(f) {
     return { tipo: valor(f, "tipo"), intervalo: numero(f, "intervalo", 1), maestra_cada: parseInt(valor(f, "maestra_cada"), 10), suavizado: parseInt(valor(f, "suavizado"), 10),
-      etiquetas: { cuales: valor(f, "cuales"), separacion_mm: numero(f, "separacion_mm", 80), decimales: parseInt(valor(f, "decimales"), 10), hueco: valor(f, "hueco") }, tres_d: valor(f, "tres_d") };
+      etiquetas: { cuales: valor(f, "cuales"), separacion_mm: numero(f, "separacion_mm", 80), decimales: parseInt(valor(f, "decimales"), 10) }, tres_d: valor(f, "tres_d") };
   }
   async function dibujarCurvas(f, opciones, decir) {
     const caras = await carasDe(opciones.tipo);
@@ -777,14 +1029,9 @@
       ev.preventDefault();
       trabajo(f, "Calculando…", async () => {
         const datos = datosCuadro(f);
-        if (valor(f, "ubicacion") === "senalar") {
-          const p = await senalar("Señala la esquina superior izquierda de la tabla");
-          if (!p) return;
-          datos.esquina = p;
-        }
         const r = await calcular("cuadro", datos);
         mostrar(r);
-        await insertarDxf(r.dxf, "cuadro.dxf");
+        if (!(await colocarDxf(r.dxf, "cuadro.dxf", { titulo: "El cuadro de construcción", mover: CAPAS_CUADRO }))) return cancelado();
         cerrarHoja();
         avisar(`Cuadro de construcción: ${mil(r.resumen.superficie, 3)} m²`);
       });
@@ -798,12 +1045,25 @@
     });
   }
 
-  /** Esquina superior izquierda libre a un lado de lo que ya hay en el plano (para «Debajo del plano» / «A un lado del plano»). */
+  /** Las capas de un cuadro (de construcción o de curvas) que forman la tabla: la numeración de vértices y las claves se quedan en el plano. */
+  const CAPAS_CUADRO = /^CUADRO_(LINEAS|TEXTOS|TITULO)$/;
+  const cancelado = () => avisar("Cancelado: no se dibujó nada.");
+
+  /** Esquina superior izquierda libre a un lado de lo que ya hay en el plano: el lugar sugerido donde empieza la vista previa al colocar. */
+  /**
+   * La extensión real de lo dibujado en el modelo: la caja de cada objeto (como «Ver todo» del modo táctil). EXTMIN/EXTMAX del editor
+   * pueden quedar viejos o incluir lo que no se ve (definiciones de bloque en el origen). null si el plano está vacío.
+   */
+  async function extensionDibujo() {
+    const todas = await consultar({ detail: "full", fields: ["bounds", "space"] });
+    return unirCajas(todas.map(cajaDe));
+  }
+
   async function lugarLibre(donde) {
     try {
-      const r = await pedir({ op: "sysvar", get: ["extmin", "extmax"] });
-      const v = (r.result && r.result.values) || r.values || {};
-      const [x0, y0] = v.extmin, [x1, y1] = v.extmax;
+      const c = await extensionDibujo();
+      if (!c) return null;
+      const [x0, y0, x1, y1] = c;
       const margen = Math.max(x1 - x0, y1 - y0) * 0.05 + est.escala.denominador / 50;   // 20 m a 1:1000
       return donde === "debajo" ? [x0, y0 - margen] : [x1 + margen, y1];
     } catch (_) { return null; }
@@ -845,12 +1105,11 @@
       ev.preventDefault();
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
         const datos = { ...datosEje(f), exageracion: numero(f, "exageracion", 10), rasante: rasante(f) };
-        if (valor(f, "ubicacion") === "senalar") { const p = await senalar("Señala la esquina inferior izquierda del perfil"); if (!p) return; datos.origen = p; }
-        else datos.esquina_superior = await lugarLibre("debajo");
+        datos.esquina_superior = await lugarLibre("debajo");          // el lugar sugerido: la persona lo confirma o lo cambia al colocarlo
         datos.caras = await carasDe("terreno");
         decir("Calculando el perfil…");
         const r = await calcular("perfil", datos, decir);
-        await insertarDxf(r.dxf, "perfil.dxf");
+        if (!(await colocarDxf(r.dxf, "perfil.dxf", { titulo: "El perfil", ancla: "abajo_izquierda" }))) return cancelado();
         cerrarHoja();
         avisar(`Perfil de ${mil(r.resumen.longitud, 2)} m, ${r.resumen.estaciones} estaciones`);
         for (const a of r.avisos || []) avisar(a);
@@ -900,12 +1159,11 @@
         if (!ras) throw new ErrorCivil("La curva masa necesita la rasante de proyecto.");
         const datos = { ...datosEje(f), izquierda: numero(f, "izquierda", 30), derecha: numero(f, "derecha", 30), rasante: ras, plantilla: plantillaDe(f),
           abundamiento: numero(f, "abundamiento", 1), acarreo_libre: numero(f, "acarreo_libre", 20), linea: valor(f, "linea_modo") === "dada" ? numero(f, "linea", 0) : "auto" };
-        if (valor(f, "ubicacion") === "senalar") { const p = await senalar("Señala la esquina inferior izquierda de la curva masa"); if (!p) return; datos.origen = p; }
-        else datos.esquina_superior = await lugarLibre("debajo");
+        datos.esquina_superior = await lugarLibre("debajo");
         datos.caras = await carasDe("terreno");
         decir("Calculando la curva masa…");
         const r = await calcular("curva_masa", datos, decir);
-        await insertarDxf(r.dxf, "curva-masa.dxf");
+        if (!(await colocarDxf(r.dxf, "curva-masa.dxf", { titulo: "La curva masa", ancla: "abajo_izquierda" }))) return cancelado();
         const s = r.resumen;
         res.hidden = false;
         res.innerHTML = `<dl class="civil-cifras"><div><dt>Compensado</dt><dd>${mil(s.compensado, 0)} m³</dd></div><div><dt>Sobreacarreo</dt><dd>${mil(s.sobreacarreo, 1)} m³·hm</dd></div>
@@ -932,7 +1190,7 @@
         const v = { por_cantidad: numero(f, "cantidad", 0), por_superficie: numero(f, "superficie", 0), por_frente: numero(f, "frente", 0) }[metodo];
         const r = await calcular("lotificar", { poligono: { vertices: p.vertices.map((q) => [q[0], q[1]]), combas: p.combas, cerrada: true }, punto_frente: el.frente,
           metodo, valor: v, prefijo: valor(f, "prefijo") || "", primer_numero: parseInt(valor(f, "primer_numero"), 10) || 1, tabla: !!valor(f, "tabla") });
-        await insertarDxf(r.dxf, "lotes.dxf");
+        if (!(await colocarDxf(r.dxf, "lotes.dxf", { titulo: "El cuadro de áreas", mover: /^LOTES_TABLA$/ }))) return cancelado();
         res.hidden = false;
         res.innerHTML = `<p><strong>${r.resumen.lotes} lotes</strong> · ${mil(r.resumen.superficie, 3)} m² en total</p>`;
         avisar(`${r.resumen.lotes} lotes`);
@@ -949,12 +1207,11 @@
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
         const datos = { ...datosEje(f), izquierda: numero(f, "izquierda", 20), derecha: numero(f, "derecha", 20), rasante: rasante(f), tabla: valor(f, "tabla"),
           abundamiento: numero(f, "abundamiento", 1), plantilla: plantillaDe(f) };
-        if (valor(f, "ubicacion") === "senalar") { const p = await senalar("Señala la esquina superior izquierda de las secciones"); if (!p) return; datos.origen = p; }
-        else datos.esquina_superior = await lugarLibre("lado");
+        datos.esquina_superior = await lugarLibre("lado");
         datos.caras = await carasDe("terreno");
         decir("Calculando las secciones…");
         const r = await calcular("secciones", datos, decir);
-        await insertarDxf(r.dxf, "secciones.dxf");
+        if (!(await colocarDxf(r.dxf, "secciones.dxf", { titulo: "Las secciones" }))) return cancelado();
         if (r.resumen.corte !== undefined) { res.hidden = false; res.innerHTML = `<p>Corte <strong>${mil(r.resumen.corte)} m³</strong> · Terraplén <strong>${mil(r.resumen.terraplen)} m³</strong>${r.resumen.despalme ? ` · Despalme <strong>${mil(r.resumen.despalme)} m³</strong>` : ""}</p>${tablaCurvas(r.curvas)}`; }
         avisar(`${r.resumen.secciones} secciones`);
         for (const a of (r.avisos || []).slice(0, 3)) avisar(a);
@@ -1036,13 +1293,9 @@
           opciones: { primer_numero: parseInt(valor(f, "primer_numero"), 10) || 1, decimales_distancia: +valor(f, "decimales_distancia"), decimales_coordenadas: +valor(f, "decimales_coordenadas"),
             decimales_segundos: +valor(f, "decimales_segundos"), separador_miles: valor(f, "separador_miles") ? "," : "", oeste: valor(f, "oeste_o") ? "O" : "W", titulo: valor(f, "titulo") },
         };
-        if (valor(f, "ubicacion") === "senalar") {
-          const p = await senalar("Señala la esquina superior izquierda de la tabla");
-          if (!p) return;
-          datos.esquina = p;
-        } else datos.esquina = await lugarLibre("lado");      // a un lado de todo lo dibujado: nunca encima de otro cuadro
+        datos.esquina = await lugarLibre("lado");             // sugerido: a un lado de todo lo dibujado, nunca encima de otro cuadro
         const r = await calcular("cuadro_curvas", datos);
-        await insertarDxf(r.dxf, "cuadro-curvas.dxf");
+        if (!(await colocarDxf(r.dxf, "cuadro-curvas.dxf", { titulo: "El cuadro de curvas", mover: CAPAS_CUADRO }))) return cancelado();
         cerrarHoja();
         avisar(`Cuadro de curvas: ${r.resumen.curvas} ${r.resumen.curvas === 1 ? "curva" : "curvas"}`);
       });
@@ -1103,13 +1356,16 @@
 
   function prepararInsertar() {
     const f = document.querySelector('[data-civil-form="insertar"]');
+    const eleccion = eleccionDePuntos(f, { todos: false, porTipo: false });
+    prepararElecciones(f, null, eleccion.especiales); enlazarDependientes(f);
+    alAbrir.insertar = () => eleccion.reiniciar();
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
         const tipo = valor(f, "tipo");
-        const e = await elegir({ mensaje: "Elige los puntos que vas a insertar", tipos: ["Block Reference", "INSERT", "Insert", "Point"] });
-        if (!e) return;
-        const pts = e.map(punto).filter((p) => p[2] !== null && p[2] !== undefined);
+        const pats = patronesDescripcion(valor(f, "excluir"));
+        const pts = (await eleccion.leer()).filter((p) => Number.isFinite(p[2]) && !excluidoPor(p, pats));
+        if (!pts.length) throw new ErrorCivil("Ninguno de esos puntos tiene elevación para insertar.");
         const caras = await carasDe(tipo);
         if (!caras.length) throw new ErrorCivil("No hay triangulación de ese tipo. Triangula primero.");
         decir(`Insertando ${pts.length.toLocaleString("es-MX")} puntos…`);
@@ -1205,10 +1461,8 @@
           if (!b) return;
           caja = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
         } else {
-          const r = await pedir({ op: "sysvar", get: ["extmin", "extmax"] });
-          const v = (r.result && r.result.values) || r.values || {};
-          if (!v.extmin || !v.extmax) throw new ErrorCivil("El plano está vacío. Señala las esquinas.");
-          caja = [v.extmin[0], v.extmin[1], v.extmax[0], v.extmax[1]];
+          caja = await extensionDibujo();
+          if (!caja) throw new ErrorCivil("El plano está vacío. Señala las esquinas.");
         }
         const anteriores = [];
         if (valor(f, "reemplazar")) for (const capa of ["RETICULA_UTM", "RETICULA_MARCO", "RETICULA_TEXTOS"]) anteriores.push(...(await consultar({ layer: capa, detail: "summary" })).map((e) => e.handle));
@@ -1351,7 +1605,27 @@
 
   // -- Curvas ya dibujadas: etiquetar y suavizar --------------------------------------------------------------------------------
   const CAPA_CURVA = /^CURVAS_(MAESTRAS|INTERMEDIAS)(_PROYECTO)?$/;
-  const curvaDe = (e) => { const p = polilinea(e); return { handle: e.handle, capa: e.layer, vertices: p.vertices.map((v) => [v[0], v[1]]), elevacion: p.vertices.length ? p.vertices[0][2] : 0, cerrada: p.cerrada }; };
+  const curvaDe = (e) => { const p = polilinea(e); return { handle: e.handle, capa: e.layer, vertices: p.vertices.map((v) => [v[0], v[1]]), elevacion: p.vertices.length ? p.vertices[0][2] : 0, cerrada: p.cerrada, tres_d: p.tres_d }; };
+  const CAPAS_ETIQUETAS_CURVAS = ["CURVAS_ETIQUETAS", "CURVAS_ETIQUETAS_PROYECTO"];
+  /** Las etiquetas de curvas que ya están en el plano (TEXT de versiones anteriores o MTEXT con fondo): para reescribirlas al unir. */
+  async function etiquetasDelPlano() {
+    const salida = [];
+    for (const capa of CAPAS_ETIQUETAS_CURVAS) {
+      for (const e of await consultar({ layer: capa, detail: "full" })) {
+        if (e.type !== "Text" && e.type !== "MText") continue;
+        const p = e.properties || {};
+        // TEXT alineado: su punto es el de alineación; MTEXT: su punto de inserción (el motor las escribe centradas en la curva)
+        const alineado = e.type === "Text" && p.alignment_point && ((p.horizontal_alignment && p.horizontal_alignment !== "Left") || (p.vertical_alignment && p.vertical_alignment !== "Baseline"));
+        const pos = alineado ? p.alignment_point : p.insertion_point;
+        const texto = String(e.value ?? p.value ?? "").replace(/\\P/g, " ").replace(/[{}]/g, "").trim();
+        if (!pos || !texto) continue;
+        salida.push({ handle: e.handle, capa: e.layer || capa, valor: texto, posicion: [pos.x, pos.y],
+          rotacion: (Number(p.rotation || 0) * 180) / Math.PI, altura: Number(p.height || e.height || 0) });   // el editor da la rotación en radianes
+      }
+    }
+    return salida;
+  }
+
   async function curvasDelPlano() {
     const salida = [];
     for (const capa of ["CURVAS_MAESTRAS", "CURVAS_INTERMEDIAS", "CURVAS_MAESTRAS_PROYECTO", "CURVAS_INTERMEDIAS_PROYECTO"]) salida.push(...(await consultar({ layer: capa, detail: "full" })).map(curvaDe));
@@ -1368,10 +1642,28 @@
   function prepararEtiquetarCurvas() {
     const f = document.querySelector('[data-civil-form="etiquetar_curvas"]');
     enlazarDependientes(f);
+    const panel = f.querySelector("[data-civil-cortes]");
+    let pendiente = null;                         // lo ya elegido mientras la persona decide si une las curvas cortadas
+    const ocultar = () => { panel.hidden = true; pendiente = null; };
+    f.addEventListener("change", ocultar);
+    alAbrir.etiquetar_curvas = ocultar;
+    async function etiquetar(datos, unir) {
+      if (unir) datos = { ...datos, unir: true };
+      const r = await calcular("etiquetar_curvas", datos);
+      await insertarDxf(r.dxf, "etiquetas.dxf");
+      await borrar(r.borrar);
+      ocultar();
+      cerrarHoja();
+      const n = r.resumen.etiquetas;
+      avisar(`${n} etiqueta${n === 1 ? "" : "s"}` + (r.resumen.cortes_unidos ? ` · ${r.resumen.cortes_unidos} corte${r.resumen.cortes_unidos === 1 ? "" : "s"} unido${r.resumen.cortes_unidos === 1 ? "" : "s"}` : ""));
+    }
+    f.querySelector("[data-civil-cortes-si]").addEventListener("click", () => { const d = pendiente; if (d) trabajo(f, "Uniendo y etiquetando…", () => etiquetar(d, true)); });
+    f.querySelector("[data-civil-cortes-no]").addEventListener("click", () => { const d = pendiente; if (d) trabajo(f, "Etiquetando…", () => etiquetar(d, false)); });
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
-      trabajo(f, "", async () => {
-        const datos = { decimales: +valor(f, "decimales"), hueco: !!valor(f, "hueco") };
+      ocultar();
+      trabajo(f, "", async (decir) => {
+        const datos = { decimales: +valor(f, "decimales") };
         if (valor(f, "modo") === "largo") {
           const c = await elegirCurvas("Elige las curvas");
           if (!c) return;
@@ -1384,11 +1676,39 @@
           datos.polilineas = await curvasDelPlano();
           if (!datos.polilineas.length) throw new ErrorCivil("No hay curvas de nivel en el plano.");
         }
-        const r = await calcular("etiquetar_curvas", datos);
-        await insertarDxf(r.dxf, "etiquetas.dxf");
+        // ¿curvas cortadas por una versión anterior? Se ofrece unirlas antes: una etiqueta nunca debe ir sobre una curva partida
+        decir("Revisando las curvas…");
+        datos.etiquetas = await etiquetasDelPlano();
+        const cuenta = await calcular("unir_curvas", { polilineas: datos.polilineas, etiquetas: datos.etiquetas, solo_contar: true });
+        if (cuenta.resumen.cortes) {
+          pendiente = datos;
+          const n = cuenta.resumen.cortes;
+          f.querySelector("[data-civil-cortes-texto]").textContent = `Estas curvas están cortadas en ${n.toLocaleString("es-MX")} lugar${n === 1 ? "" : "es"}.`;
+          panel.hidden = false;
+          return;
+        }
+        decir("Etiquetando…");
+        await etiquetar(datos, false);
+      });
+    });
+  }
+
+  function prepararUnirCurvas() {
+    const f = document.querySelector('[data-civil-form="unir_curvas"]');
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Leyendo las curvas…", async (decir) => {
+        const c = valor(f, "cuales") === "elegidas" ? await elegirCurvas("Elige las curvas cortadas") : await curvasDelPlano();
+        if (!c) return;
+        if (!c.length) throw new ErrorCivil("No hay curvas de nivel en el plano.");
+        decir("Uniendo…");
+        const tol = numero(f, "tolerancia", 0);
+        const r = await calcular("unir_curvas", { polilineas: c, etiquetas: await etiquetasDelPlano(), sin_etiquetas: !!valor(f, "sin_etiquetas"), ...(tol > 0 ? { tolerancia: tol } : {}) });
+        await insertarDxf(r.dxf, "curvas.dxf");
         await borrar(r.borrar);
         cerrarHoja();
-        avisar(`${r.resumen.etiquetas} etiqueta${r.resumen.etiquetas === 1 ? "" : "s"}`);
+        const { cortes, antes, despues } = r.resumen;
+        avisar(`${cortes.toLocaleString("es-MX")} corte${cortes === 1 ? "" : "s"} unido${cortes === 1 ? "" : "s"}: ${antes.toLocaleString("es-MX")} piezas quedaron en ${despues.toLocaleString("es-MX")} curvas`);
       });
     });
   }
@@ -1469,7 +1789,7 @@
       trabajo(f, "Dibujando el eje…", async () => {
         const r = await calcular("eje_espirales", datos());
         mostrar(r);
-        await insertarDxf(r.dxf, "eje.dxf");
+        if (!(await colocarDxf(r.dxf, "eje.dxf", { titulo: "La tabla de curvas del eje", mover: /^EJE_TABLA$/ }))) return cancelado();
         avisar(`Eje con ${r.resumen.curvas} curva${r.resumen.curvas === 1 ? "" : "s"}: elígelo en el perfil, las secciones o la curva masa`);
       });
     });
@@ -1486,13 +1806,15 @@
         if (!t.length) throw new ErrorCivil("Falta la triangulación del terreno.");
         if (!p.length) throw new ErrorCivil("Falta la triangulación de proyecto.");
         const datos = { caras_terreno: t, caras_proyecto: p, linea_cero: !!valor(f, "linea_cero") };
-        if (valor(f, "ubicacion") === "senalar") { const q = await senalar("Señala dónde escribir el resultado"); if (q) datos.posicion = q; }
+        const enPlano = valor(f, "ubicacion") === "senalar";
+        if (enPlano) datos.posicion = await lugarLibre("lado");
         decir("Calculando el volumen…");
         const r = await calcular("volumen_superficies", datos, decir);
         res.hidden = false;
         res.innerHTML = `<dl class="civil-cifras"><div><dt>Corte</dt><dd>${mil(r.resumen.corte)} m³</dd></div><div><dt>Terraplén</dt><dd>${mil(r.resumen.terraplen)} m³</dd></div>
           <div><dt>Neto</dt><dd>${mil(r.resumen.neto)} m³</dd></div><div><dt>Zona común</dt><dd>${mil(r.resumen.area_comun)} m²</dd></div></dl>`;
-        if (valor(f, "linea_cero") || datos.posicion) await insertarDxf(r.dxf, "volumen.dxf");
+        if (enPlano) { if (!(await colocarDxf(r.dxf, "volumen.dxf", { titulo: "La tabla de volúmenes", mover: /^VOLUMEN_TABLA$/ }))) return cancelado(); }
+        else if (valor(f, "linea_cero")) await insertarDxf(r.dxf, "volumen.dxf");
       });
     });
   }
@@ -1510,11 +1832,12 @@
     punto_editar: () => abrirHoja("civil-hoja-punto-editar"),
     etiquetas_puntos: () => abrirHoja("civil-hoja-etiquetas-puntos"),
     convertir_puntos: () => abrirHoja("civil-hoja-convertir-puntos"),
-    etiquetar_curvas: () => abrirHoja("civil-hoja-etiquetar-curvas"),
+    etiquetar_curvas: () => { abrirHoja("civil-hoja-etiquetar-curvas"); alAbrir.etiquetar_curvas(); },
+    unir_curvas: () => abrirHoja("civil-hoja-unir-curvas"),
     suavizar_curvas: () => abrirHoja("civil-hoja-suavizar-curvas"),
     localizar: () => { abrirHoja("civil-hoja-localizar"); $("civil-loc-num").focus(); },
     reporte: () => abrirHoja("civil-hoja-reporte"),
-    insertar: () => abrirHoja("civil-hoja-insertar"),
+    insertar: () => { abrirHoja("civil-hoja-insertar"); alAbrir.insertar(); },
     rumbos: () => abrirHoja("civil-hoja-rumbos"),
     numerar: () => abrirHoja("civil-hoja-numerar"),
     memoria: () => abrirHoja("civil-hoja-memoria"),
@@ -1522,7 +1845,7 @@
     masa: () => abrirHoja("civil-hoja-masa"),
     eje_espirales: () => abrirHoja("civil-hoja-eje-espirales"),
     lotes: () => abrirHoja("civil-hoja-lotes"),
-    triangular: () => abrirHoja("civil-hoja-triangular"),
+    triangular: () => { abrirHoja("civil-hoja-triangular"); alAbrir.triangular(); },
     invertir: invertirTriangulos,
     borrar: () => abrirHoja("civil-hoja-borrar"),
     agregar: agregarTriangulo,
@@ -1573,7 +1896,7 @@
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") barra.querySelectorAll(".civil-menu[open]").forEach((d) => d.removeAttribute("open")); });
     document.querySelectorAll("[data-civil-cuenta]").forEach((c) => { c.dataset.vacio = c.textContent; });
     llenarEscala = prepararEscala();
-    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararEjeEspirales(); prepararPerfil(); prepararSecciones(); prepararVolumen();
+    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararUnirCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararEjeEspirales(); prepararPerfil(); prepararSecciones(); prepararVolumen();
     pintarEscala();
     const editable = () => barra.toggleAttribute("data-solo-lectura", !window.TVCad.estado().editable);
     editable();

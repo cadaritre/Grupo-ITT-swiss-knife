@@ -41,6 +41,7 @@ MENUS = (
         {"separador": True},
         {"clave": "etiquetar_curvas", "nombre": "Etiquetar curvas…", "icono": "tag"},
         {"clave": "suavizar_curvas", "nombre": "Suavizar curvas…", "icono": "spline-pointer"},
+        {"clave": "unir_curvas", "nombre": "Unir curvas cortadas…", "icono": "link"},
     )},
     {"clave": "cuadros", "nombre": "Cuadros", "icono": "table", "acciones": (
         {"clave": "cuadro", "nombre": "Cuadro de construcción…", "icono": "table"},

@@ -12,8 +12,8 @@ Código: `itt_herramientas/civil/` (servidor y motor fijado), `templates/herrami
 | Menú | Acciones |
 | --- | --- |
 | Puntos | Importar (PNEZD, PENZD, NEZ… con orden y separador reconocidos, vista previa, renglones descartados con su motivo; terreno o proyecto) · Exportar · Dibujar punto (señalado o por coordenadas, con el siguiente número libre) · Editar punto (número, elevación, descripción, posición) · Etiquetas de puntos (mostrar u ocultar número, elevación y descripción —capa por rótulo— y reescribir los decimales de la elevación) · Convertir puntos (terreno ↔ proyecto, conservando sus datos) · Renumerar (desde N, de cuánto en cuánto, prefijo; por número actual, de oeste a este o de norte a sur) · Localizar punto (por número: la vista va a él y queda seleccionado) · Reporte de puntos (PDF o Word, con latitud y longitud si se pide) |
-| Triangulación | Triangular (líneas de quiebre, límite, islas, arista máxima, sin los puntos de ciertas descripciones —ARBOL, POSTE, BAR*—; reemplaza la anterior) · Invertir triángulos · Borrar triángulos (los que elija, fuera de un límite, dentro de un polígono, lados largos) · Agregar triángulo · Insertar puntos (parten su triángulo o lado y los vecinos se ajustan a Delaunay) · Revisar triangulación (repetidos, encimados, sin superficie, lados con más de dos triángulos, muy delgados: marcados en rojo y seleccionados) |
-| Curvas | Curvas de nivel (intervalo, maestras, suavizado sin cruces, etiquetas) · Actualizar curvas (desde los triángulos que hay en el dibujo) · Etiquetar curvas (donde se señala o a lo largo, cortando la curva bajo el texto) · Suavizar curvas (las elegidas, sin tocar a las demás) |
+| Triangulación | Triangular (todos los puntos de la superficie, los que se seleccionan en el plano —clic, ventana o captura— o los que caen dentro de un polígono, con la cuenta antes de correr; líneas de quiebre, límite, islas, arista máxima, sin los puntos de ciertas descripciones —ARBOL, POSTE, BAR*—; reemplaza la anterior) · Invertir triángulos · Borrar triángulos (los que elija, fuera de un límite, dentro de un polígono, lados largos) · Agregar triángulo · Insertar puntos (seleccionados en el plano o dentro de un polígono; parten su triángulo o lado y los vecinos se ajustan a Delaunay) · Revisar triangulación (repetidos, encimados, sin superficie, lados con más de dos triángulos, muy delgados: marcados en rojo y seleccionados) |
+| Curvas | Curvas de nivel (intervalo, maestras, suavizado sin cruces, etiquetas) · Actualizar curvas (desde los triángulos que hay en el dibujo) · Etiquetar curvas (donde se señala o a lo largo; la curva nunca se corta: la etiqueta lleva fondo) · Suavizar curvas (las elegidas, sin tocar a las demás) · Unir curvas cortadas (las que partieron las versiones anteriores bajo sus etiquetas) |
 | Cuadros | Cuadro de construcción (rumbos N 45°30'15" E, lados curvos, ha-a-ca; formatos normal, RAN —coordenadas UTM y geográficas— y UTM-GPS —además factor de escala y convergencia por vértice y la superficie sobre el terreno—; también «Descargar DXF», el antiguo IT-10) · Cuadro de curvas · Rumbo y distancia de lados · Numerar vértices · Memoria descriptiva (PDF o Word, con colindancias lado por lado) |
 | Plano | Cuadrícula UTM (todo el plano o dos esquinas; líneas o cruces; marco; coordenadas al margen y latitud y longitud en las esquinas; reemplaza la anterior) · Lotificar manzana (lotes iguales, de una superficie o de un frente, con cortes perpendiculares al lado de la calle; número y superficie en cada lote y cuadro de áreas) |
 | Perfiles y secciones | Perfil del eje (cadenamiento, rasante con curvas verticales) · Secciones transversales (plantilla sencilla o de carretera: carriles y acotamientos con su pendiente, cuneta en corte, pavimento —terracerías a la subrasante— y despalme; sobreelevación y ampliación en las curvas del eje según la SCT; taludes; áreas) |
@@ -75,6 +75,31 @@ se repliega y un aviso sobre el lienzo dice qué elegir. En la compilación ofic
 web; entonces Civil usa lo que la persona tenga seleccionado, y si no hay nada pide «selecciónalo en el dibujo y pulsa Listo»; las
 ubicaciones (esquina del cuadro, origen del perfil) toman la automática. Nunca falla en silencio. Desde tv-v2026.45-3 las dos funcionan.
 
+### Dónde va lo que se dibuja
+
+Todo lo que agrega un bloque de dibujo pregunta dónde va, como CivilCAD: perfil, secciones, curva masa, cuadro de construcción (los tres
+formatos), cuadro de curvas, cuadro de áreas de la lotificación, tabla de curvas del eje y tabla de volúmenes (pedido del dueño,
+16-11-2026). El resultado ya calculado se abre en el dibujo temporal, se mide su caja y un rectángulo de su tamaño real (con su nombre y
+medidas) sigue al puntero sobre el plano, tomado por su esquina superior izquierda (el perfil y la curva masa, por la inferior). Empieza en
+el lugar sugerido —a un lado o debajo de lo dibujado, o junto al polígono—; clic lo pone donde está el puntero (con las referencias a
+objetos del editor), «Poner aquí» lo deja donde se ve, y Esc o «Cancelar» no dibujan nada. Solo se mueve lo que es del bloque: los
+números de vértice, las claves de las curvas, los lotes y la línea de ceros se quedan en su lugar. Se mueve en el dibujo temporal y se
+copia de una vez: un solo paso de deshacer. La vista previa vive en la página (`civil-previa`, sobre el marco del mismo origen) y vuelve a
+leer la vista del editor al acercar o mover; el clic es del editor (`getpoint`), así que lo dibujado queda siempre donde se señaló. La
+vista pantalla ↔ mundo es `TVCad.vista()` (control.js), la misma de la capa táctil: la cámara de `state` y `state.viewport_rect`. El
+editor tv-v2026.45-7 no dice dónde está su área de dibujo dentro de su lienzo (las cintas y paneles van en el mismo lienzo): con él la
+vista previa sale corrida y más grande; pedido a -8 (`viewport_rect`). Civil no está en el modo táctil (la capa táctil la oculta),
+así que ahí no hay puntero con desfase que usar; si algún día entra, la colocación tiene que ir por la herramienta de la capa táctil.
+
+### Curvas de nivel: una curva, una polilínea
+
+Una curva de nivel es siempre una sola polilínea continua: nunca se corta bajo su etiqueta, ni al generarla ni al etiquetarla después.
+La etiqueta es MTEXT centrado sobre la curva y alineado con ella, con fondo del color del dibujo (máscara, factor de borde 1.3), y se
+dibuja después de la curva para quedar encima. Las curvas que cortaron las versiones anteriores se unen con «Unir curvas cortadas», o al
+etiquetar: «Etiquetar curvas» revisa primero si las curvas están cortadas y, si lo están, ofrece «Unir y etiquetar» o «Etiquetar sin
+unir». Solo se cierran los huecos con una etiqueta (los cortes de Civil; «Unir también los huecos sin etiqueta» es opción aparte), con un
+puente que sigue la curvatura; las etiquetas viejas sobre las curvas unidas se reescriben con fondo.
+
 ### Escala
 
 La escala viaja con el plano: los bloques de punto se dibujan en mm de papel y se insertan a escala E/1000, así que al abrir un plano Civil
@@ -105,7 +130,10 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor uv run pytest itt_herramienta
   mensaje, permisos, tope de tamaño y que la página traiga Civil solo a quien edita.
 - `pruebas_navegador/test_civil_navegador.py`, con el editor real y coordenadas UTM: importar 5 000 puntos PNEZD, deshacer y rehacer,
   triangular, invertir dos triángulos elegidos con el ratón, curvas, cuadro de un lote con lado curvo, perfil y secciones con rasante,
-  volumen contra una plataforma, guardar en DWG y volver a abrir; 360 px; y el camino sin `user_select` (selección + «Listo»).
+  volumen contra una plataforma, guardar en DWG y volver a abrir; 360 px; y el camino sin `user_select` (selección + «Listo»). La prueba
+  de los pedidos del 16-11: triangular solo lo seleccionado con una ventana y lo que cae en un polígono (la cuenta antes de correr),
+  curvas con una polilínea por curva y etiquetas con fondo, unir las curvas cortadas de un plano viejo al etiquetar, y colocar el cuadro
+  donde se señala (la vista previa sigue al puntero; Esc no dibuja nada; un paso de deshacer).
   `ITT_CAPTURAS=carpeta` deja capturas de cada hoja y de lo dibujado.
 - El motor tiene sus propias pruebas con resultados conocidos (128) en su repositorio.
 

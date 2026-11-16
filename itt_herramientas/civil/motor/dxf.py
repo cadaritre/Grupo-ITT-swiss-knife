@@ -77,6 +77,9 @@ def _entidad(doc, espacio, e):
             "style": e.estilo, "char_height": e.altura, "insert": e.posicion, "rotation": e.rotacion,
             "attachment_point": _ANCLAJE[e.anclaje], **({"width": e.ancho} if e.ancho else {}),
         }))
+        if e.fondo:
+            ent.set_bg_color("canvas", scale=min(5.0, max(1.0, e.fondo_escala)))
+            ent.dxf.bg_fill_transparency = 0                  # 441: AutoCAD lo escribe siempre con el fondo (opaco)
     elif isinstance(e, Cara3D):
         v = list(e.vertices)
         if len(v) == 3:

@@ -114,6 +114,8 @@ class TextoMultiple(_Base):
     rotacion: float = 0.0
     estilo: str = "Standard"
     anclaje: str = "arriba_izquierda"
+    fondo: bool = False         # máscara de fondo con el color del fondo del dibujo (tapa lo de abajo sin cortarlo)
+    fondo_escala: float = 1.3   # margen del fondo, veces la altura (1 a 5, como el «factor de borde» de MTEXT)
     tipo: str = "texto_multiple"
 
 

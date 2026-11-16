@@ -224,8 +224,12 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
     for nuevo in ("Renumerar puntos", "Revisar triangulación", "Cuadro de curvas", "Los que elija", "Localizar punto", "Reporte de puntos",
                   "Insertar puntos", "Rumbo y distancia de lados", "Numerar vértices", "Memoria descriptiva", "Cuadrícula UTM", "UTM-GPS", "Zona UTM",
                   "Dibujar punto", "Editar punto", "Etiquetas de puntos", "Convertir puntos", "Etiquetar curvas", "Suavizar curvas",
-                  "Curva masa", "Lotificar manzana", "Carretera", "Despalme", "Sobreelevación y ampliación en las curvas (SCT)", "C3R3", "T3S2R4", "T3S3", "Eje con espirales"):
+                  "Curva masa", "Lotificar manzana", "Carretera", "Despalme", "Sobreelevación y ampliación en las curvas (SCT)", "C3R3", "T3S2R4", "T3S3", "Eje con espirales",
+                  "Seleccionar puntos en el plano", "Dentro de un polígono", "Unir curvas cortadas", "Unir y etiquetar", "Poner aquí"):
         assert nuevo in html, nuevo
+    # la curva nunca se corta bajo su etiqueta; y lo que agrega un bloque siempre pregunta dónde va (sin «Debajo del plano» automático)
+    for quitado in ("Cortar la curva bajo la etiqueta", "Debajo del plano", "A un lado del plano", "Junto al polígono"):
+        assert quitado not in html, quitado
     cfg = json.loads(html.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
     assert cfg["capas"]["tin"]["terreno"] == "TRIANGULACION" and cfg["bloques"]["terreno"] == "PT_TERRENO"
     assert "__ORDEN__" in cfg["urls"]["orden"]
