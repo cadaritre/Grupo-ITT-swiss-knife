@@ -825,6 +825,7 @@
     Leader: "Directriz", Face3d: "Cara 3D" };
   function tipoDe(e) {
     const t = String(e.type || e.kind || "").replace(/\s+/g, "");
+    if (/^(lw)?polyline$/i.test(t)) return "LwPolyline";                    // el editor nombra «Polyline» a la polilínea 2D
     for (const k of Object.keys(NOMBRE_TIPO)) if (t.toLowerCase() === k.toLowerCase()) return k;
     if (/polyline/i.test(t)) return "LwPolyline";
     if (/dimension/i.test(t)) return "Dimension";

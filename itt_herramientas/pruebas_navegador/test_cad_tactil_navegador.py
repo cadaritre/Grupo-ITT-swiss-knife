@@ -422,6 +422,12 @@ def _llevar_al_telefono(n, p, p0):
     p.locator("#tt-hoja").get_by_role("switch", name="Disponible sin conexión").check()
     expect(p.locator("#tt-aviso")).to_contain_text("quedó en este teléfono", timeout=LARGO)
     esperar(p, "navigator.serviceWorker.getRegistration().then(r => !!(r && r.active))", LARGO)
+    # La página sin conexión quedó en su caché (con sus estilos y scripts).
+    guardada = p.evaluate("""async () => { const c = await caches.open('itt-cad-pagina'); const k = (await c.keys()).map(r => new URL(r.url).pathname);
+      if (k.includes('/cad/sin-conexion/')) return k.length;
+      try { await TVCadCampo.guardarPagina(); } catch (e) { return 'error: ' + e; }
+      return 'otra vez: ' + JSON.stringify((await (await caches.open('itt-cad-pagina')).keys()).map(r => r.url)); }""")
+    assert isinstance(guardada, int) and guardada > 5, guardada
 
 
 @pytest.mark.parametrize("motor", ["chromium", "webkit"])

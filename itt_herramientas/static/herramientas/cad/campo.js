@@ -404,7 +404,7 @@
 
   window.TVCadCampo = Object.freeze({ instalada, estadoEditor, descargarEditor, quitarEditor, versionInstalada, llevar, quitar, plano, planos,
     cambios, todosLosCambios, guardarCambios, descartarCambios, subir, decidir, hoja, uso, recordarSesion, cuentaActual, confirmar,
-    ponerCsrf: (t) => { tokenCsrf = String(t || ""); } });
+    ponerCsrf: (t) => { tokenCsrf = String(t || ""); }, guardarPagina });
   // En la lista de Planos: cuántos planos hay en este teléfono y cuántos con cambios sin subir (lleva a la página sin conexión).
   async function enLaLista() {
     const t = $("cad-campo-tarjeta");
