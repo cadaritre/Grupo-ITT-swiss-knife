@@ -97,7 +97,10 @@ El canal (`?automation=1`) solo se alcanza desde el mismo origen: el editor vive
 - **«Pantalla completa»** (botón en la cabecera del plano, Ctrl/⌘+Mayús+F, F11; también en «Más» del modo táctil): fuera el lateral,
   la cabecera de Herramientas y los datos del plano. Quedan una tira con el nombre, el estado, Guardar, Versiones y «Salir de pantalla
   completa», la barra de Civil y el editor en todo lo demás. Usa la pantalla completa del navegador donde existe; donde no (Safari de
-  iPhone), la página se maximiza dentro de la ventana. Esc sale. Se recuerda en el dispositivo (`localStorage tv.cad.completa`): al
+  iPhone), la página se maximiza dentro de la ventana. **Esc nunca sale** (es del editor: cancelar y deseleccionar; pedido del dueño,
+  16-11-2026): en Chromium Esc se bloquea para el navegador (`navigator.keyboard.lock(["Escape"])`, el navegador avisa «mantén presionada
+  Esc para salir»); en Safari y Firefox, si Esc quita la pantalla del navegador, la página sigue maximizada y lo dice una vez
+  (`localStorage tv.cad.completa-aviso-esc`). Solo el botón, Ctrl/⌘+Mayús+F o F11 la quitan. Se recuerda en el dispositivo (`localStorage tv.cad.completa`): al
   volver se abre maximizado en la página, porque el navegador solo deja entrar a su pantalla completa con un toque o una tecla.
 
 ## Modo táctil (teléfono y tableta) — detrás de `TV_CAD_TACTIL`

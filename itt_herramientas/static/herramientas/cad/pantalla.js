@@ -6,7 +6,10 @@
  * - «Pantalla completa» (botón, Ctrl/⌘+Mayús+F, F11): fuera el lateral, la cabecera de Herramientas y los datos del plano; queda una
  *   tira con el nombre, el estado, Guardar, Versiones y «Salir de pantalla completa», la barra de Civil y el editor en todo lo demás.
  *   Con la API de pantalla completa del navegador donde existe; donde no (Safari de iPhone) la página se maximiza dentro de la ventana.
- *   Esc sale. Se recuerda en este dispositivo (al volver a abrir se maximiza en la página: el navegador solo deja entrar a su pantalla
+ *   Esc NUNCA sale (pedido del dueño, 16-11-2026: en un CAD Esc es cancelar y deseleccionar): en Chromium se bloquea la tecla para el
+ *   navegador (`navigator.keyboard.lock(["Escape"])`, que llega al editor; el navegador mismo avisa «mantén presionada Esc para salir»);
+ *   donde no se puede (Safari, Firefox), si el navegador quita su pantalla completa con Esc, la página sigue maximizada y lo dice una
+ *   vez. Solo el botón, Ctrl/⌘+Mayús+F o F11 quitan «Pantalla completa». Se recuerda en este dispositivo (al volver a abrir se maximiza en la página: el navegador solo deja entrar a su pantalla
  *   completa con un toque o una tecla).
  */
 (function () {
@@ -63,6 +66,12 @@
     programar();
     document.dispatchEvent(new CustomEvent("tvcad:pantalla", { detail: { completa: si } }));
   }
+  // Esc para el editor: con la pantalla completa del navegador, Chromium deja que la página se quede con la tecla.
+  async function bloquearEsc() {
+    try { if (navigator.keyboard && navigator.keyboard.lock && nativa()) await navigator.keyboard.lock(["Escape"]); } catch (_) { /* sin bloqueo: ver alCambiarNativa */ }
+  }
+  function soltarEsc() { try { if (navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock(); } catch (_) { /* nada */ } }
+  let saliendo = false;
   async function entrar() {
     aplicar(true); recordar(true);
     const e = raiz;
@@ -71,26 +80,41 @@
         if (e.requestFullscreen) await e.requestFullscreen({ navigationUI: "hide" });
         else if (e.webkitRequestFullscreen) e.webkitRequestFullscreen();
       }
+      await bloquearEsc();
     } catch (_) { /* sin pantalla completa del navegador: queda maximizada en la página */ }
   }
   async function salir() {
+    saliendo = true;
     aplicar(false); recordar(false);
+    soltarEsc();
     try {
       if (nativa()) { if (document.exitFullscreen) await document.exitFullscreen(); else if (document.webkitExitFullscreen) document.webkitExitFullscreen(); }
     } catch (_) { /* nada */ }
+    finally { saliendo = false; }
   }
   const alternar = () => (raiz.classList.contains("cad-completa") ? salir() : entrar());
   if (boton) boton.addEventListener("click", alternar);
-  // Esc en la pantalla completa del navegador: el navegador sale solo; la página también.
-  const alCambiarNativa = () => { if (!nativa() && raiz.classList.contains("cad-completa") && ultimaNativa) { aplicar(false); recordar(false); } ultimaNativa = !!nativa(); programar(); };
+  // El navegador quitó su pantalla completa (Esc en Safari o Firefox, o Esc sostenida en Chromium): la página sigue maximizada, con el
+  // editor en toda la ventana; se dice una sola vez en este dispositivo.
+  const AVISO = "tv.cad.completa-aviso-esc";
+  function avisarUnaVez() {
+    try { if (localStorage.getItem(AVISO) === "1") return; localStorage.setItem(AVISO, "1"); } catch (_) { /* sin almacenamiento: se dice ahora */ }
+    if (window.tvAviso) window.tvAviso("Esc salió de la pantalla del navegador; el editor sigue maximizado.");
+  }
+  const alCambiarNativa = () => {
+    if (!nativa() && ultimaNativa) {
+      soltarEsc();
+      if (raiz.classList.contains("cad-completa") && !saliendo) avisarUnaVez();
+    }
+    ultimaNativa = !!nativa(); programar();
+  };
   let ultimaNativa = false;
   document.addEventListener("fullscreenchange", alCambiarNativa);
   document.addEventListener("webkitfullscreenchange", alCambiarNativa);
   document.addEventListener("keydown", (ev) => {
     const combo = (ev.ctrlKey || ev.metaKey) && ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === "f";
-    if (combo || ev.key === "F11") { ev.preventDefault(); alternar(); return; }
-    // Maximizada en la página (sin la del navegador): Esc sale, si no hay una hoja abierta que lo use.
-    if (ev.key === "Escape" && raiz.classList.contains("cad-completa") && !nativa() && !document.querySelector("dialog[open]")) salir();
+    if (combo || ev.key === "F11") { ev.preventDefault(); alternar(); }
+    // Esc nunca quita «Pantalla completa»: es del editor (cancelar, deseleccionar) y de las hojas.
   });
   // Desde el editor (el foco está en su marco): la página de arranque reenvía el atajo.
   addEventListener("message", (ev) => {

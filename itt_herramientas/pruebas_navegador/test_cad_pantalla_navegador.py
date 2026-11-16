@@ -2,7 +2,7 @@
 
 En cada tamaño: el editor llega hasta abajo de la ventana; en pantalla completa quedan la tira (nombre, estado, Guardar, Versiones,
 Salir), la barra de Civil y el editor en todo lo demás; el lienzo del editor toma el tamaño nuevo a la densidad real (sin borroso);
-se guarda desde ahí; Esc sale; se recuerda en el dispositivo. Corre bajo el candado de la máquina compartida.
+se guarda desde ahí; Esc nunca sale (es del editor: cancelar y deseleccionar), solo el botón o el atajo; se recuerda en el dispositivo. Corre bajo el candado de la máquina compartida.
 """
 from __future__ import annotations
 
@@ -93,8 +93,11 @@ def test_el_editor_ocupa_el_alto_y_la_pantalla_completa_deja_civil_y_guardar(cad
     p.reload()
     esperar_estado(p, "guardado")
     assert medidas(p)["completa"]
-    # Esc sale (con la página maximizada, que es como se reabre: la del navegador pide un toque).
+    # Esc no sale (con la página maximizada, que es como se reabre: la del navegador pide un toque); el botón sí.
     p.locator("body").press("Escape")
+    p.wait_for_timeout(400)
+    assert medidas(p)["completa"]
+    p.locator("#cad-completa").click()
     esperar(p, "!document.documentElement.classList.contains('cad-completa')", LARGO)
     p.wait_for_timeout(600)
     m = medidas(p)
@@ -104,7 +107,8 @@ def test_el_editor_ocupa_el_alto_y_la_pantalla_completa_deja_civil_y_guardar(cad
 
 
 def test_la_pantalla_completa_del_navegador_y_su_esc(cad, navegar, crear_usuario, roles):
-    """Con la API del navegador (Chromium): el botón la pide; si el navegador sale (Esc), la página sale también y lo recuerda."""
+    """Con la API del navegador (Chromium): el botón la pide; si el navegador sale (Esc sostenida), la página sigue maximizada y lo dice una
+    vez; el atajo desde el editor la quita."""
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = servicio.crear_vacio(ana, "Predio Norte", "", "dxf")
     n = navegar(ana, "chromium", ancho=1280, alto=800)
@@ -112,11 +116,56 @@ def test_la_pantalla_completa_del_navegador_y_su_esc(cad, navegar, crear_usuario
     esperar_estado(p, "guardado")
     p.locator("#cad-completa").click()
     esperar(p, "!!document.fullscreenElement && document.documentElement.classList.contains('cad-completa')", LARGO)
-    p.evaluate("document.exitFullscreen()")                                     # lo que hace el navegador con Esc
-    esperar(p, "!document.fullscreenElement && !document.documentElement.classList.contains('cad-completa')", LARGO)
-    assert p.evaluate("localStorage.getItem('tv.cad.completa')") == "0"
-    # El atajo también desde el editor (el foco en su marco): Ctrl+Mayús+F.
+    p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push(t); return a && a(t, k); }; }")
+    p.evaluate("document.exitFullscreen()")                                     # lo que hace el navegador con Esc sostenida
+    esperar(p, "!document.fullscreenElement", LARGO)
+    p.wait_for_timeout(300)
+    assert p.evaluate("document.documentElement.classList.contains('cad-completa')")   # la página sigue maximizada
+    assert p.evaluate("localStorage.getItem('tv.cad.completa')") == "1"
+    assert p.evaluate("window.__avisos") == ["Esc salió de la pantalla del navegador; el editor sigue maximizado."]
+    # El atajo también desde el editor (el foco en su marco): Ctrl+Mayús+F la quita.
     p.locator("#cad-editor").click(position={"x": 400, "y": 300})
     p.keyboard.press("Control+Shift+F")
+    esperar(p, "!document.documentElement.classList.contains('cad-completa')", LARGO)
+    assert p.evaluate("localStorage.getItem('tv.cad.completa')") == "0"
+    # y otra vez la pone; el aviso de Esc no se repite
+    p.keyboard.press("Control+Shift+F")
     esperar(p, "document.documentElement.classList.contains('cad-completa')", LARGO)
+    p.evaluate("document.exitFullscreen().catch(() => {})")
+    p.wait_for_timeout(500)
+    assert len(p.evaluate("window.__avisos")) == 1
     assert not n.errores, n.errores
+
+
+@pytest.mark.parametrize("motor", ["chromium", "webkit"])
+def test_esc_nunca_saca_de_la_pantalla_completa(cad, navegar, crear_usuario, roles, motor):
+    """Pedido del dueño (producción 1.2.10): Esc en el editor deselecciona y la pantalla sigue completa. Chromium bloquea Esc para el
+    navegador (keyboard.lock): Esc llega al editor. WebKit (sin bloqueo): la página sigue maximizada y el siguiente Esc deselecciona."""
+    from .test_civil_navegador import pedir
+
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Predio Esc", "", "dxf")
+    n = navegar(ana, motor, ancho=1280, alto=800)
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    dibujar(p, "CIRCLE 390000,3168000 12")
+    p.locator("#cad-completa").click()
+    esperar(p, "document.documentElement.classList.contains('cad-completa')", LARGO)
+    p.wait_for_timeout(800)
+    nativa = p.evaluate("!!document.fullscreenElement")
+    if motor == "chromium":
+        assert nativa and p.evaluate("!!(navigator.keyboard && navigator.keyboard.lock)")
+    for vez in range(2):
+        h = pedir(p, {"op": "query", "type": "Circle", "detail": "summary", "limit": 1})["entities"][0]["handle"]
+        pedir(p, {"op": "select", "handles": [h]})
+        assert pedir(p, {"op": "state"})["selection"] == [h]
+        p.locator("#cad-editor").click(position={"x": 700, "y": 520})            # el foco en el editor, en vacío
+        pedir(p, {"op": "select", "handles": [h]})
+        p.keyboard.press("Escape")
+        p.wait_for_timeout(500)
+        assert p.evaluate("document.documentElement.classList.contains('cad-completa')"), vez   # nunca sale
+        if motor == "chromium":
+            assert p.evaluate("!!document.fullscreenElement"), vez                # Esc llegó al editor, no al navegador
+        if vez == 1 or motor == "chromium":
+            assert pedir(p, {"op": "state"})["selection"] == [], vez               # y deseleccionó
+    assert not n.errores or motor == "webkit" and all("Refused to apply a stylesheet" in e for e in n.errores), n.errores
