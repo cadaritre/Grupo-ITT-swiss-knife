@@ -57,6 +57,7 @@ itt_herramientas = [
     "cad/editor/*.js",
     "cad/editor/*.css",
     "cad/plantillas/*",
+    "civil/motor/*.json",
 ]
 
 [tool.pytest.ini_options]

@@ -1,0 +1,26 @@
+{
+ "_nota": "Copia fijada de tvcivil. No se edita aquí: se cambia en el repositorio del motor y se vuelve a copiar con actualizar_motor.py.",
+ "repo": "cadaritre/TresVizo-Civil",
+ "commit": "8dc716d82e1d4488d6ddc7c8cfad5499b745510d",
+ "version": "0.3.0",
+ "archivos": {
+  "__init__.py": "d58b4c8ba5596a062e797bb51e43092a02f34384c06b1dd0acb5313cbd962ce9",
+  "angulos.py": "cab30267cd2b09bbb734d0e1af038158b3112ed1f3c25fc1c9ff352637aa2618",
+  "cuadro.py": "0ca28f7550a810dd98eeda04b3124336fe22f96e18e7acc0abdfab31491a4bb3",
+  "cuadro_curvas.py": "a93192e2406367fd6b5c488caa33aa05a4c907a63efd762a4628bf6c8f26966a",
+  "curvas.py": "3cdd4812cff9cadd66cdf5352b5f50906a240c5bb106d5cc4b457f631a7aaa87",
+  "dibujos.py": "ef2a4ee29c061513da044d11ab7c3d5ce1c0e2ac4da684d033a00d5ba2b4b55d",
+  "dxf.py": "35be643e5e5913daf92f164f252f0586d8da0be43e141716da80b7e7df27c14f",
+  "edicion_tin.py": "698d17ec3759e10f185ca9ad712903101e70e13f415376225e1d0a2a867b3bfd",
+  "eje.py": "fb742162139ce470f891202f404c45fc3e865d57795abb61034f34816fc05bc6",
+  "entidades.py": "6d8eebae41d34e37acdbc0496862834fd29bfb3721c49710d0cbc76ef4af6cbd",
+  "escala.py": "b5fc4651c8e28885fd9906cee251d94760fc65fbbc1ef277b575138325cca757",
+  "ordenes.py": "5fb203a5ccc09df6298a87fec8c26338034b5661c50fb23d41dada69a2e989b9",
+  "perfiles.py": "114e9c6cbe573605cd5c1241bb9adc8a1d10cbf9f46876ce1ab2f8e7ff3e7b77",
+  "puntos.py": "e5b9047bf0659e659ccc1f633e90766219b6a8bb452d07f5769963fb408e7491",
+  "secciones.py": "5c0b7f9693f7367228a0569bb6f76906af1f8c5023f973aa0e6fe204bf1224b6",
+  "superficie.py": "c2d9519d02dce32c3078acbfb0c8b55639ecda194d36cb1686864a8d8609c37a",
+  "tin.py": "6f0c84d3b8fcca5551793c418fc04c32542b831523bde92567281cd5bfd0dc07",
+  "volumenes.py": "b8cc5451ec42831f72155fd972ec2e20fe173ca833fc9344f7ebed7cb9fe65a0"
+ }
+}

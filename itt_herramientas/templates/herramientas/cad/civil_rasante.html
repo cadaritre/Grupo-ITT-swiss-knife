@@ -1,0 +1,7 @@
+{% load tv %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-conras" name="con_rasante" value="1"><label for="civil-{{ pre }}-conras">Con rasante de proyecto</label></div>
+<div class="civil-rasante" data-civil-si="con_rasante=1" hidden>
+  <p class="tv-tenue civil-nota">Puntos de inflexión de la rasante. La longitud de curva vertical va en los intermedios.</p>
+  <div class="tv-tabla-envoltura"><table class="tv-tabla civil-tabla"><thead><tr><th>Estación</th><th class="tv-num">Elevación</th><th class="tv-num">Curva (m)</th><th><span class="tv-solo-lectores">Quitar</span></th></tr></thead>
+    <tbody data-civil-pivs><tr><td data-etiqueta="Estación"><input name="piv_e" value="0+000.00" aria-label="Estación" autocomplete="off"></td><td class="tv-num" data-etiqueta="Elevación"><input name="piv_z" type="number" step="any" aria-label="Elevación" inputmode="decimal"></td><td class="tv-num" data-etiqueta="Curva (m)"><input name="piv_l" type="number" min="0" step="any" value="0" aria-label="Curva vertical" inputmode="decimal"></td><td><button type="button" class="tv-boton tv-boton--fantasma tv-boton--icono" data-civil-quitar-piv data-tv-tooltip="Quitar">{% icono "x" etiqueta="Quitar el punto" %}</button></td></tr></tbody></table></div>
+  <button type="button" class="tv-boton tv-boton--fantasma civil-agregar" data-civil-agregar-piv>{% icono "plus" %}<span>Agregar punto</span></button>
+</div>

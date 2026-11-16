@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 from .convertidor import vistas as convertidor
 from .cad import vistas as cad
+from .civil import vistas as civil
 from .cotizaciones import vistas as cotizaciones
 from .croquis import vistas as croquis
 from .drive import vistas as drive
@@ -97,6 +98,8 @@ urlpatterns = [
     path("cad/fuentes/<str:nombre>/", cad.fuente_archivo, name="cad_fuente"),
     path("cad/fuentes/<str:nombre>/eliminar/", cad.fuente_eliminar, name="cad_fuente_eliminar"),
     path("cad/fuentes/<str:nombre>/informe/", cad.fuente_informe, name="cad_fuente_informe"),
+    path("cad/civil/resultado/<str:token>/", civil.resultado, name="civil_resultado"),
+    path("cad/civil/<str:orden>/", civil.orden, name="civil_orden"),
     path("cad/<uuid:pk>/", cad.plano, name="cad_plano"),
     path("cad/<uuid:pk>/archivo/", cad.archivo, name="cad_archivo"),
     path("cad/<uuid:pk>/estado/", cad.estado, name="cad_estado"),

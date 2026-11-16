@@ -143,5 +143,5 @@
 {{ config|json_script:"cad-config" }}
 <script src="{% static 'herramientas/cad/control.js' %}"></script>
 <script src="{% static 'herramientas/cad/editor.js' %}"></script>
-{% block extensiones_cad %}{% endblock %}
+{% block extensiones_cad %}{% if civil %}{% include "herramientas/cad/civil.html" %}{% endif %}{% endblock %}
 {% endblock %}

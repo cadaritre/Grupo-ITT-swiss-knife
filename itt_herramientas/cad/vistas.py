@@ -26,6 +26,7 @@ from tvplataforma.permisos import requiere_rol
 from ..comun import zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
+from ..civil import pagina as civil_pagina
 from . import editor, fuentes, nativo, salidas, servicio
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
@@ -246,7 +247,9 @@ def plano(request, pk):
         "orientaciones": nativo.ORIENTACIONES, "areas": nativo.AREAS, "escalas": nativo.ESCALAS, "nativo": nativo.disponible() and not sin_archivo,
         "proyectos": servicio.sugerencias_proyecto(usuario.pk), "drive": _drive_disponible(usuario) and not sin_archivo,
         "editor_listo": editor.disponible() and not sin_archivo, "sin_archivo": sin_archivo,
-        "versiones_max": servicio.limites()["versiones"], "versiones_minimas": servicio.VERSIONES_MINIMAS}))
+        "versiones_max": servicio.limites()["versiones"], "versiones_minimas": servicio.VERSIONES_MINIMAS,
+        # Civil (topografía) solo dibuja: aparece para quien puede editar, en la versión vigente y con el editor disponible.
+        "civil": civil_pagina.contexto(p) if puede and v is None and editor.disponible() and not sin_archivo else None}))
 
 
 @ver

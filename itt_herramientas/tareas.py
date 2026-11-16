@@ -244,3 +244,17 @@ def convertir_plano(plano_id, numero, cuenta_id, formato, permitir_perdida):
     url = reverse("herramientas:cad_salida", args=[token], urlconf=urlconf_de("herramientas"))
     aviso = f" Se dejaron fuera {perdidos} elemento{'s' if perdidos != 1 else ''} que {formato.upper()} no admite." if perdidos else ""
     return {"mensaje": f"{formato.upper()} listo.{aviso}", "url": url, "etiqueta": f"Descargar {formato.upper()}", "nombre": nombre}
+
+
+# -- Civil: cálculos de topografía de la página de un plano (triangular, curvas, perfil, secciones, volúmenes) ------------------------
+
+@tarea("herramientas")
+def civil_orden(orden, token, cuenta_id):
+    """Una orden pesada de Civil (1 s a 2 min). Los datos de entrada están en un archivo temporal; el resultado queda como salida de la cuenta."""
+    from django.urls import reverse
+    from tvplataforma.middleware import urlconf_de
+
+    from .civil import servicio
+
+    servicio.correr_en_tarea(orden, token, cuenta_id)
+    return {"mensaje": "Listo.", "url": reverse("herramientas:civil_resultado", args=[token], urlconf=urlconf_de("herramientas"))}
