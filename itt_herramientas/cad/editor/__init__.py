@@ -90,7 +90,7 @@ def tipo(ruta: Path) -> str:
 
 def cabeceras(ruta: Path) -> dict:
     # La CSP va en TODAS las respuestas: el trabajador (un módulo del mismo origen) toma la de su propio script, y también compila WebAssembly.
-    datos = {"Cache-Control": "public, max-age=31536000, immutable" if CON_HASH.search(ruta.name) else "public, max-age=300",
+    datos = {"Cache-Control": "private, max-age=31536000, immutable" if CON_HASH.search(ruta.name) else "private, max-age=300",
              "X-Content-Type-Options": "nosniff", "Cross-Origin-Resource-Policy": "same-origin", "Content-Security-Policy": CSP,
              "X-Frame-Options": "SAMEORIGIN"}
     if ruta.suffix == ".html":
