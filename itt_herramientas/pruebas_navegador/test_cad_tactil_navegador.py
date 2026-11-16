@@ -661,3 +661,16 @@ def test_sin_conexion_si_otro_guardo_mientras_tanto_es_una_copia(tactil, telefon
     copia = Plano.objects.get(nombre="Lotes Norte (copia)")
     assert b"CIRCLE" in servicio.ruta_version(servicio.version_vigente(copia)).read_bytes()
     assert not n.errores, n.errores
+
+
+def test_planos_en_este_telefono_dice_sin_conexion_si_no_se_llega_al_servidor(tactil, navegar, crear_usuario, roles):
+    """iOS: con el servidor detenido decía «Con conexión» porque solo miraba navigator.onLine."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    n = navegar(ana, "chromium", ancho=375, alto=812, movil=True)
+    p = n.ir("/cad/sin-conexion/")
+    expect(p.locator("#sc-red")).to_have_text("Con conexión")
+    n.contexto.route("**/sesion/", lambda r: r.abort())
+    p.reload()
+    expect(p.locator("#sc-red")).to_contain_text("Sin conexión con el servidor")
+    assert not n.errores, n.errores
+

@@ -19,15 +19,25 @@
   try { const t = localStorage.getItem("tv.cad.tema"); if (t) document.documentElement.dataset.tvTema = t; } catch (_) { /* claro */ }
 
   function mensaje(t) { $("sc-mensaje").hidden = !t; $("sc-mensaje-texto").textContent = t || ""; }
-  function red() { $("sc-red").textContent = navigator.onLine ? "Con conexión" : "Sin conexión: lo que cambies se guarda en este teléfono"; }
+  // «Con conexión» solo si el servidor respondió: navigator.onLine dice que hay red, no que se llegue a Herramientas.
+  let alcanzable = false;
+  function red() {
+    $("sc-red").textContent = alcanzable ? "Con conexión" : navigator.onLine ? "Sin conexión con el servidor: lo que cambies se guarda en este teléfono"
+      : "Sin conexión: lo que cambies se guarda en este teléfono";
+  }
   addEventListener("online", () => { red(); if (!abierto) lista(); });
   addEventListener("offline", red);
 
   // Con conexión se confirma quién está: otra cuenta o sesión cerrada → no se muestra nada de nadie.
   async function sesion() {
+    alcanzable = false;
     if (!navigator.onLine) return Campo.cuentaActual();
     try {
-      const r = await fetch(C.urls.sesion, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
+      const corte = new AbortController();
+      const tope = setTimeout(() => corte.abort(), 6000);
+      const r = await fetch(C.urls.sesion, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" }, signal: corte.signal })
+        .finally(() => clearTimeout(tope));
+      alcanzable = r.status === 200 || r.status === 401;
       if (r.status === 401) {
         const db = await TVCadSesion.abrir();
         if (db) { await new Promise((ok) => { const t = db.transaction("estado", "readwrite"); const s = t.objectStore("estado"); const g = s.get("sesion");
@@ -48,6 +58,7 @@
   async function lista() {
     red();
     const cuenta = await sesion();
+    red();
     const ul = $("sc-planos"); ul.replaceChildren();
     if (!cuenta) { mensaje("Inicia sesión con conexión para ver los planos de este teléfono."); $("sc-vacio").hidden = true; return; }
     mensaje("");
@@ -65,10 +76,10 @@
       t.append(n, m);
       const acc = document.createElement("div"); acc.className = "cad-campo__acciones";
       const abrirB = document.createElement("a"); abrirB.className = "tv-boton"; abrirB.textContent = "Abrir";
-      abrirB.href = navigator.onLine && !c ? `/cad/${p.id}/` : `${C.urls.sin_conexion}?plano=${p.id}`;
-      if (sinEditor && !navigator.onLine) abrirB.setAttribute("aria-disabled", "true");
+      abrirB.href = alcanzable && !c ? `/cad/${p.id}/` : `${C.urls.sin_conexion}?plano=${p.id}`;
+      if (sinEditor && !alcanzable) abrirB.setAttribute("aria-disabled", "true");
       acc.append(abrirB);
-      if (c && navigator.onLine) {
+      if (c && alcanzable) {
         const s = document.createElement("button"); s.type = "button"; s.className = "tv-boton tv-boton--secundario"; s.textContent = "Subir cambios";
         s.addEventListener("click", async () => {
           s.setAttribute("aria-busy", "true");
