@@ -193,9 +193,9 @@
       const glifos = ok ? res.result.shapes : null;
       if (ok ? (glifos !== f.glifos || f.error) : !f.error) {
         fetch(f.informe, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() },
-          // El motivo va en español y fijo (auditoría B-9): el texto del editor viene en inglés y la página de Fuentes lo mostraba tal cual.
-          body: JSON.stringify({ ok, glifos, error: ok ? "" : !datos ? "No se pudo bajar el archivo de la fuente." : !res ? "El editor no respondió al cargarla."
-            : "El editor no pudo leer este archivo de fuente." }) }).catch(() => {});
+          // El motivo es un código de la lista cerrada del servidor (auditoría B-9 y B-2): el texto del editor viene en inglés y la página
+          // de Fuentes lo mostraba tal cual; el servidor guarda el texto en español que corresponde al código.
+          body: JSON.stringify({ ok: ok && glifos !== 0, glifos, codigo: ok ? (glifos === 0 ? "sin_letras" : "") : "rechazada" }) }).catch(() => {});
       }
     }
     const aviso = $("cad-aviso-fuentes");

@@ -44,7 +44,7 @@ def test_la_fuente_txt_de_la_empresa_cambia_el_texto(cad, navegar, crear_usuario
 
 
 def test_el_motivo_de_una_fuente_rechazada_va_en_espanol(cad, navegar, crear_usuario, roles):
-    """Auditoría B-9: el motivo que ve quien administra en «Fuentes» es un texto fijo en español, no el mensaje (en inglés) del editor."""
+    """Auditoría B-9: la página manda un código de la lista cerrada (no el mensaje en inglés del editor) y «Fuentes» muestra su texto."""
     import re
 
     jefa = _persona(crear_usuario, roles, "jefa", "Jefa Mora", "cad", "admin")
@@ -61,4 +61,4 @@ def test_el_motivo_de_una_fuente_rechazada_va_en_espanol(cad, navegar, crear_usu
         if f.error:
             break
         p.wait_for_timeout(200)
-    assert f.error == "El editor no pudo leer este archivo de fuente."
+    assert f.error == fuentes.MOTIVOS["rechazada"]
