@@ -484,6 +484,20 @@ def test_capturas_de_cada_pantalla(tactil, navegar, crear_usuario, roles, tam, t
     assert not propios, (propios, donde)
 
 
+@pytest.mark.parametrize("motor", ["chromium", "webkit"])
+def test_la_lupa_de_la_biblioteca_no_tapa_el_texto_del_buscador(tactil, navegar, crear_usuario, roles, motor):
+    """iOS Safari (402 pt): la lupa tapaba la primera letra del texto del buscador («Ꝗuscar»)."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    plano_utm(ana)
+    n = navegar(ana, motor, ancho=402, alto=874, movil=True)
+    p = n.ir("/cad/")
+    r = p.evaluate("""() => { const i = document.getElementById('cad-q'), l = document.querySelector('.cad-buscador > .tv-icono');
+      const cs = getComputedStyle(i); return {texto: i.getBoundingClientRect().left + parseFloat(cs.paddingLeft), lupa: l.getBoundingClientRect().right,
+      apariencia: cs.webkitAppearance || cs.appearance}; }""")
+    assert r["texto"] >= r["lupa"] + 4 and r["apariencia"] == "none", r
+    assert not n.errores, n.errores
+
+
 # -- CAD sin conexión -------------------------------------------------------------------------------------------------------------
 
 class TelefonoInstalado:
