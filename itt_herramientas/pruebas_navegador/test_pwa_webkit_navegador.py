@@ -30,7 +30,7 @@ def test_en_una_ventana_privada_la_foto_dice_por_que_no_se_guardo_y_la_segunda_n
             const t2 = db.transaction(['blobs'], 'readwrite'); t2.objectStore('blobs').delete('x'); return true; } catch (e) { return false; } }""")
         if guarda:
             pytest.skip("Este WebKit sí guarda Blob sin perfil: no reproduce la ventana privada")
-        for i in range(1):
+        for i in range(2):                                                     # la segunda no se queda colgada
             pagina.set_input_files("#itt-galeria", [{"name": f"IMG_{i}.jpg", "mimeType": "image/jpeg", "buffer": foto(tam=(800, 600))}])
             esperar(pagina, "document.getElementById('itt-mensaje').dataset.tipo === 'error'", timeout=45000)
             texto = pagina.locator("#itt-mensaje").text_content()

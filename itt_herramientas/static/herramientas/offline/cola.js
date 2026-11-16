@@ -40,10 +40,24 @@
   }
 
   /** Ejecuta `trabajo(almacen…)` en una transacción y resuelve cuando ESTA TERMINA (no cuando se pidió). */
+  // Tope de una transacción: en WebKit sin perfil guardado (ventana privada), después de un primer fallo al guardar un Blob la siguiente
+  // transacción puede no terminar nunca; sin tope la segunda foto quedaba «guardándose» para siempre.
+  const TOPE_MS = 30000;
   async function transaccion(nombres, modo, trabajo) {
     const db = await abrir();
-    return new Promise((resolver, rechazar) => {
-      const tx = db.transaction(nombres, modo);
+    return new Promise((resolver0, rechazar0) => {
+      let hecho = false, tx = null;
+      const tope = setTimeout(() => {
+        if (hecho) return;
+        hecho = true;
+        try { if (tx) tx.abort(); } catch (_) { /* ya terminó */ }
+        try { db.close(); } catch (_) { /* nada */ }
+        abierta = null;                                                  // la siguiente vez se abre de nuevo
+        rechazar0(Object.assign(new Error("El almacenamiento del teléfono no respondió."), { name: "TimeoutError" }));
+      }, TOPE_MS);
+      const resolver = (v) => { if (!hecho) { hecho = true; clearTimeout(tope); resolver0(v); } };
+      const rechazar = (e) => { if (!hecho) { hecho = true; clearTimeout(tope); rechazar0(e); } };
+      try { tx = db.transaction(nombres, modo); } catch (e) { rechazar(e); return; }
       let resultado;
       tx.oncomplete = () => resolver(resultado);
       // En «error» de una petición, tx.error todavía es null (solo se llena al abortar): el motivo es el de la petición que falló.
@@ -74,6 +88,7 @@
     try { new BroadcastChannel("itt-cola").postMessage({ tipo: "cambio" }); } catch (_) { /* sin BroadcastChannel */ }
   }
 
+  let sinFotos = null;
   const cola = {
     uuid,
     abrir,
@@ -82,8 +97,15 @@
       const ahora = Date.now();
       const { blob, ...resto } = item;
       if (!(blob instanceof Blob)) throw new Error("La captura necesita un blob");
+      // Este navegador ya dijo que no guarda fotos (ventana privada de WebKit): se dice igual de claro a la primera, sin volver a intentar.
+      if (sinFotos) throw sinFotos;
       const completo = Object.assign({ id: uuid(), estado: "en_cola", intentos: 0, progreso: 0, creada: ahora, actualizada: ahora, error: "" }, resto, { bytes: blob.size });
-      await transaccion(["items", "blobs"], "readwrite", (items, blobs) => { items.add(completo); blobs.add({ id: completo.id, blob }); });
+      try {
+        await transaccion(["items", "blobs"], "readwrite", (items, blobs) => { items.add(completo); blobs.add({ id: completo.id, blob }); });
+      } catch (e) {
+        if (e && e.name === "UnknownError" && /blob|file/i.test(String(e.message))) sinFotos = e;
+        throw e;
+      }
       avisar();
       return completo.id;
     },
