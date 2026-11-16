@@ -117,3 +117,87 @@ def test_m2_el_espacio_se_calcula_de_uno_en_uno():
         with connection.cursor() as c:
             c.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()")
             assert c.fetchone()[0] == 1
+
+
+# -- M-5, B-3, B-11, M-1: el motor nativo --------------------------------------------------------------------------------------
+
+def _motor(tmp_path, settings, cuerpo):
+    import stat
+    import sys
+    import textwrap
+
+    ruta = tmp_path / "OpenCADStudio"
+    ruta.write_text("#!" + sys.executable + "\n" + textwrap.dedent(cuerpo))
+    ruta.chmod(ruta.stat().st_mode | stat.S_IEXEC)
+    settings.HERRAMIENTAS_CAD_NATIVO = str(ruta)
+
+
+def test_m5_muchos_avisos_del_motor_no_lo_bloquean(tmp_path, settings, monkeypatch, caplog):
+    from itt_herramientas.cad import nativo
+
+    _motor(tmp_path, settings, '''
+        import json, resource, sys
+        print(json.dumps({"ok": True, "ready": True, "fsize": resource.getrlimit(resource.RLIMIT_FSIZE)[0]}), flush=True)
+        for linea in sys.stdin:
+            r = json.loads(linea)
+            if r["op"] == "open":
+                sys.stderr.write("AVISO entidad PREDIO DE JUAN PEREZ\\n" * 20000)      # ~700 kB, más que una tubería (64 kB)
+                sys.stderr.flush()
+                print(json.dumps({"ok": True, "state": {"document_id": 1}}), flush=True)
+            else:
+                open(r["path"], "wb").write(b"%PDF-1.3")
+                print(json.dumps({"ok": True, "result": {"pages": 1}}), flush=True)
+    ''')
+    monkeypatch.setattr(nativo, "TIEMPO_ABRIR", 8)
+    entrada = tmp_path / "a.dwg"
+    entrada.write_bytes(DWG)
+    r = nativo.imprimir(entrada, tmp_path / "s.pdf", nativo.PAPEL_POR_OMISION, "landscape", "ajustar", "modelo")
+    assert r["paginas"] == 1 and (tmp_path / "s.pdf").read_bytes().startswith(b"%PDF")
+
+
+def test_m1_el_motor_corre_con_tope_de_archivo_y_entorno_minimo(tmp_path, settings, monkeypatch):
+    from itt_herramientas.cad import nativo
+
+    monkeypatch.setenv("TV_SECRETO_DE_PRUEBA", "no-debe-llegar")
+    _motor(tmp_path, settings, '''
+        import json, os, resource
+        print(json.dumps({"ok": True, "ready": True, "version": json.dumps([resource.getrlimit(resource.RLIMIT_FSIZE)[0],
+              resource.getrlimit(resource.RLIMIT_CORE)[0], "TV_SECRETO_DE_PRUEBA" in os.environ])}), flush=True)
+    ''')
+    with nativo.Sesion() as s:
+        fsize, core, secreto = __import__("json").loads(s.version)
+    assert fsize == nativo.TOPE_ARCHIVO and core == 0 and not secreto
+
+
+def test_b3_un_motor_que_no_arranca_no_deja_su_carpeta(tmp_path, settings, monkeypatch):
+    import glob
+    import tempfile
+
+    from itt_herramientas.cad import nativo
+
+    _motor(tmp_path, settings, '''
+        import sys
+        sys.exit(3)
+    ''')
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    with pytest.raises(servicio.ErrorUsuario):
+        nativo.Sesion()
+    assert not glob.glob(str(tmp_path / "ocs-*"))
+
+
+def test_b3_b11_un_motor_que_cierra_su_salida_da_un_error_claro(tmp_path, settings, caplog):
+    from itt_herramientas.cad import nativo
+
+    _motor(tmp_path, settings, '''
+        import json, os, sys, time
+        print(json.dumps({"ok": True, "ready": True}), flush=True)
+        sys.stderr.write("panico al leer PREDIO DE JUAN PEREZ\\nlinea 2 con mas datos del plano\\n"); sys.stderr.flush()
+        os.close(1)
+        time.sleep(30)
+    ''')
+    entrada = tmp_path / "a.dwg"
+    entrada.write_bytes(DWG)
+    with pytest.raises(servicio.ErrorUsuario, match="se detuvo de forma inesperada"):
+        nativo.imprimir(entrada, tmp_path / "s.pdf", nativo.PAPEL_POR_OMISION, "landscape", "ajustar", "modelo")
+    registro = caplog.text
+    assert "linea 2" not in registro          # del motor solo la primera línea

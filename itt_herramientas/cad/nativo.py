@@ -44,6 +44,8 @@ ESCALAS = ("ajustar", "1:1", "1:50", "1:100", "1:200", "1:250", "1:500", "1:1000
 TIEMPO_ARRANQUE = 30
 TIEMPO_ABRIR = 120
 TIEMPO_TRABAJO = 300
+#: Tope de cualquier archivo que escriba el motor (el PDF, sus temporales): un plano que se desborda falla, no llena el disco.
+TOPE_ARCHIVO = 2 * 1024 ** 3
 
 
 class MotorNoDisponible(ErrorUsuario):
@@ -69,6 +71,15 @@ def _primero_en_caer() -> None:
             f.write("1000")
     except OSError:
         pass
+    # Defensa en profundidad (el motor interpreta planos ajenos): archivos de 2 GB como máximo y sin volcados de memoria.
+    import resource
+
+    for limite, valor in ((resource.RLIMIT_FSIZE, TOPE_ARCHIVO), (resource.RLIMIT_CORE, 0)):
+        try:
+            _, duro = resource.getrlimit(limite)
+            resource.setrlimit(limite, (valor if duro == resource.RLIM_INFINITY else min(valor, duro),) * 2)
+        except (ValueError, OSError):
+            pass
 
 
 def binario() -> Path | None:
@@ -104,17 +115,25 @@ class Sesion:
         b = binario()
         if b is None:
             raise MotorNoDisponible("La impresión y la conversión en el servidor no están disponibles en este momento.")
+        self._proc = None
         self._hogar = Path(tempfile.mkdtemp(prefix="ocs-"))
-        entorno = {"HOME": str(self._hogar), "XDG_CONFIG_HOME": str(self._hogar / "config"), "XDG_CACHE_HOME": str(self._hogar / "cache"),
-                   "XDG_DATA_HOME": str(self._hogar / "data"), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": str(self._hogar)}
-        self._proc = subprocess.Popen([str(b), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                      env=entorno, cwd=self._hogar, start_new_session=True, preexec_fn=_primero_en_caer)
-        self._resto = b""
-        self._n = 0
-        banner = self._leer(TIEMPO_ARRANQUE)
-        if not banner.get("ready"):
+        try:
+            # Entorno mínimo: nada del trabajador (ni sus credenciales ni las variables de la base) llega al motor.
+            entorno = {"HOME": str(self._hogar), "XDG_CONFIG_HOME": str(self._hogar / "config"), "XDG_CACHE_HOME": str(self._hogar / "cache"),
+                       "XDG_DATA_HOME": str(self._hogar / "data"), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": str(self._hogar)}
+            # Los avisos del motor van a un archivo, no a una tubería que nadie lee: con más de 64 kB el motor se quedaría esperando.
+            self._avisos = self._hogar / "motor.log"
+            with open(self._avisos, "wb") as avisos:
+                self._proc = subprocess.Popen([str(b), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=avisos,
+                                              env=entorno, cwd=self._hogar, start_new_session=True, close_fds=True, preexec_fn=_primero_en_caer)
+            self._resto = b""
+            self._n = 0
+            banner = self._leer(TIEMPO_ARRANQUE)
+            if not banner.get("ready"):
+                raise MotorNoDisponible("El motor de impresión no arrancó. Inténtalo de nuevo en unos minutos.")
+        except BaseException:
             self.cerrar()
-            raise MotorNoDisponible("El motor de impresión no arrancó. Inténtalo de nuevo en unos minutos.")
+            raise
         self.version = banner.get("version", "")
         self.documento = None
 
@@ -146,10 +165,23 @@ class Sesion:
             log.error("CAD nativo: respuesta ilegible: %r", linea[:300])
             raise ErrorUsuario("El motor de impresión respondió algo inesperado. Inténtalo de nuevo.") from None
 
+    def _primer_aviso(self) -> str:
+        """La primera línea de los avisos del motor, corta: el registro no guarda textos del plano (pueden traer datos de clientes)."""
+        try:
+            with open(self._avisos, "rb") as f:
+                return f.readline(200).decode("utf-8", "replace").strip()
+        except OSError:
+            return ""
+
     def _terminado(self):
-        codigo = self._proc.wait(timeout=5)
-        error = (self._proc.stderr.read() or b"")[-800:].decode("utf-8", "replace") if self._proc.stderr else ""
-        log.error("CAD nativo terminó con código %s: %s", codigo, error)
+        try:
+            codigo = self._proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            # cerró su salida pero sigue vivo: se detiene y se dice como cualquier otra caída
+            self._matar()
+            log.error("CAD nativo cerró su salida sin terminar (%s)", self._primer_aviso())
+            raise ErrorUsuario("El motor de impresión se detuvo de forma inesperada. Inténtalo de nuevo.") from None
+        log.error("CAD nativo terminó con código %s (%s)", codigo, self._primer_aviso())
         if codigo in (-signal.SIGKILL, 137):
             raise DemasiadoGrande("El plano es demasiado grande para procesarlo en el servidor (se acabó la memoria). Imprime una parte o "
                                   "ábrelo en el programa de escritorio.")

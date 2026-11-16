@@ -555,10 +555,11 @@ def bloqueo(plano_id, usuario, sesion: str, accion: str) -> dict:
         if accion == "forzar":
             if otro and not (es_admin(usuario) or p.bloqueo_cuenta_id == usuario.pk):
                 raise SinPermiso("Solo quien administra las herramientas puede tomar el control de un plano que otra persona edita.")
-            anterior = otro
+            anterior, cuenta_anterior = otro, p.bloqueo_cuenta_id
             _tomar(p, usuario, sesion, ahora)
             if anterior and anterior != OTRA_VENTANA:
-                log.info("CAD: %s tomó el control del plano %s (lo editaba %s)", usuario.pk, p.pk, anterior)
+                # en el registro, cuentas y no nombres de personas
+                log.info("CAD: la cuenta %s tomó el control del plano %s (lo editaba la cuenta %s)", usuario.pk, p.pk, cuenta_anterior)
             return {**estado_bloqueo(p, usuario, sesion), "revision": p.revision, "tomado_de": _quien(anterior) if anterior else ""}
         if accion == "tomar":
             if otro:
