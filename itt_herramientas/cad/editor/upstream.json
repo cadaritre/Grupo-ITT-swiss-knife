@@ -1,6 +1,6 @@
 {
   "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile. «base»: la versión oficial sobre la que está hecha la compilación; «version» nombra la ruta servida (/cad/editor/<version>/), así un cambio de compilación nunca reusa la caché del navegador.",
-  "version": "tv-v2026.45-6",
+  "version": "tv-v2026.45-7",
   "base": "v2026.45",
   "publicada": "2026-11-15",
   "puente": false,
@@ -10,15 +10,15 @@
     "tag": "v2026.45"
   },
   "web": {
-    "archivo": "OpenCADStudio-tv-v2026.45-6-web.zip",
-    "sha256": "82de8bc959113717806627ae3c809f081b5c4ffbee55cf0053652e69c1b31da8",
-    "bytes": 62966515,
+    "archivo": "OpenCADStudio-tv-v2026.45-7-web.zip",
+    "sha256": "f83d20532d7674532ce3f6a0178074a7f44f8433751676131b8725c11fdb3dab",
+    "bytes": 62975032,
     "fuente": {
       "tipo": "gh",
       "repo": "cadaritre/OpenCADStudio-TresVizo",
-      "tag": "tv-v2026.45-6"
+      "tag": "tv-v2026.45-7"
     },
-    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico, registro de fuentes SHX (`font_register`), `open`/`save` completos en WebKit, respuestas de control al momento, `view_set`, `?canvas=1` y, con `?embed=1`, sin copias locales del plano en el navegador."
+    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico, registro de fuentes SHX (`font_register`), `open`/`save` completos en WebKit, respuestas de control al momento, `view_set`, `?canvas=1` con `?embed=1`, sin copias locales del plano en el navegador, sin avisos de arranque en solo lienzo y la lista de presentaciones (`layouts`, `layout_set`)."
   },
   "nativo": {
     "x86_64": {
