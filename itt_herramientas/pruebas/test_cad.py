@@ -709,6 +709,9 @@ MOTOR = textwrap.dedent('''\
             print(json.dumps({{"ok": True, "request_id": r["request_id"], "result": {{}}, "state": {{"document_id": 2}}}}), flush=True)
         elif "ENORME" in (abierto or ""):
             os.kill(os.getpid(), signal.SIGKILL)
+        elif "SINMEMORIA" in (abierto or ""):
+            sys.stderr.write("memory allocation of 1048576 bytes failed\\n"); sys.stderr.flush()
+            os.abort()
         elif op == "header":
             print(json.dumps({{"ok": True, "insertion_units": 6}}), flush=True)
         elif op == "plot":
@@ -795,6 +798,19 @@ def test_un_plano_que_no_cabe_en_memoria_falla_con_un_mensaje_claro(dibujante, m
 
         salidas.imprimir(p.pk, 1, dibujante.pk, {})
 
+
+
+def test_el_motor_sin_memoria_por_su_tope_de_datos_falla_igual_y_su_tope_esta_puesto(dibujante, motor, settings):
+    # Con su tope de datos el motor aborta (SIGABRT, «memory allocation of … failed») antes de que el grupo llegue a MemoryMax: mismo mensaje.
+    p = servicio.crear_vacio(dibujante, "SINMEMORIA", "", "dwg")
+    servicio.carpeta(p).joinpath("v1.dwg").rename(servicio.carpeta(p) / "v1-SINMEMORIA.dwg")
+    VersionPlano.objects.filter(plano=p).update(ruta=str((servicio.carpeta(p) / "v1-SINMEMORIA.dwg").relative_to(servicio.raiz())))
+    from itt_herramientas.cad import salidas
+
+    with pytest.raises(nativo.DemasiadoGrande):
+        salidas.imprimir(p.pk, 1, dibujante.pk, {})
+    settings.HERRAMIENTAS_CAD_MEMORIA_MB = 2048                      # el MemoryMax de tv-tareas-cad (limites.env)
+    assert nativo.tope_datos() == 1792 * 1024 ** 2
 
 def test_convertir_avisa_la_perdida_y_la_permite_con_confirmacion(cliente_de, dibujante, motor):
     p = servicio.crear_vacio(dibujante, "Con PERDIDA", "", "dwg")

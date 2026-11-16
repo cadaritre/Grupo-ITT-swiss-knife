@@ -51,6 +51,15 @@ TIEMPO_ABRIR = 120
 TIEMPO_TRABAJO = 300
 #: Tope de cualquier archivo que escriba el motor (el PDF, sus temporales): un plano que se desborda falla, no llena el disco.
 TOPE_ARCHIVO = 2 * 1024 ** 3
+#: Margen del trabajador dentro del MemoryMax de tv-tareas-cad: el motor tiene como tope de datos (RLIMIT_DATA) ese MemoryMax menos esto.
+#: Un plano que no cabe hace fallar la petición de memoria del propio motor (aborta con «memory allocation of … failed») en vez de llevar al
+#: grupo al tope, donde el núcleo mató una vez al trabajador junto con el motor (ensayo de L, 15-11-2026). Medido: el plano más pesado que sí
+#: cabe usa 1.15 GB de datos.
+MARGEN_TRABAJADOR_MB = 256
+
+
+def tope_datos() -> int:
+    return (int(getattr(settings, "HERRAMIENTAS_CAD_MEMORIA_MB", 2048) or 2048) - MARGEN_TRABAJADOR_MB) * 1024 ** 2
 
 
 class MotorNoDisponible(ErrorUsuario):
@@ -79,7 +88,8 @@ def _primero_en_caer() -> None:
     # Defensa en profundidad (el motor interpreta planos ajenos): archivos de 2 GB como máximo y sin volcados de memoria.
     import resource
 
-    for limite, valor in ((resource.RLIMIT_FSIZE, TOPE_ARCHIVO), (resource.RLIMIT_CORE, 0)):
+    _tope = tope_datos()
+    for limite, valor in ((resource.RLIMIT_FSIZE, TOPE_ARCHIVO), (resource.RLIMIT_CORE, 0), (resource.RLIMIT_DATA, _tope)):
         try:
             _, duro = resource.getrlimit(limite)
             resource.setrlimit(limite, (valor if duro == resource.RLIM_INFINITY else min(valor, duro),) * 2)
@@ -206,6 +216,15 @@ class Sesion:
         except OSError:
             return ""
 
+    def _sin_memoria(self) -> bool:
+        """El motor abortó porque no le dieron memoria (llegó a tope_datos()): Rust lo dice en sus avisos antes de abortar."""
+        try:
+            with open(self._avisos, "rb") as f:
+                f.seek(max(0, f.seek(0, 2) - 8192))
+                return b"memory allocation of" in f.read()
+        except OSError:
+            return False
+
     def _terminado(self):
         try:
             codigo = self._proc.wait(timeout=5)
@@ -215,7 +234,7 @@ class Sesion:
             log.error("CAD nativo cerró su salida sin terminar (%s)", self._primer_aviso())
             raise ErrorUsuario("El motor de impresión se detuvo de forma inesperada. Inténtalo de nuevo.") from None
         log.error("CAD nativo terminó con código %s (%s)", codigo, self._primer_aviso())
-        if codigo in (-signal.SIGKILL, 137):
+        if codigo in (-signal.SIGKILL, 137) or (codigo in (-signal.SIGABRT, 134) and self._sin_memoria()):
             raise DemasiadoGrande("El plano es demasiado grande para procesarlo en el servidor (se acabó la memoria). Imprime una parte o "
                                   "ábrelo en el programa de escritorio.")
         raise ErrorUsuario("El motor de impresión se detuvo de forma inesperada. Inténtalo de nuevo.")
