@@ -16,7 +16,8 @@ ESTATICOS = Path(editor.__file__).resolve().parents[2] / "static" / "herramienta
 def test_b13_el_menu_mas_acciones_es_una_lista_de_botones_y_los_toques_miden_44(cliente_de, dibujante, plano, editor_falso):
     """Un `role="menu"` promete flechas, Inicio y Fin y lleva formularios dentro: el menú es un grupo de botones y enlaces normales."""
     html = cliente_de(dibujante).get(url("cad_plano", pk=plano.pk)).content.decode()
-    assert 'role="menu"' not in html and 'role="menuitem"' not in html
+    menu = html.split('id="cad-menu"')[1].split("</details>")[0]                 # el de la página (Civil tiene el suyo, con flechas)
+    assert 'role="menu"' not in menu and 'role="menuitem"' not in menu
     assert re.search(r'class="cad-menu__lista" role="group" aria-label="Más acciones"', html)
     css = (ESTATICOS / "cad.css").read_text()
     regla = re.search(r"\.cad-espacio__detalle > summary \{([^}]*)\}", css).group(1)
