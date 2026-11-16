@@ -54,7 +54,8 @@ def test_las_copias_del_editor_se_borran_al_arrancar_y_al_salir(cad, navegar, cr
     # Al salir de la página del plano no queda ninguna copia del plano en el navegador.
     p.goto(n.servidor.url + "/cad/")
     p.wait_for_function(f"async () => {{ const r = await ({COPIAS})(); return r.archivos.length === 0 && !r.sesion; }}", timeout=LARGO)
-    assert not n.errores, n.errores
+    # WebKit avisa como error de la página cada petición que la navegación corta («due to access control checks»): no es de la página.
+    assert not [e for e in n.errores if "due to access control checks" not in e], n.errores
 
 
 def test_cerrar_sesion_borra_las_copias_y_avisa_de_los_cambios_sin_subir(cad, navegar, crear_usuario, roles):
