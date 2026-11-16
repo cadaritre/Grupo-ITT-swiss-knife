@@ -112,6 +112,9 @@
     e.preventDefault();
     if (!navigator.onLine) { actualizarRed(); return; }
     const total = (window.ITT && ITT.estado && ITT.estado.resumen.total) || 0;
+    // Cambios de planos hechos sin conexión (CAD): no se borran; antes de salir se ofrece descargarlos (static/herramientas/cad/sesion.js).
+    const planos = window.TVCadSesion ? await TVCadSesion.pendientes() : [];
+    if (planos.length && !(await TVCadSesion.preguntar(planos))) return;
     const dlg = $("dlg-salir");
     $("dlg-salir-texto").textContent = total > 0
       ? `Tienes ${total === 1 ? "1 pendiente" : total + " pendientes"} por subir. No se pierden: se quedan guardados en este dispositivo y se suben cuando vuelvas a iniciar sesión con la misma cuenta.`
@@ -121,6 +124,7 @@
     dlg.addEventListener("close", async () => {
       if (dlg.returnValue !== "si") return;
       if (!csrf) { try { const r = await fetch("/sesion/", { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } }); if (r.ok) csrf = (await r.json()).csrf; } catch (_) { /* sin red: se intentará con lo que haya */ } }
+      if (window.TVCadSesion) await TVCadSesion.alSalir();                // copias de planos de esta sesión: fuera del navegador
       const f = $("itt-salir");
       const campo = document.createElement("input");                      // el token no viaja en el HTML (es igual para todas las cuentas): se agrega aquí
       campo.type = "hidden"; campo.name = "csrfmiddlewaretoken"; campo.value = csrf;

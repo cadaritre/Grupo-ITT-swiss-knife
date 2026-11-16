@@ -23,7 +23,7 @@ ACTIVOS = (
     "offline/ayudas.js", "offline/documentos.js", "offline/vista-pdf.js", "offline/listas.js", "offline/combobox.js",
     "reportes/orden.js", "reportes/reportes.js", "reportes/reportes.css", "croquis/croquis.js", "croquis/croquis.css",
     "cotizaciones/totales.js", "cotizaciones/borradores.js", "cotizaciones/ortografia.js", "cotizaciones/editor.js", "cotizaciones/cotizaciones.css",
-    "vendor/pdfjs/pdf.min.mjs", "vendor/pdfjs/pdf.worker.min.mjs",
+    "cad/sesion.js", "vendor/pdfjs/pdf.min.mjs", "vendor/pdfjs/pdf.worker.min.mjs",
     "vendor/maplibre/maplibre-gl.css", "vendor/maplibre/maplibre-gl-csp.js", "vendor/maplibre/maplibre-gl-csp-worker.js",     # el croquis abre el mapa sin señal
     "vendor/terradraw/terra-draw.umd.js", "vendor/terradraw/terra-draw-maplibre-gl-adapter.umd.js",
     "img/marca-grupo_itt.png", "img/modulo.png",

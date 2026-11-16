@@ -6,4 +6,5 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 {% with icono="herramientas/img/apple-touch-icon-"|add:clave|add:".png" %}<link rel="apple-touch-icon" href="{% static icono %}">{% endwith %}
 <link rel="stylesheet" href="{% static 'herramientas/offline/pwa.css' %}">
+<script src="{% static 'herramientas/cad/sesion.js' %}" defer></script>
 {% if request.user.is_authenticated %}<link rel="stylesheet" href="{% url 'herramientas:perfil_css' %}">{% endif %}

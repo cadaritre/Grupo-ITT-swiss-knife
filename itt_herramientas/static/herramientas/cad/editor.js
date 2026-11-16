@@ -513,7 +513,12 @@
     clearInterval(latido);
     try { fetch(C.urls.bloqueo, { method: "POST", keepalive: true, credentials: "same-origin", headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() }, body: JSON.stringify({ accion: "soltar", sesion: SESION }) }); } catch (_) { /* nada */ }
   }
-  addEventListener("pagehide", soltar);
+  addEventListener("pagehide", () => {
+    soltar();
+    // Las copias de planos que el editor deja en el navegador no se quedan al salir (auditoría A-1; también se borran al arrancar
+    // el editor y al cerrar sesión, ver cad/sesion.js).
+    if (window.TVCadSesion) window.TVCadSesion.limpiarEditor();
+  });
 
   // -- Salir de la página con cambios ----------------------------------------------------------------------------------------
   function salir(url) { e.sucio = false; e.recuperado = false; soltar(); location.assign(url); }

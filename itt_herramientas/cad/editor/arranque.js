@@ -36,6 +36,22 @@ function prepararAjustes() {
   document.documentElement.lang = "es";
 }
 
+// Copias de planos que el editor deja en el almacenamiento del navegador (auditoría A-1): su lista de «recientes» (cada plano abierto o
+// guardado, entero), su autoguardado y los nombres de la sesión. En Herramientas los planos viven en la biblioteca, con sesión; aquí no
+// deben quedar para quien use después este navegador. Se borran al arrancar, ANTES de cargar el editor (así también las que ya existían),
+// y la página del plano las borra al salir y al cerrar sesión (static/herramientas/cad/editor.js, `limpiarCopiasDelEditor`).
+const COPIAS_DEL_EDITOR = ["opencadstudio-recent", "opencadstudio-autosave"];
+async function borrarCopiasDelEditor() {
+  try { localStorage.removeItem("opencadstudio.session"); } catch (_) { /* sin almacenamiento */ }
+  try {
+    if (!navigator.storage || !navigator.storage.getDirectory) return;
+    const raiz = await navigator.storage.getDirectory();
+    for (const nombre of COPIAS_DEL_EDITOR) {
+      try { await raiz.removeEntry(nombre, { recursive: true }); } catch (_) { /* no existe */ }
+    }
+  } catch (_) { /* sin almacenamiento de archivos del navegador */ }
+}
+
 function ocultarCarga() {
   if (!carga) return;
   carga.classList.add("oculto");
@@ -62,6 +78,7 @@ addEventListener("keydown", (ev) => {
 async function arrancar() {
   prepararAjustes();
   vigilarLienzo();
+  await borrarCopiasDelEditor();
   try {
     const modulo = await import(new URL(meta("ocs-js"), location.href).href);
     const wasm = await modulo.default({ module_or_path: new URL(meta("ocs-wasm"), location.href) });
