@@ -154,3 +154,53 @@ def test_si_la_sesion_termina_no_se_recarga_y_se_puede_seguir(cad, navegar, crea
     esperar_estado(p, "guardado")
     assert p.evaluate("window.__sinRecargar === true")
     assert not n.errores, n.errores
+
+
+def _borrador(plano, usuario, texto="BORRADOR VIEJO"):
+    """Un borrador de recuperación propio en el servidor (DXF con un texto que se reconoce)."""
+    import io
+    import uuid
+
+    import ezdxf
+
+    d = ezdxf.new("R2018")
+    d.modelspace().add_text(texto, dxfattribs={"height": 2.5, "insert": (390000, 3168000)})
+    s = io.StringIO(); d.write(s)
+    t = servicio.carpeta_temporal() / f"{uuid.uuid4().hex}.tmp"
+    t.write_bytes(s.getvalue().encode())
+    return servicio.guardar_borrador(plano, usuario, plano.revision, t)
+
+
+def test_el_borrador_pendiente_no_se_pisa_y_se_pide_elegir(cad, navegar, crear_usuario, roles):
+    from itt_herramientas.models import Plano
+
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Predio Norte", "", "dxf")
+    viejo = _borrador(p0, ana)
+    ruta = servicio.raiz() / viejo.ruta
+    antes = ruta.read_bytes()
+    n = navegar(ana, "chromium")
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    expect(p.locator("#cad-aviso-borrador")).to_be_visible()
+    # Sin tocar el aviso, la persona dibuja: se le pide elegir, y el borrador automático (3 s en pruebas) no pisa el anterior.
+    dibujar(p)
+    hoja = p.locator("#cad-borrador-elegir")
+    expect(hoja).to_be_visible()
+    p.keyboard.press("Escape")
+    expect(hoja).to_be_visible()                                               # no se cierra sin una respuesta
+    p.wait_for_timeout(5000)
+    assert ruta.read_bytes() == antes
+    hoja.locator("#cad-borrador-elegir-copia").click()
+    expect(hoja).to_be_hidden()
+    expect(p.locator("#cad-aviso-borrador")).to_be_hidden()
+    copia = Plano.objects.get(nombre="Predio Norte (copia)")
+    assert b"BORRADOR VIEJO" in servicio.ruta_version(servicio.version_vigente(copia)).read_bytes()
+    # Ya decidido: el borrador automático vuelve a proteger lo nuevo.
+    for _ in range(60):
+        b = servicio.borrador_de(p0, ana.pk)
+        if b is not None:
+            break
+        p.wait_for_timeout(250)
+    assert b is not None and b"BORRADOR VIEJO" not in (servicio.raiz() / b.ruta).read_bytes()
+    assert not n.errores, n.errores

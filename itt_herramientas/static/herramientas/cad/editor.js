@@ -286,6 +286,7 @@
       if (sucio !== e.sucio) {
         e.sucio = sucio;
         if (sucio) e.sucioDesde = Date.now();
+        if (sucio && e.borradorPendiente) elegirBorrador();
         anunciar("cambio", { sucio });
         refrescarEstado();
       }
@@ -430,7 +431,8 @@
   const extensionOcupada = () => !!(window.TVCad && window.TVCad.ocupado && window.TVCad.ocupado());
   async function borrador() {
     // Una extensión (Civil) trabajando con el editor: el editor rechazaría guardar a media operación; se intenta en la siguiente vuelta.
-    if (extensionOcupada() || borradorEnCurso || !(e.sucio || e.recuperado) || !e.cargado || e.guardando || !(e.editable || e.perdido)) return;
+    // Con el aviso «Tienes cambios sin guardar de la última vez» pendiente, un borrador nuevo pisaría ese (auditoría M-6): primero se elige.
+    if (e.borradorPendiente || extensionOcupada() || borradorEnCurso || !(e.sucio || e.recuperado) || !e.cargado || e.guardando || !(e.editable || e.perdido)) return;
     borradorEnCurso = true;
     try { await pedirGuardado("borrador"); } finally { borradorEnCurso = false; }
   }
@@ -442,7 +444,7 @@
     if (document.visibilityState === "hidden" && Date.now() - e.ultimoBorrador > 20000) borrador();
   });
 
-  function ocultarBorrador() { $("cad-aviso-borrador").hidden = true; }
+  function ocultarBorrador() { $("cad-aviso-borrador").hidden = true; e.borradorPendiente = false; }
   function mostrarBorrador() {
     if (!C.borrador || !e.editable) return;
     const cuando = new Date(C.borrador.actualizado);
@@ -451,6 +453,32 @@
       ? `Tienes cambios sin guardar del ${fecha}.`
       : `Tienes cambios sin guardar del ${fecha}, hechos sobre una versión anterior. Si los recuperas, se guardarán como copia.`;
     $("cad-aviso-borrador").hidden = false;
+    e.borradorPendiente = true;
+  }
+  // Al primer cambio con el borrador anterior sin decidir, se pide elegir; la hoja no se cierra sin una respuesta.
+  function elegirBorrador() {
+    const d = $("cad-borrador-elegir");
+    if (!d || d.open || !e.borradorPendiente) return;
+    d.showModal();
+  }
+  if ($("cad-borrador-elegir")) {
+    $("cad-borrador-elegir").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("cad-borrador-elegir-recuperar").addEventListener("click", () => { $("cad-borrador-elegir").close(); $("cad-recuperar").click(); });
+    $("cad-borrador-elegir-descartar").addEventListener("click", () => { $("cad-borrador-elegir").close(); $("cad-descartar-borrador").click(); });
+    $("cad-borrador-elegir-copia").addEventListener("click", async (ev) => {
+      const b = ev.currentTarget; b.setAttribute("aria-busy", "true");
+      try {
+        const bytes = await bytesDe(`${C.urls.archivo}?borrador=1`);
+        const r = await pedir(C.urls.copia, { metodo: "POST", cuerpo: bytes, cabeceras: { "Content-Type": "application/octet-stream" } });
+        const d = await datos(r);
+        if (!r.ok) throw new Error(d.error || "No se pudo guardar la copia.");
+        await pedir(C.urls.borrador_descartar, { metodo: "POST" });
+        ocultarBorrador();
+        $("cad-borrador-elegir").close();
+        avisar(`Tus cambios de la última vez quedaron en «${d.nombre}».`);
+      } catch (err) { avisar(err instanceof TypeError ? "No se pudo guardar la copia: revisa tu conexión." : err.message, "error"); }
+      finally { b.removeAttribute("aria-busy"); }
+    });
   }
   $("cad-recuperar").addEventListener("click", async () => {
     ocultarBorrador();

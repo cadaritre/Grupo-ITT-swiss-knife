@@ -120,6 +120,16 @@
     <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Ahora no</button><button type="button" class="tv-boton tv-boton--secundario" data-cad-descargar-cambios>{% icono "download" %}<span>Descargar mis cambios</span></button><button type="button" class="tv-boton" id="cad-guardar-copia">{% icono "copy" %}<span>Guardar como copia</span></button></div>
   </div>
 </dialog>
+<dialog id="cad-borrador-elegir" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-borrador-elegir-titulo">
+  <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="cad-borrador-elegir-titulo">¿Qué hacemos con tus cambios de la última vez?</h2>
+    <p id="cad-borrador-elegir-texto">Este plano tiene cambios sin guardar de la última vez y empezaste a dibujar encima. Elige qué hacer con ellos antes de seguir: no se pierden sin que lo decidas.</p>
+    <div class="tv-hoja__acciones cad-salir__acciones">
+      <button type="button" class="tv-boton tv-boton--fantasma" id="cad-borrador-elegir-descartar">Descartarlos</button>
+      <button type="button" class="tv-boton tv-boton--secundario" id="cad-borrador-elegir-recuperar">{% icono "rotate-ccw" %}<span>Recuperarlos (pierdes lo nuevo)</span></button>
+      <button type="button" class="tv-boton" id="cad-borrador-elegir-copia">{% icono "copy" %}<span>Guardarlos como copia</span></button></div>
+  </div>
+</dialog>
 <dialog id="cad-salir" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-salir-titulo">
   <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
     <h2 id="cad-salir-titulo">Tienes cambios sin guardar</h2>
