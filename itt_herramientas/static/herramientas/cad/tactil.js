@@ -60,18 +60,10 @@
   // k = metros por píxel; (cx, cy) = el mundo en el centro del área.
   const vista = { cx: 0, cy: 0, k: 1, w: 1, h: 1, ox: 0, oy: 0 };
   const vistaEd = { ...vista };
+  // La cuenta es la de TVCad.vistaDe (control.js), la misma que usa Civil: nunca difieren.
   function deEstado(v, st) {
-    const c = st.camera, [vw, vh] = st.viewport_size;
-    let s = 1, ox = 0, oy = 0;
-    try {
-      const lienzo = ed().document.querySelector("canvas");
-      const r = lienzo.getBoundingClientRect();
-      if (vw > 0 && r.width > 0) s = r.width / vw;
-      ox = r.left; oy = r.top;
-    } catch (_) { /* sin acceso al marco: escala 1 */ }
-    v.w = vw * s; v.h = vh * s; v.ox = ox; v.oy = oy;
-    v.cx = c.target[0]; v.cy = c.target[1];
-    v.k = (2 * c.distance * Math.tan(c.fov_y / 2)) / Math.max(1, v.h);
+    const m = window.TVCad.vistaDe(st);
+    v.w = m.w; v.h = m.h; v.ox = m.ox; v.oy = m.oy; v.cx = m.cx; v.cy = m.cy; v.k = m.k;
     return v;
   }
   const aMundo = (sx, sy, v = vista) => [v.cx + (sx - v.ox - v.w / 2) * v.k, v.cy - (sy - v.oy - v.h / 2) * v.k];

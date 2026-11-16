@@ -82,6 +82,7 @@ La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` d
 | `await TVCad.ejecutar("LINE 0,0 10,10")` | atajo de `{op: "run", cmd}` |
 | `TVCad.barra()` | el elemento `#cad-extensiones` (`role="toolbar"`), ya visible |
 | `TVCad.ocupar()` / `soltar()` / `ocupado()` | una extensión avisa que trabaja con el editor (espera una elección en el dibujo, inserta un resultado): mientras tanto no se guarda el borrador de recuperación y «Guardar» pide esperar, porque el editor rechaza guardar a media operación |
+| `TVCad.vistaDe(state)` / `await TVCad.vista()` | pantalla ↔ mundo del editor: `{cx, cy, k, w, h, ox, oy, aMarco, deMarco, aPagina, dePagina}` desde `state.camera` y el área de dibujo (`state.viewport_rect` y `screen_scale` desde tv-v2026.45-8; sin ellos, el lienzo del editor, exacto con el lienzo solo). **Compartida**: la usan el modo táctil (`deEstado`) y Civil (la vista previa al colocar), así nunca difieren |
 | `TVCad.on(evento, fn)` / `off` | `listo`, `cargado`, `cambio` (`{sucio}`), `guardado` (`{revision, formato}`) |
 
 `pedir` rechaza con `TVCad.ErrorEditor` y su `codigo`: `no_listo` (aún no abre el plano), `sin_canal`, `tiempo` o `rechazada` (respuesta

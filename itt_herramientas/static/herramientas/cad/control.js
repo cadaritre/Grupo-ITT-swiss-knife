@@ -32,6 +32,13 @@
  *                                      dibujo, o insertando un resultado): mientras tanto la página no guarda el borrador de recuperación
  *                                      y «Guardar» pide esperar, porque el editor rechaza guardar a media operación. Se cuentan: cada
  *                                      ocupar() lleva su soltar(). `TVCad.ocupado()` dice si alguna extensión está trabajando.
+ *   TVCad.vistaDe(state) / await TVCad.vista()
+ *                                      La vista del editor, pantalla ↔ mundo, a partir de su `state` (`camera`, `viewport_size` y, desde
+ *                                      tv-v2026.45-8, `viewport_rect` [x, y, w, h] del área de dibujo en px CSS de su documento y
+ *                                      `screen_scale`). Sin `viewport_rect` el área de dibujo es el lienzo del editor (exacto con el lienzo
+ *                                      solo, `?canvas=1`, como en el modo táctil). Devuelve { cx, cy, k (unidades por px CSS), w, h, ox, oy
+ *                                      (esquina del área de dibujo en px CSS del marco), aMarco(x, y) / deMarco(px, py) en px del marco y
+ *                                      aPagina(x, y) / dePagina(px, py) en px de la página }. La usan el modo táctil y Civil: nunca difieren.
  *   TVCad.on(evento, fn) / off(...)    eventos: "listo" (estado), "cambio" ({ sucio }), "guardado" ({ revision, formato }),
  *                                      "cargado" (estado; también al reabrir el plano, p. ej. tras tomar el control o restaurar).
  *
@@ -109,6 +116,33 @@
     return respuesta;
   }
 
+  /** Pantalla ↔ mundo del editor (ver la cabecera). Pura: con el mismo `state` y el mismo marco da siempre lo mismo. */
+  function vistaDe(st) {
+    const c = st.camera, [vw, vh] = st.viewport_size || [0, 0];
+    let s = 1, ox = 0, oy = 0, w, h;
+    const r = st.viewport_rect;
+    if (Array.isArray(r) && r.length === 4 && r.every(Number.isFinite)) {
+      [ox, oy, w, h] = r;
+      s = Number.isFinite(st.screen_scale) && st.screen_scale > 0 ? st.screen_scale : (vw > 0 ? w / vw : 1);
+    } else {
+      try {
+        const lienzo = marco().contentDocument.querySelector("canvas");
+        const rc = lienzo.getBoundingClientRect();
+        if (vw > 0 && rc.width > 0) s = rc.width / vw;
+        ox = rc.left; oy = rc.top;
+      } catch (_) { /* sin acceso al marco: escala 1 */ }
+      w = vw * s; h = vh * s;
+    }
+    const cx = c.target[0], cy = c.target[1];
+    const k = (2 * c.distance * Math.tan(c.fov_y / 2)) / Math.max(1, h);
+    const aMarco = (x, y) => [ox + w / 2 + (x - cx) / k, oy + h / 2 - (y - cy) / k];
+    const deMarco = (px, py) => [cx + (px - ox - w / 2) * k, cy - (py - oy - h / 2) * k];
+    const borde = () => { const m = marco(); const b = m ? m.getBoundingClientRect() : { left: 0, top: 0 }; return [b.left, b.top]; };
+    return { cx, cy, k, w, h, ox, oy, s, aMarco, deMarco,
+      aPagina: (x, y) => { const [bx, by] = borde(), [px, py] = aMarco(x, y); return [bx + px, by + py]; },
+      dePagina: (px, py) => { const [bx, by] = borde(); return deMarco(px - bx, py - by); } };
+  }
+
   function barra() {
     const b = document.getElementById("cad-extensiones");
     if (b) b.hidden = false;
@@ -122,6 +156,8 @@
     pedir,
     ejecutar: (cmd, opciones) => pedir({ op: "run", cmd: String(cmd) }, opciones),
     barra,
+    vistaDe,
+    vista: async () => vistaDe(await pedir({ op: "state" })),
     ocupar() { ocupaciones += 1; },
     soltar() { ocupaciones = Math.max(0, ocupaciones - 1); },
     ocupado: () => ocupaciones > 0,
