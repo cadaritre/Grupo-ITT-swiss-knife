@@ -131,7 +131,7 @@ def test_el_editor_informa_glifos_y_rechazos(cliente_de, jefa, ana):
     subir(cliente_de(jefa), ("txt.shx", shx_de_prueba()))
     cl = cliente_de(ana)
     cl.post(url_fuente("cad_fuente_informe", "txt.shx"), {"ok": False, "error": "font_invalid"}, content_type="application/json")
-    assert FuenteCad.objects.get().error == "font_invalid"
+    assert FuenteCad.objects.get().error == fuentes.MOTIVOS["rechazada"]          # texto fijo en español, nunca el del editor
     assert "El editor no la pudo usar" in cliente_de(jefa).get(url("cad_fuentes")).content.decode()
     cl.post(url_fuente("cad_fuente_informe", "txt.shx"), {"ok": True, "glifos": 27}, content_type="application/json")
     f = FuenteCad.objects.get()

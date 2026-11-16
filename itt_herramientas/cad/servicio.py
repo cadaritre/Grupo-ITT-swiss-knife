@@ -459,6 +459,8 @@ def duplicar(plano: Plano, usuario) -> Plano:
     v = version_vigente(plano)
     if v is None:
         raise ErrorUsuario("Este plano no tiene una versión guardada.")
+    if not archivo_disponible(v):
+        raise ErrorUsuario("El archivo de este plano no está en el servidor: no se puede duplicar.")
     return crear_desde_ruta(usuario, ruta_version(v), f"{plano.nombre} (copia)", plano.proyecto, {"tipo": "copia", "id": str(plano.pk), "nombre": plano.nombre})
 
 
@@ -532,8 +534,13 @@ def estado_bloqueo(p: Plano, usuario, sesion: str = "") -> dict:
             "otra_ventana": not mio and p.bloqueo_cuenta_id == usuario.pk, "desde": p.bloqueo_latido.isoformat()}
 
 
-def bloqueo(plano_id, usuario, sesion: str, accion: str) -> dict:
-    """tomar | latido | soltar | forzar. Devuelve el estado para la página. «forzar» es de quien administra (o de la misma cuenta)."""
+def bloqueo(plano_id, usuario, sesion: str, accion: str, revision: int | None = None) -> dict:
+    """tomar | latido | soltar | forzar. Devuelve el estado para la página. «forzar» es de quien administra (o de la misma cuenta).
+
+    `revision` (latido): la versión sobre la que edita la página. Si su bloqueo caducó y mientras tanto alguien guardó otra versión, el
+    latido NO lo retoma: responde `perdido` con `motivo: "cambio"` para que la página lo diga antes de que se siga dibujando sobre una
+    versión vieja.
+    """
     if not sesion_valida(sesion):
         raise ErrorUsuario("La página del editor no es válida. Recárgala.")
     with transaction.atomic():
@@ -550,6 +557,10 @@ def bloqueo(plano_id, usuario, sesion: str, accion: str) -> dict:
         if accion == "latido":
             if otro:
                 return {**estado_bloqueo(p, usuario, sesion), "perdido": True, "revision": p.revision}
+            sigue_mio = bloqueo_activo(p, ahora) and p.bloqueo_sesion == sesion
+            if not sigue_mio and revision is not None and revision != p.revision:
+                return {**estado_bloqueo(p, usuario, sesion), "perdido": True, "motivo": "cambio", "revision": p.revision,
+                        "quien": p.modificado_por_nombre or "Alguien"}
             _tomar(p, usuario, sesion, ahora)
             return {**estado_bloqueo(p, usuario, sesion), "revision": p.revision}
         if accion == "forzar":
@@ -580,10 +591,19 @@ def _borrar_borrador_archivo(plano: Plano, cuenta_id: int) -> None:
         _ruta_borrador(plano, cuenta_id, f).unlink(missing_ok=True)
 
 
-def guardar_borrador(plano: Plano, usuario, revision_base: int, temporal: Path) -> BorradorPlano:
+def guardar_borrador(plano: Plano, usuario, revision_base: int, temporal: Path, sesion: str = "", previo_visto: str = "") -> BorradorPlano:
+    """Guarda (o reemplaza) el borrador de recuperación de esta cuenta en este plano.
+
+    Un borrador que dejó OTRA página (el de recuperación que se ofrece al abrir) no se pisa en silencio: solo lo reemplaza la página que
+    lo vio y decidió (`previo_visto` = su `actualizado`, que la página recibió al abrir) o la misma página que lo escribió (`sesion`).
+    Si no, `Conflicto("borrador_pendiente")`: la página pide recuperar, descartar o guardar como copia.
+    """
     formato = formato_de_archivo(temporal)
     with transaction.atomic():
         previo = BorradorPlano.objects.select_for_update().filter(plano=plano, cuenta_id=usuario.pk).first()
+        if previo is not None and previo.sesion != sesion and previo.actualizado.isoformat() != previo_visto:
+            raise Conflicto("Tienes cambios sin guardar de otra vez en este plano. Recupéralos, descártalos o guárdalos como copia antes de seguir.",
+                            "borrador_pendiente", actualizado=previo.actualizado.isoformat())
         # un borrador nunca recorta la historia de nadie: si no cabe, no hay borrador (la página lo dice y el trabajo sigue en el editor)
         asegurar_espacio(max(0, temporal.stat().st_size - (previo.bytes if previo else 0)), recortar=False)
         destino = _ruta_borrador(plano, usuario.pk, formato)
@@ -592,7 +612,8 @@ def guardar_borrador(plano: Plano, usuario, revision_base: int, temporal: Path) 
         _borrar_borrador_archivo(plano, usuario.pk)
         os.replace(temporal, destino)
         b, _ = BorradorPlano.objects.update_or_create(plano=plano, cuenta_id=usuario.pk, defaults={
-            "formato": formato, "ruta": str(destino.relative_to(raiz())), "bytes": tam, "revision_base": int(revision_base), "actualizado": timezone.now()})
+            "formato": formato, "ruta": str(destino.relative_to(raiz())), "bytes": tam, "revision_base": int(revision_base), "actualizado": timezone.now(),
+            "sesion": sesion})
     return b
 
 

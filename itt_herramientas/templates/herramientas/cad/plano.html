@@ -55,7 +55,7 @@
 {% endif %}
 
 {% hoja_inferior "cad-versiones" titulo="Versiones" %}
-<p class="tv-tenue cad-hoja-nota">Cada vez que guardas se crea una versión. Se conservan las 30 más recientes.</p>
+<p class="tv-tenue cad-hoja-nota">Cada vez que guardas se crea una versión. Se conservan las {{ versiones_max }} más recientes; si la biblioteca se llena, las más viejas se borran solas y de cada plano quedan al menos {{ versiones_minimas }}.</p>
 <ul class="cad-versiones" id="cad-versiones-lista">{% for x in versiones %}
   <li data-numero="{{ x.numero }}"{% if not x.disponible %} data-sin-archivo="1"{% endif %}><div class="cad-versiones__texto"><strong>Versión {{ x.numero }}{% if x.vigente %} <span class="tv-insignia tv-insignia--exito">Vigente</span>{% endif %}{% if not x.disponible %} <span class="tv-insignia tv-insignia--error">Archivo no disponible</span>{% endif %}</strong>
     <span class="tv-tenue">Guardada por {{ x.autor|default:"—" }} · <time datetime="{{ x.creada }}">{{ x.fecha|date:"j M Y, H:i"|lower }}</time>{% if x.nota %} · {{ x.nota }}{% endif %} · {{ x.formato|upper }} · {{ x.bytes|filesizeformat }}</span></div>

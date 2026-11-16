@@ -459,6 +459,7 @@ class BorradorPlano(models.Model):
     bytes = models.BigIntegerField()
     revision_base = models.PositiveIntegerField()                            # versión sobre la que se hicieron los cambios
     actualizado = models.DateTimeField(default=timezone.now)
+    sesion = models.CharField(max_length=64, blank=True, default="")         # la página del editor que lo escribió
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["plano", "cuenta_id"], name="herramientas_borradorplano_unico")]

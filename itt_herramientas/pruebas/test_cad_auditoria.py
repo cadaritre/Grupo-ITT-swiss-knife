@@ -201,3 +201,138 @@ def test_b3_b11_un_motor_que_cierra_su_salida_da_un_error_claro(tmp_path, settin
         nativo.imprimir(entrada, tmp_path / "s.pdf", nativo.PAPEL_POR_OMISION, "landscape", "ajustar", "modelo")
     registro = caplog.text
     assert "linea 2" not in registro          # del motor solo la primera línea
+
+
+# -- B-1: entradas mal formadas ---------------------------------------------------------------------------------------------------
+
+@pytest.fixture
+def jefa(crear_usuario, roles):
+    u = crear_usuario("jefa1")
+    roles.conceder(u, "herramientas", "admin")
+    return u
+
+
+@pytest.fixture
+def sara(crear_usuario, roles):
+    u = crear_usuario("sara1")
+    roles.conceder(u, "herramientas", "supervision")
+    return u
+
+
+SHX = b"AutoCAD-86 shapes 1.0\r\n\x1a" + b"\x00" * 64
+INFORME = "/cad/fuentes/txt.shx/informe/"
+
+
+def test_b1_entradas_mal_formadas_no_dan_500(cliente_de, ana, jefa):
+    import json
+
+    from itt_herramientas.cad import fuentes
+
+    p = servicio.crear_vacio(ana, "Predio", "", "dwg")
+    cl = cliente_de(ana)
+    cl.raise_request_exception = False
+    res = {
+        "lista ?autor=²": cl.get(url("cad") + "?autor=²").status_code,
+        "plano ?version=²": cl.get(url("cad_plano", pk=p.pk) + "?version=²").status_code,
+        "archivo ?version=²": cl.get(url("cad_archivo", pk=p.pk) + "?version=²").status_code,
+        "archivo ?version=enorme": cl.get(url("cad_archivo", pk=p.pk) + "?version=99999999999999999999").status_code,
+        "guardar ²": cl.post(url("cad_guardar", pk=p.pk), DWG, content_type="application/octet-stream", HTTP_X_TV_SESION=SA, HTTP_X_TV_REVISION="²").status_code,
+        "borrador enorme": cl.post(url("cad_borrador", pk=p.pk), DWG, content_type="application/octet-stream", HTTP_X_TV_REVISION="99999999999").status_code,
+        "imprimir ²": cl.post(url("cad_imprimir", pk=p.pk), {"version": "²"}).status_code,
+    }
+    fuentes.guardar("txt.shx", SHX, jefa)
+    for nombre, cuerpo in (("informe []", "[]"), ("informe glifos enorme", json.dumps({"ok": True, "glifos": 2 ** 40})),
+                           ("informe NUL", json.dumps({"ok": False, "codigo": "a\x00b"}))):
+        res[nombre] = cl.post(INFORME, cuerpo, content_type="application/json").status_code
+    assert 500 not in res.values(), res      # (imprimir responde 503 aquí: no hay motor nativo en las pruebas)
+    assert res["lista ?autor=²"] == 200 and res["guardar ²"] == 400 and res["borrador enorme"] == 400
+
+
+# -- B-2: el informe de fuentes es de quien edita, sin texto libre -----------------------------------------------------------
+
+def test_b2_supervision_no_escribe_el_catalogo_de_fuentes(cliente_de, sara, ana, jefa):
+    import json
+
+    from itt_herramientas.cad import fuentes
+    from itt_herramientas.models import FuenteCad
+
+    fuentes.guardar("txt.shx", SHX, jefa)
+    r = cliente_de(sara).post(INFORME, json.dumps({"ok": False, "error": "Texto puesto por supervision"}), content_type="application/json")
+    assert r.status_code == 403 and FuenteCad.objects.get(nombre="txt.shx").error == ""
+    cliente_de(ana).post(INFORME, json.dumps({"ok": False, "error": "Texto libre", "codigo": "otro"}), content_type="application/json")
+    assert FuenteCad.objects.get(nombre="txt.shx").error == fuentes.MOTIVOS["rechazada"]
+    cliente_de(ana).post(INFORME, json.dumps({"ok": True, "glifos": 7}), content_type="application/json")
+    f = FuenteCad.objects.get(nombre="txt.shx")
+    assert f.glifos == 7 and f.error == ""
+
+
+# -- M-6: el borrador de recuperación pendiente no se pisa --------------------------------------------------------------------
+
+def _borrador(cl, p, sesion="", previo=""):
+    extra = {"HTTP_X_TV_SESION": sesion} if sesion else {}
+    if previo:
+        extra["HTTP_X_TV_BORRADOR_PREVIO"] = previo
+    return cl.post(url("cad_borrador", pk=p.pk), DWG, content_type="application/octet-stream", HTTP_X_TV_REVISION="1", **extra)
+
+
+def test_m6_el_borrador_de_otra_pagina_no_se_pisa(cliente_de, ana):
+    from itt_herramientas.models import BorradorPlano
+
+    p = servicio.crear_vacio(ana, "Predio", "", "dwg")
+    cl = cliente_de(ana)
+    assert _borrador(cl, p, SA).status_code == 200                     # la página de ayer dejó cambios sin guardar
+    assert _borrador(cl, p, SA).status_code == 200                     # la misma página lo va reemplazando
+    previo = BorradorPlano.objects.get(plano=p).actualizado
+    r = _borrador(cl, p, "sesion-de-hoy-00001")                         # la página de hoy, sin haber decidido qué hacer con él
+    assert r.status_code == 409 and r.json()["motivo"] == "borrador_pendiente"
+    assert BorradorPlano.objects.get(plano=p).actualizado == previo
+    # al recuperarlo (o elegir guardarlo como copia) la página lo vio: ya puede reemplazarlo
+    assert _borrador(cl, p, "sesion-de-hoy-00001", previo.isoformat()).status_code == 200
+    assert BorradorPlano.objects.get(plano=p).sesion == "sesion-de-hoy-00001"
+
+
+# -- M-7: el latido no retoma un bloqueo caducado si mientras tanto hubo otra versión ------------------------------------------
+
+def test_m7_el_latido_tras_un_guardado_ajeno_dice_que_hubo_cambio(cliente_de, ana, beto):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    p = servicio.crear_vacio(ana, "Predio", "", "dwg")
+    ca, cb = cliente_de(ana), cliente_de(beto)
+    assert bloqueo(ca, p, "tomar", SA).json()["mio"]
+    Plano.objects.filter(pk=p.pk).update(bloqueo_latido=timezone.now() - timedelta(seconds=200))   # la laptop de Ana durmió
+    assert bloqueo(cb, p, "tomar", SB).json()["mio"]
+    assert guardar(cb, p, 1, SB).status_code == 200
+    bloqueo(cb, p, "soltar", SB)
+    d = bloqueo(ca, p, "latido", SA, revision=1).json()
+    assert d["perdido"] and d["motivo"] == "cambio" and d["revision"] == 2 and not d["mio"] and d["quien"] == "Beto"
+    # sin cambios de por medio, el latido sí retoma su bloqueo caducado
+    Plano.objects.filter(pk=p.pk).update(bloqueo_latido=timezone.now() - timedelta(seconds=200))
+    assert bloqueo(ca, p, "latido", SA, revision=2).json()["mio"]
+
+
+# -- B-9: textos --------------------------------------------------------------------------------------------------------------
+
+def test_b9_duplicar_un_plano_sin_archivo_lo_dice(ana):
+    p = servicio.crear_vacio(ana, "Predio", "", "dwg")
+    servicio.ruta_version(servicio.version_vigente(p)).unlink()
+    with pytest.raises(servicio.ErrorUsuario, match="no está en el servidor"):
+        servicio.duplicar(p, ana)
+
+
+def test_b9_la_pagina_de_fuentes_no_nombra_marcas_y_pide_confirmar(cliente_de, jefa):
+    from itt_herramientas.cad import fuentes
+
+    fuentes.guardar("txt.shx", SHX, jefa)
+    html = cliente_de(jefa).get(url("cad_fuentes")).content.decode()
+    assert "AutoCAD" not in html and "SHX" not in html
+    assert "¿Eliminar la fuente «txt.shx»?" in html
+
+
+def test_b9_la_hoja_de_versiones_dice_el_limite_configurado(cliente_de, ana, settings):
+    tope(settings, 20 * 1024 ** 3)
+    settings.TV_HERRAMIENTAS_LIMITES["cad"]["versiones"] = 12
+    p = servicio.crear_vacio(ana, "Predio", "", "dwg")
+    html = cliente_de(ana).get(url("cad_plano", pk=p.pk)).content.decode()
+    assert "Se conservan las 12 más recientes" in html and f"al menos {servicio.VERSIONES_MINIMAS}" in html
