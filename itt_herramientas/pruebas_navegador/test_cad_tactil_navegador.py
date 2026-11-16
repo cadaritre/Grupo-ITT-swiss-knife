@@ -395,7 +395,10 @@ def test_capturas_de_cada_pantalla(tactil, navegar, crear_usuario, roles, tam, t
     p.locator("#tt-mas").click()
     p.wait_for_timeout(300)
     p.screenshot(path=f"{base}-9-mas.png", caret="initial")
-    assert not n.errores, (n.errores, donde)
+    # WebKit: cada captura de Playwright inyecta una hoja de estilos (sin línea, «line 0») que la CSP rechaza; las pruebas sin capturas
+    # comprueban que la página no tiene errores de CSP propios.
+    propios = [e for e in n.errores if not (motor == "webkit" and "Refused to apply a stylesheet" in e)]
+    assert not propios, (propios, donde)
 
 
 # -- CAD sin conexión -------------------------------------------------------------------------------------------------------------
