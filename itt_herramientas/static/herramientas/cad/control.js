@@ -121,7 +121,9 @@
     const c = st.camera, [vw, vh] = st.viewport_size || [0, 0];
     let s = 1, ox = 0, oy = 0, w, h;
     const r = st.viewport_rect;
-    if (Array.isArray(r) && r.length === 4 && r.every(Number.isFinite)) {
+    const conRect = Array.isArray(r) && r.length === 4 && r.every(Number.isFinite);
+    if (conRect) {
+      // la fórmula del editor (TRESVIZO.md, «Where the drawing area is»): k por px de viewport_size, screen_scale px CSS por cada uno
       [ox, oy, w, h] = r;
       s = Number.isFinite(st.screen_scale) && st.screen_scale > 0 ? st.screen_scale : (vw > 0 ? w / vw : 1);
     } else {
@@ -134,7 +136,7 @@
       w = vw * s; h = vh * s;
     }
     const cx = c.target[0], cy = c.target[1];
-    const k = (2 * c.distance * Math.tan(c.fov_y / 2)) / Math.max(1, h);
+    const k = conRect ? (2 * c.distance * Math.tan(c.fov_y / 2)) / Math.max(1, vh) / s : (2 * c.distance * Math.tan(c.fov_y / 2)) / Math.max(1, h);
     const aMarco = (x, y) => [ox + w / 2 + (x - cx) / k, oy + h / 2 - (y - cy) / k];
     const deMarco = (px, py) => [cx + (px - ox - w / 2) * k, cy - (py - oy - h / 2) * k];
     const borde = () => { const m = marco(); const b = m ? m.getBoundingClientRect() : { left: 0, top: 0 }; return [b.left, b.top]; };

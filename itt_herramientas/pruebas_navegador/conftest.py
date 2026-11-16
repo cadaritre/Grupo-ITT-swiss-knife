@@ -78,3 +78,41 @@ def foto(tam=(3000, 2000), color="#2F6F9F", gps=True, orientacion=None, fecha="2
     b = io.BytesIO()
     imagen.save(b, "JPEG", quality=90, exif=exif.tobytes())
     return b.getvalue()
+
+
+# --- Ensayo en modo producción (TV_PRUEBAS_PRODUCCION=1) -------------------------------------------------------------------------------
+# Antes de un despliegue: las mismas pruebas con los estáticos como en producción (collectstatic con huella en los nombres) y DEBUG
+# apagado. El 14-11 un nombre con huella rompió en producción lo que en desarrollo pasaba. Los estáticos se recolectan una vez por sesión.
+
+@pytest.fixture(scope="session")
+def _estaticos_produccion(tmp_path_factory):
+    if os.environ.get("TV_PRUEBAS_PRODUCCION") != "1":
+        return None
+    from django.core.management import call_command
+    from django.test import override_settings
+
+    raiz = tmp_path_factory.mktemp("estaticos-produccion")
+    almacen = {"BACKEND": "itt_herramientas.pruebas.test_estaticos_produccion.AlmacenDePrueba"}
+    from django.conf import settings as s
+
+    with override_settings(STATIC_ROOT=raiz, STORAGES={**s.STORAGES, "staticfiles": almacen}):
+        call_command("collectstatic", interactive=False, verbosity=0)
+    return raiz, almacen
+
+
+@pytest.fixture(autouse=True)
+def _modo_produccion(request, _estaticos_produccion):
+    if not _estaticos_produccion:
+        yield
+        return
+    from django.contrib.staticfiles import finders
+
+    settings = request.getfixturevalue("settings")
+    raiz, almacen = _estaticos_produccion
+    settings.DEBUG = False
+    settings.STATIC_ROOT = raiz
+    settings.STORAGES = {**settings.STORAGES, "staticfiles": almacen}
+    settings.STATICFILES_DIRS = [*getattr(settings, "STATICFILES_DIRS", []), str(raiz)]
+    finders.get_finder.cache_clear()
+    yield
+    finders.get_finder.cache_clear()

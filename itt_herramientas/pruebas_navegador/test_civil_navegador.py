@@ -1020,10 +1020,9 @@ def test_civil_seleccion_de_puntos_curvas_continuas_y_colocar(cad, navegar, crea
     y1 = max(caja_de(e)[3] for e in lineas)
     paso = abs(mapa.k[0]) * 3
     assert abs(x0 - destino[0]) < paso and abs(y1 - destino[1]) < paso, (x0, y1, destino)
-    # la caja, del ancho de la tabla real: exacto cuando el editor dice dónde está su área de dibujo (state.viewport_rect, desde -8);
-    # con -7 y las cintas del editor alrededor, la vista previa sale de otro tamaño (ver docs/civil.md)
-    if "viewport_rect" in pedir(p, {"op": "state"}):
-        assert abs(caja["width"] * abs(mapa.k[0]) - (max(caja_de(e)[2] for e in lineas) - x0)) < paso * 2
+    # la caja, del ancho de la tabla real (TVCad.vista con state.viewport_rect del editor), desde el primer movimiento
+    assert "viewport_rect" in pedir(p, {"op": "state"})
+    assert abs(caja["width"] * abs(mapa.k[0]) - (max(caja_de(e)[2] for e in lineas) - x0)) < paso * 2
     vertices = pedir(p, {"op": "query", "layer": "VERTICES_POLIGONO", "detail": "full", "fields": ["bounds"], "limit": 100})["entities"]
     assert vertices and all(X0 + 10 < caja_de(e)[0] < X0 + 70 for e in vertices)   # los números de vértice se quedan en el lote
     antes = cuenta(p, None, "CUADRO_LINEAS")

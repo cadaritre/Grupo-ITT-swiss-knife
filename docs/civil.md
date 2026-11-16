@@ -86,9 +86,9 @@ objetos del editor), «Poner aquí» lo deja donde se ve, y Esc o «Cancelar» n
 números de vértice, las claves de las curvas, los lotes y la línea de ceros se quedan en su lugar. Se mueve en el dibujo temporal y se
 copia de una vez: un solo paso de deshacer. La vista previa vive en la página (`civil-previa`, sobre el marco del mismo origen) y vuelve a
 leer la vista del editor al acercar o mover; el clic es del editor (`getpoint`), así que lo dibujado queda siempre donde se señaló. La
-vista pantalla ↔ mundo es `TVCad.vista()` (control.js), la misma de la capa táctil: la cámara de `state` y `state.viewport_rect`. El
-editor tv-v2026.45-7 no dice dónde está su área de dibujo dentro de su lienzo (las cintas y paneles van en el mismo lienzo): con él la
-vista previa sale corrida y más grande; pedido a -8 (`viewport_rect`). Civil no está en el modo táctil (la capa táctil la oculta),
+vista pantalla ↔ mundo es `TVCad.vista()` (control.js), la misma de la capa táctil: la cámara de `state` y `state.viewport_rect`. Desde
+tv-v2026.45-8 el editor dice dónde está su área de dibujo, así que la vista previa tiene su tamaño real desde el primer movimiento,
+también en pantalla completa. Civil no está en el modo táctil (la capa táctil la oculta),
 así que ahí no hay puntero con desfase que usar; si algún día entra, la colocación tiene que ir por la herramienta de la capa táctil.
 
 ### Curvas de nivel: una curva, una polilínea

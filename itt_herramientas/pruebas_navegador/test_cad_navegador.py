@@ -36,6 +36,19 @@ def cad(settings):
     return EDITOR
 
 
+@pytest.fixture
+def sin_tactil(cad, settings):
+    """El camino con el modo táctil apagado (TV_CAD_TACTIL): en el teléfono el plano se abre para ver. Con el ajuste encendido, el
+    teléfono abre el modo táctil (test_cad_tactil_navegador.py); estas pruebas fijan el apagado para correr igual con cualquiera."""
+    settings.TV_CAD_TACTIL = False
+    return cad
+
+
+def _errores_propios(n, motor):
+    """En WebKit la captura de Playwright inyecta un estilo que la CSP de la página (con razón) rechaza: no es un error de la página."""
+    return [e for e in n.errores if not (motor == "webkit" and "Refused to apply a stylesheet" in e)]
+
+
 def _persona(crear_usuario, roles, usuario, nombre, *rol):
     u = crear_usuario(usuario)
     u.first_name, u.last_name = nombre.split(" ", 1)
@@ -135,7 +148,7 @@ def test_abrir_dibujar_guardar_y_restaurar(cad, navegar, crear_usuario, roles, m
     esperar_estado(p, "guardado")
     p0.refresh_from_db()
     assert p0.revision == 4 and VersionPlano.objects.get(plano=p0, numero=4).nota == "Restaurada de la versión 1"
-    assert not n.dialogos and not n.errores, (n.dialogos, n.errores)
+    assert not n.dialogos and not _errores_propios(n, motor), (n.dialogos, n.errores)
 
 
 def test_solo_lectura_y_tomar_el_control(cad, navegar, crear_usuario, roles):
@@ -218,7 +231,7 @@ def test_conflicto_se_guarda_como_copia(cad, navegar, crear_usuario, roles):
 
 
 @pytest.mark.parametrize("motor", MOTORES)
-def test_telefono_abre_para_ver_y_la_biblioteca_cabe(cad, navegar, crear_usuario, roles, motor):
+def test_telefono_abre_para_ver_y_la_biblioteca_cabe(sin_tactil, navegar, crear_usuario, roles, motor):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = servicio.crear_vacio(ana, "Plano con un nombre bastante largo para un teléfono", "Agrícola Norte del Valle", "dwg")
     n = navegar(ana, motor, ancho=360, alto=740, movil=True)
@@ -232,7 +245,7 @@ def test_telefono_abre_para_ver_y_la_biblioteca_cabe(cad, navegar, crear_usuario
     assert p.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
     if CAPTURAS:
         p.screenshot(path=f"{CAPTURAS}/cad-telefono-{motor}-360.png")
-    assert not n.errores, n.errores
+    assert not _errores_propios(n, motor), n.errores
 
 
 def test_tvcad_da_la_barra_y_el_estado_a_las_extensiones(cad, navegar, crear_usuario, roles):
@@ -264,7 +277,7 @@ def test_tvcad_da_la_barra_y_el_estado_a_las_extensiones(cad, navegar, crear_usu
 
 
 @pytest.mark.parametrize("ancho", [360, 1280])
-def test_biblioteca_nuevo_subir_buscar_y_zip(cad, navegar, crear_usuario, roles, ancho, tmp_path):
+def test_biblioteca_nuevo_subir_buscar_y_zip(sin_tactil, navegar, crear_usuario, roles, ancho, tmp_path):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     n = navegar(ana, ancho=ancho, alto=820, movil=ancho < 768)
     p = n.ir("/cad/")
@@ -304,7 +317,7 @@ def test_biblioteca_nuevo_subir_buscar_y_zip(cad, navegar, crear_usuario, roles,
 @pytest.mark.skipif(not CAPTURAS, reason="solo con ITT_CAPTURAS=carpeta: capturas de todas las pantallas de CAD")
 @pytest.mark.parametrize("tema", ["claro", "oscuro"])
 @pytest.mark.parametrize("ancho", [360, 768, 1280])
-def test_capturas_de_todas_las_pantallas(cad, navegar, crear_usuario, roles, settings, ancho, tema, tmp_path):
+def test_capturas_de_todas_las_pantallas(sin_tactil, navegar, crear_usuario, roles, settings, ancho, tema, tmp_path):
     """Biblioteca, filtros, subir, nuevo, selección, editor, sin guardar, versiones, imprimir, más acciones, solo lectura y papelera."""
     from tvplataforma.models import Preferencias
 

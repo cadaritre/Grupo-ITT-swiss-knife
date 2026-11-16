@@ -539,7 +539,10 @@ def test_primera_apertura_sin_conexion_sale_con_estilos(motor, tmp_path, servido
         # La precarga ya guardó lo compartido, aunque ninguna página controlada lo haya pedido todavía.
         guardadas = pagina.evaluate("caches.keys().then(async (ks) => { const c = await caches.open(ks.find((k) => k.startsWith('itt-herramientas-'))); return (await c.keys()).map((r) => new URL(r.url).pathname); })")
         for archivo in ("tokens.css", "base.css", "componentes.css", "img/marca.png"):
-            assert f"/static/tvplataforma/{archivo}" in guardadas, archivo
+            # en producción el nombre lleva su huella (tokens.<12 hex>.css): el service worker precarga el que piden las páginas
+            base, ext = archivo.rsplit(".", 1)
+            patron = re.compile(rf"^/static/tvplataforma/{re.escape(base)}(\.[0-9a-f]{{12}})?\.{ext}$")
+            assert any(patron.match(g) for g in guardadas), (archivo, guardadas)
         ctx.set_offline(True)
         pagina.goto(servidor.url + "/cotizaciones/")
         pagina.wait_for_selector("#cot", timeout=TIEMPO)
