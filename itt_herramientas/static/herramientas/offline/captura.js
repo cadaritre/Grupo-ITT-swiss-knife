@@ -43,10 +43,7 @@
       document.documentElement.dataset.guardadas = String(ITT.guardadas);
       ITT.pedirAlmacenamiento && ITT.pedirAlmacenamiento();
     } catch (e) {
-      const llena = e && (e.name === "QuotaExceededError" || /quota/i.test(String(e.message)));
-      aviso.textContent = llena
-        ? "No hay espacio en el teléfono para guardar la foto. Sube los pendientes con señal o libera espacio; la foto NO se guardó."
-        : `No se pudo guardar «${archivo.name || "foto"}»: ${e.message || e}`;
+      aviso.textContent = ITT.motivoAlGuardarFoto(e, archivo.name);
       aviso.dataset.tipo = "error";
     }
   }

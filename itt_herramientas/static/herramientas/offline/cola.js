@@ -46,7 +46,10 @@
       const tx = db.transaction(nombres, modo);
       let resultado;
       tx.oncomplete = () => resolver(resultado);
-      tx.onerror = () => rechazar(tx.error);
+      // En «error» de una petición, tx.error todavía es null (solo se llena al abortar): el motivo es el de la petición que falló.
+      // Antes se rechazaba con null y quien lo recibía fallaba al leer e.message (WebKit, ventana privada: la foto no se guardaba y no
+      // se decía nada).
+      tx.onerror = (ev) => rechazar((ev && ev.target && ev.target.error) || tx.error || new Error("No se pudo escribir en el almacenamiento del teléfono."));
       tx.onabort = () => rechazar(tx.error || new Error("transacción abortada"));
       try {
         const almacenes = nombres.map((n) => tx.objectStore(n));
@@ -148,4 +151,17 @@
     async guardarAjuste(clave, valor) { await transaccion(["ajustes"], "readwrite", (a) => { a.put({ clave, valor }); }); },
   };
   ITT.cola = cola;
+
+  /** Texto para la persona de un fallo al guardar una foto en este teléfono (null, Error o DOMException). */
+  ITT.motivoAlGuardarFoto = function (e, nombre) {
+    const texto = String((e && e.message) || e || "");
+    if (e && (e.name === "QuotaExceededError" || /quota/i.test(texto))) {
+      return "No hay espacio en el teléfono para guardar la foto. Sube los pendientes con señal o libera espacio; la foto NO se guardó.";
+    }
+    // Safari en ventana privada (y cualquier WebKit sin perfil guardado) no deja guardar fotos en IndexedDB.
+    if (e && e.name === "UnknownError" && /blob|file/i.test(texto)) {
+      return "Este navegador no deja guardar fotos en una ventana privada. Abre Herramientas en una ventana normal (o instala la app) para capturar sin conexión; la foto NO se guardó.";
+    }
+    return `No se pudo guardar «${nombre || "foto"}»: ${texto || "error desconocido"}`;
+  };
 })(typeof self !== "undefined" ? self : this);

@@ -367,9 +367,7 @@
       document.documentElement.dataset.guardadas = String(ITT.guardadas);
       return true;
     } catch (e) {
-      const llena = e && (e.name === "QuotaExceededError" || /quota/i.test(String(e.message)));
-      mensaje(llena ? "No hay espacio en el teléfono para guardar la foto. Sube los pendientes con señal o libera espacio; la foto NO se guardó."
-        : `No se pudo guardar «${archivo.name || "foto"}»: ${e.message || e}`, "error");
+      mensaje(ITT.motivoAlGuardarFoto(e, archivo.name), "error");
       return false;
     }
   }
@@ -529,7 +527,7 @@
     } catch (e) {
       barra.hidden = true;
       error.hidden = false;
-      error.textContent = e.mensaje || `No se pudo generar el PDF: ${e.message || e}`;
+      error.textContent = (e && e.mensaje) || `No se pudo generar el PDF: ${(e && e.message) || e || "error desconocido"}`;
     }
   }
   async function compartirPdf() {
