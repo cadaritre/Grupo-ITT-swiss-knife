@@ -335,7 +335,7 @@
       else await recibirGuardado({ buffer, formato: e.formato, origen: "pagina", destino, revision });
     } catch (err) {
       e.guardando = false; refrescarEstado();
-      if (destino !== "borrador") error(err.message);
+      if (destino !== "borrador") { e.salirDespues = null; error(err.message); }
       return false;
     }
     return true;
@@ -373,12 +373,12 @@
         return;
       }
       responder(false, d.error || "No se guardó.");
-      e.guardando = false; refrescarEstado();
+      e.guardando = false; e.salirDespues = null; refrescarEstado();
       if (r.status === 409) { e.bufferPendiente = buffer; return conflicto(d.error); }
       error(d.error || "No se pudo guardar. Inténtalo de nuevo.", { descargar: true });
     } catch (err) {
       responder(false, "Sin conexión: no se guardó.");
-      e.guardando = false; refrescarEstado();
+      e.guardando = false; e.salirDespues = null; refrescarEstado();
       error("No se pudo guardar: revisa tu conexión e inténtalo de nuevo. Tus cambios siguen en el editor.", { descargar: true });
     }
   }
@@ -401,7 +401,7 @@
       location.assign(d.url);
     } catch (err) {
       if (saveId) alEditor("ocs:saved", { ok: false, saveId, error: err.message });
-      e.guardando = false; refrescarEstado();
+      e.guardando = false; e.salirDespues = null; refrescarEstado();
       error(err instanceof TypeError ? "No se pudo guardar la copia: revisa tu conexión e inténtalo de nuevo. Tus cambios siguen en el editor." : err.message, { descargar: true });
     }
   }
@@ -632,7 +632,12 @@
     $("cad-salir").showModal();
   }, true);
   $("cad-salir-sin").addEventListener("click", () => { $("cad-salir").close(); salir(e.salirA); });
-  $("cad-salir-guardar").addEventListener("click", () => { $("cad-salir").close(); e.salirDespues = e.salirA; if (!pedirGuardado(e.perdido ? "copia" : "plano")) e.salirDespues = null; });
+  // «Guardar y salir»: solo se sale si se guardó. Si falla, la salida no queda programada para un guardado posterior (auditoría B-6).
+  $("cad-salir-guardar").addEventListener("click", () => {
+    $("cad-salir").close();
+    e.salirDespues = e.salirA;
+    pedirGuardado(e.perdido ? "copia" : "plano").then((ok) => { if (!ok) e.salirDespues = null; });
+  });
 
   // -- Versiones ---------------------------------------------------------------------------------------------------------------
   function icono(nombre) {

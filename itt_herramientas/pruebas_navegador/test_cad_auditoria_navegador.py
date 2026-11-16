@@ -241,3 +241,24 @@ def test_si_otro_guardo_mientras_el_bloqueo_caduco_se_avisa_y_se_guarda_como_cop
     p0.refresh_from_db()
     assert p0.revision == 2                                                    # nada se pisó
     assert not n.errores, n.errores
+
+
+def test_guardar_y_salir_que_falla_no_deja_la_salida_programada(cad, navegar, crear_usuario, roles):
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Predio Norte", "", "dxf")
+    n = navegar(ana, "chromium")
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    dibujar(p)
+    esperar_estado(p, "sucio")
+    n.contexto.route(f"**/cad/{p0.pk}/guardar/", lambda r: r.abort())
+    p.locator("#cad-volver").click()
+    p.locator("#cad-salir-guardar").click()
+    expect(p.locator("#cad-aviso-error")).to_contain_text("revisa tu conexión")
+    n.contexto.unroute(f"**/cad/{p0.pk}/guardar/")
+    # Más tarde, un «Guardar» normal guarda y la persona se queda en el plano.
+    p.locator("#cad-guardar").click()
+    esperar_estado(p, "guardado")
+    p.wait_for_timeout(1500)
+    assert p.url.rstrip("/").endswith(str(p0.pk))
+    assert not n.errores, n.errores
