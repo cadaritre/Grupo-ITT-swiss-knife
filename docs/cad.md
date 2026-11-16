@@ -81,16 +81,22 @@ El canal (`?automation=1`) solo se alcanza desde el mismo origen: el editor vive
 
 ## Espacio, archivos que faltan y autoría
 
-- **Espacio:** la biblioteca tiene su propia reserva de **20 GiB** (`cad/servicio.py`, `LIMITES["biblioteca_bytes"]`), que cuenta versiones
-  vigentes y anteriores, papelera y borradores, aparte de los 12 GB de Herramientas (Portal, `docs/arquitectura.md` §9.1 y §13). Al
-  llenarse se recortan las versiones más viejas (siempre quedan `VERSIONES_MINIMAS` = 5 por plano); si aun así no cabe, se dice claro.
+- **Espacio:** CAD tiene su propia reserva de 20 GB, aparte de los 12 GB de Herramientas (Portal, `docs/arquitectura.md` §9.1 y §13). La
+  biblioteca usa **18 GiB** de ella (`cad/servicio.py`, `LIMITES["biblioteca_bytes"]`: versiones vigentes y anteriores, papelera y
+  borradores) y deja el resto a salidas (PDF, conversiones, ZIP) y temporales, para que tv-salud no quede en «crítico» con la biblioteca
+  llena. Al llenarse se recortan las versiones más viejas (siempre quedan `VERSIONES_MINIMAS` = 5 por plano); si aun así no cabe, se dice
+  claro. El recorte va dentro de la transacción del guardado, después de comprobar bloqueo y versión, y de uno en uno (candado de
+  PostgreSQL): un guardado rechazado no borra nada, restaurar nunca recorta la versión que se restaura y los archivos se borran al
+  confirmar. Un borrador de recuperación nunca recorta versiones: si no cabe, se niega.
   CAD **no** cuenta en la cuota de 5 GB por cuenta de Herramientas (`TV_HERRAMIENTAS_CUOTA`), que solo mide las fotos de campo.
-- La biblioteca muestra «Planos: x de 20 GB» (aviso desde el 90 %); quien administra ve además el desglose.
+- La biblioteca muestra «Planos: x de 18 GB» (aviso desde el 90 %); quien administra ve además el desglose.
 - **Sin respaldo:** por decisión del propietario (15-11-2026) los planos no van al respaldo en R2 (`/srv/tresvizo/herramientas/cad` está
   excluido). Tras restaurar o cambiar de servidor puede haber renglones sin archivo: la lista los muestra como «Archivo no disponible», el
   plano lo explica en vez de abrir el editor, se pueden eliminar y nunca hay un error. `manage.py cad_reconciliar` (sin argumentos;
   `--simular` opcional; idempotente) marca las versiones sin archivo (`VersionPlano.sin_archivo`), desmarca las que volvieron y quita los
-  borradores sin archivo; `tvctl cad-reconciliar` lo corre.
+  borradores sin archivo; `tvctl cad-reconciliar` lo corre. También cuenta lo que hay en el disco sin renglón (carpetas y archivos de más
+  de una hora, p. ej. tras restaurar la base a un punto anterior con el disco intacto) y solo lo borra con `--borrar-huerfanos`: puede ser
+  la única copia de versiones posteriores, así que ni el comando sin argumentos ni la limpieza diaria lo tocan.
 - **Autoría:** la lista dice quién creó cada plano y quién lo guardó y cuándo; el plano, su línea de guardado y creación; cada versión,
   «Guardada por … · fecha».
 

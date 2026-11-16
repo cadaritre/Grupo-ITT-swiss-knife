@@ -1,4 +1,4 @@
-"""CAD: espacio de la biblioteca (20 GB propios, sin respaldo), archivos que faltan tras restaurar y quién guardó qué."""
+"""CAD: espacio de la biblioteca (18 GB en su reserva de 20 GB, sin respaldo), archivos que faltan tras restaurar y quién guardó qué."""
 from __future__ import annotations
 
 import io
@@ -47,8 +47,9 @@ def temporal(contenido: bytes = DWG):
     return p
 
 
-def test_la_biblioteca_tiene_20_gb_propios():
-    assert servicio.LIMITES["biblioteca_bytes"] == 20 * 1024 ** 3
+def test_la_biblioteca_cabe_en_su_reserva_de_20_gb():
+    # 18 GiB: la reserva de CAD es de 20 GB y deja 2 GB para salidas y temporales (auditoría B-5: tv-salud no queda en «crítico»)
+    assert servicio.LIMITES["biblioteca_bytes"] == 18 * 1024 ** 3
     assert servicio.VERSIONES_MINIMAS == 5
 
 
@@ -61,13 +62,13 @@ def test_el_espacio_se_desglosa(ana, beto):
     tam = len(DWG)
     assert d["vigentes"] == tam and d["anteriores"] == tam and d["papelera"] == tam and d["borradores"] == 0
     e = servicio.espacio()
-    assert e["usado"] == 3 * tam and e["tope"] == 20 * 1024 ** 3 and not e["aviso"]
+    assert e["usado"] == 3 * tam and e["tope"] == 18 * 1024 ** 3 and not e["aviso"]
 
 
 def test_la_biblioteca_muestra_el_espacio_y_el_desglose_solo_a_quien_administra(cliente_de, ana, jefa, settings):
     servicio.crear_vacio(ana, "Predio", "", "dwg")
     html = cliente_de(ana).get(url("cad")).content.decode()
-    assert "Planos: 0 de 20 GB" in html and "cad-espacio-detalle" not in html
+    assert "Planos: 0 de 18 GB" in html and "cad-espacio-detalle" not in html
     html = cliente_de(jefa).get(url("cad")).content.decode()
     assert "Ver en qué se usa" in html and "Versiones anteriores" in html and "Papelera" in html and "copia de seguridad" in html
     # al 90 % la línea se vuelve aviso

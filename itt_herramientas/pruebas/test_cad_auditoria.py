@@ -336,3 +336,45 @@ def test_b9_la_hoja_de_versiones_dice_el_limite_configurado(cliente_de, ana, set
     p = servicio.crear_vacio(ana, "Predio", "", "dwg")
     html = cliente_de(ana).get(url("cad_plano", pk=p.pk)).content.decode()
     assert "Se conservan las 12 más recientes" in html and f"al menos {servicio.VERSIONES_MINIMAS}" in html
+
+
+# -- B-4: lo que está en el disco sin renglón ---------------------------------------------------------------------------------
+
+def test_b4_reconciliar_cuenta_los_huerfanos_y_solo_los_borra_si_se_pide(ana):
+    import os
+    import time
+
+    p = servicio.crear_vacio(ana, "Predio", "", "dwg")
+    huerfano = servicio.raiz() / "cad" / "planos" / str(uuid.uuid4())
+    huerfano.mkdir(parents=True)
+    (huerfano / "v1.dwg").write_bytes(b"x" * 5_000_000)
+    sobrante = servicio.carpeta(p) / "v9.dwg"
+    sobrante.write_bytes(b"x" * 3_000_000)
+    reciente = servicio.carpeta(p) / "v10.dwg"                   # un guardado en curso: todavía sin renglón, pero no es huérfano
+    reciente.write_bytes(b"x")
+    viejo = time.time() - 2 * 3600
+    for f in (huerfano / "v1.dwg", sobrante):
+        os.utime(f, (viejo, viejo))
+    r = servicio.reconciliar()
+    assert r["huerfanos"] == 2 and r["huerfanos_bytes"] == 8_000_000 and r["huerfanos_borrados"] == 0
+    assert huerfano.is_dir() and sobrante.is_file()              # sin pedirlo no se borra: puede ser la única copia
+    servicio.limpiar()
+    assert huerfano.is_dir()
+    r = servicio.reconciliar(borrar_huerfanos=True)
+    assert r["huerfanos_borrados"] == 2 and not huerfano.exists() and not sobrante.exists() and reciente.is_file()
+    assert servicio.archivo_disponible(servicio.version_vigente(p))
+
+
+def test_b5_el_tope_deja_lugar_a_salidas_y_temporales():
+    assert servicio.LIMITES["biblioteca_bytes"] <= 18 * 1024 ** 3
+
+
+def test_b10_la_lista_de_autores_es_una_consulta(cliente_de, ana, beto, django_assert_max_num_queries):
+    from itt_herramientas.cad import vistas
+
+    for i in range(3):
+        servicio.crear_vacio(ana, f"A{i}", "", "dwg")
+        servicio.crear_vacio(beto, f"B{i}", "", "dwg")
+    with django_assert_max_num_queries(1):
+        autores = vistas._autores()
+    assert [a["nombre"] for a in autores] == ["Ana", "Beto"]

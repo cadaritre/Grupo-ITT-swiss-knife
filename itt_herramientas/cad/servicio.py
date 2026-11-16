@@ -23,7 +23,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import F, Sum
 from django.utils import timezone
 from tvplataforma import ajustes, permisos
 
@@ -38,11 +38,12 @@ TIPOS_MIME = {"dwg": "image/vnd.dwg", "dxf": "image/vnd.dxf"}
 #: Límites por omisión. Se cambian con `TV_HERRAMIENTAS_LIMITES["cad"]` (mismas claves).
 #: - bytes: un plano (subida, guardado o borrador). 50 MiB, como las demás herramientas; el editor del navegador abre bien hasta ahí.
 #: - versiones: las más recientes que se guardan por plano.
-#: - biblioteca_bytes: todo lo de CAD en disco (versiones vigentes y anteriores, papelera y borradores). 20 GiB: CAD tiene su propia
-#:   reserva de 20 GB en el disco de 100 GB del servidor, aparte de los 12 GB de Herramientas (Portal, docs/arquitectura.md §9.1 y §13).
+#: - biblioteca_bytes: todo lo de CAD en disco (versiones vigentes y anteriores, papelera y borradores). 18 GiB: CAD tiene su propia
+#:   reserva de 20 GB en el disco de 100 GB del servidor, aparte de los 12 GB de Herramientas (Portal, docs/arquitectura.md §9.1 y §13);
+#:   los 2 GB restantes son para salidas (PDF, conversiones, ZIP) y temporales, así la biblioteca llena no deja a tv-salud en «crítico».
 #:   Por decisión del propietario (15-11-2026) los planos NO van al respaldo cifrado en R2: un desastre o un cambio de servidor puede
 #:   perderlos. Por eso la biblioteca tolera archivos que faltan (`reconciliar`, `archivo_disponible`) y nunca da error por ello.
-LIMITES = {"bytes": 50 * 1024 * 1024, "versiones": 30, "biblioteca_bytes": 20 * 1024 ** 3}
+LIMITES = {"bytes": 50 * 1024 * 1024, "versiones": 30, "biblioteca_bytes": 18 * 1024 ** 3}
 #: Desde qué fracción del tope la línea de espacio de la biblioteca se vuelve aviso.
 AVISO_ESPACIO = 0.9
 #: Versiones que se conservan siempre de cada plano, aun si la biblioteca se llena (se recortan las más viejas primero).
@@ -220,7 +221,7 @@ def uso_detalle() -> dict:
     """Bytes de la biblioteca por parte: vigentes, versiones anteriores, papelera y borradores (las versiones sin archivo no ocupan)."""
     vivas = VersionPlano.objects.filter(sin_archivo__isnull=True)
     activos = vivas.filter(plano__eliminado__isnull=True)
-    vigentes = sum(b for b, n, r in activos.values_list("bytes", "numero", "plano__revision") if n == r)
+    vigentes = activos.filter(numero=F("plano__revision")).aggregate(t=Sum("bytes"))["t"] or 0
     anteriores = (activos.aggregate(t=Sum("bytes"))["t"] or 0) - vigentes
     papelera = vivas.filter(plano__eliminado__isnull=False).aggregate(t=Sum("bytes"))["t"] or 0
     borradores = BorradorPlano.objects.aggregate(t=Sum("bytes"))["t"] or 0
@@ -241,12 +242,49 @@ def archivo_disponible(v: VersionPlano | None) -> bool:
     return v is not None and v.sin_archivo is None and ruta_version(v).is_file()
 
 
-def reconciliar(simular: bool = False) -> dict:
+#: Un archivo sin renglón más nuevo que esto puede ser un guardado en curso (se mueve antes de confirmar la transacción): no es huérfano.
+HUERFANO_HORAS = 1
+
+
+def huerfanos() -> list[Path]:
+    """Lo que hay en `cad/planos/` sin renglón en la base: carpetas de planos que no existen y archivos de versiones o borradores
+    que no son de ninguna versión ni borrador (tras restaurar la base a un punto anterior con el disco intacto)."""
+    import time
+
+    base = raiz() / "cad" / "planos"
+    if not base.is_dir():
+        return []
+    limite = time.time() - HUERFANO_HORAS * 3600
+    planos = {str(pk) for pk in Plano.objects.values_list("pk", flat=True)}
+    rutas = set(VersionPlano.objects.values_list("ruta", flat=True)) | set(BorradorPlano.objects.values_list("ruta", flat=True))
+    salida = []
+    for d in base.iterdir():
+        if not d.is_dir():
+            salida.append(d)
+            continue
+        if d.name not in planos:
+            if all(f.stat().st_mtime < limite for f in d.rglob("*") if f.is_file()):
+                salida.append(d)
+            continue
+        for f in d.rglob("*"):
+            if f.is_file() and str(f.relative_to(raiz())) not in rutas and f.stat().st_mtime < limite:
+                salida.append(f)
+    return salida
+
+
+def _bytes_de(ruta: Path) -> int:
+    return sum(f.stat().st_size for f in ruta.rglob("*") if f.is_file()) if ruta.is_dir() else ruta.stat().st_size
+
+
+def reconciliar(simular: bool = False, borrar_huerfanos: bool = False) -> dict:
     """Compara la base con el disco (tras restaurar o cambiar de servidor). Idempotente.
 
     - Una versión cuyo archivo no está se marca `sin_archivo` (y se desmarca si el archivo volvió).
     - Un borrador sin archivo se borra (solo era una copia de recuperación).
-    Devuelve las cuentas: versiones y planos (cuya versión vigente falta) marcados ahora, los que ya estaban y los que se desmarcaron.
+    - Lo que está en el disco sin renglón (`huerfanos`) se cuenta y, con `borrar_huerfanos`, se borra. Nunca solo: como los planos no
+      tienen respaldo, esos archivos pueden ser la única copia de versiones posteriores al punto restaurado; quien administra decide.
+    Devuelve las cuentas: versiones y planos (cuya versión vigente falta) marcados ahora, los que ya estaban, los que se desmarcaron y
+    los huérfanos (cuántos y cuánto ocupan).
     """
     ahora = timezone.now()
     marcadas = ya = desmarcadas = 0
@@ -275,8 +313,14 @@ def reconciliar(simular: bool = False) -> dict:
             borradores += 1
             if not simular:
                 b.delete()
+    sobran = huerfanos()
+    bytes_sobran = sum(_bytes_de(h) for h in sobran)
+    if borrar_huerfanos and not simular:
+        for h in sobran:
+            shutil.rmtree(h, ignore_errors=True) if h.is_dir() else h.unlink(missing_ok=True)
     return {"versiones_marcadas": marcadas, "versiones_ya": ya, "versiones_desmarcadas": desmarcadas, "planos_marcados": len(planos_nuevos),
-            "planos_ya": len(planos_ya), "borradores_borrados": borradores}
+            "planos_ya": len(planos_ya), "borradores_borrados": borradores, "huerfanos": len(sobran), "huerfanos_bytes": bytes_sobran,
+            "huerfanos_borrados": len(sobran) if borrar_huerfanos and not simular else 0}
 
 
 #: Clave del candado de PostgreSQL que hace de uno en uno el cálculo del espacio y el recorte («tvcad» en ASCII).

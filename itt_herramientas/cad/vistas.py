@@ -129,10 +129,11 @@ class Filtros:
 
 
 def _autores() -> list[dict]:
-    vistos: dict[int, dict] = {}
-    for cuenta, nombre, correo in Plano.objects.filter(eliminado__isnull=True).order_by("cuenta_id", "-creado").values_list("cuenta_id", "autor_nombre", "autor_correo"):
-        vistos.setdefault(cuenta, {"cuenta_id": cuenta, "nombre": nombre or correo or "Sin nombre"})
-    return sorted(vistos.values(), key=lambda a: a["nombre"].casefold())
+    # un renglón por cuenta (el de su plano más reciente), en SQL: no se recorre toda la biblioteca en cada visita
+    filas = (Plano.objects.filter(eliminado__isnull=True).order_by("cuenta_id", "-creado").distinct("cuenta_id")
+             .values_list("cuenta_id", "autor_nombre", "autor_correo"))
+    autores = [{"cuenta_id": cuenta, "nombre": nombre or correo or "Sin nombre"} for cuenta, nombre, correo in filas]
+    return sorted(autores, key=lambda a: a["nombre"].casefold())
 
 
 def _marcar_edicion(planos) -> None:
