@@ -103,7 +103,7 @@
     const caja = $("cad-aviso-sesion"); if (caja) caja.hidden = true;
     if (e.editable) {
       latir();
-      try { const d = await bloqueo("latido"); if (d.perdido) perderBloqueo(d); } catch (_) { /* el latido sigue */ }
+      try { const d = await bloqueo("latido"); if (d.perdido && d.motivo === "cambio") cambioAjeno(d.quien); else if (d.perdido) perderBloqueo(d); } catch (_) { /* el latido sigue */ }
     }
     avisar("Sesión recuperada: ya puedes guardar.");
   }
@@ -499,7 +499,10 @@
 
   // -- Bloqueo --------------------------------------------------------------------------------------------------------------------
   async function bloqueo(accion) {
-    const r = await pedir(C.urls.bloqueo, { metodo: "POST", json: { accion, sesion: SESION } });
+    // El latido lleva la versión sobre la que se edita: si el bloqueo caducó y otra persona guardó mientras tanto, el servidor no lo
+    // retoma y responde `perdido` con `motivo: "cambio"` (auditoría M-7).
+    const cuerpo = accion === "latido" ? { accion, sesion: SESION, revision: e.base } : { accion, sesion: SESION };
+    const r = await pedir(C.urls.bloqueo, { metodo: "POST", json: cuerpo });
     const d = await datos(r);
     if (r.status === 410) { error("Este plano se eliminó."); throw new Error("eliminado"); }
     if (!r.ok) throw new Error(d.error || "No se pudo comprobar quién edita el plano.");
@@ -546,7 +549,8 @@
       if (!e.editable || e.sinSesion) return;
       try {
         const d = await bloqueo("latido");
-        if (d.perdido) perderBloqueo(d);
+        if (d.perdido && d.motivo === "cambio") cambioAjeno(d.quien);
+        else if (d.perdido) perderBloqueo(d);
         else if (!e.guardando && Number.isInteger(d.revision) && d.revision > e.base) cambioAjeno();
       } catch (_) { /* sin red un momento: el bloqueo dura 90 s */ }
     }, C.latido_s * 1000);
@@ -563,10 +567,10 @@
 
   // El bloqueo caducó (el equipo durmió más de 90 s), otra persona guardó una versión nueva y el latido lo volvió a tomar (auditoría M-7):
   // seguir sería dibujar sobre una versión vieja. Se suelta el bloqueo, se dice quién guardó y lo de aquí se guarda como copia.
-  async function cambioAjeno() {
+  async function cambioAjeno(nombre) {
     if (!e.editable) return;
-    let quien = "";
-    try { const r = await pedir(`${C.urls.estado}?sesion=${SESION}`); if (r.ok) quien = (await datos(r)).modificado_por || ""; } catch (_) { /* sin nombre */ }
+    let quien = nombre || "";
+    if (!quien) { try { const r = await pedir(`${C.urls.estado}?sesion=${SESION}`); if (r.ok) quien = (await datos(r)).modificado_por || ""; } catch (_) { /* sin nombre */ } }
     if (!e.editable) return;
     soltar();
     e.perdido = true;
