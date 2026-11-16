@@ -118,7 +118,8 @@ def preparar_editor(destino: Path, cache: Path, local: Path | None, comprimir: b
     d = datos()
     ver = d["version"]
     final = destino / ver
-    huella = hashlib.sha256((d["web"]["sha256"] + "".join(_sha256(AQUI / n) for n in PROPIOS)).encode()).hexdigest()
+    # La huella cambia con el ZIP, con nuestra página y con este script (un formato de manifiesto nuevo vuelve a preparar).
+    huella = hashlib.sha256((d["web"]["sha256"] + "".join(_sha256(AQUI / n) for n in (*PROPIOS, "preparar.py"))).encode()).hexdigest()
     if (final / "MANIFIESTO.json").is_file() and json.loads((final / "MANIFIESTO.json").read_text()).get("huella") == huella:
         print(f"OK    editor {ver} ya preparado en {final}")
         return final
@@ -150,16 +151,19 @@ def preparar_editor(destino: Path, cache: Path, local: Path | None, comprimir: b
         (trabajo / "index.html").write_text(plantilla.replace("__JS__", js).replace("__WASM__", wasm).replace("__VERSION__", ver), encoding="utf-8")
         for nombre in ("arranque.js", "editor.css"):
             shutil.copyfile(AQUI / nombre, trabajo / nombre)
-        archivos = {}
+        archivos, comprimidos = {}, {}
         for ruta in sorted(p for p in trabajo.rglob("*") if p.is_file()):
             relativo = ruta.relative_to(trabajo).as_posix()
             archivos[relativo] = _sha256(ruta)
             if comprimir and ruta.suffix in COMPRIMIR and ruta.stat().st_size > 1024:
-                with open(ruta, "rb") as src, open(str(ruta) + ".gz", "wb") as crudo, \
+                gz = Path(str(ruta) + ".gz")
+                with open(ruta, "rb") as src, open(gz, "wb") as crudo, \
                         gzip.GzipFile(filename="", mode="wb", compresslevel=9, fileobj=crudo, mtime=0) as dst:
                     shutil.copyfileobj(src, dst, 1 << 20)
+                comprimidos[f"{relativo}.gz"] = _sha256(gz)
+        # «comprimidos»: el hash de cada .gz, que es lo que Caddy entrega a casi todos los navegadores (auditoría B-8).
         (trabajo / "MANIFIESTO.json").write_text(json.dumps({"version": ver, "zip_sha256": d["web"]["sha256"], "huella": huella, "js": js, "wasm": wasm,
-                                                             "archivos": archivos}, indent=1), encoding="utf-8")
+                                                             "archivos": archivos, "comprimidos": comprimidos}, indent=1), encoding="utf-8")
         for p in [trabajo, *trabajo.rglob("*")]:
             os.chmod(p, 0o755 if p.is_dir() else 0o644)
         if final.exists():
@@ -178,10 +182,20 @@ def verificar(destino: Path) -> None:
     manifiesto = json.loads((final / "MANIFIESTO.json").read_text(encoding="utf-8"))
     if manifiesto.get("zip_sha256") != d["web"]["sha256"]:
         sys.exit("FALLA: el editor preparado no es el de upstream.json.")
-    for relativo, sha in manifiesto["archivos"].items():
+    if "comprimidos" not in manifiesto:
+        sys.exit("FALLA: el editor se preparó con una versión anterior de preparar.py (sin el hash de los .gz). Vuelve a prepararlo.")
+    esperados = {**manifiesto["archivos"], **manifiesto["comprimidos"]}
+    # El conjunto exacto: un archivo de más (también un .gz) lo serviría Caddy sin que nadie lo haya comprobado.
+    en_disco = {p.relative_to(final).as_posix() for p in final.rglob("*") if p.is_file() and p.name != "MANIFIESTO.json"}
+    sobran, faltan = sorted(en_disco - set(esperados)), sorted(set(esperados) - en_disco)
+    if sobran:
+        sys.exit(f"FALLA: archivos que no son del editor preparado: {', '.join(sobran[:10])}")
+    if faltan:
+        sys.exit(f"FALLA: faltan archivos del editor preparado: {', '.join(faltan[:10])}")
+    for relativo, sha in esperados.items():
         if _sha256(final / relativo) != sha:
             sys.exit(f"FALLA: {relativo} cambió después de prepararse.")
-    print(f"OK    editor {d['version']} verificado ({len(manifiesto['archivos'])} archivos)")
+    print(f"OK    editor {d['version']} verificado ({len(manifiesto['archivos'])} archivos y {len(manifiesto['comprimidos'])} comprimidos)")
 
 
 def preparar_nativo(arch: str, destino: Path, cache: Path, local: Path | None) -> Path:
