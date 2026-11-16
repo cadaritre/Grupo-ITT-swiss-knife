@@ -1677,6 +1677,12 @@
     cercanos: (x, y) => { const m = aMundo(x, y), t = 14 * vista.k; return pedir({ op: "query", near: m, bounds: [m[0] - t, m[1] - t, m[0] + t, m[1] + t], limit: 12, detail: "summary" }); } });
 
   // ---------------------------------------------------------------------------------------------------------------- arranque
+  // La ventana visible también cambia sin que cambie el área (Chrome al cerrar su diálogo de instalar, el teclado, el zoom de la
+  // página): se vuelve a medir y se fija la vista, que además hace que el editor vuelva a pintar (en Android quedaba una copia vieja
+  // de la barra y de la lectura a media pantalla).
+  if (window.visualViewport) visualViewport.addEventListener("resize", alCambiarTamano);
+  addEventListener("resize", alCambiarTamano);
+  addEventListener("pageshow", alCambiarTamano);
   medirZona();
   if (CAMPO) {
     // Página sin conexión: primero la lista de planos del teléfono; el modo táctil entra al abrir uno.

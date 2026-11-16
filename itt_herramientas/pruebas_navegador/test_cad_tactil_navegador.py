@@ -408,6 +408,29 @@ def test_cada_herramienta_cambia_el_dibujo_en_un_solo_paso(tactil, navegar, crea
     assert not n.errores, n.errores
 
 
+@pytest.mark.parametrize("motor", ["chromium", "webkit"])
+def test_al_cambiar_la_ventana_la_capa_y_el_editor_se_reacomodan(tactil, navegar, crear_usuario, roles, motor):
+    """Android: al cerrarse el diálogo «Instalar app» quedó una copia de la barra de abajo y de la lectura a media pantalla. Tras
+    cambiar la ventana, el editor ocupa exactamente el área de la capa, la barra queda abajo y la vista sigue en su lugar."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_utm(ana)
+    n, p = abrir(navegar, ana, motor, p0=p0)
+    _herramienta(p, "dibujar", "Línea")
+    llevar_punta(p, X0, Y0)
+    for alto in (640, 812, 700):
+        p.set_viewport_size({"width": 375, "height": alto})
+        p.wait_for_timeout(900)
+        r = p.evaluate("""() => { const q = (s) => document.querySelector(s).getBoundingClientRect();
+          const z = q('#tt-zona'), l = q('#cad-lienzo'), a = q('#tt-abajo'), x = q('#tt-lectura');
+          return {zona: [z.top, z.left, z.width, z.height], lienzo: [l.top, l.left, l.width, l.height], abajo: a.bottom, alto: innerHeight,
+                  lectura: x.bottom <= z.bottom + 0.5 && x.top >= z.top - 0.5}; }""")
+        assert all(abs(a - b) < 0.6 for a, b in zip(r["zona"], r["lienzo"])), r
+        assert abs(r["abajo"] - r["alto"]) < 0.6 and r["lectura"], r
+        v, c = p.evaluate("TVCadTactil.vista()"), camara(p)
+        assert abs(c["x"] - v["cx"]) < v["k"] and abs(c["y"] - v["cy"]) < v["k"], (c, v)
+    assert not n.errores, n.errores
+
+
 def test_solo_lectura_deja_ver_y_medir(tactil, navegar, crear_usuario, roles):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     beto = _persona(crear_usuario, roles, "beto", "Beto Ruiz", "cad")
