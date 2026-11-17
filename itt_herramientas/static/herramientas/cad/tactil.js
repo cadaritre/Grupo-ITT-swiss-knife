@@ -932,10 +932,10 @@
       capac.modos = !!(r && Array.isArray(r.hits));
     }
     // Las demás: una petición que un editor con la op rechaza por sus datos (nunca cambia el dibujo) y uno sin ella, por desconocida.
-    capac.explotar = lista.has("explode") || await tieneOp({ op: "explode", handles: "?" });
+    capac.explotar = lista.has("explode") || await tieneOp({ op: "explode", handles: ["zz"] });
     capac.recortar = lista.has("trim") || await tieneOp({ op: "trim", point: "?" });
     capac.alargar = lista.has("extend") || await tieneOp({ op: "extend", point: "?" });
-    capac.cotas = lista.has("dim_create") || await tieneOp({ op: "dim_style", name: "\u0000" }) && await tieneOp({ op: "dim_create", kind: "?" });
+    capac.cotas = lista.has("dim_create") || (await tieneOp({ op: "dim_style" }) && await tieneOp({ op: "dim_create", kind: "?" }));
     for (const b of document.querySelectorAll("[data-requiere]")) b.hidden = !capac[b.dataset.requiere];
   }
   async function entrar(recordar) {
