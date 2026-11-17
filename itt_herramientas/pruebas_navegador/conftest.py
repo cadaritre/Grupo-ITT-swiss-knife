@@ -74,12 +74,61 @@ def motor(request, playwright_):
     return {"nombre": nombre, "tipo": tipo, "dispositivo": playwright_.devices[DISPOSITIVOS[nombre]]}
 
 
+_EN_CURSO = {"n": 0, "ultima": 0.0}
+_CANDADO_CURSO = __import__("threading").Lock()
+
+
+def _contar(delta):
+    import time
+
+    with _CANDADO_CURSO:
+        _EN_CURSO["n"] += delta
+        _EN_CURSO["ultima"] = time.monotonic()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _peticiones_en_curso():
+    """Cuenta las peticiones que atiende el servidor de pruebas (cualquier hilo)."""
+    from django.core.signals import request_finished, request_started
+
+    def empieza(**kw):
+        _contar(+1)
+
+    def termina(**kw):
+        _contar(-1)
+
+    request_started.connect(empieza, weak=False, dispatch_uid="itt-en-curso-empieza")
+    request_finished.connect(termina, weak=False, dispatch_uid="itt-en-curso-termina")
+    yield
+    request_started.disconnect(dispatch_uid="itt-en-curso-empieza")
+    request_finished.disconnect(dispatch_uid="itt-en-curso-termina")
+
+
+def _esperar_servidor_quieto(tope=15.0, calma=0.5):
+    """Hasta que el servidor de pruebas no tenga peticiones en curso durante `calma` s (o pase `tope`).
+
+    Al cerrar el navegador, la página manda lo último que tenía (p. ej. soltar el bloqueo de un documento, con `keepalive`). Si esa
+    petición llega mientras se vacía la base al terminar la prueba (TRUNCATE), PostgreSQL detecta un interbloqueo y la base queda sin
+    vaciar para las pruebas siguientes. Esperar a que el servidor esté quieto antes de vaciarla lo evita.
+    """
+    import time
+
+    limite = time.monotonic() + tope
+    while time.monotonic() < limite:
+        with _CANDADO_CURSO:
+            quieto = _EN_CURSO["n"] <= 0 and time.monotonic() - _EN_CURSO["ultima"] >= calma
+        if quieto:
+            return
+        time.sleep(0.05)
+
+
 @pytest.fixture
 def servidor(live_server, settings):
     """Servidor en vivo que se hace pasar por el host de Herramientas (en producción, tools.tresvizo.com)."""
     settings.TV_HOSTS = {"herramientas": "localhost"}
     settings.ALLOWED_HOSTS = ["*"]
-    return live_server
+    yield live_server
+    _esperar_servidor_quieto()                                       # antes de que se vacíe la base (ver arriba)
 
 
 @pytest.fixture
