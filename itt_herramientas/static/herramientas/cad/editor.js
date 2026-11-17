@@ -235,7 +235,7 @@
     for (let i = 0; i < 1200 && !documento; i++) {
       const est = await canal({ op: "state" }, 10000).catch(() => ({}));
       const doc = (est.documents || []).find((d) => !d.start);
-      if (doc) { documento = doc.id; revEditor = revGuardada = doc.revision || 0; break; }
+      if (doc) { documento = doc.id; break; }
       if (respuesta && respuesta.ok === false && i > 20) break;
       await espera(100);
     }
@@ -244,7 +244,26 @@
       carga(""); error("No se pudo abrir el plano en el editor. Descárgalo y revísalo en tu programa de dibujo.");
       return;
     }
+    // La pestaña del plano aparece antes de que el editor termine de abrirlo. La revisión de partida («nada cambiado») se toma cuando
+    // terminó: con la respuesta de «open» y la revisión quieta. Antes se tomaba al ver la pestaña y, si el editor la movía mientras
+    // terminaba de abrir un plano grande, el plano quedaba «Sin guardar» sin que nadie lo tocara; y la capa táctil empezaba a pedirle
+    // cosas al editor a media apertura.
+    await Promise.race([pedido, espera(120000)]);
+    revEditor = revGuardada = await revisionQuieta();
     alCargar();
+  }
+  // La revisión del plano cuando deja de moverse (dos lecturas iguales seguidas; a lo más unos segundos).
+  async function revisionQuieta() {
+    let antes = null;
+    for (let i = 0; i < 20; i++) {
+      const est = await canal({ op: "state" }, 10000).catch(() => ({}));
+      const doc = (est.documents || []).find((d) => d.id === documento);
+      const rev = doc ? doc.revision || 0 : 0;
+      if (rev === antes) return rev;
+      antes = rev;
+      await espera(150);
+    }
+    return antes || 0;
   }
   function alCargar() {
     e.cargado = true; carga(""); e.sucio = false; refrescarEstado();
@@ -257,9 +276,9 @@
     if (m.source === "tresvizo-cad-editor" && m.type === "guardar") { if (C.puede_editar) pedirGuardado(e.perdido ? "copia" : "plano"); return; }
     if (m.source !== "opencadstudio-embed") return;
     if (m.type === "ocs:loaded") {
-      canal({ op: "state" }).then((est) => {
+      canal({ op: "state" }).then(async (est) => {
         const doc = (est.documents || []).find((d) => !d.start);
-        if (doc) { documento = doc.id; revEditor = revGuardada = doc.revision || 0; }
+        if (doc) { documento = doc.id; revEditor = revGuardada = await revisionQuieta(); }
       }).catch(() => {}).finally(alCargar);
       return;
     }
@@ -287,6 +306,8 @@
       if (sucio !== e.sucio) {
         e.sucio = sucio;
         if (sucio) e.sucioDesde = Date.now();
+        // Para diagnosticar (consola del navegador, `TVCad.registro()`): qué le pidió la página al editor justo antes.
+        if (window.TVCad && window.TVCad.anotar) window.TVCad.anotar({ sucio, revision: revEditor, base: revGuardada });
         if (sucio && e.borradorPendiente) elegirBorrador();
         anunciar("cambio", { sucio });
         refrescarEstado();

@@ -39,6 +39,8 @@
  *                                      solo, `?canvas=1`, como en el modo táctil). Devuelve { cx, cy, k (unidades por px CSS), w, h, ox, oy
  *                                      (esquina del área de dibujo en px CSS del marco), aMarco(x, y) / deMarco(px, py) en px del marco y
  *                                      aPagina(x, y) / dePagina(px, py) en px de la página }. La usan el modo táctil y Civil: nunca difieren.
+ *   TVCad.registro()                   las últimas peticiones que cambian algo (op, orden, si se aceptó y la revisión que dejó) y los
+ *                                      pasos a «Sin guardar»; para diagnosticar en el teléfono (también sale en la consola).
  *   TVCad.on(evento, fn) / off(...)    eventos: "listo" (estado), "cambio" ({ sucio }), "guardado" ({ revision, formato }),
  *                                      "cargado" (estado; también al reabrir el plano, p. ej. tras tomar el control o restaurar).
  *
@@ -99,6 +101,10 @@
   });
   document.addEventListener("tvcad:editable", (ev) => { estado.editable = !!(ev.detail && ev.detail.editable); });
 
+  // Registro corto de lo que las extensiones y el modo táctil le piden al editor (las últimas 60 peticiones que no son lecturas de estado,
+  // con la revisión que devolvió), y de cuándo el plano pasó a «Sin guardar»: para encontrar qué cambió un plano que solo se miró.
+  const registro = [];
+  const anotar = (x) => { registro.push({ t: Math.round(performance.now()), ...x }); if (registro.length > 80) registro.shift(); if (x.sucio) console.info("CAD: plano con cambios sin guardar", registro.slice(-12)); };
   async function pedir(peticion, { tiempoMs = 30000, sondeoMs } = {}) {
     if (!estado.listo) throw new ErrorEditor("no_listo", "El editor todavía no abre el plano. Espera a TVCad.listo.");
     const c = canal();
@@ -111,6 +117,9 @@
       respuesta = await c.request(sobre, sondeoMs ? { timeoutMs: tiempoMs, pollMs: sondeoMs } : { timeoutMs: tiempoMs });
     } catch (err) {
       throw new ErrorEditor("tiempo", "El editor no respondió a tiempo.", undefined);
+    }
+    if (!["state", "snap", "query", "measure", "layers", "layouts"].includes(peticion.op)) {
+      anotar({ op: peticion.op, cmd: peticion.cmd || peticion.name || peticion.action || "", ok: !(respuesta && respuesta.ok === false), revision: respuesta && respuesta.revision });
     }
     if (respuesta && respuesta.ok === false) throw new ErrorEditor("rechazada", respuesta.error || respuesta.code || "El editor rechazó la petición.", respuesta);
     return respuesta;
@@ -163,6 +172,8 @@
     ocupar() { ocupaciones += 1; },
     soltar() { ocupaciones = Math.max(0, ocupaciones - 1); },
     ocupado: () => ocupaciones > 0,
+    anotar,
+    registro: () => registro.slice(),
     on(evento, fn) { if (!oyentes.has(evento)) oyentes.set(evento, new Set()); oyentes.get(evento).add(fn); },
     off(evento, fn) { (oyentes.get(evento) || new Set()).delete(fn); },
   });
