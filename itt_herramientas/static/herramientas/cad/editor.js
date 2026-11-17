@@ -250,6 +250,7 @@
     // cosas al editor a media apertura.
     await Promise.race([pedido, espera(120000)]);
     revEditor = revGuardada = await revisionQuieta();
+    if (window.TVCad && window.TVCad.anotar) window.TVCad.anotar({ op: "abierto", ok: !(respuesta && respuesta.ok === false), revision: revGuardada });
     alCargar();
   }
   // La revisión del plano cuando deja de moverse (dos lecturas iguales seguidas; a lo más unos segundos).
@@ -308,6 +309,8 @@
         if (sucio) e.sucioDesde = Date.now();
         // Para diagnosticar (consola del navegador, `TVCad.registro()`): qué le pidió la página al editor justo antes.
         if (window.TVCad && window.TVCad.anotar) window.TVCad.anotar({ sucio, revision: revEditor, base: revGuardada });
+        // La primera vez en la sesión se guarda qué pasó antes, y va con el siguiente borrador (cad/registro.py).
+        if (sucio && !e.registroSucio && !e.registroEnviado) e.registroSucio = registroParaServidor();
         if (sucio && e.borradorPendiente) elegirBorrador();
         anunciar("cambio", { sucio });
         refrescarEstado();
@@ -447,12 +450,23 @@
   // El borrador lleva la sesión de esta página y, tras recuperar o guardar como copia el de la última vez, cuál era ese
   // (`X-TV-Borrador-Previo`): el servidor nunca deja que otra página pise en silencio un borrador que nadie ha decidido (auditoría
   // M-6). Si lo hay (409 `borrador_pendiente`), se pide elegir.
+  // Solo nombres de operaciones, tiempos, si se aceptaron y revisiones: nada del dibujo (ni coordenadas, ni capas, ni órdenes).
+  function registroParaServidor() {
+    const filas = (window.TVCad && window.TVCad.registro ? window.TVCad.registro() : []).slice(-40);
+    const num = (v) => (Number.isFinite(v) ? Math.round(v) : null);
+    const r = filas.filter((x) => x.op && /^[a-z_-]{1,24}$/.test(x.op)).map((x) => [num(x.t), x.op, x.ok === false ? 0 : 1, num(x.revision)]);
+    const s = filas.filter((x) => x.sucio !== undefined).map((x) => [num(x.t), num(x.revision), num(x.base)]);
+    let texto = JSON.stringify({ v: 1, m: document.documentElement.classList.contains("cad-tactil") ? "t" : "c", r, s });
+    while (texto.length > 2000 && r.length) { r.shift(); texto = JSON.stringify({ v: 1, m: "?", r, s }); }
+    return texto;
+  }
   async function guardarBorrador(buffer) {
     try {
       const cabeceras = { "Content-Type": "application/octet-stream", "X-TV-Revision": String(e.base), "X-TV-Sesion": SESION };
       if (e.borradorVisto) cabeceras["X-TV-Borrador-Previo"] = e.borradorVisto;
+      if (e.registroSucio) cabeceras["X-TV-Registro"] = e.registroSucio;
       const r = await pedir(C.urls.borrador, { metodo: "POST", cuerpo: buffer, cabeceras });
-      if (r.ok) { e.ultimoBorrador = Date.now(); return; }
+      if (r.ok) { e.ultimoBorrador = Date.now(); if (e.registroSucio) { e.registroSucio = null; e.registroEnviado = true; } return; }
       const d = await datos(r);
       if (r.status === 409 && d.motivo === "borrador_pendiente") await borradorAjeno(d.actualizado);
     } catch (_) { /* sin red: se intenta en la siguiente vuelta */ }

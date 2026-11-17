@@ -152,7 +152,10 @@ la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` 
 - **Un plano que solo se mira nunca queda «Sin guardar».** La revisión de partida se toma cuando el editor terminó de abrir (respuesta de
   `open` y revisión quieta), no al ver aparecer su pestaña: en un plano grande la página daba el plano por cargado a media apertura (y la
   capa táctil empezaba a pedirle cosas al editor). `TVCad.registro()` (y la consola, al pasar a «Sin guardar») dice qué le pidió la
-  página al editor justo antes, para diagnosticar en el teléfono.
+  página al editor justo antes, para diagnosticar en el teléfono. La primera vez que un plano pasa a «Sin guardar» en una sesión, ese
+  registro (solo nombres de operaciones, tiempos, si se aceptaron, revisiones y el modo táctil o completo; nada del dibujo) va una vez
+  con el siguiente borrador en `X-TV-Registro`; el servidor lo valida y recorta (`cad/registro.py`, ≤ 2 000 caracteres) y lo escribe
+  en el journal (INFO, `itt_herramientas.cad`, «cad registro sin guardar plano=… cuenta=…»). Nunca rompe la subida del borrador.
 - **Lo que depende del editor.** Al entrar se mira qué ops tiene (`state.capabilities` o una petición que solo se rechaza por sus datos):
   sin `explode`, `trim`, `extend` o `dim_create` esas herramientas no se muestran y las cotas se dibujan como antes.
 - **Hoja numérica** para el texto, la altura del texto y el nombre de una capa.

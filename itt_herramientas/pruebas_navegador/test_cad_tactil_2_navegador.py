@@ -698,3 +698,40 @@ def test_capturas_de_explotar_y_cotas(tactil, navegar, crear_usuario, roles, tam
     p.screenshot(path=f"{base}-d-cota.png", caret="initial")
     propios = [e for e in n.errores if not (motor == "webkit" and "Refused to apply a stylesheet" in e)]
     assert not propios, propios
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_el_paso_a_sin_guardar_va_con_el_borrador_sin_nada_del_dibujo(tactil, navegar, crear_usuario, roles, motor):
+    """Diagnóstico sin el inspector de Safari: la primera vez que el plano pasa a «Sin guardar», lo que la página le pidió al editor
+    (operaciones, tiempos, revisiones y el modo) va una vez con el siguiente borrador en `X-TV-Registro`; nada de coordenadas ni capas."""
+    import json
+
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_utm(ana)
+    n, p = abrir(navegar, ana, motor, p0=p0)
+    cabeceras = []
+    p.on("request", lambda r: cabeceras.append(r.headers.get("x-tv-registro")) if r.method == "POST" and "/borrador/" in r.url else None)
+    _herramienta(p, "dibujar", "Línea")
+    _escribir(p, "x", "395001.5"); p.locator('#tt-din [data-d="siguiente"]').click(); _din(p, "3175002.5")
+    p.locator('#tt-din [data-d="poner"]').click()
+    _din(p, "7"); p.locator('#tt-din [data-d="poner"]').click()
+    p.locator('#tt-din [data-d="cerrar"]').click()
+    p.locator("#tt-terminar").click()
+    esperar_estado(p, "sucio")
+    for _ in range(40):
+        if any(cabeceras):
+            break
+        p.wait_for_timeout(500)
+    enviados = [c for c in cabeceras if c]
+    assert len(enviados) == 1, cabeceras
+    d = json.loads(enviados[0])
+    assert d["v"] == 1 and d["m"] == "t"
+    ops = [f[1] for f in d["r"]]
+    assert "abierto" in ops and "batch" in ops, ops
+    assert d["s"] and d["s"][0][1] > d["s"][0][2], d["s"]                                  # revisión > base
+    assert "395" not in enviados[0] and "LINE" not in enviados[0] and "EJES" not in enviados[0]
+    # Una sola vez por sesión: el siguiente borrador ya no la lleva.
+    p.evaluate("TVCad.ejecutar('CIRCLE 395040,3175040 1')")
+    p.wait_for_timeout(5000)
+    assert len([c for c in cabeceras if c]) == 1 and len(cabeceras) >= 1
+    _sin_errores(n, motor)

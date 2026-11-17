@@ -27,7 +27,7 @@ from ..comun import zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
 from ..civil import pagina as civil_pagina
-from . import editor, fuentes, nativo, salidas, servicio, tactil
+from . import editor, fuentes, nativo, registro, salidas, servicio, tactil
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
 editar = requiere_rol("herramientas", "cad", "admin")
@@ -358,6 +358,13 @@ def borrador(request, pk):
         sesion = request.headers.get("X-TV-Sesion", "")
         b = servicio.guardar_borrador(p, request.user, revision, temporal, sesion if servicio.sesion_valida(sesion) else "",
                                       request.headers.get("X-TV-Borrador-Previo", "")[:64])
+        # Diagnóstico de «Sin guardar» (cad/registro.py): solo al journal, nunca puede romper el borrador.
+        try:
+            diag = registro.limpio(request.headers.get("X-TV-Registro", ""))
+            if diag:
+                servicio.log.info("cad registro sin guardar plano=%s cuenta=%s %s", p.pk, request.user.pk, diag)
+        except Exception:  # noqa: BLE001
+            servicio.log.info("cad registro sin guardar plano=%s cuenta=%s ilegible", p.pk, request.user.pk)
         return _json({"actualizado": b.actualizado.isoformat()})
     return _con_cuerpo(request, trabajo)
 
