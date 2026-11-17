@@ -1,5 +1,7 @@
 """Supervisión: las cotizaciones y los reportes de la empresa, con su autor, solo para leer (rol `supervision` o el propietario).
 
+Solo los del perfil corporativo activo de quien consulta (cada perfil es un espacio de documentos aparte, 17-11-2026).
+
 Desde que los documentos son compartidos con el equipo (16-11-2026), quien edita ya ve todo en su herramienta; esta vista queda para quien
 supervisa sin editar. Aquí también aparecen los folios repetidos de antes de compartir, para que el propietario les asigne uno nuevo.
 
@@ -37,14 +39,15 @@ class Filtros:
     estado: str = ""                  # "" | con_pdf | pendiente (solo reportes: el PDF de una cotización se arma al pedirlo)
     orden: str = "recientes"          # recientes | cliente | titulo
     avisos: list[str] = field(default_factory=list)
+    perfil: str = "grupo_itt"         # el perfil activo de quien consulta: cada perfil corporativo es un espacio aparte (no es un filtro)
 
     @property
     def activos(self) -> bool:
         return bool(self.q or self.tipo or self.autor is not None or self.desde or self.hasta or self.cliente or self.estado)
 
     @classmethod
-    def de(cls, parametros) -> "Filtros":
-        f = cls(q=" ".join(str(parametros.get("q", "")).split())[:80])
+    def de(cls, parametros, perfil: str = "grupo_itt") -> "Filtros":
+        f = cls(q=" ".join(str(parametros.get("q", "")).split())[:80], perfil=perfil)
         tipo = parametros.get("tipo", "")
         f.tipo = tipo if tipo in TIPOS else ""
         f.cliente = " ".join(str(parametros.get("cliente", "")).split())[:160]
@@ -76,6 +79,7 @@ class Filtros:
 
 
 def _rango(consulta, f: Filtros):
+    consulta = consulta.filter(perfil=f.perfil)
     zona = timezone.get_current_timezone()
     if f.desde:
         consulta = consulta.filter(creada__gte=timezone.make_aware(timezone.datetime.combine(f.desde, timezone.datetime.min.time()), zona))
@@ -154,13 +158,13 @@ def consulta(f: Filtros):
     return partes.order_by("-s_creada", "-s_id")
 
 
-def clientes() -> list[str]:
-    """Clientes de todos los documentos (sugerencias del filtro), sin repetidos, del más reciente al más viejo."""
+def clientes(perfil: str) -> list[str]:
+    """Clientes de los documentos del perfil (sugerencias del filtro), sin repetidos, del más reciente al más viejo."""
     from ..comun.clientes import clave
 
     filas = []
     for modelo in (Reporte, Cotizacion):
-        filas += list(modelo.objects.filter(eliminado__isnull=True).exclude(cliente="").order_by("-actualizada").values_list("actualizada", "cliente")[:2000])
+        filas += list(modelo.objects.filter(perfil=perfil, eliminado__isnull=True).exclude(cliente="").order_by("-actualizada").values_list("actualizada", "cliente")[:2000])
     filas.sort(key=lambda f: f[0], reverse=True)
     vistos, salida = set(), []
     for _, nombre in filas:
@@ -214,11 +218,11 @@ def filas(pagina) -> list[Fila]:
     return salida
 
 
-def autores() -> list[dict]:
-    """Las cuentas que tienen documentos, con el nombre y el correo de su documento más reciente. Marca las que ya no existen."""
+def autores(perfil: str) -> list[dict]:
+    """Las cuentas que tienen documentos en el perfil, con el nombre y el correo de su documento más reciente. Marca las que ya no existen."""
     vistos: dict[int, dict] = {}
     for modelo in (Cotizacion, Reporte):
-        ultimos = modelo.objects.order_by("cuenta_id", "-creada").distinct("cuenta_id")              # PostgreSQL: un renglón por cuenta
+        ultimos = modelo.objects.filter(perfil=perfil).order_by("cuenta_id", "-creada").distinct("cuenta_id")              # PostgreSQL: un renglón por cuenta
         for cuenta, nombre, correo, creada in ultimos.values_list("cuenta_id", "autor_nombre", "autor_correo", "creada"):
             previo = vistos.get(cuenta)
             if previo is None or creada > previo["creada"]:

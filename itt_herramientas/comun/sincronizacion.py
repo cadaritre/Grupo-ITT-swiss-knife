@@ -24,7 +24,7 @@ from collections.abc import Callable
 from django.db import transaction
 from django.utils import timezone
 
-from . import autoria, documentos
+from . import autoria, documentos, perfiles
 
 _FALTA = object()
 
@@ -98,16 +98,22 @@ def _fusionar_lista(base, actual, nuevos, llave, claves, ruta):
 
 def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, nuevos: dict, *,
                 aplicar: Callable, aplicar_copia: Callable, error: type[Exception], normalizar: Callable | None = None,
-                sesion: str = "", claves: dict | None = None, aplicar_datos: Callable | None = None, ajustar: Callable | None = None) -> dict:
+                sesion: str = "", claves: dict | None = None, aplicar_datos: Callable | None = None, ajustar: Callable | None = None,
+                perfil: str = "grupo_itt") -> dict:
     """`nuevos`: datos validados. `aplicar(obj)` los vuelca en el registro; `aplicar_copia(obj)` hace lo mismo para una copia en
     conflicto; `aplicar_datos(obj, datos)` vuelca otros datos (el resultado de una fusión). `normalizar(datos_guardados)` (opcional)
     los lleva al esquema actual antes de compararlos. `claves`: listas que se fusionan por elemento (ver `fusionar`). `ajustar(actual, nuevos)`
-    pone en lo del teléfono lo que fija el servidor (el folio) antes de comparar."""
+    pone en lo del teléfono lo que fija el servidor (el folio) antes de comparar.
+
+    `perfil`: el perfil corporativo de un documento NUEVO (el del borrador en el teléfono). Uno que ya existe se queda en su perfil (es fijo
+    desde que se creó) y sus copias en conflicto también: lo pendiente en el teléfono sube aunque la cuenta tenga otro perfil activo. La
+    respuesta dice su `perfil` y, si la cuenta ya no puede usar ese perfil (`ajeno`), el teléfono lo quita al subirlo: quedó en el servidor."""
     tipo = next(t for t, m in documentos.MODELOS.items() if m is modelo)
 
     def resumen(obj, **extra):
         return {"servidor_id": str(obj.id), "revision": obj.revision, "folio": getattr(obj, "folio", ""), "autor": autoria.fila(obj),
-                "conflicto": obj.conflicto, "modificado": {"nombre": obj.modificado_por_nombre or obj.autor_nombre, "fecha": obj.actualizada.isoformat()}, **extra}
+                "conflicto": obj.conflicto, "modificado": {"nombre": obj.modificado_por_nombre or obj.autor_nombre, "fecha": obj.actualizada.isoformat()},
+                "perfil": obj.perfil, "ajeno": not perfiles.puede_usar(usuario, obj.perfil), **extra}
 
     def comparar(obj):
         """¿Ya tiene `obj` lo que manda el teléfono? (con lo que fija el servidor, como el folio, puesto)."""
@@ -116,7 +122,8 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
 
     def copiar_(actual, ref):
         return _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, ref, nuevos=nuevos, aplicar_copia=aplicar_copia, resumen=resumen,
-                      comparar=comparar, normalizar=normalizar, ajustar=ajustar, aplicar_datos=aplicar_datos, claves=claves, error=error)
+                      comparar=comparar, normalizar=normalizar, ajustar=ajustar, aplicar_datos=aplicar_datos, claves=claves, error=error,
+                      perfil=perfil)
 
     with transaction.atomic():
         if servidor_id is not None:
@@ -127,7 +134,7 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
         else:
             actual = modelo.objects.select_for_update().filter(cuenta_id=usuario.pk, id_cliente=id_cliente).first()
             if actual is None:                                            # borrador nuevo del teléfono
-                nuevo = modelo(cuenta_id=usuario.pk, id_cliente=id_cliente)
+                nuevo = modelo(cuenta_id=usuario.pk, id_cliente=id_cliente, perfil=perfil)
                 aplicar(nuevo)
                 nuevo.save()
                 documentos.registrar_version(nuevo, usuario)
@@ -183,7 +190,7 @@ NOTA_COPIA, NOTA_COPIA_TELEFONO = "Copia en conflicto", "Copia en conflicto · l
 
 
 def _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, ref, *, nuevos, aplicar_copia, resumen, comparar, normalizar, ajustar,
-           aplicar_datos, claves, error):
+           aplicar_datos, claves, error, perfil):
     """Copia en conflicto: lo del teléfono como documento aparte. La llave sale del borrador y de su base: reenviarlo no la duplica.
 
     Si la copia ya existe y el teléfono manda algo más nuevo (siguió editando):
@@ -237,7 +244,8 @@ def _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, ref, *, nue
     if copia is None:
         nombre = autoria.de_usuario(usuario)[0]
         heredados = {*(actual.autorizados or []), actual.cuenta_id} if actual is not None else set()
-        copia = modelo(cuenta_id=usuario.pk, id_cliente=llave, copia_de=actual, autorizados=sorted(heredados | {usuario.pk}))   # sus fotos siguen valiendo
+        copia = modelo(cuenta_id=usuario.pk, id_cliente=llave, copia_de=actual, autorizados=sorted(heredados | {usuario.pk}),   # sus fotos siguen valiendo
+                       perfil=actual.perfil if actual is not None else perfil)                            # en el espacio del original
         aplicar_copia(copia)
         copia.conflicto = f"Copia en conflicto de {ref} ({nombre}, {timezone.localtime().strftime('%d/%m/%Y %H:%M')})"[:300]
         copia.save()

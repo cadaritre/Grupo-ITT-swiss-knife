@@ -18,12 +18,13 @@ def clave(texto: str) -> str:
     return " ".join(sin_acentos.casefold().split())
 
 
-def sugerencias(cuenta_id: int | None = None, maximo: int = MAXIMO) -> list[str]:
-    """Clientes de los documentos de la empresa (son compartidos), del usado más recientemente al más viejo, sin repetidos.
-    `cuenta_id` se acepta por compatibilidad y ya no filtra."""
+def sugerencias(cuenta_id: int | None = None, maximo: int = MAXIMO, perfil: str | None = None) -> list[str]:
+    """Clientes de los documentos de la empresa (son compartidos), del usado más recientemente al más viejo, sin repetidos. Con `perfil`,
+    solo los de ese perfil corporativo (cada perfil es un espacio aparte). `cuenta_id` se acepta por compatibilidad y ya no filtra."""
     filas: list[tuple] = []
     for modelo in (Reporte, Cotizacion):
-        filas += list(modelo.objects.filter(eliminado__isnull=True).exclude(cliente="").order_by("-actualizada")
+        consulta = modelo.objects.filter(eliminado__isnull=True) if perfil is None else modelo.objects.filter(perfil=perfil, eliminado__isnull=True)
+        filas += list(consulta.exclude(cliente="").order_by("-actualizada")
                       .values_list("actualizada", "cliente")[:maximo * 3])
     filas.sort(key=lambda f: f[0], reverse=True)
     vistos, salida = set(), []

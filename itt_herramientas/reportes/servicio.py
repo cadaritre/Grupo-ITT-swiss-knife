@@ -96,8 +96,8 @@ def validar(crudo) -> dict:
             "con_credenciales": bool(crudo.get("con_credenciales", False)), "fotos_por_pagina": por_pagina, "fotos": salida}
 
 
-def _aplicar(r: Reporte, datos: dict, perfil: str) -> None:
-    r.datos, r.perfil = datos, perfil
+def _aplicar(r: Reporte, datos: dict) -> None:
+    r.datos = datos
     r.titulo, r.cliente, r.fotos = datos["titulo"][:200], datos["cliente"][:160], len(datos["fotos"])
     r.actualizada = timezone.now()
 
@@ -107,13 +107,13 @@ def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, r
     otra cosa del reporte."""
     nuevos = validar(datos)
     return sincronizacion.sincronizar(Reporte, usuario, id_cliente, servidor_id, revision_base, nuevos,
-                                      aplicar=lambda obj: _aplicar(obj, nuevos, perfil), aplicar_copia=lambda obj: _aplicar(obj, nuevos, perfil),
+                                      aplicar=lambda obj: _aplicar(obj, nuevos), aplicar_copia=lambda obj: _aplicar(obj, nuevos),
                                       error=ReporteInvalido, normalizar=_normalizado, sesion=sesion, claves={"fotos": "sha256"},
-                                      aplicar_datos=lambda obj, d: _aplicar(obj, validar(d), perfil))
+                                      aplicar_datos=lambda obj, d: _aplicar(obj, validar(d)), perfil=perfil)
 
 
 def aplicar_datos_guardados(r: Reporte, datos: dict) -> None:
-    _aplicar(r, validar(datos), r.perfil)
+    _aplicar(r, validar(datos))
 
 
 def _normalizado(datos) -> dict | None:

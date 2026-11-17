@@ -105,19 +105,19 @@ def fuente(datos: dict) -> str:
 
 # -- Sincronización --------------------------------------------------------------------------------------------------------
 
-def _aplicar(c: Croquis, datos: dict, perfil: str) -> None:
-    c.datos, c.perfil, c.titulo, c.actualizada = datos, perfil, datos["title"][:200], timezone.now()
+def _aplicar(c: Croquis, datos: dict) -> None:
+    c.datos, c.titulo, c.actualizada = datos, datos["title"][:200], timezone.now()
 
 
 def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str, sesion: str = "") -> dict:
     nuevos = validar(datos)
     return sincronizacion.sincronizar(Croquis, usuario, id_cliente, servidor_id, revision_base, nuevos,
-                                      aplicar=lambda obj: _aplicar(obj, nuevos, perfil), aplicar_copia=lambda obj: _aplicar(obj, nuevos, perfil),
-                                      error=CroquisInvalido, sesion=sesion, aplicar_datos=lambda obj, d: _aplicar(obj, validar(d), perfil))
+                                      aplicar=lambda obj: _aplicar(obj, nuevos), aplicar_copia=lambda obj: _aplicar(obj, nuevos),
+                                      error=CroquisInvalido, sesion=sesion, aplicar_datos=lambda obj, d: _aplicar(obj, validar(d)), perfil=perfil)
 
 
 def aplicar_datos_guardados(c: Croquis, datos: dict) -> None:
-    _aplicar(c, validar(datos), c.perfil)
+    _aplicar(c, validar(datos))
 
 
 def estado_vectores(c: Croquis) -> str:

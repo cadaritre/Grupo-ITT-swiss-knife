@@ -213,6 +213,18 @@ def _exigir_clases(lote, tipo: str) -> None:
         raise LoteInvalido("La selección no es válida para esta herramienta. Recarga la página e inténtalo de nuevo.")
 
 
+def _del_perfil_activo(lote, usuario) -> list:
+    """Solo los documentos del perfil activo de la cuenta (cada perfil es un espacio aparte); los planos de CAD no son de un perfil."""
+    from . import documentos
+
+    ids = {clase: {str(pk) for pk in documentos.del_perfil(documentos.MODELOS[clase], usuario).filter(pk__in=[p for c, p in lote if c == clase])
+                   .values_list("pk", flat=True)} for clase in ("cotizacion", "reporte") if any(c == clase for c, _ in lote)}
+    fuera = [(c, p) for c, p in lote if c in ids and str(p) not in ids[c]]
+    if fuera and len(fuera) == len(lote):
+        raise LoteInvalido("Esos documentos no son del perfil activo. Recarga la página e inténtalo de nuevo.")
+    return [(c, p) for c, p in lote if (c, p) not in fuera]
+
+
 def responder(request, elementos, tipo: str, supervision: bool = False):
     """Vista común: valida el lote y encola la tarea que arma el ZIP. 202 con la tarea; 422 con un mensaje si no se puede."""
     from django.http import JsonResponse
@@ -222,6 +234,7 @@ def responder(request, elementos, tipo: str, supervision: bool = False):
     try:
         lote = validar_lote(elementos)
         _exigir_clases(lote, tipo)
+        lote = _del_perfil_activo(lote, request.user)
         if tipo == "planos" and _bytes_de_planos(lote) > MAX_BYTES_PLANOS:
             raise LoteInvalido(f"Esos planos pesan más de {MAX_BYTES_PLANOS // 1024 ** 3} GB juntos. Elige menos planos y descárgalos en varias partes.")
     except LoteInvalido as exc:

@@ -263,7 +263,7 @@ def test_folios_en_paralelo_nunca_se_repiten(ana):
     def asignar():
         try:
             for _ in range(5):
-                folios.append(cot.asignar_folio())
+                folios.append(cot.asignar_folio("grupo_itt"))
         except Exception as exc:  # noqa: BLE001
             errores.append(exc)
         finally:
@@ -275,7 +275,7 @@ def test_folios_en_paralelo_nunca_se_repiten(ana):
     for h in hilos:
         h.join()
     assert not errores and len(folios) == 40 and len(set(folios)) == 40
-    assert ContadorFolio.objects.get(anio=timezone.localdate().year).ultimo == 40
+    assert ContadorFolio.objects.get(perfil="grupo_itt", anio=timezone.localdate().year).ultimo == 40
 
 
 def test_la_base_no_admite_folios_repetidos(ana):
@@ -308,7 +308,7 @@ def test_migracion_con_folios_y_machotes_repetidos(django_user_model):
     from django.db.migrations.executor import MigrationExecutor
 
     ejecutor = MigrationExecutor(connection)
-    antes, despues = [("herramientas", "0015_borrador_sesion")], [("herramientas", "0016_documentos_equipo")]
+    antes, despues = [("herramientas", "0015_borrador_sesion")], [("herramientas", "0017_perfiles_separados")]
     ejecutor.migrate(antes)
     viejas = ejecutor.loader.project_state(antes).apps
     U = viejas.get_model(*django_user_model._meta.label.split("."))
@@ -329,13 +329,13 @@ def test_migracion_con_folios_y_machotes_repetidos(django_user_model):
     assert Cotizacion.objects.get(pk=vieja.pk).folio == "COT-2026-0003" and not Cotizacion.objects.get(pk=vieja.pk).folio_repetido
     assert Cotizacion.objects.get(pk=nueva.pk).folio == "COT-2026-0003" and Cotizacion.objects.get(pk=nueva.pk).folio_repetido
     assert not Cotizacion.objects.get(pk=otra.pk).folio_repetido
-    assert ContadorFolio.objects.get(anio=2026).ultimo == 9
-    assert cot.asignar_folio(timezone.datetime(2026, 5, 1).date()) == "COT-2026-0010"
+    assert ContadorFolio.objects.get(perfil="grupo_itt", anio=2026).ultimo == 9
+    assert cot.asignar_folio("grupo_itt", timezone.datetime(2026, 5, 1).date()) == "COT-2026-0010"
     assert sorted(Machote.objects.values_list("nombre", flat=True)) == ["Deslinde", "deslinde (de Dos)"]
     assert Machote.objects.values("plantilla_id").distinct().count() == 2
     assert VersionDocumento.objects.filter(documento_id=vieja.pk, revision=1).exists()
     assert Cotizacion.objects.get(pk=nueva.pk).modificado_por_nombre == "Dos"
-    assert [f["folio"] for f in cot.repetidos()] == ["COT-2026-0003"]
+    assert [f["folio"] for f in cot.repetidos("grupo_itt")] == ["COT-2026-0003"]
     U.objects.filter(pk__in=[u1.pk, u2.pk]).delete()
 
 

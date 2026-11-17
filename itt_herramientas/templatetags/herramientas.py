@@ -46,6 +46,24 @@ def marca_perfil(context):
     }
 
 
+@register.inclusion_tag("herramientas/_espacio_perfil.html", takes_context=True)
+def espacio_perfil(context):
+    """En las listas de documentos: de qué perfil son los que se ven y, a quien puede usar los dos, el botón para cambiar al otro.
+
+    Cada perfil corporativo es un espacio de documentos aparte: así nadie se pregunta por qué «falta» uno. Sin el permiso de cambiar de
+    perfil no se muestra (esa cuenta solo tiene un espacio).
+    """
+    usuario = _usuario(context)
+    if usuario is None:
+        return {"visible": False}
+    opciones = perfiles.opciones(usuario)
+    if len(opciones) < 2:
+        return {"visible": False}
+    peticion = context.get("request")
+    return {"visible": True, "activo": next(o for o in opciones if o["activo"]), "otros": [o for o in opciones if not o["activo"]],
+            "csrf_token": context.get("csrf_token"), "siguiente": peticion.get_full_path() if peticion else ""}
+
+
 @register.inclusion_tag("herramientas/_confirmar_accion.html", takes_context=True)
 def confirmar_accion(context, id, accion, abrir, titulo, texto, aceptar, detalle="", clase="tv-boton tv-boton--secundario", icono=""):
     """Botón que, en vez de ejecutar una acción que no se deshace, abre una hoja que dice exactamente qué va a pasar.

@@ -124,56 +124,60 @@ def _resumen(q: qm.QuoteData) -> dict:
 _FOLIO = re.compile(r"^COT-(\d{4})-(\d{1,6})$")
 
 
-def _mayor_folio(anio: int) -> int:
+def _mayor_folio(anio: int, perfil: str) -> int:
     mayor = 0
-    for folio in Cotizacion.objects.filter(folio__startswith=f"COT-{anio}-").values_list("folio", flat=True):
+    for folio in Cotizacion.objects.filter(perfil=perfil, folio__startswith=f"COT-{anio}-").values_list("folio", flat=True):
         m = _FOLIO.match(folio)
         if m and int(m.group(1)) == anio:
             mayor = max(mayor, int(m.group(2)))
     return mayor
 
 
-def asignar_folio(hoy: date | None = None) -> str:
-    """Siguiente folio de la EMPRESA (COT-AAAA-NNNN), con el contador del año bloqueado hasta que termine la transacción.
+def _contador(perfil: str, anio: int) -> ContadorFolio:
+    """El contador del perfil y el año, bloqueado hasta que termine la transacción (lo crea si no existe)."""
+    ContadorFolio.objects.bulk_create([ContadorFolio(perfil=perfil, anio=anio, ultimo=0)], ignore_conflicts=True)
+    return ContadorFolio.objects.select_for_update().get(perfil=perfil, anio=anio)
 
-    Dos cotizaciones creadas al mismo tiempo (dos personas, o el teléfono y la oficina) nunca reciben el mismo: la segunda espera el
-    renglón del contador. Sigue desde el mayor que exista (también los importados), así nunca choca con uno ya usado.
+
+def asignar_folio(perfil: str, hoy: date | None = None) -> str:
+    """Siguiente folio del PERFIL (COT-AAAA-NNNN): cada perfil corporativo tiene su serie por año, con su contador bloqueado hasta que
+    termine la transacción.
+
+    Dos cotizaciones del mismo perfil creadas al mismo tiempo (dos personas, o el teléfono y la oficina) nunca reciben el mismo: la segunda
+    espera el renglón del contador. Sigue desde el mayor que exista en el perfil (también los importados), así nunca choca con uno ya usado.
     """
     hoy = hoy or timezone.localdate()
     with transaction.atomic():
-        ContadorFolio.objects.bulk_create([ContadorFolio(anio=hoy.year, ultimo=0)], ignore_conflicts=True)
-        contador = ContadorFolio.objects.select_for_update().get(anio=hoy.year)
-        contador.ultimo = max(contador.ultimo, _mayor_folio(hoy.year)) + 1
+        contador = _contador(perfil, hoy.year)
+        contador.ultimo = max(contador.ultimo, _mayor_folio(hoy.year, perfil)) + 1
         contador.save(update_fields=["ultimo"])
         return f"COT-{hoy.year}-{contador.ultimo:04d}"
 
 
-def _ajustar_contador(folio: str) -> None:
+def _ajustar_contador(folio: str, perfil: str) -> None:
     """Un folio importado mayor que el contador lo adelanta (así el siguiente asignado no lo repite)."""
     m = _FOLIO.match(folio or "")
     if not m:
         return
     anio, n = int(m.group(1)), int(m.group(2))
-    ContadorFolio.objects.bulk_create([ContadorFolio(anio=anio, ultimo=0)], ignore_conflicts=True)
-    ContadorFolio.objects.filter(anio=anio, ultimo__lt=n).update(ultimo=n)
+    ContadorFolio.objects.bulk_create([ContadorFolio(perfil=perfil, anio=anio, ultimo=0)], ignore_conflicts=True)
+    ContadorFolio.objects.filter(perfil=perfil, anio=anio, ultimo__lt=n).update(ultimo=n)
 
 
-def _tomar_propuesto(folio: str) -> bool:
+def _tomar_propuesto(folio: str, perfil: str) -> bool:
     """¿Se puede usar el folio de un editable importado? Con el contador de su año bloqueado (las asignaciones esperan), revisa que esté
-    libre y adelanta el contador. Si aun así otra cotización lo guarda primero, `importar_editable` cae al siguiente folio."""
+    libre en el perfil y adelanta el contador. Si aun así otra cotización lo guarda primero, `importar_editable` cae al siguiente folio."""
     m = _FOLIO.match(folio or "")
     if m:
-        anio = int(m.group(1))
-        ContadorFolio.objects.bulk_create([ContadorFolio(anio=anio, ultimo=0)], ignore_conflicts=True)
-        ContadorFolio.objects.select_for_update().get(anio=anio)
-    if not folio_libre(folio):
+        _contador(perfil, int(m.group(1)))
+    if not folio_libre(folio, perfil):
         return False
-    _ajustar_contador(folio)
+    _ajustar_contador(folio, perfil)
     return True
 
 
-def folio_libre(folio: str, excepto=None) -> bool:
-    consulta = Cotizacion.objects.filter(folio=folio, folio_repetido=False)
+def folio_libre(folio: str, perfil: str, excepto=None) -> bool:
+    consulta = Cotizacion.objects.filter(perfil=perfil, folio=folio, folio_repetido=False)
     if excepto is not None:
         consulta = consulta.exclude(pk=excepto)
     return bool(folio) and not consulta.exists()
@@ -190,52 +194,66 @@ def resumen_fila(c: Cotizacion, usuario=None) -> dict:
     return fila
 
 
-def _aplicar(c: Cotizacion, q: qm.QuoteData, perfil: str, folio_propuesto: str = "") -> None:
-    """Vuelca la cotización en el registro. El folio lo fija el servidor: el que ya tiene, o uno nuevo de la empresa si no tiene
-    (`folio_propuesto`, el de un editable importado, solo si está libre)."""
+def _aplicar(c: Cotizacion, q: qm.QuoteData, folio_propuesto: str = "") -> None:
+    """Vuelca la cotización en el registro. El folio lo fija el servidor: el que ya tiene, o uno nuevo de la serie de su perfil si no tiene
+    (`folio_propuesto`, el de un editable importado, solo si está libre en ese perfil). El perfil no cambia: es el de su creación."""
     if not c.folio:
-        if folio_propuesto and _tomar_propuesto(folio_propuesto):
+        if folio_propuesto and _tomar_propuesto(folio_propuesto, c.perfil):
             c.folio = folio_propuesto[:60]
         else:
-            c.folio = asignar_folio()
+            c.folio = asignar_folio(c.perfil)
     q.quote_number = c.folio
     c.datos = a_datos(q)
     r = _resumen(q)
-    c.cliente, c.proyecto, c.moneda, c.total, c.perfil = r["cliente"], r["proyecto"], r["moneda"], r["total"], perfil
+    c.cliente, c.proyecto, c.moneda, c.total = r["cliente"], r["proyecto"], r["moneda"], r["total"]
     c.actualizada = timezone.now()
 
 
 def guardar_nueva(usuario, datos: dict, perfil: str, id_cliente: uuid.UUID | None = None) -> Cotizacion:
     q = validar(datos)
     with transaction.atomic():
-        c = Cotizacion(cuenta_id=usuario.pk, id_cliente=id_cliente)
-        _aplicar(c, q, perfil)
+        c = Cotizacion(cuenta_id=usuario.pk, id_cliente=id_cliente, perfil=perfil)
+        _aplicar(c, q)
         c.save()
         documentos.registrar_version(c, usuario)
     return c
 
 
 def sincronizar(usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID | None, revision_base: int | None, datos: dict, perfil: str, sesion: str = "") -> dict:
-    """Aplica un borrador del teléfono (ver `comun.sincronizacion`). Nunca pisa: fusiona si no choca; si choca, copia en conflicto."""
+    """Aplica un borrador del teléfono (ver `comun.sincronizacion`). Nunca pisa: fusiona si no choca; si choca, copia en conflicto.
+    `perfil`: el de una cotización nueva (las que ya existen se quedan en el suyo)."""
     q = validar(datos)
 
     def aplicar_datos(obj, crudo):
-        _aplicar(obj, validar(crudo), perfil)
+        _aplicar(obj, validar(crudo))
 
     def ajustar(actual, nuevos):
         return {**nuevos, "quote_number": actual.folio} if actual.folio else nuevos
 
     def copia(obj):                                                         # la copia recibe su propio folio (son únicos)
-        _aplicar(obj, validar(a_datos(q)), perfil)
+        _aplicar(obj, validar(a_datos(q)))
 
     return sincronizacion.sincronizar(Cotizacion, usuario, id_cliente, servidor_id, revision_base, a_datos(q),
-                                      aplicar=lambda obj: _aplicar(obj, q, perfil), aplicar_copia=copia, error=CotizacionInvalida,
-                                      sesion=sesion, aplicar_datos=aplicar_datos, ajustar=ajustar)
+                                      aplicar=lambda obj: _aplicar(obj, q), aplicar_copia=copia, error=CotizacionInvalida,
+                                      sesion=sesion, aplicar_datos=aplicar_datos, ajustar=ajustar, perfil=perfil)
 
 
 def aplicar_datos_guardados(c: Cotizacion, datos: dict) -> None:
     """Restaurar una versión o un borrador de recuperación: los datos guardados con el folio vigente."""
-    _aplicar(c, validar(datos), c.perfil)
+    _aplicar(c, validar(datos))
+
+
+def preparar_para_perfil(datos: dict, origen: str, destino: str) -> dict:
+    """Una cotización copiada a otro perfil lleva los datos bancarios y el firmante de ESE perfil (los que traía de fábrica del suyo; lo que
+    alguien escribió a mano se respeta) y espera el folio de la serie del otro perfil."""
+    from ..models import Perfil
+
+    de, a = (perfiles.nueva_cotizacion(Perfil.objects.get(clave=clave)) for clave in (origen, destino))
+    nuevos = {**datos, "quote_number": ""}
+    for campo in ("bank", "clabe", "account", "prepared_by"):
+        if (datos.get(campo) or "") == (getattr(de, campo) or ""):
+            nuevos[campo] = getattr(a, campo)
+    return nuevos
 
 
 def duplicar(usuario, c: Cotizacion) -> Cotizacion:
@@ -243,32 +261,34 @@ def duplicar(usuario, c: Cotizacion) -> Cotizacion:
     q.quote_date = timezone.localdate().strftime("%d/%m/%Y")
     q.spelling_checked = False
     with transaction.atomic():
-        copia = Cotizacion(cuenta_id=usuario.pk, copia_de=c, autorizados=sorted({*(c.autorizados or []), c.cuenta_id, usuario.pk}))   # hereda sus fotos
-        _aplicar(copia, q, c.perfil)
+        copia = Cotizacion(cuenta_id=usuario.pk, copia_de=c, autorizados=sorted({*(c.autorizados or []), c.cuenta_id, usuario.pk}),   # hereda sus fotos
+                           perfil=c.perfil)
+        _aplicar(copia, q)
         copia.save()
         documentos.registrar_version(copia, usuario, nota=f"Duplicada de {c.folio}" if c.folio else "")
     return copia
 
 
-def repetidos() -> list[dict]:
-    """Folios que estaban repetidos antes de compartir: cada grupo con la cotización que lo conserva y las marcadas."""
-    marcadas = list(Cotizacion.objects.filter(folio_repetido=True, eliminado__isnull=True).order_by("folio", "creada"))
+def repetidos(perfil: str) -> list[dict]:
+    """Folios del perfil que estaban repetidos antes de compartir: cada grupo con la cotización que lo conserva y las marcadas."""
+    marcadas = list(Cotizacion.objects.filter(perfil=perfil, folio_repetido=True, eliminado__isnull=True).order_by("folio", "creada"))
     grupos: dict[str, dict] = {}
     for c in marcadas:
-        g = grupos.setdefault(c.folio, {"folio": c.folio, "conserva": Cotizacion.objects.filter(folio=c.folio, folio_repetido=False).first(), "marcadas": []})
+        g = grupos.setdefault(c.folio, {"folio": c.folio, "conserva": Cotizacion.objects.filter(perfil=perfil, folio=c.folio, folio_repetido=False).first(),
+                                        "marcadas": []})
         g["marcadas"].append(c)
     return list(grupos.values())
 
 
 def asignar_folio_nuevo(c: Cotizacion, usuario) -> Cotizacion:
-    """«Asignar folio nuevo» (lo decide el propietario): la cotización marcada recibe el siguiente folio de la empresa, en una revisión nueva."""
+    """«Asignar folio nuevo» (lo decide el propietario): la cotización marcada recibe el siguiente folio de su perfil, en una revisión nueva."""
     with transaction.atomic():
         c = Cotizacion.objects.select_for_update().get(pk=c.pk)
         if not c.folio_repetido:
             raise CotizacionInvalida("Esta cotización ya tiene un folio único.")
         anterior = c.folio
         c.folio, c.folio_repetido = "", False
-        _aplicar(c, validar(c.datos), c.perfil)
+        _aplicar(c, validar(c.datos))
         c.revision += 1
         c.save()
         documentos.registrar_version(c, usuario, nota=f"Folio nuevo: antes {anterior}")
@@ -315,9 +335,13 @@ def _resolver_imagenes(cuenta_id: int, q: qm.QuoteData, documento=None, permitid
     return pendientes
 
 
-def generar_pdf(usuario, datos: dict, documento=None) -> tuple[bytes, str, list[str]]:
-    """PDF de la cotización con la identidad del perfil activo de la cuenta. Devuelve (bytes, nombre, imágenes pendientes de subir)."""
-    return pdf_de(usuario.pk, perfiles.perfil_activo(usuario), datos, documento)
+def generar_pdf(usuario, datos: dict, documento=None, perfil: str = "") -> tuple[bytes, str, list[str]]:
+    """PDF de la cotización con la identidad de SU perfil (el del documento; uno que aún no sube, el de su borrador `perfil`).
+    Devuelve (bytes, nombre, imágenes pendientes de subir)."""
+    from ..models import Perfil
+
+    clave = documento.perfil if documento is not None else (perfil or perfiles.clave_activa(usuario))
+    return pdf_de(usuario.pk, Perfil.objects.get(clave=clave), datos, documento)
 
 
 def pdf_de(cuenta_id: int, perfil, datos: dict, documento=None, permitidas: set[str] | None = None) -> tuple[bytes, str, list[str]]:
@@ -490,8 +514,8 @@ def importar_machotes(usuario, datos: bytes) -> tuple[int, int]:
 
 
 def importar_editable(usuario, contenido: bytes, perfil: str) -> Cotizacion:
-    """Importa el JSON editable del escritorio (`EDITABLE_COTIZACION_*.json`). Conserva su folio si está libre en la empresa; si ya lo usa
-    otra cotización, recibe el siguiente (la respuesta lo dice: `folio_original`)."""
+    """Importa el JSON editable del escritorio (`EDITABLE_COTIZACION_*.json`) en el perfil `perfil`. Conserva su folio si está libre en ese
+    perfil; si ya lo usa otra cotización del perfil, recibe el siguiente de su serie (la respuesta lo dice: `folio_original`)."""
     import json
 
     try:
@@ -502,14 +526,14 @@ def importar_editable(usuario, contenido: bytes, perfil: str) -> Cotizacion:
     q.spelling_checked = False
     original = q.quote_number.strip()
     with transaction.atomic():
-        c = Cotizacion(cuenta_id=usuario.pk)
-        _aplicar(c, q, perfil, folio_propuesto=original)
+        c = Cotizacion(cuenta_id=usuario.pk, perfil=perfil)
+        _aplicar(c, q, folio_propuesto=original)
         try:
             with transaction.atomic():
                 c.save()
         except IntegrityError:                                     # otra cotización tomó ese folio en el mismo instante: el siguiente
             c.folio = ""
-            _aplicar(c, q, perfil)
+            _aplicar(c, q)
             c.save()
         documentos.registrar_version(c, usuario, nota="Importada de un editable")
     c.folio_original = original

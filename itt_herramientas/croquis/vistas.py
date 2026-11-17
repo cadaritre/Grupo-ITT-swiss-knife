@@ -32,7 +32,7 @@ def pagina(request):
 
 def _urls() -> dict:
     fijas = ("contexto", "lista", "sincronizar", "importar", "avisos")
-    con_id = ("detalle", "vectorizar", "exportar", "descargar", "vectores", "editable", "bloqueo", "versiones", "recuperacion")
+    con_id = ("detalle", "vectorizar", "exportar", "descargar", "vectores", "editable", "bloqueo", "versiones", "recuperacion", "copiar_perfil")
     urls = {n: reverse(f"herramientas:croquis_{n}") for n in fijas}
     urls.update({n: reverse(f"herramientas:croquis_{n}", kwargs={"pk": MARCA_ID}) for n in con_id})
     urls["teselas"] = reverse("herramientas:teselas", kwargs={"capa": "osm", "z": 0, "x": 0, "y": 0}).replace("/osm/0/0/0.png", "/{capa}/{z}/{x}/{y}.png")
@@ -41,6 +41,8 @@ def _urls() -> dict:
     urls["version"] = reverse("herramientas:croquis_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
     urls["restaurar-version"] = reverse("herramientas:croquis_restaurar_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
     urls["papelera"] = reverse("herramientas:papelera")
+    urls["perfil-activo"] = reverse("herramientas:perfil_activo")
+    urls["copiar-perfil"] = urls.pop("copiar_perfil")
     return urls
 
 
@@ -69,9 +71,9 @@ def _privado(respuesta):
 
 
 
-def _en_papelera(modelo, pk):
+def _en_papelera(modelo, pk, usuario):
     """El detalle de algo de la papelera responde 410 con `eliminado`: el teléfono lo distingue de «no existe» (404) y de un fallo."""
-    if modelo.objects.filter(pk=pk, eliminado__isnull=False).exists():
+    if documentos.alcanzables(modelo, usuario).filter(pk=pk, eliminado__isnull=False).exists():
         return _privado(JsonResponse({"error": "Está en la papelera.", "eliminado": True}, status=410))
     return None
 
@@ -82,12 +84,13 @@ def _error(exc, estado=422):
 
 
 def _propio(request, pk) -> Croquis:
-    """Cualquier croquis de la empresa que no esté en la papelera (los croquis son compartidos)."""
-    return get_object_or_404(Croquis, pk=pk, eliminado__isnull=True)
+    """Un croquis de la empresa que no esté en la papelera (los croquis son compartidos), de un perfil que la cuenta puede usar (si no, 404)."""
+    return get_object_or_404(documentos.alcanzables(Croquis, request.user), pk=pk, eliminado__isnull=True)
 
 
 def _detalle(c, usuario) -> dict:
-    return {**servicio.resumen_fila(c, usuario), "datos": c.datos, "recuperaciones": documentos.recuperaciones_de(c, usuario)}
+    return {**servicio.resumen_fila(c, usuario), "datos": c.datos, "recuperaciones": documentos.recuperaciones_de(c, usuario),
+            "otro_perfil": documentos.otro_perfil(c, usuario)}
 
 
 def _en_curso(c: Croquis):
@@ -101,7 +104,8 @@ def contexto(request):
     perfil = perfiles.perfil_activo(request.user)
     base = ls.SketchData()
     return _privado(JsonResponse({
-        "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre, "limite_km2": servicio.LIMITE_KM2, "max_vertices": servicio.MAX_VERTICES,
+        "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
+        "perfiles": perfiles.opciones(request.user), "limite_km2": servicio.LIMITE_KM2, "max_vertices": servicio.MAX_VERTICES,
         "capas_mapa": [{"nombre": n, "capa": "osm" if n == ls.DEFAULT_MAP_LAYER else "topo" if n.startswith("Topográfico") else None, "atribucion": c["attribution"], "zoom_max": c["max_zoom"]}
                        for n, c in ls.MAP_LAYERS.items()],
         "latido": documentos.LATIDO_SEGUNDOS, "admin": documentos.es_admin(request.user), "categorias": CATEGORY_LABELS, "contornos": list(servicio.CONTORNOS), "base": {"title": base.title, "map_layer": base.map_layer, "contour_interval": base.contour_interval,
@@ -118,7 +122,7 @@ def lista(request):
 @usuario_de_croquis
 @require_http_methods(["GET", "DELETE"])
 def detalle(request, pk):
-    if request.method == "GET" and (papelera := _en_papelera(Croquis, pk)):
+    if request.method == "GET" and (papelera := _en_papelera(Croquis, pk, request.user)):
         return papelera
     c = _propio(request, pk)
     if request.method == "DELETE":
@@ -141,7 +145,7 @@ def sincronizar(request):
         if base is not None and (isinstance(base, bool) or not isinstance(base, int) or base < 1):
             raise servicio.CroquisInvalido("La revisión base no es válida.")
         sesion = str(cuerpo.get("sesion") or "")
-        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), perfiles.perfil_activo(request.user).clave,
+        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), vistas_documentos.perfil_de_nuevo(request, cuerpo),
                                          sesion if documentos.sesion_valida(sesion) else "")
     except servicio.CroquisInvalido as exc:
         return _error(exc)

@@ -292,9 +292,12 @@ class Cotizacion(DocumentoCompartido):
     `revision` sube con cada guardado. El teléfono guarda borradores sin conexión con la revisión en que se basaron: si al
     sincronizar el servidor ya cambió, se fusiona cuando no choca y si choca se guarda como copia en conflicto (nunca pisa).
 
-    El folio (COT-AAAA-NNNN) lo asigna el servidor (`cotizaciones.servicio.asignar_folio`) y es único en la empresa. Los repetidos que
-    venían de antes de compartir (cuando se contaba por cuenta) quedan marcados en `folio_repetido` hasta que el propietario les asigna
-    uno nuevo: nunca cambian solos.
+    El folio (COT-AAAA-NNNN) lo asigna el servidor (`cotizaciones.servicio.asignar_folio`) de la serie de su perfil: es único en el perfil.
+    Los repetidos que venían de antes de compartir (cuando se contaba por cuenta) quedan marcados en `folio_repetido` hasta que el
+    propietario les asigna uno nuevo: nunca cambian solos.
+
+    `perfil` (de los tres documentos) es el perfil corporativo activo de quien lo creó y no cambia: cada perfil es un espacio de documentos
+    aparte (`comun.documentos.del_perfil`).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -315,7 +318,9 @@ class Cotizacion(DocumentoCompartido):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_cotizacion_cliente"),
-                       models.UniqueConstraint(fields=["folio"], condition=~Q(folio="") & Q(folio_repetido=False), name="herramientas_cotizacion_folio_unico")]
+                       models.UniqueConstraint(fields=["perfil", "folio"], condition=~Q(folio="") & Q(folio_repetido=False),
+                                               name="herramientas_cotizacion_folio_perfil")]
+        indexes = [models.Index(fields=["perfil", "cambio"], name="herramientas_cot_perfil_cambio")]
         ordering = ["-actualizada"]
 
 
@@ -346,6 +351,7 @@ class Reporte(DocumentoCompartido):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_reporte_cliente")]
+        indexes = [models.Index(fields=["perfil", "cambio"], name="herramientas_rep_perfil_cambio")]
         ordering = ["-actualizada"]
 
 
@@ -378,14 +384,20 @@ class Croquis(DocumentoCompartido):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "id_cliente"], name="herramientas_croquis_cliente")]
+        indexes = [models.Index(fields=["perfil", "cambio"], name="herramientas_crq_perfil_cambio")]
         ordering = ["-actualizada"]
 
 
 class ContadorFolio(models.Model):
-    """Último número de folio de cotización asignado en un año (COT-AAAA-NNNN). Se lee y aumenta con el renglón bloqueado."""
+    """Último número de folio de cotización asignado en un perfil y un año (COT-AAAA-NNNN): cada perfil corporativo tiene su serie.
+    Se lee y aumenta con el renglón bloqueado."""
 
-    anio = models.PositiveIntegerField(unique=True)
+    perfil = models.CharField(max_length=20, default="grupo_itt")
+    anio = models.PositiveIntegerField()
     ultimo = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["perfil", "anio"], name="herramientas_contadorfolio_perfil_anio")]
 
 
 TIPOS_DOCUMENTO = (("cotizacion", "Cotización"), ("reporte", "Reporte fotográfico"), ("croquis", "Croquis de ubicación"))

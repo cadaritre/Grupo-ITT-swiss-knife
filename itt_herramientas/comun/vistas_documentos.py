@@ -12,7 +12,7 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from . import documentos
+from . import documentos, perfiles
 from .errores import ErrorUsuario
 
 
@@ -37,13 +37,13 @@ def _error(exc, estado=409):
     return _privado(JsonResponse({"error": str(exc), "sin_permiso": isinstance(exc, documentos.SinPermiso)}, status=estado))
 
 
-def vistas(tipo: str, decorador, aplicar, detalle):
-    """Las vistas de un tipo. `aplicar(doc, datos)` vuelca datos guardados (restaurar, recuperar); `detalle(doc, usuario)` es lo que el
-    editor recibe del documento (fila + datos)."""
+def vistas(tipo: str, decorador, aplicar, detalle, preparar=None):
+    """Las vistas de un tipo. `aplicar(doc, datos)` vuelca datos guardados (restaurar, recuperar, copiar a otro perfil); `detalle(doc, usuario)`
+    es lo que el editor recibe del documento (fila + datos); `preparar(datos, origen, destino)` ajusta una copia al otro perfil."""
     modelo = documentos.MODELOS[tipo]
 
-    def _doc(pk):
-        return get_object_or_404(modelo, pk=pk, eliminado__isnull=True)
+    def _doc(pk, usuario):
+        return get_object_or_404(documentos.alcanzables(modelo, usuario), pk=pk, eliminado__isnull=True)
 
     @decorador
     @require_POST
@@ -58,14 +58,14 @@ def vistas(tipo: str, decorador, aplicar, detalle):
     @decorador
     @require_GET
     def versiones(request, pk):
-        doc = _doc(pk)
+        doc = _doc(pk, request.user)
         return _privado(JsonResponse({"versiones": documentos.versiones(doc), "revision": doc.revision,
                                       "retencion": {"visibles": documentos.VERSIONES_VISIBLES, "agrupar_minutos": documentos.AGRUPAR_MINUTOS}}))
 
     @decorador
     @require_GET
     def version(request, pk, vid):
-        doc = _doc(pk)
+        doc = _doc(pk, request.user)
         v = documentos.version_de(doc, vid)
         if v is None:
             raise Http404
@@ -74,6 +74,7 @@ def vistas(tipo: str, decorador, aplicar, detalle):
     @decorador
     @require_POST
     def restaurar(request, pk, vid):
+        _doc(pk, request.user)                                                  # de un perfil ajeno, o en la papelera: 404
         try:
             sesion = str(_cuerpo(request).get("sesion", ""))
             doc = documentos.restaurar_version(modelo, pk, vid, request.user, sesion, aplicar)
@@ -85,7 +86,7 @@ def vistas(tipo: str, decorador, aplicar, detalle):
     @require_http_methods(["GET", "POST", "DELETE"])
     def recuperacion(request, pk):
         """GET: los borradores de recuperación de la cuenta. POST `{sesion, id?}`: usar uno. DELETE `?id=`: descartar uno (sin id, todos)."""
-        doc = _doc(pk)
+        doc = _doc(pk, request.user)
         if request.method == "GET":
             return _privado(JsonResponse({"recuperaciones": documentos.recuperaciones_de(doc, request.user)}))
         if request.method == "DELETE":
@@ -112,7 +113,19 @@ def vistas(tipo: str, decorador, aplicar, detalle):
             documentos.marcar_vistos(request.user, ids if isinstance(ids, list) else [])
         return _privado(JsonResponse({"avisos": documentos.avisos_de(request.user, tipo)}))
 
-    return {"bloqueo": bloqueo, "versiones": versiones, "version": version, "restaurar": restaurar, "recuperacion": recuperacion, "avisos": avisos}
+    @decorador
+    @require_POST
+    def copiar_perfil(request, pk):
+        """«Copiar a <otro perfil>» `{perfil}`: responde el documento nuevo (201), que ya es del otro perfil."""
+        get_object_or_404(documentos.alcanzables(modelo, request.user), pk=pk)            # de un perfil ajeno: no existe
+        try:
+            copia = documentos.copiar_a_perfil(modelo, pk, request.user, str(_cuerpo(request).get("perfil", "")), aplicar, preparar)
+        except ErrorUsuario as exc:
+            return _error(exc)
+        return _privado(JsonResponse({**detalle(copia, request.user), "perfil_nombre": perfiles.nombre_de(copia.perfil)}, status=201))
+
+    return {"bloqueo": bloqueo, "versiones": versiones, "version": version, "restaurar": restaurar, "recuperacion": recuperacion, "avisos": avisos,
+            "copiar_perfil": copiar_perfil}
 
 
 #: Renglones por respuesta de la lista incremental; el teléfono sigue pidiendo mientras `mas` sea verdadero.
@@ -121,6 +134,8 @@ POR_PAGINA = 200
 
 def lista_incremental(request, tipo: str, clave: str, fila):
     """Lista incremental de los documentos de `tipo` para el teléfono: `?desde=<cursor>` (0 o nada: todo).
+
+    Solo los del perfil activo de la cuenta (`perfil` en la respuesta): el teléfono guarda un cursor por perfil y nunca mezcla los dos.
 
     Responde `{clave: [resúmenes de lo que cambió], "eliminados": [ids que se fueron a la papelera], "cursor": N, "mas": bool}`, en el orden
     de su número de cambio (`models.siguiente_cambio`), así el cursor es estable y no se salta nada. Si desde ese cursor se borraron
@@ -135,13 +150,14 @@ def lista_incremental(request, tipo: str, clave: str, fila):
     except ValueError:
         desde = 0
     purga = PurgaDocumentos.objects.filter(tipo=tipo).values_list("hasta", flat=True).first() or 0     # antes que los renglones
-    filas = list(modelo.objects.filter(cambio__gt=desde).order_by("cambio")[:POR_PAGINA + 1])
+    perfil = perfiles.clave_activa(request.user)
+    filas = list(modelo.objects.filter(perfil=perfil, cambio__gt=desde).order_by("cambio")[:POR_PAGINA + 1])
     mas = len(filas) > POR_PAGINA
     filas = filas[:POR_PAGINA]
     cuerpo = {clave: [fila(d, request.user) for d in filas if d.eliminado is None], "eliminados": [str(d.pk) for d in filas if d.eliminado is not None],
-              "cursor": filas[-1].cambio if filas else desde, "mas": mas}
+              "cursor": filas[-1].cambio if filas else desde, "mas": mas, "perfil": perfil}
     if desde and purga and desde < purga:
-        cuerpo["vigentes"] = [str(pk) for pk in documentos.visibles(modelo).values_list("pk", flat=True)]
+        cuerpo["vigentes"] = [str(pk) for pk in modelo.objects.filter(perfil=perfil, eliminado__isnull=True).values_list("pk", flat=True)]
     if not mas:
         cuerpo["cursor"] = max(cuerpo["cursor"], purga)             # ya vio la purga: la siguiente no vuelve a mandar los vigentes
     return _privado(JsonResponse(cuerpo))
@@ -158,7 +174,15 @@ def rutas(prefijo: str, nombre: str, v: dict) -> list:
         path(f"{prefijo}/api/<uuid:pk>/versiones/<int:vid>/", v["version"], name=f"{nombre}_version"),
         path(f"{prefijo}/api/<uuid:pk>/versiones/<int:vid>/restaurar/", v["restaurar"], name=f"{nombre}_restaurar_version"),
         path(f"{prefijo}/api/<uuid:pk>/recuperacion/", v["recuperacion"], name=f"{nombre}_recuperacion"),
+        path(f"{prefijo}/api/<uuid:pk>/copiar-perfil/", v["copiar_perfil"], name=f"{nombre}_copiar_perfil"),
     ]
+
+
+def perfil_de_nuevo(request, cuerpo: dict) -> str:
+    """Perfil de un documento que se crea con esta petición: el que trae el borrador del teléfono (`perfil`, el activo cuando se creó allí,
+    aunque suba después de cambiar de perfil) si la cuenta puede usarlo; si no, el perfil activo de la cuenta."""
+    clave = str(cuerpo.get("perfil") or "")
+    return clave if clave and perfiles.puede_usar(request.user, clave) else perfiles.clave_activa(request.user)
 
 
 def borrar(doc, usuario):

@@ -1,0 +1,7 @@
+{% load tv %}{% if visible %}<div class="itt-espacio" data-itt="espacio-perfil">
+  <span class="tv-insignia itt-espacio__activo">{% icono "building-2" %}<span>Perfil: {{ activo.nombre }}</span></span>
+  {% for o in otros %}<form method="post" action="{% url 'herramientas:perfil_activo' %}" class="itt-espacio__cambio">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="siguiente" value="{{ siguiente }}">
+    <button type="submit" name="perfil" value="{{ o.clave }}" class="tv-boton tv-boton--secundario itt-boton-plano">{% icono "arrow-left-right" %}<span>Cambiar a {{ o.nombre }}</span></button>
+  </form>{% endfor %}
+</div>{% endif %}

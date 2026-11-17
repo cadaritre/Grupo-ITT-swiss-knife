@@ -30,13 +30,15 @@ def pagina(request):
 
 def _urls() -> dict:
     fijas = ("contexto", "lista", "sincronizar", "zip", "avisos")
-    con_id = ("detalle", "pdf", "descargar", "bloqueo", "versiones", "recuperacion")
+    con_id = ("detalle", "pdf", "descargar", "bloqueo", "versiones", "recuperacion", "copiar_perfil")
     urls = {n: reverse(f"herramientas:reportes_{n}") for n in fijas}
     urls.update({n: reverse(f"herramientas:reportes_{n}", kwargs={"pk": MARCA_ID}) for n in con_id})
     urls["foto"] = reverse("herramientas:reportes_foto", kwargs={"sha256": "SHA"})
     urls["version"] = reverse("herramientas:reportes_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
     urls["restaurar-version"] = reverse("herramientas:reportes_restaurar_version", kwargs={"pk": MARCA_ID, "vid": 999999999})
     urls["papelera"] = reverse("herramientas:papelera")
+    urls["perfil-activo"] = reverse("herramientas:perfil_activo")
+    urls["copiar-perfil"] = urls.pop("copiar_perfil")
     urls["teselas"] = reverse("herramientas:teselas", kwargs={"capa": "osm", "z": 0, "x": 0, "y": 0}).replace("/osm/0/0/0.png", "/{capa}/{z}/{x}/{y}.png")
     urls["tarea"] = reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA_ID})
     urls["capturar"] = reverse("herramientas:capturar")
@@ -68,9 +70,9 @@ def _privado(respuesta):
 
 
 
-def _en_papelera(modelo, pk):
+def _en_papelera(modelo, pk, usuario):
     """El detalle de algo de la papelera responde 410 con `eliminado`: el teléfono lo distingue de «no existe» (404) y de un fallo."""
-    if modelo.objects.filter(pk=pk, eliminado__isnull=False).exists():
+    if documentos.alcanzables(modelo, usuario).filter(pk=pk, eliminado__isnull=False).exists():
         return _privado(JsonResponse({"error": "Está en la papelera.", "eliminado": True}, status=410))
     return None
 
@@ -86,33 +88,35 @@ def contexto(request):
     perfil = perfiles.perfil_activo(request.user)
     return _privado(JsonResponse({
         "cuenta": request.user.pk, "autor": dict(zip(("nombre", "correo"), autoria.de_usuario(request.user))), "perfil": perfil.clave, "perfil_nombre": perfil.nombre,
-        "titulo": servicio.titulo_por_omision(perfil), "max_fotos": servicio.MAX_FOTOS,
+        "perfiles": perfiles.opciones(request.user), "titulo": servicio.titulo_por_omision(perfil), "max_fotos": servicio.MAX_FOTOS,
         "credenciales": bool(perfil.firmante_reporte or perfil.cedula_profesional),
-        "clientes": clientes.sugerencias(request.user.pk), "latido": documentos.LATIDO_SEGUNDOS, "admin": documentos.es_admin(request.user),
+        "clientes": clientes.sugerencias(perfil=perfil.clave), "latido": documentos.LATIDO_SEGUNDOS, "admin": documentos.es_admin(request.user),
     }))
 
 
 @usuario_de_reportes
 @require_GET
 def lista(request):
-    """Los reportes de la empresa (todas las cuentas)."""
+    """Los reportes del perfil activo (de todas las cuentas)."""
     return vistas_documentos.lista_incremental(request, "reporte", "reportes", servicio.resumen_fila)
 
 
 def _detalle(r, usuario) -> dict:
-    return {**servicio.resumen_fila(r, usuario), "datos": r.datos, "recuperaciones": documentos.recuperaciones_de(r, usuario)}
+    return {**servicio.resumen_fila(r, usuario), "datos": r.datos, "recuperaciones": documentos.recuperaciones_de(r, usuario),
+            "otro_perfil": documentos.otro_perfil(r, usuario)}
 
 
-def _visible(pk) -> Reporte:
-    return get_object_or_404(Reporte, pk=pk, eliminado__isnull=True)
+def _visible(pk, usuario) -> Reporte:
+    """De un perfil que la cuenta no puede usar, no existe para ella (404)."""
+    return get_object_or_404(documentos.alcanzables(Reporte, usuario), pk=pk, eliminado__isnull=True)
 
 
 @usuario_de_reportes
 @require_http_methods(["GET", "DELETE"])
 def detalle(request, pk):
-    if request.method == "GET" and (papelera := _en_papelera(Reporte, pk)):
+    if request.method == "GET" and (papelera := _en_papelera(Reporte, pk, request.user)):
         return papelera
-    r = _visible(pk)
+    r = _visible(pk, request.user)
     if request.method == "DELETE":
         fallo = vistas_documentos.borrar(r, request.user)
         return fallo or _privado(JsonResponse({"borrado": str(pk)}))
@@ -133,7 +137,7 @@ def sincronizar(request):
         if base is not None and (isinstance(base, bool) or not isinstance(base, int) or base < 1):
             raise servicio.ReporteInvalido("La revisión base no es válida.")
         sesion = str(cuerpo.get("sesion") or "")
-        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), perfiles.perfil_activo(request.user).clave,
+        resultado = servicio.sincronizar(request.user, id_cliente, servidor, base, cuerpo.get("datos"), vistas_documentos.perfil_de_nuevo(request, cuerpo),
                                          sesion if documentos.sesion_valida(sesion) else "")
     except servicio.ReporteInvalido as exc:
         return _error(exc)
@@ -144,7 +148,7 @@ def sincronizar(request):
 @require_POST
 def pdf(request, pk):
     """Pone en cola la generación del PDF. 409 si faltan fotos por subir; 422 si el reporte está incompleto."""
-    r = _visible(pk)
+    r = _visible(pk, request.user)
     try:
         servicio.verificar_listo(r)
     except servicio.FotosPendientes as exc:
@@ -162,7 +166,7 @@ def pdf(request, pk):
 @usuario_de_reportes
 @require_GET
 def descargar(request, pk):
-    r = _visible(pk)
+    r = _visible(pk, request.user)
     ruta = capturas.raiz() / r.salida_ruta if r.salida_ruta else None
     if ruta is None or not ruta.is_file():
         raise Http404
@@ -183,7 +187,7 @@ def foto(request, sha256):
     ruta = capturas.ruta(request.user.pk, sha256) if original else capturas.miniatura(request.user.pk, sha256)
     if ruta is None and request.GET.get("doc"):
         try:
-            doc = Reporte.objects.filter(pk=uuid.UUID(request.GET["doc"]), eliminado__isnull=True, datos__fotos__contains=[{"sha256": sha256}]).first()
+            doc = documentos.alcanzables(Reporte, request.user).filter(pk=uuid.UUID(request.GET["doc"]), eliminado__isnull=True, datos__fotos__contains=[{"sha256": sha256}]).first()
         except ValueError:
             raise Http404 from None
         if doc is not None:
@@ -198,7 +202,7 @@ def foto(request, sha256):
 @usuario_de_reportes
 @require_POST
 def zip_lote(request):
-    """Varios reportes de la empresa en un ZIP: `{"elementos": [["reporte", id], …]}` (hasta 50). Los PDF que falten se generan antes."""
+    """Varios reportes del perfil activo en un ZIP: `{"elementos": [["reporte", id], …]}` (hasta 50). Los PDF que falten se generan antes."""
     try:
         elementos = zips.cuerpo_json(request).get("elementos")
     except zips.LoteInvalido as exc:

@@ -4,6 +4,7 @@
 {% block titulo_h1 %}<h1>Supervisión</h1><p class="tv-subtitulo">Cotizaciones y reportes de la empresa, con quién los hizo. Solo lectura.</p>{% endblock %}
 {% block acciones_pagina %}<a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:papelera' %}">{% icono "trash-2" %}<span>Papelera</span></a>{% endblock %}
 {% block cuerpo %}
+{% espacio_perfil %}
 <div class="sup" id="sup">
 {% if repetidos %}
 <section class="tv-tarjeta sup-repetidos" id="sup-repetidos" aria-labelledby="sup-repetidos-titulo">

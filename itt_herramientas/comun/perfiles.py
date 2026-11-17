@@ -21,7 +21,7 @@ from ..dominio.quotation_i18n import LABELS
 from ..dominio.quotation_models import QuoteData
 from django.utils import timezone
 
-from ..models import Perfil, PerfilActivo
+from ..models import CLAVES_PERFIL, Perfil, PerfilActivo
 
 #: campo de `Perfil` -> campo del perfil del dominio (`branding.PROFILE_DEFAULTS`)
 CAMPOS = {
@@ -227,6 +227,37 @@ def perfil_activo(usuario) -> Perfil:
         if fila is not None:
             return fila.perfil
     return Perfil.objects.get(clave=PERFIL_POR_OMISION)
+
+
+def clave_activa(usuario) -> str:
+    """Clave del perfil activo: el espacio de documentos en que trabaja la cuenta (listas, búsqueda, folios, sincronización)."""
+    if puede_cambiar(usuario):
+        clave = PerfilActivo.objects.filter(cuenta_id=usuario.pk).values_list("perfil__clave", flat=True).first()
+        if clave:
+            return clave
+    return PERFIL_POR_OMISION
+
+
+def claves_de(usuario) -> tuple[str, ...]:
+    """Perfiles cuyos documentos puede abrir la cuenta: con el permiso «Cambiar perfil corporativo», todos; sin él, solo Grupo ITT."""
+    return tuple(c for c, _ in CLAVES_PERFIL) if puede_cambiar(usuario) else (PERFIL_POR_OMISION,)
+
+
+def puede_usar(usuario, clave: str) -> bool:
+    return clave in claves_de(usuario)
+
+
+def nombre_de(clave: str) -> str:
+    """Nombre con que se muestra un perfil («Grupo ITT», «TresVizo»): el que le puso quien lo administra, o el de fábrica."""
+    nombre = Perfil.objects.filter(clave=clave).values_list("nombre", flat=True).first()
+    return nombre or dict(CLAVES_PERFIL).get(clave, clave)
+
+
+def opciones(usuario) -> list[dict]:
+    """Los perfiles que la cuenta puede usar, con cuál está activo (el selector de las listas)."""
+    activa = clave_activa(usuario)
+    nombres = dict(Perfil.objects.values_list("clave", "nombre"))
+    return [{"clave": c, "nombre": nombres.get(c) or dict(CLAVES_PERFIL)[c], "activo": c == activa} for c in claves_de(usuario)]
 
 
 def cambiar_perfil(usuario, clave: str) -> Perfil:

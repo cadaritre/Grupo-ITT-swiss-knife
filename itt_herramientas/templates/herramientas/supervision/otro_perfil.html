@@ -1,0 +1,14 @@
+{% extends "herramientas/base_comun.html" %}
+{% load tv herramientas %}
+{% block titulo_pagina %}Documento de {{ otro.nombre }}{% endblock %}
+{% block titulo_h1 %}<h1>Es de {{ otro.nombre }}</h1>{% endblock %}
+{% block cuerpo %}
+<div class="itt-otro-perfil" data-itt="otro-perfil">
+  <p>«{{ titulo }}» es un documento del perfil {{ otro.nombre }}. Ahora trabajas en {{ activo }}: cada perfil tiene sus propios documentos.</p>
+  <div class="tv-acciones">
+    <form method="post" action="{% url 'herramientas:perfil_activo' %}">{% csrf_token %}<input type="hidden" name="siguiente" value="{{ request.get_full_path }}">
+      <button type="submit" name="perfil" value="{{ otro.clave }}" class="tv-boton">{% icono "arrow-left-right" %}<span>Cambiar a {{ otro.nombre }}</span></button></form>
+    <a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:supervision' %}">Volver a Supervisión</a>
+  </div>
+</div>
+{% endblock %}

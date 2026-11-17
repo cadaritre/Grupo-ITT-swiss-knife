@@ -26,7 +26,7 @@ from django.utils import timezone
 from tvplataforma import permisos
 
 from ..models import AvisoDocumento, BorradorRecuperacion, Cotizacion, Croquis, Reporte, VersionDocumento
-from . import autoria
+from . import autoria, perfiles
 from .errores import ErrorUsuario
 
 log = logging.getLogger("itt_herramientas.documentos")
@@ -82,8 +82,32 @@ def puede_recuperar(usuario, doc) -> bool:
     return es_admin(usuario) or (puede_editar(usuario, tipo_de(doc)) and usuario.pk in (doc.cuenta_id, doc.eliminado_por_id))
 
 
-def visibles(modelo):
-    return modelo.objects.filter(eliminado__isnull=True)
+# -- Cada perfil corporativo es un espacio de documentos aparte (decisión del propietario, 17-11-2026) ---------------------------
+#
+# Un documento es del perfil activo con que se creó (`perfil`, fijo). Las listas, la búsqueda, Supervisión, la papelera, los avisos y la
+# sincronización de los teléfonos solo muestran los del perfil activo de la cuenta. Abrir uno por su identificador vale para los perfiles
+# que la cuenta puede usar (la pantalla dice de qué perfil es y ofrece cambiar); para los demás no existe (404).
+
+def del_perfil(modelo, usuario):
+    """Los documentos del perfil activo de la cuenta, con los de la papelera."""
+    return modelo.objects.filter(perfil=perfiles.clave_activa(usuario))
+
+
+def visibles(modelo, usuario):
+    """Los documentos del perfil activo de la cuenta, sin los de la papelera."""
+    return del_perfil(modelo, usuario).filter(eliminado__isnull=True)
+
+
+def alcanzables(modelo, usuario):
+    """Los que la cuenta puede abrir por su identificador: los de los perfiles que puede usar."""
+    return modelo.objects.filter(perfil__in=perfiles.claves_de(usuario))
+
+
+def otro_perfil(doc, usuario) -> dict | None:
+    """Si `doc` es de un perfil que la cuenta puede usar pero no es el activo: `{clave, nombre}` de ese perfil (para decirlo y ofrecer cambiar)."""
+    if doc.perfil == perfiles.clave_activa(usuario):
+        return None
+    return {"clave": doc.perfil, "nombre": perfiles.nombre_de(doc.perfil)}
 
 
 def referencia(doc) -> str:
@@ -164,7 +188,7 @@ def bloqueo(modelo, pk, usuario, sesion: str, accion: str) -> dict:
         raise ErrorUsuario("La página no es válida. Recárgala.")
     tipo = next(t for t, m in MODELOS.items() if m is modelo)
     with transaction.atomic():
-        doc = modelo.objects.select_for_update().filter(pk=pk).first()
+        doc = alcanzables(modelo, usuario).select_for_update().filter(pk=pk).first()
         if doc is None or doc.eliminado:
             return {"libre": False, "mio": False, "quien": "", "eliminado": True}
         ahora = timezone.now()
@@ -253,7 +277,7 @@ def _exigir_edicion(doc, usuario, sesion: str) -> None:
 def restaurar_version(modelo, pk, version_id: int, usuario, sesion: str, aplicar) -> object:
     """«Restaurar esta versión»: sus datos pasan a ser una revisión NUEVA (la actual queda en el historial). `aplicar(doc, datos)`."""
     with transaction.atomic():
-        doc = modelo.objects.select_for_update().filter(pk=pk, eliminado__isnull=True).first()
+        doc = alcanzables(modelo, usuario).select_for_update().filter(pk=pk, eliminado__isnull=True).first()
         if doc is None:
             raise ErrorUsuario("El documento ya no existe.")
         _exigir_edicion(doc, usuario, sesion)
@@ -300,7 +324,7 @@ def descartar_recuperacion(doc, usuario, recuperacion_id=None) -> None:
 def aplicar_recuperacion(modelo, pk, usuario, sesion: str, aplicar, recuperacion_id=None) -> object:
     """«Usar mis cambios»: ese borrador de recuperación (o el más nuevo) pasa a ser una revisión nueva (lo demás queda en el historial)."""
     with transaction.atomic():
-        doc = modelo.objects.select_for_update().filter(pk=pk, eliminado__isnull=True).first()
+        doc = alcanzables(modelo, usuario).select_for_update().filter(pk=pk, eliminado__isnull=True).first()
         if doc is None:
             raise ErrorUsuario("El documento ya no existe.")
         _exigir_edicion(doc, usuario, sesion)
@@ -327,12 +351,40 @@ def avisar(cuenta_id, tipo: str, documento_id, texto: str) -> None:
 
 
 def avisos_de(usuario, tipo: str) -> list[dict]:
+    """Los avisos sin ver de la cuenta sobre documentos de su perfil activo (los del otro perfil esperan a que lo active)."""
+    del_espacio = del_perfil(MODELOS[tipo], usuario).values("pk")
     return [{"id": a.pk, "texto": a.texto, "documento": str(a.documento_id), "creado": a.creado.isoformat()}
-            for a in AvisoDocumento.objects.filter(cuenta_id=usuario.pk, tipo=tipo, visto__isnull=True).order_by("-creado")[:20]]
+            for a in AvisoDocumento.objects.filter(cuenta_id=usuario.pk, tipo=tipo, visto__isnull=True, documento_id__in=del_espacio).order_by("-creado")[:20]]
 
 
 def marcar_vistos(usuario, ids) -> None:
     AvisoDocumento.objects.filter(cuenta_id=usuario.pk, pk__in=[int(i) for i in ids if str(i).isdigit()][:100]).update(visto=timezone.now())
+
+
+# -- Copiar a otro perfil ---------------------------------------------------------------------------------------------------------
+
+def copiar_a_perfil(modelo, pk, usuario, clave: str, aplicar, preparar=None) -> object:
+    """«Copiar a <otro perfil>»: un documento NUEVO en el espacio del perfil `clave`, con los datos vigentes del original.
+
+    El original no cambia. La copia es de quien la pide, su historial empieza en ella (la primera versión dice de dónde salió) y una
+    cotización recibe el folio siguiente de la serie de ese perfil. Sus fotos siguen valiendo (hereda quién puede usarlas).
+    `preparar(datos, origen, destino)` (opcional) ajusta los datos al otro perfil antes de guardarlos.
+    """
+    if not perfiles.puede_usar(usuario, clave):
+        raise SinPermiso("No tienes permiso para usar ese perfil corporativo.")
+    with transaction.atomic():
+        doc = alcanzables(modelo, usuario).filter(pk=pk, eliminado__isnull=True).first()
+        if doc is None:
+            raise ErrorUsuario("Ya no existe.")
+        if doc.perfil == clave:
+            raise ErrorUsuario(f"Ya es de {perfiles.nombre_de(clave)}.")
+        datos = preparar(doc.datos, doc.perfil, clave) if preparar is not None else doc.datos
+        copia = modelo(cuenta_id=usuario.pk, perfil=clave, autorizados=sorted({*(doc.autorizados or []), doc.cuenta_id, usuario.pk}))
+        aplicar(copia, datos)
+        copia.save()
+        registrar_version(copia, usuario, nota=f"Copiada de «{referencia(doc)}» ({perfiles.nombre_de(doc.perfil)})")
+    log.info("Documentos: la cuenta %s copió %s %s al perfil %s (%s)", usuario.pk, tipo_de(doc), doc.pk, clave, copia.pk)
+    return copia
 
 
 # -- Papelera --------------------------------------------------------------------------------------------------------------------
@@ -373,10 +425,10 @@ def destruir(doc) -> None:
 
 
 def papelera(usuario, tipos) -> list:
-    """Los documentos en la papelera de las herramientas `tipos`, del más reciente al más viejo."""
+    """Los documentos del perfil activo en la papelera de las herramientas `tipos`, del más reciente al más viejo."""
     salida = []
     for tipo in tipos:
-        salida += [(tipo, d) for d in MODELOS[tipo].objects.filter(eliminado__isnull=False).order_by("-eliminado")[:200]]
+        salida += [(tipo, d) for d in del_perfil(MODELOS[tipo], usuario).filter(eliminado__isnull=False).order_by("-eliminado")[:200]]
     salida.sort(key=lambda par: par[1].eliminado, reverse=True)
     return salida
 

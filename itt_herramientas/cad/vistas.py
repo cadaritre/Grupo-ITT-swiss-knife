@@ -646,7 +646,7 @@ def desde_croquis(request, pk):
     # uno de la papelera, y sin el rol de croquis no hay croquis que abrir.
     if not documentos.puede_editar(request.user, "croquis"):
         raise Http404
-    k = documentos.visibles(Croquis).filter(pk=pk).first()
+    k = documentos.alcanzables(Croquis, request.user).filter(pk=pk, eliminado__isnull=True).first()     # de un perfil que puede usar
     if k is None:
         raise Http404
     volver = reverse("herramientas:croquis")

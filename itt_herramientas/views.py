@@ -365,17 +365,25 @@ def capturas(request):
 @usuario_de_herramientas
 @require_POST
 def perfil_activo(request):
-    """Cambia el perfil activo de LA CUENTA que lo pide. 403 si no tiene el permiso «Cambiar perfil corporativo»."""
+    """Cambia el perfil activo de LA CUENTA que lo pide. 403 si no tiene el permiso «Cambiar perfil corporativo».
+
+    Cada perfil es un espacio de documentos aparte: al cambiar, las listas muestran los del otro. Las herramientas de campo lo piden con
+    `Accept: application/json` y reciben `{perfil, nombre}` (la página se vuelve a abrir en el otro espacio); el resto vuelve a `siguiente`.
+    """
     from django.core.exceptions import PermissionDenied
-    from django.http import HttpResponseRedirect
+    from django.http import HttpResponseRedirect, JsonResponse
     from django.utils.http import url_has_allowed_host_and_scheme
 
     try:
-        perfiles.cambiar_perfil(request.user, request.POST.get("perfil", ""))
+        perfil = perfiles.cambiar_perfil(request.user, request.POST.get("perfil", ""))
     except perfiles.SinPermiso:
         raise PermissionDenied from None
     except perfiles.PerfilInvalido as exc:
         return HttpResponseBadRequest(str(exc))
+    if "application/json" in request.headers.get("Accept", ""):
+        respuesta = JsonResponse({"perfil": perfil.clave, "nombre": perfil.nombre})
+        respuesta["Cache-Control"] = "private, no-store"
+        return respuesta
     destino = request.POST.get("siguiente", "")
     if not url_has_allowed_host_and_scheme(destino, allowed_hosts={request.get_host()}, require_https=request.is_secure()) or not destino.startswith("/"):
         destino = reverse("herramientas:inicio")
@@ -455,7 +463,7 @@ def teselas(request, capa, z, x, y):
 @require_GET
 def buscar(request):
     """Búsqueda de la paleta (contrato 1.5, §12.1): los documentos de la empresa de las herramientas que la cuenta tiene (cotizaciones,
-    reportes y croquis son compartidos con el equipo) y los planos de la biblioteca de CAD. Hasta 20."""
+    reportes y croquis son compartidos con el equipo), solo los de su perfil activo, y los planos de la biblioteca de CAD. Hasta 20."""
     from django.db.models import Q
     from django.http import JsonResponse
 
@@ -466,7 +474,7 @@ def buscar(request):
     if len(q) >= 2:
         def tiene(rol):
             return permisos.tiene_rol(request.user, "herramientas", rol) or permisos.tiene_rol(request.user, "herramientas", "admin")
-        propio = {"eliminado__isnull": True}
+        propio = {"eliminado__isnull": True, "perfil": perfiles.clave_activa(request.user)}
         if tiene("cotizaciones"):
             for c in Cotizacion.objects.filter(Q(folio__icontains=q) | Q(cliente__icontains=q) | Q(proyecto__icontains=q), **propio).order_by("-actualizada")[:10]:
                 resultados.append({"titulo": " · ".join(x for x in (c.folio, c.proyecto) if x) or "Cotización", "subtitulo": f"Cotización · {c.cliente}" if c.cliente else "Cotización",
