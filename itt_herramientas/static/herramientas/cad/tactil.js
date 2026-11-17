@@ -1208,6 +1208,7 @@
     if (/^(lw)?polyline$/i.test(t)) return "LwPolyline";                    // el editor nombra «Polyline» a la polilínea 2D
     for (const k of Object.keys(NOMBRE_TIPO)) if (t.toLowerCase() === k.toLowerCase()) return k;
     if (/polyline/i.test(t)) return "LwPolyline";
+    if (/insert|blockref|block_?reference/i.test(t)) return "Insert";
     if (/dimension/i.test(t)) return "Dimension";
     if (/text/i.test(t)) return /m/i.test(t[0]) ? "MText" : "Text";
     return t;

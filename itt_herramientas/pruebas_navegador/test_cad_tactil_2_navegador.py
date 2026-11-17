@@ -406,6 +406,7 @@ def test_explotar_un_bloque_deja_elegido_lo_nuevo_y_es_un_paso(tactil, navegar, 
         expect(p.locator("#tt-seleccion")).to_be_visible(timeout=5000)
     except AssertionError:
         raise AssertionError(p.evaluate("([x, y]) => TVCadTactil.cercanos(x, y)", [sx, sy])) from None
+    expect(p.locator("#tt-seleccion-cuenta")).to_have_text("1 objeto elegido · Bloque")
     p.locator('#tt-seleccion [data-editar="explotar"]').click()
     expect(p.locator("#tt-aviso")).to_contain_text("Explotado: 3 objetos nuevos")
     assert len(p.evaluate("TVCadTactil.seleccion()")) == 3
@@ -658,5 +659,42 @@ def test_capturas_de_las_pantallas_nuevas(tactil, navegar, crear_usuario, roles,
         p.wait_for_timeout(300)
         p.screenshot(path=f"{base}-9-recortar.png", caret="initial")
         p.evaluate("([x, y]) => __g.pe('pointercancel', x + 64, y + 72, 1)", list(a))
+    propios = [e for e in n.errores if not (motor == "webkit" and "Refused to apply a stylesheet" in e)]
+    assert not propios, propios
+
+
+@pytest.mark.skipif(not CAPTURAS, reason="solo con ITT_CAPTURAS")
+@pytest.mark.parametrize("tam", sorted(TAMANOS))
+@pytest.mark.parametrize("tema", ["claro", "oscuro"])
+def test_capturas_de_explotar_y_cotas(tactil, navegar, crear_usuario, roles, tam, tema):
+    motor = os.environ.get("ITT_MOTOR", "chromium")
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_bloques(ana)
+    n, p = abrir(navegar, ana, motor, tam=tam, tema=tema, p0=p0)
+    base = f"{CAPTURAS}/tactil2-{motor}-{tam}-{tema}"
+    p.evaluate("TVCad.pedir({op: 'view_set', center: [%r, %r], height: 30})" % (X0 + 8, Y0 + 8))
+    p.evaluate("TVCadTactil.releer()")
+    sx, sy = _pantalla(p, X0 + 1, Y0)
+    p.evaluate("([x, y]) => __g.tocar(x, y)", [sx, sy])
+    p.wait_for_timeout(900)
+    p.screenshot(path=f"{base}-a-seleccion-explotar.png", caret="initial")
+    if p.locator('#tt-seleccion [data-editar="explotar"]').is_visible():
+        p.locator('#tt-seleccion [data-editar="explotar"]').click()
+        p.wait_for_timeout(700)
+        p.screenshot(path=f"{base}-b-explotado.png", caret="initial")
+    if p.locator("#tt-seleccion-quitar").is_visible():
+        p.locator("#tt-seleccion-quitar").click()
+    _herramienta(p, "editar", "Alargar")
+    p.wait_for_timeout(400)
+    p.screenshot(path=f"{base}-c-alargar.png", caret="initial")
+    p.locator("#tt-cancelar").click()
+    _herramienta(p, "cota", "Cota alineada")
+    for x, y in ((X0, Y0 + 10), (X0 + 10, Y0 + 10)):
+        _escribir(p, "x", repr(x)); p.locator('#tt-din [data-d="siguiente"]').click(); _din(p, repr(y))
+        p.locator('#tt-din [data-d="poner"]').click()
+    p.locator('#tt-din [data-d="cerrar"]').click()
+    llevar_punta(p, X0 + 5, Y0 + 13.5)
+    p.wait_for_timeout(400)
+    p.screenshot(path=f"{base}-d-cota.png", caret="initial")
     propios = [e for e in n.errores if not (motor == "webkit" and "Refused to apply a stylesheet" in e)]
     assert not propios, propios
