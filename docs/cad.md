@@ -164,6 +164,10 @@ la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` 
   registro (solo nombres de operaciones, tiempos, si se aceptaron, revisiones y el modo táctil o completo; nada del dibujo) va una vez
   con el siguiente borrador en `X-TV-Registro`; el servidor lo valida y recorta (`cad/registro.py`, ≤ 2 000 caracteres) y lo escribe
   en el journal (INFO, `itt_herramientas.cad`, «cad registro sin guardar plano=… cuenta=…»). Nunca rompe la subida del borrador.
+- **Ver todo** (al abrir, tres toques, «Más › Ver todo el plano») encuadra con un 6 % de margen la extensión que da el editor
+  (`extents` con `space: "current"`, desde tv-v2026.45-11, con las reglas de CAD: solo lo dibujado, las capas congeladas no cuentan, ni
+  los centros de arcos casi rectos que caen a kilómetros). Con un editor sin esa op, la página suma las cajas de los objetos del modelo
+  (sin las capas congeladas).
 - **Lo que depende del editor.** Al entrar se mira qué ops tiene (`state.capabilities` o una petición que solo se rechaza por sus datos):
   sin `explode`, `trim`, `extend` o `dim_create` esas herramientas no se muestran y las cotas se dibujan como antes.
 - **Hoja numérica** para el texto, la altura del texto y el nombre de una capa.

@@ -893,3 +893,40 @@ def test_el_navegador_nunca_acerca_la_pagina_en_modo_tactil(tactil, navegar, cre
         _pellizco_cdp(q, 180, 300)
         assert _escala(q) > 1                                                         # la prueba sí detecta un zoom
     _sin_errores(n, motor)
+
+
+# -- «Ver todo» con la extensión del editor (cuarta vuelta) ---------------------------------------------------------------------------
+
+def plano_bulto_lejano(usuario):
+    """Lo dibujado cabe en 40 × 20 m, pero: una polilínea con un tramo casi recto (bulto 0.0003: el centro de su arco queda a ~15 km) y
+    un objeto lejano (5 km) en una capa congelada. Con las reglas de CAD ninguno de los dos agranda la extensión."""
+    import ezdxf
+
+    d = ezdxf.new("R2018", setup=True)
+    m = d.modelspace()
+    m.add_lwpolyline([(X0, Y0, 0, 0, 0.0003), (X0 + 20, Y0, 0, 0, 0), (X0 + 20, Y0 + 20)], format="xyseb")
+    m.add_line((X0 + 25, Y0), (X0 + 40, Y0 + 15))
+    d.layers.add("CONGELADA").freeze()
+    m.add_circle((X0 + 5000, Y0 + 5000), 3, dxfattribs={"layer": "CONGELADA"})
+    return _guardar(usuario, d, "Bulto")
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_ver_todo_encuadra_solo_lo_dibujado(tactil, navegar, crear_usuario, roles, motor):
+    """El plano del dueño se veía diminuto: la extensión contaba el centro lejano de arcos casi rectos. Con `extents` del editor
+    (tv-v2026.45-11) se encuadra solo lo dibujado, al abrir y con tres toques; con un editor sin esa op, la cuenta de la página."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_bulto_lejano(ana)
+    n, p = abrir(navegar, ana, motor, p0=p0)
+    con_op = p.evaluate("TVCad.pedir({op: 'extents', space: 'current'}).then(() => true, () => false)")
+    for _ in range(2):
+        v = p.evaluate("TVCadTactil.vista()")
+        for x, y in ((X0, Y0), (X0 + 20, Y0 + 20), (X0 + 40, Y0 + 15)):                 # todo lo dibujado se ve
+            sx, sy = _pantalla(p, x, y)
+            assert v["ox"] + 2 < sx < v["ox"] + v["w"] - 2 and v["oy"] + 2 < sy < v["oy"] + v["h"] - 2, (x, y, sx, sy, v)
+        assert v["w"] * v["k"] < 100 and v["h"] * v["k"] < 200, (con_op, v)              # ajustado: ni el centro lejano ni lo congelado
+        p.evaluate("__g.arrastrar(150, 300, 120, 80)")                                   # se mueve y tres toques vuelven a encuadrar
+        p.wait_for_timeout(700)
+        p.evaluate("__g.toques(200, 300, 3)")
+        p.wait_for_timeout(1500)
+    _sin_errores(n, motor)

@@ -131,11 +131,13 @@
   // del editor usa la extensión guardada en el plano, que puede quedar vieja o no venir (en un plano chico el círculo salía cortado).
   async function extensionReal() {
     let caja = null, offset = 0;
+    // Como en CAD, lo de una capa congelada no cuenta.
+    const congeladas = new Set((await leerCapas().catch(() => [])).filter((c) => c.congelada).map((c) => String(c.nombre).toLowerCase()));
     for (let i = 0; i < 30; i++) {
-      const r = await pedirSuave({ op: "query", detail: "full", fields: ["bounds", "space"], limit: 10000, offset }, 60000);
+      const r = await pedirSuave({ op: "query", detail: "full", fields: ["bounds", "space", "layer"], limit: 10000, offset }, 60000);
       if (!r) return caja;
       for (const e of lista(r)) {
-        if (e.space !== "*Model_Space") continue;
+        if (e.space !== "*Model_Space" || congeladas.has(String(e.layer || "0").toLowerCase())) continue;
         const c = cajaDe(e);
         if (!c || !c.every(Number.isFinite)) continue;
         caja = caja ? [Math.min(caja[0], c[0]), Math.min(caja[1], c[1]), Math.max(caja[2], c[2]), Math.max(caja[3], c[3])] : c.slice();
@@ -145,9 +147,19 @@
     }
     return caja;
   }
+  // La extensión que da el editor (`extents`, desde tv-v2026.45-11) con las reglas de CAD: solo lo dibujado (las capas apagadas cuentan, las
+  // congeladas no), sin centros de arcos ni puntos de referencia, con los recortes de bloques; también en una presentación. Con un editor
+  // sin esa op (una copia vieja guardada en el teléfono), `extensionReal`. `undefined`: el editor no la tiene; `null`: nada dibujado.
+  async function extensionDelEditor() {
+    try {
+      const r = await pedir({ op: "extents", space: "current" }, 60000);
+      return r && Array.isArray(r.min) && Array.isArray(r.max) && r.count ? [r.min[0], r.min[1], r.max[0], r.max[1]] : null;
+    } catch (_) { return undefined; }                       // sin la op (o el editor ocupado): la cuenta de la página
+  }
   async function verTodo() {
     try {
-      const caja = est.presentacion ? null : await extensionReal();
+      let caja = await extensionDelEditor();
+      if (caja === undefined) caja = est.presentacion ? null : await extensionReal();
       if (caja) {
         const st = deEstado({}, await pedir({ op: "state" }));
         const ancho = Math.max(caja[2] - caja[0], 1e-6), alto = Math.max(caja[3] - caja[1], 1e-6);
