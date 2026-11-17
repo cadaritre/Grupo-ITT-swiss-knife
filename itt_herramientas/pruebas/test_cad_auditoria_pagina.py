@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from itt_herramientas.cad import editor
 
 from .conftest import url
@@ -13,9 +15,13 @@ from .test_cad import dibujante, editor_falso, plano  # noqa: F401 (fixtures)
 ESTATICOS = Path(editor.__file__).resolve().parents[2] / "static" / "herramientas" / "cad"
 
 
-def test_b13_el_menu_mas_acciones_es_una_lista_de_botones_y_los_toques_miden_44(cliente_de, dibujante, plano, editor_falso):
-    """Un `role="menu"` promete flechas, Inicio y Fin y lleva formularios dentro: el menú es un grupo de botones y enlaces normales."""
+@pytest.mark.parametrize("tactil", [False, True], ids=["tactil_apagado", "tactil_encendido"])
+def test_b13_el_menu_mas_acciones_es_una_lista_de_botones_y_los_toques_miden_44(cliente_de, dibujante, plano, editor_falso, settings, tactil):
+    """Un `role="menu"` promete flechas, Inicio y Fin y lleva formularios dentro: el menú es un grupo de botones y enlaces normales.
+    Igual con el modo táctil encendido (producción), que agrega su botón en la cabecera y su capa."""
+    settings.TV_CAD_TACTIL = tactil
     html = cliente_de(dibujante).get(url("cad_plano", pk=plano.pk)).content.decode()
+    assert ('id="cad-tactil-entrar"' in html) is tactil
     menu = html.split('id="cad-menu"')[1].split("</details>")[0]                 # el de la página (Civil tiene el suyo, con flechas)
     assert 'role="menu"' not in menu and 'role="menuitem"' not in menu
     assert re.search(r'class="cad-menu__lista" role="group" aria-label="Más acciones"', html)

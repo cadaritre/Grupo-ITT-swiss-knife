@@ -14,6 +14,7 @@ Ver docs/cad.md, «Modo táctil» y «CAD sin conexión».
 from __future__ import annotations
 
 import json
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -62,11 +63,20 @@ def _paquete(raiz: str, version: str) -> dict:
             "bytes": sum(a["bytes"] for a in archivos), "descarga": sum(a["descarga"] for a in archivos)}
 
 
+log = logging.getLogger(__name__)
+
+
 def paquete_del_editor() -> dict | None:
+    """El paquete del editor para bajarlo al teléfono, o None. Un editor sin su MANIFIESTO.json (o con uno dañado) no tumba la página
+    del plano: el modo táctil sigue, solo que sin «Descargar CAD en este teléfono», y queda en el registro."""
     r = editor.raiz()
     if r is None or not editor.disponible():
         return None
-    return _paquete(str(r), editor.version())
+    try:
+        return _paquete(str(r), editor.version())
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        log.error("El editor %s no tiene un MANIFIESTO.json válido (%s): no se ofrece bajarlo al teléfono.", editor.version(), exc)
+        return None
 
 
 def config_de_pagina(usuario) -> dict | None:

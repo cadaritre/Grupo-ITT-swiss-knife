@@ -216,7 +216,9 @@ def test_tope_de_tamano(cliente_de, dibujante, monkeypatch):
     assert r.status_code == 422 and "puntos" in r.json()["error"]
 
 
-def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, supervisora, editor_civil):
+@pytest.mark.parametrize("tactil", [False, True], ids=["tactil_apagado", "tactil_encendido"])
+def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, supervisora, editor_civil, settings, tactil):
+    settings.TV_CAD_TACTIL = tactil   # Civil está igual con el modo táctil encendido (producción) o apagado
     p = cad_servicio.crear_vacio(dibujante, "Predio", "", "dxf")
     html = cliente_de(dibujante).get(url("cad_plano", pk=p.pk)).content.decode()
     assert 'id="civil-barra"' in html and "herramientas/cad/civil.js" in html and "Cuadro de construcción" in html

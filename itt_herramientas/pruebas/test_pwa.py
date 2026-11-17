@@ -46,12 +46,16 @@ def test_manifiesto_en_la_raiz_y_sin_sesion(client):
     assert url("manifiesto") == "/manifest.webmanifest"
 
 
-def test_service_worker_en_la_raiz_con_alcance_total(client):
+@pytest.mark.parametrize("tactil", [False, True], ids=["tactil_apagado", "tactil_encendido"])
+def test_service_worker_en_la_raiz_con_alcance_total(client, settings, tactil):
+    settings.TV_CAD_TACTIL = tactil
     r = client.get(url("sw"), HTTP_HOST=HOST)
     assert url("sw") == "/sw.js"
     assert r.status_code == 200 and r["Service-Worker-Allowed"] == "/" and "no-cache" in r["Cache-Control"]
     texto = r.content.decode()
-    assert sw.version() in texto and "/capturar/" in texto and "/subidas/" in texto and "__" not in texto.replace("__proto__", "")
+    assert sw.version_servida() in texto and "/capturar/" in texto and "/subidas/" in texto and "__" not in texto.replace("__proto__", "")
+    # con el modo táctil la versión cambia con su parte de CAD (el teléfono se entera de cada cambio de esa parte)
+    assert (sw.version_servida() == sw.version()) is (not tactil)
     for activo in sw.ACTIVOS:
         assert (sw.ESTATICOS / activo).is_file(), activo
 

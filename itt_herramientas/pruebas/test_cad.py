@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import io
+import gzip
+import hashlib
 import json
 import re
 import os
@@ -193,12 +195,42 @@ def test_descargar_la_vigente_una_version_y_su_nombre(cliente_de, dibujante, pla
     assert cl.get(url("cad_archivo", pk=plano.pk), {"version": "9"}).status_code == 404
 
 
-def test_la_pagina_del_editor_lo_incrusta_con_el_canal_de_control_y_el_lugar_para_extensiones(cliente_de, dibujante, plano, editor_falso):
-    """`?embed=1&automation=1`: el puente de guardado y el canal de control oficial (solo del mismo origen) para el módulo cad/control.js."""
+@pytest.mark.parametrize("tactil", [False, True], ids=["tactil_apagado", "tactil_encendido"])
+def test_la_pagina_del_editor_lo_incrusta_con_el_canal_de_control_y_el_lugar_para_extensiones(cliente_de, dibujante, plano, editor_falso, settings, tactil):
+    """`?embed=1&automation=1`: el puente de guardado y el canal de control oficial (solo del mismo origen) para el módulo cad/control.js.
+    Con el modo táctil encendido (producción), además su configuración con el paquete del editor para bajarlo al teléfono."""
+    settings.TV_CAD_TACTIL = tactil
     html = cliente_de(dibujante).get(url("cad_plano", pk=plano.pk)).content.decode()
     config = json.loads(html.split('id="cad-config" type="application/json">')[1].split("</script>")[0])
     assert config["urls"]["editor"] == f"/cad/editor/{editor.version()}/index.html?embed=1&automation=1"
     assert 'id="cad-extensiones"' in html and "herramientas/cad/control.js" in html
+    if not tactil:
+        assert config["tactil"] is None and "tactil.js" not in html and 'id="cad-tactil-entrar"' not in html
+        return
+    t = config["tactil"]
+    assert t["version"] == editor.version() and t["cuenta"] == dibujante.pk
+    # el paquete: los archivos del manifiesto menos el propio manifiesto, con su tamaño real (y el del .gz que se descarga)
+    assert t["bytes"] == sum(p.stat().st_size for p in editor_falso.rglob("*") if p.is_file() and p.name != "MANIFIESTO.json" and p.suffix != ".gz")
+    gz = lambda p: Path(str(p) + ".gz")
+    assert t["descarga"] == sum((gz(p) if gz(p).is_file() else p).stat().st_size for p in editor_falso.rglob("*")
+                                if p.is_file() and p.name != "MANIFIESTO.json" and p.suffix != ".gz")     # lo que se baja: el .gz si lo hay
+    assert set(t["urls"]) == {"paquete", "sin_conexion", "sesion", "instalar"}
+    assert "herramientas/cad/tactil.js" in html and "herramientas/cad/campo.js" in html and 'id="cad-tactil-entrar"' in html
+
+
+def test_sin_manifiesto_del_editor_la_pagina_abre_y_no_ofrece_bajarlo(cliente_de, dibujante, plano, editor_falso, settings, caplog):
+    """Un editor sin MANIFIESTO.json (o dañado) no tumba la página del plano con el modo táctil: no se ofrece bajarlo y queda en el registro."""
+    from itt_herramientas.cad import tactil
+
+    settings.TV_CAD_TACTIL = True
+    (editor_falso / "MANIFIESTO.json").unlink()
+    tactil._paquete.cache_clear()
+    r = cliente_de(dibujante).get(url("cad_plano", pk=plano.pk))
+    assert r.status_code == 200
+    t = json.loads(r.content.decode().split('id="cad-config" type="application/json">')[1].split("</script>")[0])["tactil"]
+    assert t["descarga"] == 0 and t["bytes"] == 0
+    assert cliente_de(dibujante).get(url("cad_tactil_paquete")).status_code == 404
+    assert any("MANIFIESTO.json" in m for m in caplog.messages)
 
 
 # -- Bloqueo ---------------------------------------------------------------------------------------------------------------------
@@ -575,8 +607,15 @@ def editor_falso(tmp_path, settings):
     (base / "index.html").write_text("<!doctype html><title>x</title>")
     (base / "OpenCADStudio-0123456789abcdef_bg.wasm").write_bytes(b"\0asm\1\0\0\0")
     (base / "worker_pkg" / "ocs_web_worker.js").write_text("export default 1;")
+    (base / "index.html.gz").write_bytes(gzip.compress(b"<!doctype html><title>x</title>"))
+    # el manifiesto que escribe preparar.py: cada archivo con su SHA-256 (el modo táctil lo usa para bajar el editor al teléfono)
+    archivos = {str(p.relative_to(base)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(base.rglob("*")) if p.is_file() and p.suffix != ".gz"}
+    (base / "MANIFIESTO.json").write_text(json.dumps({"version": editor.version(), "archivos": archivos, "comprimidos": ["index.html.gz"]}))
     (tmp_path / "secreto.txt").write_text("no")
     settings.HERRAMIENTAS_CAD_EDITOR_DIR = str(tmp_path / "editor")
+    from itt_herramientas.cad import tactil
+
+    tactil._paquete.cache_clear()
     return base
 
 
@@ -619,11 +658,26 @@ def test_upstream_fijado_con_sha256():
     assert all("fuente" not in n for n in d["nativo"].values()) and d["fuente"]["tipo"] == "publica"
 
 
-def test_el_service_worker_no_guarda_el_editor_en_cache():
+def test_el_service_worker_no_guarda_el_editor_en_cache(settings):
+    """Apagado el modo táctil, el service worker no sabe nada del editor. Encendido, solo sirve las versiones que la persona bajó al
+    teléfono («Descargar CAD en este teléfono»), cada una en su caché con nombre de versión, y lo que viene de la red nunca lo guarda."""
+    import re
+
     from itt_herramientas.offline import sw
 
+    settings.TV_CAD_TACTIL = False
     contenido = sw.contenido()
     assert "/cad/editor" not in contenido and ".wasm" not in contenido
+    settings.TV_CAD_TACTIL = True
+    contenido = sw.contenido()
+    cad = (Path(sw.__file__).parent / "sw_cad.js").read_text()
+    assert cad in contenido and contenido.index(cad) > contenido.index("importScripts(")     # antes del manejador general de fetch
+    assert 'CAD_EDITOR = "itt-cad-editor-"' in cad and "deCache(CAD_EDITOR + version" in cad           # una caché por versión del editor
+    assert r"ruta.match(/^\/cad\/editor\/([^/]+)\/(.+)$/)" in cad                                # /cad/editor/<versión>/…
+    editor_cad = cad.split("async function editorCad(")[1].split("\n}\n")[0]
+    assert "return fetch(peticion);" in editor_cad and ".put(" not in editor_cad and "cache.add" not in editor_cad   # la red, sin guardar
+    assert ".put(" not in cad and ".add(" not in cad and "addAll(" not in cad                     # el SW nunca llena cachés de CAD
+    assert ".wasm" not in cad
 
 
 def test_preparar_editor_comprueba_el_sha256_y_pone_nuestra_pagina(tmp_path):
