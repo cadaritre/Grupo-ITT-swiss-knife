@@ -38,6 +38,7 @@
     let latido = 15;
     let ultimo = null;                     // último estado del bloqueo
     let vioOtro = false;                   // se mostró «La está editando X»: al quedar libre se avisa que ya se puede editar
+    let tuvo = false;                      // esta página tuvo el bloqueo de este documento: lo que escriba sigue siendo de su sesión
 
     const enLinea = () => navigator.onLine;
     const url = (nombre, id, vid) => (docs.urls[nombre] || "").replace("00000000-0000-0000-0000-000000000000", id || "").replace("999999999", vid == null ? "" : String(vid));
@@ -93,7 +94,7 @@
           if (r.eliminado) { mio = false; banda({ tipo: "eliminado" }); ponerLectura(true); }
           else if (r.mio) {
             if (!mio) {                                                  // recién tomado (al abrir, o porque la otra persona terminó)
-              mio = true;
+              mio = true; tuvo = true;
               const local = await ITT.cola.borrador(reg.id);
               if (local && !local.sucio && r.revision > (local.revision_base || 0)) await refrescar();
               if (vioOtro && config.alMensaje) config.alMensaje(`Ya puedes editar ${config.articulo} ${config.nombre}.`, "info");
@@ -137,7 +138,7 @@
       if (quien && !(await confirmar(`${quien} dejará de editar${config.articulo}. Lo que no haya guardado quedará en un borrador de recuperación.`, { aceptar: "Tomar el control" }))) return;
       try {
         const r = await pedirBloqueo("forzar");
-        if (r.mio) { mio = true; vioOtro = false; await refrescar(); banda(null); ponerLectura(false); }
+        if (r.mio) { mio = true; tuvo = true; vioOtro = false; await refrescar(); banda(null); ponerLectura(false); }
       } catch (e) { config.alMensaje && config.alMensaje(e.mensaje || "No se pudo tomar el control. Inténtalo de nuevo.", "error"); }
     }
 
@@ -168,7 +169,7 @@
       clearTimeout(temporizador);
       temporizador = null;
       soltar();
-      reg = null; mio = false; ultimo = null; vioOtro = false;
+      reg = null; mio = false; ultimo = null; vioOtro = false; tuvo = false;
       banda(null); pintarRecuperacion([]); ponerLectura(false);
     }
     addEventListener("pagehide", soltar);
@@ -311,7 +312,9 @@
 
     return {
       abrir, cerrar, historial, avisos, tomarControl,
-      get sesion() { return mio ? sesion : ""; },
+      // Mientras esta página tenga o haya tenido el bloqueo de este documento, lo que se escriba sale con su sesión: si otra persona tomó
+      // el control, el servidor lo guarda en el borrador de recuperación de esta página (nunca como copia en conflicto).
+      get sesion() { return mio || tuvo ? sesion : ""; },
       get soloLectura() { return lectura; },
       get mio() { return mio; },
     };

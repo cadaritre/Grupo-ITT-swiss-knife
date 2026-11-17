@@ -10,7 +10,9 @@
   const raiz = $("rep");
   const urls = {};
   for (const a of raiz.attributes) if (a.name.startsWith("data-url-")) urls[a.name.slice(9)] = a.value;
-  const docs = ITT.crearDocumentos({ tipo: "reporte", lista: "reportes", avisoCopia: "Este reporte cambió mientras lo editabas sin conexión: tu versión, con todas sus fotos, quedó aparte." });
+  const docs = ITT.crearDocumentos({ tipo: "reporte", lista: "reportes", avisoCopia: "Este reporte cambió mientras lo editabas sin conexión: tu versión, con todas sus fotos, quedó aparte.",
+    claves: { fotos: "sha256" },                                       // las fotos se fusionan una por una, como en el servidor
+    sintetico: (f) => ({ titulo: f.titulo || "", cliente: f.cliente || "", fecha: f.fecha || "", con_croquis: true, con_credenciales: false, fotos_por_pagina: 1, fotos: [] }) });
 
   let ctx = null;
   let reg = null;                        // registro abierto
@@ -137,7 +139,7 @@
         h("a", { class: "cot-tarjeta__enlace", href: `#/r/${b.id}` },
           h("span", { class: "cot-tarjeta__folio" }, String(d.fecha || "").split("-").reverse().join("/")),
           h("strong", { class: "cot-tarjeta__titulo" }, nombre),
-          h("span", { class: "cot-tarjeta__cliente" }, [d.cliente, `${d.fotos.length} foto${d.fotos.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")),
+          h("span", { class: "cot-tarjeta__cliente" }, [d.cliente, ((n) => `${n} foto${n === 1 ? "" : "s"}`)(b.parcial ? b.resumen.fotos : d.fotos.length)].filter(Boolean).join(" · ")),
           h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor)),
           b.conflicto ? h("span", { class: "cot-tarjeta__conflicto" }, b.conflicto) : null),
         h("div", { class: "cot-tarjeta__pie" },
@@ -572,8 +574,12 @@
     if (location.hash === "#/nuevo") { history.replaceState(null, "", "#/"); if (ctx) return nuevo(); }            // acción «Nuevo …» de la paleta
     const m = /^#\/r\/([0-9a-f-]{36})$/.exec(location.hash || "");
     if (m) {
-      const r = await ITT.cola.borrador(m[1]);
+      let r = await ITT.cola.borrador(m[1]);
       if (!r || r.borrada || r.tipo !== "reporte") { location.hash = "#/"; return; }
+      if (r.parcial) {                                                  // del equipo y no se ha abierto aquí: sus datos se traen ahora
+        try { r = await docs.abrir(r.id); }
+        catch (e) { location.hash = ultimaLista; mensaje(e.clase === "red" ? "Sin conexión: este reporte aún no está en el teléfono. Ábrelo una vez con señal para tenerlo sin conexión." : e.mensaje || "No se pudo abrir.", "error"); return; }
+      }
       reg = r;
       ordenando = false;
       if (reg.datos.cliente == null) reg.datos.cliente = "";

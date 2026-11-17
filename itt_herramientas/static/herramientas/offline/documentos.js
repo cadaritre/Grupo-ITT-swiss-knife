@@ -119,6 +119,7 @@
     function aRegistro(fila, datos, cuenta, previo) {
       return Object.assign({ tipo, miniaturas: {}, aviso: "", creada: Date.parse(fila.actualizada) || Date.now() }, previo || {}, {
         id: previo ? previo.id : fila.id, cuenta, servidor_id: fila.id, revision_base: fila.revision, datos, sucio: false, borrada: false, error: "", eliminado_en_servidor: false,
+        parcial: false, resumen: Object.assign({}, fila, { datos: undefined, recuperaciones: undefined }),
         actualizada: previo ? previo.actualizada : Date.parse(fila.actualizada) || Date.now(),
       }, delServidor(fila, previo));
     }
@@ -142,51 +143,65 @@
       await cola().guardarBorrador(aRegistro(fila, fila.datos, cuenta, local ? { id: local.id, miniaturas: local.miniaturas, creada: local.creada } : { id }));
     }
 
-    /** Trae del servidor lo que el teléfono no tiene o tiene desactualizado (y no tiene cambios propios sin subir). */
-    /** Todas las páginas de la lista del servidor (los documentos son del equipo: pueden ser muchos). */
-    async function listaCompleta() {
-      const filas = [];
-      let pagina = 1;
-      for (let vueltas = 0; pagina && vueltas < 500; vueltas++) {
-        const r = await pedir(pagina === 1 ? urls.lista : `${urls.lista}${urls.lista.includes("?") ? "&" : "?"}pagina=${pagina}`);
-        filas.push(...(r[config.lista || "cotizaciones"] || []));
-        pagina = r.siguiente || null;
-      }
-      return filas;
+    /** Registro de un documento del equipo que el teléfono solo conoce por su resumen (no se abrió aquí): sin datos para editar. */
+    function parcial(fila, cuenta, previo) {
+      return Object.assign({ tipo, miniaturas: {}, aviso: "", creada: Date.parse(fila.actualizada) || Date.now() }, previo || {}, {
+        id: previo ? previo.id : fila.id, cuenta, servidor_id: fila.id, revision_base: fila.revision, parcial: true, resumen: fila,
+        datos: config.sintetico ? config.sintetico(fila) : {}, sucio: false, borrada: false, error: "", eliminado_en_servidor: false,
+        actualizada: Date.parse(fila.actualizada) || Date.now(),
+      }, delServidor(fila, previo));
     }
 
+    /** Sincronización incremental (`?desde=<cursor>`): solo lo que cambió desde la última vez, con lo que se fue a la papelera.
+     *
+     * Política de lo que se guarda en el teléfono: los documentos que se crearon o se abrieron en él (con sus datos completos, para
+     * trabajar sin conexión) se mantienen al día; de los demás solo se guarda el resumen que pinta la lista, y sus datos se piden al
+     * abrirlos. Lo que se fue a la papelera (o se borró para siempre) se quita del teléfono si no tiene cambios; con cambios se queda, con
+     * su `servidor_id`, y al subir el servidor lo guarda como copia en conflicto. */
     async function descargar(cuenta) {
-      const filas = await listaCompleta();
-      const locales = (await cola().borradores()).filter(esMio);
-      const porServidor = new Map(locales.filter((b) => b.servidor_id).map((b) => [b.servidor_id, b]));
-      const vigentes = new Set(filas.map((c) => c.id));
-      for (const fila of filas) {
-        const local = porServidor.get(fila.id);
-        if (local && (local.sucio || local.revision_base >= fila.revision)) {
-          // Ya está al día (o con cambios propios): solo se completa lo que fija el servidor (autor, quién lo modificó, bloqueo, PDF).
-          const extra = delServidor(fila, local);
-          const antes = { autor: local.autor || null, pdf_revision: local.pdf_revision == null ? null : local.pdf_revision, modificado: local.modificado || null,
-            bloqueo: local.bloqueo || null, conflicto: local.conflicto || "", puede_borrar: local.puede_borrar !== false };
-          if (JSON.stringify(antes) !== JSON.stringify(extra)) await cola().actualizarBorrador(local.id, (x) => Object.assign(x, extra));
-          continue;
+      const llaveCursor = `cursor:${tipo}:${cuenta}`;
+      let cursor = await cola().ajuste(llaveCursor, 0);
+      for (let vueltas = 0; vueltas < 1000; vueltas++) {
+        const r = await pedir(`${urls.lista}${urls.lista.includes("?") ? "&" : "?"}desde=${encodeURIComponent(cursor || 0)}`);
+        const locales = (await cola().borradores()).filter(esMio);
+        const porServidor = new Map(locales.filter((b) => b.servidor_id).map((b) => [b.servidor_id, b]));
+        for (const fila of r[config.lista || "cotizaciones"] || []) {
+          const local = porServidor.get(fila.id);
+          if (!local) { await cola().guardarBorrador(parcial(fila, cuenta, null)); continue; }
+          if (local.parcial) { await cola().guardarBorrador(parcial(fila, cuenta, local)); continue; }
+          if (!local.sucio && !local.borrada && (local.revision_base || 0) < fila.revision) {     // guardado en el teléfono: se trae lo nuevo
+            const detalle = await pedir(url("detalle", fila.id));
+            await cola().guardarBorrador(aRegistro(detalle, detalle.datos, cuenta, local));
+            continue;
+          }
+          await cola().actualizarBorrador(local.id, (x) => Object.assign(x, delServidor(fila, x), { resumen: fila }));
         }
-        const detalle = await pedir(url("detalle", fila.id));
-        await cola().guardarBorrador(aRegistro(fila, detalle.datos, cuenta, local));
-      }
-      // Lo que no vino en la lista NO se da por borrado: se pregunta al servidor. Si está en la papelera (410) o ya no existe (404) y aquí
-      // no tiene cambios, se quita del teléfono; con cambios se queda tal cual, con su `servidor_id`: al subir, el servidor guarda lo de
-      // aquí como copia en conflicto. Nunca se olvida el `servidor_id` (eso creaba un documento nuevo, con otro folio y sin marca).
-      for (const b of locales) {
-        if (!b.servidor_id || vigentes.has(b.servidor_id) || b.borrada) continue;
-        try {
-          const detalle = await pedir(url("detalle", b.servidor_id));
-          if (!b.sucio && detalle.revision !== b.revision_base) await cola().guardarBorrador(aRegistro(detalle, detalle.datos, cuenta, b));
-        } catch (e) {
-          if ((e.estado === 410 || e.estado === 404) && !b.sucio) await cola().quitarBorrador(b.id);
-          else if (e.estado === 410 || e.estado === 404) await cola().actualizarBorrador(b.id, (x) => Object.assign(x, { eliminado_en_servidor: true }));
-          else if (e.clase === "red" || e.clase === "sesion") throw e;
+        const fuera = async (b) => {
+          if (!b || b.borrada) return;
+          if (!b.sucio) await cola().quitarBorrador(b.id);
+          else await cola().actualizarBorrador(b.id, (x) => Object.assign(x, { eliminado_en_servidor: true }));
+        };
+        for (const id of r.eliminados || []) await fuera(porServidor.get(id));
+        if (r.vigentes) {                                              // se borraron documentos para siempre desde el cursor anterior
+          const siguen = new Set(r.vigentes);
+          for (const b of locales) if (b.servidor_id && !siguen.has(b.servidor_id)) await fuera(b);
         }
+        cursor = r.cursor;
+        await cola().guardarAjuste(llaveCursor, cursor);
+        if (!r.mas) break;
       }
+    }
+
+    /** Abre un documento que el teléfono solo conoce por su resumen: trae sus datos y desde ahí se guarda en el teléfono. */
+    async function abrir(id) {
+      const local = await cola().borrador(id);
+      if (!local || !local.parcial) return local;
+      const detalle = await pedir(url("detalle", local.servidor_id));
+      const cuenta = await cola().ajuste("cuenta", null);
+      const nuevo = aRegistro(detalle, detalle.datos, cuenta, { id: local.id, creada: local.creada });
+      nuevo.recuperaciones = detalle.recuperaciones || [];
+      await cola().guardarBorrador(nuevo);
+      return nuevo;
     }
 
     async function subirUno(b, cuenta) {
@@ -224,9 +239,14 @@
         // editó, lo de aquí NO incluye lo del equipo: se conserva la revisión base anterior para que el servidor vuelva a fusionar (si se
         // tomara la nueva, el siguiente guardado pisaría lo del equipo).
         await cola().actualizarBorrador(b.id, (x) => {
-          x.servidor_id = r.servidor_id; x.error = ""; x.sesion = "";
+          x.servidor_id = r.servidor_id; x.error = "";
           if (r.modificado) x.modificado = r.modificado;
-          if (x.actualizada === enviado) { x.datos = r.datos; x.sucio = false; x.revision_base = r.revision; }
+          if (x.actualizada === enviado) { x.datos = r.datos; x.sucio = false; x.revision_base = r.revision; x.sesion = ""; return x; }
+          // Se siguió escribiendo durante la petición: lo nuevo de aquí se pone encima de la fusión del servidor, con la misma regla que
+          // el servidor (offline/fusion.js). Así la siguiente subida parte de la revisión fusionada y no choca consigo misma. Solo si eso
+          // choca se conserva la base anterior, para que el servidor vuelva a fusionar (o guarde copia); nunca se pisa nada.
+          try { x.datos = ITT.fusionar(datosEnviados, r.datos, x.datos, config.claves || {}); x.revision_base = r.revision; }
+          catch (e) { if (!(ITT.ChoqueDeFusion && e instanceof ITT.ChoqueDeFusion)) throw e; }
           return x;
         });
         if ((await cola().borrador(b.id) || {}).sucio) repetir = true;
@@ -234,8 +254,13 @@
         return;
       }
       if (r.resultado === "copia") {
-        // El servidor cambió desde la revisión del teléfono: la versión del teléfono quedó como copia (nada se perdió ni se pisó).
-        const original = await pedir(url("detalle", r.copia_de));
+        // El servidor cambió desde la revisión del teléfono: la versión del teléfono quedó como copia (nada se perdió ni se pisó). Si el
+        // original se borró o está en la papelera, el teléfono se queda solo con la copia.
+        let original = null;
+        if (r.copia_de) {
+          try { original = await pedir(url("detalle", r.copia_de)); }
+          catch (e) { if (e.estado !== 410 && e.estado !== 404) throw e; }
+        }
         const servidorCopia = await pedir(url("detalle", r.servidor_id));
         const actual = await cola().borrador(b.id);
         const cambioDespues = actual && actual.actualizada !== enviado;
@@ -244,7 +269,8 @@
           aviso: `${r.conflicto || "Copia en conflicto"}. ${config.avisoCopia || "Este documento cambió mientras lo editabas sin conexión: tu versión quedó aparte, nada se perdió."}` },
         delServidor(servidorCopia));
         await cola().guardarBorrador(copia);
-        await cola().guardarBorrador(aRegistro(original, original.datos, cuenta, actual ? { id: actual.id, miniaturas: actual.miniaturas } : { id: b.id }));
+        if (original) await cola().guardarBorrador(aRegistro(original, original.datos, cuenta, actual ? { id: actual.id, miniaturas: actual.miniaturas } : { id: b.id }));
+        else if (copia.id !== b.id) await cola().quitarBorrador(b.id);          // el original ya no está: queda solo la copia
         avisar({ tipo_evento: "copia", id: b.id, copia: copia.id });
         return;
       }
@@ -299,7 +325,7 @@
       return id;
     }
 
-    return { tipo, iniciar, pedir, url, listar, crear, guardar, borrar, sincronizar, copiar, localDe, refrescar, guardarDelServidor, get urls() { return urls; } };
+    return { tipo, iniciar, pedir, url, listar, crear, guardar, borrar, sincronizar, copiar, localDe, refrescar, guardarDelServidor, abrir, get urls() { return urls; } };
   }
 
   ITT.crearDocumentos = crearDocumentos;

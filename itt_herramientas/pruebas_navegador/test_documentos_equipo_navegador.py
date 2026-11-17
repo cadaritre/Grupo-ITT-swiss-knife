@@ -176,7 +176,13 @@ def test_reporte_sin_conexion_se_fusiona_con_lo_que_otro_cambio(motor, tmp_path,
         pagina = abrir(ctx, servidor, "/reportes/", "html[data-rep-lista]")
         pagina.wait_for_selector("#rep-lista .cot-tarjeta", timeout=TIEMPO)              # el reporte de Beto ya está en el teléfono de Ana
         expect(pagina.locator("#rep-lista")).to_contain_text("Beto Sáenz")
-        # Ana se queda sin señal en campo y edita el cliente.
+        # Ana lo abre una vez con señal: desde ahí se guarda en su teléfono (los que no abre, solo los conoce por su resumen).
+        pagina.locator("#rep-lista .cot-tarjeta__enlace").first.click()
+        pagina.wait_for_selector("#rep-vista-editor:not([hidden])")
+        esperar(pagina, "!document.querySelector('#rep-paso-datos').inert")
+        pagina.locator("#rep-volver").click()
+        pagina.wait_for_selector("#rep-vista-lista:not([hidden])")
+        # Se queda sin señal en campo y edita el cliente.
         ctx.set_offline(True)
         pagina.locator("#rep-lista .cot-tarjeta__enlace").first.click()
         pagina.wait_for_selector("#rep-vista-editor:not([hidden])")

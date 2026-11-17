@@ -20,7 +20,7 @@ SCRIPTS_SW = ("offline/cola.js", "offline/tus.js", "offline/subidor.js")
 ACTIVOS = (
     "offline/cola.js", "offline/tus.js", "offline/subidor.js", "offline/exif.js", "offline/reducir.js", "offline/reducir.worker.js",
     "offline/compartir.js", "offline/ui.js", "offline/menu.js", "offline/captura.js", "offline/instalar.js", "offline/pwa.css",
-    "offline/ayudas.js", "offline/documentos.js", "offline/compartido.js", "offline/vista-pdf.js", "offline/listas.js", "offline/combobox.js",
+    "offline/ayudas.js", "offline/fusion.js", "offline/documentos.js", "offline/compartido.js", "offline/vista-pdf.js", "offline/listas.js", "offline/combobox.js",
     "reportes/orden.js", "reportes/reportes.js", "reportes/reportes.css", "croquis/croquis.js", "croquis/croquis.css",
     "cotizaciones/totales.js", "cotizaciones/borradores.js", "cotizaciones/ortografia.js", "cotizaciones/editor.js", "cotizaciones/cotizaciones.css",
     "cad/sesion.js", "vendor/pdfjs/pdf.min.mjs", "vendor/pdfjs/pdf.worker.min.mjs",

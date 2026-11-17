@@ -9,7 +9,9 @@
   const ITT = (global.ITT = global.ITT || {});
   const cola = () => ITT.cola;
   const docs = ITT.crearDocumentos({ tipo: "cotizacion", lista: "cotizaciones",
-    avisoCopia: "Esta cotización cambió mientras la editabas sin conexión: tu versión quedó aparte, con su propio folio." });
+    avisoCopia: "Esta cotización cambió mientras la editabas sin conexión: tu versión quedó aparte, con su propio folio.",
+    // Lo que pinta la lista de una cotización del equipo que no se abrió en este teléfono (sus datos llegan al abrirla).
+    sintetico: (f) => ({ quote_number: f.folio || "", client_name: f.cliente || "", project_title: f.proyecto || "", currency: f.moneda || "", quote_date: f.fecha || "", items: [], images: [] }) });
   const { pedir, url, copiar } = docs;
   const dos = (n) => String(n).padStart(2, "0");
   const hoy = () => { const d = new Date(); return `${dos(d.getDate())}/${dos(d.getMonth() + 1)}/${d.getFullYear()}`; };

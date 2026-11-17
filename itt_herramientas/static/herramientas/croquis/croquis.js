@@ -10,7 +10,8 @@
   const raiz = $("cq");
   const urls = {};
   for (const a of raiz.attributes) if (a.name.startsWith("data-url-")) urls[a.name.slice(9)] = a.value;
-  const docs = ITT.crearDocumentos({ tipo: "croquis", lista: "croquis", avisoCopia: "Este croquis cambió mientras lo editabas sin conexión: tu versión quedó aparte." });
+  const docs = ITT.crearDocumentos({ tipo: "croquis", lista: "croquis", avisoCopia: "Este croquis cambió mientras lo editabas sin conexión: tu versión quedó aparte.",
+    sintetico: (f) => ({ title: f.titulo || "", client: f.cliente || "", project: f.proyecto || "", points: [] }) });
   const mensaje = (texto, tipo) => ITT.ui.mensaje("cq-mensaje", texto, tipo);
   const { icono, boton } = ITT.ui;
   const enLinea = () => navigator.onLine;
@@ -99,10 +100,11 @@
     $("cq-lista-vacia").hidden = todos.length > 0;
     for (const b of todos) {
       const d = b.datos;
-      const km2 = areaKm2(d.points);
+      const km2 = b.parcial ? Number(b.resumen.area_km2 || 0) : areaKm2(d.points);
+      const vertices = b.parcial ? Number(b.resumen.vertices || 0) : d.points.length;
       ul.append(h("li", { class: "cot-tarjeta", "data-id": b.id, "data-sucio": b.sucio ? "1" : "" },
         h("a", { class: "cot-tarjeta__enlace", href: `#/q/${b.id}` },
-          h("span", { class: "cot-tarjeta__folio" }, d.points.length ? `${d.points.length} vértices · ${textoKm2(km2)}${km2 >= 1 ? " km²" : ""}` : "Sin área"),
+          h("span", { class: "cot-tarjeta__folio" }, vertices ? `${vertices} vértices · ${textoKm2(km2)}${km2 >= 1 ? " km²" : ""}` : "Sin área"),
           h("strong", { class: "cot-tarjeta__titulo" }, d.title || "Sin título"),
           h("span", { class: "cot-tarjeta__cliente" }, [d.client, d.project].filter(Boolean).join(" · ") || "Sin cliente"),
           h("span", { class: "cot-tarjeta__autor" }, ITT.ui.autoriaCorta(b, ctx && ctx.autor)),
@@ -579,8 +581,12 @@
     if (location.hash === "#/nuevo") { history.replaceState(null, "", "#/"); if (ctx) return nuevo(); }            // acción «Nuevo …» de la paleta
     const m = /^#\/q\/([0-9a-f-]{36})$/.exec(location.hash || "");
     if (m) {
-      const r = await ITT.cola.borrador(m[1]);
+      let r = await ITT.cola.borrador(m[1]);
       if (!r || r.borrada || r.tipo !== "croquis") { location.hash = "#/"; return; }
+      if (r.parcial) {                                                  // del equipo y no se ha abierto aquí: sus datos se traen ahora
+        try { r = await docs.abrir(r.id); }
+        catch (e) { location.hash = "#/"; mensaje(e.clase === "red" ? "Sin conexión: este croquis aún no está en el teléfono. Ábrelo una vez con señal para tenerlo sin conexión." : e.mensaje || "No se pudo abrir.", "error"); return; }
+      }
       reg = r;
       estado = { vectores: "ninguno", resumen: {}, datos: null };
       mostrar("editor");

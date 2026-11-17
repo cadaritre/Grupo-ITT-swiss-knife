@@ -160,7 +160,7 @@
     $("cot-lista-vacia").hidden = todos.length > 0;
     $("cot-herramientas-lista").hidden = todos.length === 0;
     for (const b of visibles) {
-      const t = T.totales(b.datos);
+      const t = b.parcial ? { total: b.resumen.total } : T.totales(b.datos);           // de las que no se abrieron aquí, el total del servidor
       const folio = b.datos.quote_number || "Folio al sincronizar";
       const estado = b.error ? h("span", { class: "itt-estado", "data-estado": "error" }, icono("triangle-alert"), h("span", {}, "No se pudo subir"))
         : b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("cloud-off"), h("span", {}, "Sin subir")) : null;
@@ -190,6 +190,9 @@
   }
   async function duplicarDesde(b) {
     if (!ctx) return;
+    if (b.parcial) {
+      try { b = await ITT.cot.docs.abrir(b.id); } catch (e) { return mensaje(e.clase === "red" ? "Sin conexión: esta cotización aún no está en el teléfono. Ábrela una vez con señal." : e.mensaje || "No se pudo abrir.", "error"); }
+    }
     const r = await ITT.cot.duplicar(ctx, b);
     await ITT.refrescarCola();
     mensaje(`Copia creada: ${r.datos.quote_number}.`, "info");
@@ -736,8 +739,12 @@
       return ruta();
     }
     if ((m = /^#\/c\/([0-9a-f-]{36})$/.exec(hash))) {
-      const r = await ITT.cola.borrador(m[1]);
+      let r = await ITT.cola.borrador(m[1]);
       if (!r || r.borrada) { location.hash = "#/"; return; }
+      if (r.parcial) {                                                  // del equipo y no se ha abierto aquí: sus datos se traen ahora
+        try { r = await ITT.cot.docs.abrir(r.id); }
+        catch (e) { location.hash = ultimaLista; mensaje(e.clase === "red" ? "Sin conexión: esta cotización aún no está en el teléfono. Ábrela una vez con señal para tenerla sin conexión." : e.mensaje || "No se pudo abrir.", "error"); return; }
+      }
       reg = r;
       $("cot-volver").setAttribute("href", ultimaLista);
       mostrar("editor");
