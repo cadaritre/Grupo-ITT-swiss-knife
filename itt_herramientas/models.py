@@ -75,6 +75,10 @@ class DocumentoCompartido(ConAutor):
         from django.db import transaction
 
         with transaction.atomic():                                  # el número y el guardado se confirman juntos, en orden
+            if not self._state.adding and self.pk is not None:
+                # Primero el renglón y después el candado de los números de cambio, siempre en ese orden (como quien ya tiene el
+                # renglón con select_for_update): al revés, una sincronización y la tarea de un PDF se esperaban una a la otra.
+                type(self).objects.select_for_update().filter(pk=self.pk).values_list("pk", flat=True).first()
             self.cambio = siguiente_cambio()
             if campos is not None:
                 kwargs["update_fields"] = [*campos, "cambio"]
@@ -100,6 +104,8 @@ def tocar(modelo, pk) -> None:
     from django.db import transaction
 
     with transaction.atomic():
+        if modelo.objects.select_for_update().filter(pk=pk).values_list("pk", flat=True).first() is None:     # el renglón primero
+            return
         modelo.objects.filter(pk=pk).update(cambio=siguiente_cambio())
 
 

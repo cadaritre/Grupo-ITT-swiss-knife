@@ -108,8 +108,9 @@ def fila(doc, usuario) -> dict:
     """Autoría, «modificada por», bloqueo vigente y permisos: lo común de cada renglón y de cada encabezado."""
     bloqueo = None
     if bloqueo_activo(doc):
+        # `caduca`: el latido no mueve el cursor de las listas, así que el teléfono deja de mostrar el bloqueo cuando pasa esa hora.
         bloqueo = {"nombre": doc.bloqueo_nombre or "Otra persona", "desde": (doc.bloqueo_desde or doc.bloqueo_latido).isoformat(),
-                   "mio": doc.bloqueo_cuenta_id == usuario.pk}
+                   "mio": doc.bloqueo_cuenta_id == usuario.pk, "caduca": (doc.bloqueo_latido + timedelta(seconds=BLOQUEO_SEGUNDOS)).isoformat()}
     return {"autor": autoria.fila(doc), "modificado": {"nombre": doc.modificado_por_nombre or doc.autor_nombre, "fecha": doc.actualizada.isoformat()},
             "bloqueo": bloqueo, "conflicto": doc.conflicto, "puede_borrar": puede_eliminar(usuario, doc)}
 
@@ -403,10 +404,14 @@ def limpiar() -> int:
 def al_eliminar_cuenta(cuenta_id: int) -> str | None:
     """Contrato 1.8: los documentos son de la empresa y se quedan con el nombre de su autor. Se sueltan los que la persona tenía abiertos y
     se borran sus borradores de recuperación y sus avisos. Lo que guardó en Google Drive sigue las reglas de Drive. Idempotente."""
+    from ..models import tocar
+
     soltados = 0
     for modelo in MODELOS.values():
-        soltados += modelo.objects.filter(bloqueo_cuenta_id=cuenta_id).update(bloqueo_cuenta_id=None, bloqueo_nombre="", bloqueo_sesion="",
-                                                                            bloqueo_latido=None, bloqueo_desde=None)
+        ids = list(modelo.objects.filter(bloqueo_cuenta_id=cuenta_id).values_list("pk", flat=True))
+        soltados += modelo.objects.filter(pk__in=ids).update(bloqueo_cuenta_id=None, bloqueo_nombre="", bloqueo_sesion="", bloqueo_latido=None, bloqueo_desde=None)
+        for pk in ids:
+            tocar(modelo, pk)                                       # las listas de los teléfonos dejan de mostrar «La está editando»
     borrados = BorradorRecuperacion.objects.filter(cuenta_id=cuenta_id).delete()[0]
     AvisoDocumento.objects.filter(cuenta_id=cuenta_id).delete()
     partes = []

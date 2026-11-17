@@ -134,14 +134,16 @@ def lista_incremental(request, tipo: str, clave: str, fila):
         desde = max(0, int(request.GET.get("desde", "0") or 0))
     except ValueError:
         desde = 0
+    purga = PurgaDocumentos.objects.filter(tipo=tipo).values_list("hasta", flat=True).first() or 0     # antes que los renglones
     filas = list(modelo.objects.filter(cambio__gt=desde).order_by("cambio")[:POR_PAGINA + 1])
     mas = len(filas) > POR_PAGINA
     filas = filas[:POR_PAGINA]
     cuerpo = {clave: [fila(d, request.user) for d in filas if d.eliminado is None], "eliminados": [str(d.pk) for d in filas if d.eliminado is not None],
               "cursor": filas[-1].cambio if filas else desde, "mas": mas}
-    purga = PurgaDocumentos.objects.filter(tipo=tipo).values_list("hasta", flat=True).first()
     if desde and purga and desde < purga:
         cuerpo["vigentes"] = [str(pk) for pk in documentos.visibles(modelo).values_list("pk", flat=True)]
+    if not mas:
+        cuerpo["cursor"] = max(cuerpo["cursor"], purga)             # ya vio la purga: la siguiente no vuelve a mandar los vigentes
     return _privado(JsonResponse(cuerpo))
 
 

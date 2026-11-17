@@ -146,7 +146,7 @@
           por || b.sucio ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono(enLinea() ? "cloud-upload" : "cloud-off"), h("span", {}, por ? `${por} foto${por === 1 ? "" : "s"} por subir` : "Sin subir"))
             : h("span", { class: "itt-estado" }, icono("cloud-check"), h("span", {}, "Guardado")),
           b.aviso || b.conflicto ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia en conflicto")) : null,
-          b.bloqueo && !b.bloqueo.mio ? h("span", { class: "itt-estado", "data-estado": "bloqueo" }, icono("lock"), h("span", {}, `Lo edita ${b.bloqueo.nombre}`)) : null,
+          ITT.ui.bloqueoVigente(b) ? h("span", { class: "itt-estado", "data-estado": "bloqueo" }, icono("lock"), h("span", {}, `Lo edita ${b.bloqueo.nombre}`)) : null,
           h("span", { class: "cot-tarjeta__espacio" }),
           b.puede_borrar === false ? null : boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${d.titulo || "reporte"}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));
     }

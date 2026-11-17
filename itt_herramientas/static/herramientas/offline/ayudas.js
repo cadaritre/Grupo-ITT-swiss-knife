@@ -133,5 +133,13 @@
     return [a.nombre || a.correo, otro, fechaCorta(m && m.fecha ? m.fecha : a.creada)].filter(Boolean).join(" · ");
   }
 
-  ITT.ui = { h, limpiar, mensaje, confirmar, fechaAIso, fechaAEs, fechaCorta, icono, boton, autoria, autoriaCorta };
+  /** ¿Sigue vigente el bloqueo que dice el resumen de la lista? El latido no actualiza las listas: pasada su hora (`caduca`), ya no. */
+  function bloqueoVigente(reg, ahora) {
+    const b = reg && reg.bloqueo;
+    if (!b || b.mio) return false;
+    const caduca = Date.parse(b.caduca || "");
+    return !Number.isFinite(caduca) || caduca > (ahora == null ? Date.now() : ahora);
+  }
+
+  ITT.ui = { h, limpiar, mensaje, confirmar, fechaAIso, fechaAEs, fechaCorta, icono, boton, autoria, autoriaCorta, bloqueoVigente };
 })(typeof self !== "undefined" ? self : this);

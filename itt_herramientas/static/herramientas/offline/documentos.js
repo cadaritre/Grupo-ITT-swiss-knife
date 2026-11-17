@@ -97,6 +97,8 @@
     /** Guarda cambios del editor. Lee-modifica-escribe en una transacción: dos guardados seguidos no se pisan. */
     async function guardar(id, datos, extra) {
       return cola().actualizarBorrador(id, (b) => {
+        // Un documento del equipo que aquí solo se conoce por su resumen no tiene sus datos: guardarlo pisaría lo del servidor.
+        if (b.parcial) throw new Error("Este documento aún no está en el teléfono: ábrelo con señal para editarlo.");
         b.datos = copiar(datos);
         b.sucio = true;
         b.actualizada = Date.now();
@@ -245,7 +247,8 @@
           // Se siguió escribiendo durante la petición: lo nuevo de aquí se pone encima de la fusión del servidor, con la misma regla que
           // el servidor (offline/fusion.js). Así la siguiente subida parte de la revisión fusionada y no choca consigo misma. Solo si eso
           // choca se conserva la base anterior, para que el servidor vuelva a fusionar (o guarde copia); nunca se pisa nada.
-          try { x.datos = ITT.fusionar(datosEnviados, r.datos, x.datos, config.claves || {}); x.revision_base = r.revision; }
+          // La base es lo enviado tal como lo guardó el servidor (`r.enviados`, normalizado: sin espacios de más, etc.), igual que `r.datos`.
+          try { x.datos = ITT.fusionar(r.enviados || datosEnviados, r.datos, x.datos, config.claves || {}); x.revision_base = r.revision; }
           catch (e) { if (!(ITT.ChoqueDeFusion && e instanceof ITT.ChoqueDeFusion)) throw e; }
           return x;
         });

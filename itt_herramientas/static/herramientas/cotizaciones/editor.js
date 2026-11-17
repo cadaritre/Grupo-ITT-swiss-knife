@@ -176,7 +176,7 @@
           h("span", { class: "cot-tarjeta__total" }, dinero(t.total), h("small", {}, ` ${b.datos.currency || ""}`)),
           estado,
           b.aviso || b.conflicto ? h("span", { class: "itt-estado", "data-estado": "pendiente" }, icono("copy"), h("span", {}, "Copia en conflicto")) : null,
-          b.bloqueo && !b.bloqueo.mio ? h("span", { class: "itt-estado", "data-estado": "bloqueo" }, icono("lock"), h("span", {}, `La edita ${b.bloqueo.nombre}`)) : null,
+          ITT.ui.bloqueoVigente(b) ? h("span", { class: "itt-estado", "data-estado": "bloqueo" }, icono("lock"), h("span", {}, `La edita ${b.bloqueo.nombre}`)) : null,
           h("span", { class: "cot-tarjeta__espacio" }),
           boton({ onclick: () => duplicarDesde(b), etiqueta: `Duplicar ${folio}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "copy"),
           b.puede_borrar === false ? null : boton({ onclick: () => borrarRegistro(b), etiqueta: `Eliminar ${folio}`, class: "tv-boton tv-boton--secundario itt-boton-plano" }, "trash-2"))));

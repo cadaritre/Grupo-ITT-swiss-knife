@@ -172,7 +172,8 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
                 actual.revision += 1
                 actual.save()
                 documentos.registrar_version(actual, usuario, nota="Fusionada con cambios hechos sin conexión")
-                return {"resultado": "fusionada", **resumen(actual), "datos": actual.datos}
+                # `enviados`: lo que mandó el teléfono tal como lo guarda el servidor (normalizado): es la base de la fusión del teléfono.
+                return {"resultado": "fusionada", **resumen(actual), "datos": actual.datos, "enviados": nuevos}
         return copiar_(actual, documentos.referencia(actual))
 
 

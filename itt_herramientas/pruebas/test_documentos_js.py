@@ -311,3 +311,51 @@ def test_la_fusion_del_telefono_es_la_misma_del_servidor():
     diferencias = [(c, e, j) for c, e, j in zip(casos, esperado, js) if e != j]
     assert not diferencias, f"{len(diferencias)} diferencias; la primera: {diferencias[0]}"
     assert sum(1 for e in esperado if "choque" in e) > 100 and sum(1 for e in esperado if "ok" in e) > 100      # hay de los dos
+
+
+def test_la_base_de_la_fusion_es_lo_enviado_como_lo_guardo_el_servidor():
+    """Se mandó «y1 » (con espacio); el servidor lo guarda sin él y fusiona con lo de la oficina; mientras tanto se escribió «y12». Con
+    lo enviado tal cual como base, «y1 » ≠ «y1» parecería un choque y saldría una copia en conflicto innecesaria."""
+    r = correr(SERVIDOR + r"""
+      const limpio = (d) => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]));
+      srv.historia[1] = { x: "x0", y: "y0" }; srv.datos = { x: "x0", y: "y0" };
+      guardar({ x: "oficina", y: "y0" });
+      almacen.set("L", { id: "L", tipo: "cotizacion", cuenta: 1, servidor_id: "S", revision_base: 1, datos: { x: "x0", y: "y1 " }, sucio: true, actualizada: 100 });
+      let vez = 0;
+      servidor = async (ruta, o) => {
+        if (ruta === "/s/") {
+          const cuerpo = JSON.parse(o.body);
+          cuerpo.datos = limpio(cuerpo.datos);                              // el servidor normaliza lo que recibe
+          const respuesta = sincronizar(cuerpo);
+          if (respuesta.resultado === "fusionada") respuesta.enviados = cuerpo.datos;
+          if (++vez === 1) await ITT.cola.actualizarBorrador("L", (x) => Object.assign(x, { datos: { x: "x0", y: "y12" }, actualizada: 200 }));
+          return { status: 200, body: respuesta };
+        }
+        if (ruta.startsWith("/l/")) return { status: 200, body: { cotizaciones: [], eliminados: [], cursor: 5, mas: false } };
+        return { status: 404, body: {} };
+      };
+      await docs.sincronizar();
+      console.log(JSON.stringify({ copias: srv.copias, datos: srv.datos }));
+    """)
+    assert r["copias"] == 0 and r["datos"] == {"x": "oficina", "y": "y12"}
+
+
+def test_guardar_no_acepta_un_documento_que_solo_se_conoce_por_su_resumen():
+    r = correr(r"""
+      almacen.set("P", { id: "P", tipo: "cotizacion", cuenta: 1, servidor_id: "S", revision_base: 3, parcial: true, datos: { quote_number: "COT-1" }, sucio: false, actualizada: 1 });
+      let error = null;
+      try { await docs.guardar("P", { quote_number: "COT-1", items: [] }); } catch (e) { error = e.message; }
+      console.log(JSON.stringify({ error, P: almacen.get("P") }));
+    """)
+    assert r["error"] and r["P"]["sucio"] is False and r["P"]["datos"] == {"quote_number": "COT-1"}
+
+
+def test_un_bloqueo_que_ya_caduco_no_se_muestra_en_la_lista():
+    r = correr(r"""
+      require(process.argv[1] + "/ayudas.js");
+      const ahora = Date.parse("2026-11-16T12:00:00Z");
+      const con = (caduca, mio) => ({ bloqueo: { nombre: "Beto", caduca, mio: !!mio } });
+      console.log(JSON.stringify([ITT.ui.bloqueoVigente(con("2026-11-16T12:01:00Z"), ahora), ITT.ui.bloqueoVigente(con("2026-11-16T11:59:00Z"), ahora),
+        ITT.ui.bloqueoVigente(con("2026-11-16T12:01:00Z", true), ahora), ITT.ui.bloqueoVigente({ bloqueo: null }, ahora)]));
+    """)
+    assert r == [True, False, False, False]
