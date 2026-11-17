@@ -642,6 +642,12 @@ def test_capturas_de_las_pantallas_nuevas(tactil, navegar, crear_usuario, roles,
     _din(p, "12.5")
     p.wait_for_timeout(300)
     p.screenshot(path=f"{base}-5-teclado-distancia.png", caret="initial")
+    for ch in "000":
+        p.locator(f'#tt-din [data-d="{ch}"]').click()
+    p.wait_for_timeout(300)
+    p.screenshot(path=f"{base}-5b-punto-fuera.png", caret="initial")
+    for _ in range(3):
+        p.locator('#tt-din [data-d="borrar"]').click()
     p.locator('#tt-din [data-d="cerrar"]').click()
     p.wait_for_timeout(300)
     p.screenshot(path=f"{base}-6-valor-fijo.png", caret="initial")
@@ -735,4 +741,155 @@ def test_el_paso_a_sin_guardar_va_con_el_borrador_sin_nada_del_dibujo(tactil, na
     p.evaluate("TVCad.ejecutar('CIRCLE 395040,3175040 1')")
     p.wait_for_timeout(5000)
     assert len([c for c in cabeceras if c]) == 1 and len(cabeceras) >= 1
+    _sin_errores(n, motor)
+
+
+# -- Escribir nunca mueve la vista (dueño, 17-11, tercera vuelta) --------------------------------------------------------------------
+
+def _vista_y_camara(p):
+    return p.evaluate("""(async () => { const v = TVCadTactil.vista(); const s = await TVCad.pedir({op: 'state'});
+      return [v.cx, v.cy, v.k, s.camera.target[0], s.camera.target[1], s.camera.distance]; })()""")
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_escribir_una_coordenada_utm_nunca_mueve_la_vista(tactil, navegar, crear_usuario, roles, motor):
+    """Con UTM, cada valor a medias («3», «39», …) caía lejos y la vista lo seguía hasta el origen. Ahora la vista no se mueve con
+    ninguna tecla ni al poner el punto; fuera de la vista se ve un indicador en el borde y «Ver el punto» lleva ahí solo si se toca."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_utm(ana)
+    n, p = abrir(navegar, ana, motor, p0=p0)
+    _herramienta(p, "dibujar", "Círculo")
+    arriba = p.evaluate("(() => { const v = TVCadTactil.vista(); return TVCadTactil.aMundo(v.ox, v.oy); })()")
+    p.locator('.tt-valor[data-campo="x"] .tt-valor__b').click()
+    p.wait_for_timeout(1200)                                   # el teclado ocupa el lugar de la barra: el área se achica, el dibujo no se mueve
+    v0 = _vista_y_camara(p)
+    assert p.evaluate("(() => { const v = TVCadTactil.vista(); return TVCadTactil.aMundo(v.ox, v.oy); })()") == pytest.approx(arriba, abs=v0[2])
+    # Un punto en medio de lo que se ve (encima de la lectura), redondeado a 0.25 m.
+    cx, cy = p.evaluate("""(() => { const z = document.getElementById('tt-zona'), l = document.getElementById('tt-lectura');
+      return TVCadTactil.aMundo(z.clientWidth / 2, l.offsetTop / 2); })()""")
+    cx, cy = round(cx * 4) / 4, round(cy * 4) / 4
+    assert cx > 395000 and cy > 3175000
+    vistos = []
+    for campo, valor in (("x", repr(cx)), ("y", repr(cy))):
+        if campo == "y":
+            p.locator('#tt-din [data-d="siguiente"]').click()
+        for ch in valor:
+            p.locator(f'#tt-din [data-d="{ch}"]').click()
+            p.wait_for_timeout(60)
+            assert _vista_y_camara(p) == v0, (campo, ch)
+            vistos.append(p.locator("#tt-fuera").is_visible())
+    assert vistos[0] is True                                   # «3»: muy lejos, el indicador en el borde
+    expect(p.locator("#tt-fuera")).to_be_hidden()             # el punto final se ve: sin indicador, la punta ahí
+    assert p.evaluate("TVCadTactil.puntero().mundo") == [cx, cy]
+    p.locator('#tt-din [data-d="poner"]').click()
+    p.wait_for_timeout(700)
+    assert _vista_y_camara(p) == v0
+    # El radio: un valor enorme queda fuera de la vista, la vista no se mueve; «Ver el punto» sí, solo al tocarlo.
+    _din(p, "5000")
+    p.wait_for_timeout(300)
+    assert _vista_y_camara(p) == v0
+    expect(p.locator("#tt-fuera")).to_be_visible()
+    expect(p.locator("#tt-fuera")).to_contain_text("Ver el punto · 5")
+    caja = p.locator("#tt-fuera").bounding_box()
+    zona = p.locator("#tt-zona").bounding_box()
+    assert zona["x"] <= caja["x"] and caja["x"] + caja["width"] <= zona["x"] + zona["width"] + 0.5
+    p.locator("#tt-fuera").click()
+    p.wait_for_timeout(900)
+    assert _vista_y_camara(p) != v0
+    m = p.evaluate("TVCadTactil.puntero().mundo")
+    sx, sy = _pantalla(p, *m)
+    v = p.evaluate("TVCadTactil.vista()")
+    assert v["ox"] <= sx <= v["ox"] + v["w"] and v["oy"] <= sy <= v["oy"] + v["h"]
+    expect(p.locator("#tt-fuera")).to_be_hidden()
+    _sin_errores(n, motor)
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_distancia_y_azimut_escritos_tampoco_mueven_la_vista(tactil, navegar, crear_usuario, roles, motor):
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_utm(ana)
+    n, p = abrir(navegar, ana, motor, p0=p0)
+    _herramienta(p, "dibujar", "Línea")
+    llevar_punta(p, X0 + 0.2, Y0 + 0.2); poner(p)
+    p.locator('.tt-valor[data-campo="d"] .tt-valor__b').click()
+    p.wait_for_timeout(1200)
+    v0 = _vista_y_camara(p)
+    for ch in "1250":
+        p.locator(f'#tt-din [data-d="{ch}"]').click()
+        assert _vista_y_camara(p) == v0, ch
+    p.locator('#tt-din [data-d="siguiente"]').click()
+    for ch in ["signo", "1", "3", "5"]:
+        p.locator(f'#tt-din [data-d="{ch}"]').click()
+        assert _vista_y_camara(p) == v0, ch
+    expect(p.locator("#tt-fuera")).to_be_visible()
+    p.locator('#tt-din [data-d="poner"]').click()
+    p.wait_for_timeout(600)
+    assert _vista_y_camara(p) == v0
+    assert len(p.evaluate("TVCadTactil.puntos()")) == 2
+    _sin_errores(n, motor)
+
+
+# -- El navegador nunca acerca la página en modo táctil (dueño, 17-11) ---------------------------------------------------------------
+
+def _escala(p):
+    return p.evaluate("window.visualViewport ? visualViewport.scale : 1")
+
+
+def _pellizco_cdp(p, x, y):
+    """Pellizco de verdad del navegador (Chromium): con zoom permitido, la página se acerca."""
+    s = p.context.new_cdp_session(p)
+    s.send("Input.synthesizePinchGesture", {"x": x, "y": y, "scaleFactor": 2.5, "relativeSpeed": 800, "gestureSourceType": "touch"})
+    p.wait_for_timeout(500)
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_el_navegador_nunca_acerca_la_pagina_en_modo_tactil(tactil, navegar, crear_usuario, roles, motor):
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = plano_utm(ana)
+    n, p = abrir(navegar, ana, motor, p0=p0)
+    assert "user-scalable=no" in p.evaluate("document.querySelector('meta[name=viewport]').content")
+    _herramienta(p, "dibujar", "Línea")
+    p.locator('.tt-valor[data-campo="x"] .tt-valor__b').click()
+    p.wait_for_timeout(800)
+    zonas = {"barra": "#tt-nombre", "lectura": "#tt-lectura", "teclado": '#tt-din [data-d="7"]', "guia": "#tt-guia"}
+    for nombre, sel in zonas.items():
+        caja = p.locator(sel).bounding_box()
+        x, y = caja["x"] + caja["width"] / 2, caja["y"] + caja["height"] / 2
+        ta = p.evaluate("([x, y]) => getComputedStyle(document.elementFromPoint(x, y)).touchAction", [x, y])
+        assert ta in ("pan-x pan-y", "none"), (nombre, ta)
+        p.touchscreen.tap(x, y); p.wait_for_timeout(60); p.touchscreen.tap(x, y)
+        p.wait_for_timeout(400)
+        assert _escala(p) == 1, nombre
+        if motor == "chromium":
+            _pellizco_cdp(p, x, y)
+            assert _escala(p) == 1, f"pellizco en {nombre}"
+    # Doble toque en una tecla: cuenta dos veces (nada de zoom ni de toque perdido).
+    p.locator('#tt-din [data-d="cerrar"]').click()
+    p.locator('.tt-valor[data-campo="x"] .tt-valor__b').click()
+    caja = p.locator('#tt-din [data-d="1"]').bounding_box()
+    x, y = caja["x"] + caja["width"] / 2, caja["y"] + caja["height"] / 2
+    p.touchscreen.tap(x, y); p.wait_for_timeout(80); p.touchscreen.tap(x, y)
+    p.wait_for_timeout(300)
+    assert p.evaluate("TVCadTactil.fijos()").get("x") == 11 and _escala(p) == 1
+    # Hojas y pestañas.
+    p.locator('#tt-din [data-d="cerrar"]').click()
+    p.locator("#tt-cancelar").click()
+    p.locator('.tt-pestanas [data-grupo="medir"]').click()
+    for sel in (".tt-pestanas", "#tt-hoja"):
+        caja = p.locator(sel).bounding_box()
+        x, y = caja["x"] + 6, caja["y"] + 6                                           # un borde, sin botón debajo
+        p.touchscreen.tap(x, y); p.wait_for_timeout(60); p.touchscreen.tap(x, y)
+        p.wait_for_timeout(400)
+        assert _escala(p) == 1, sel
+        if motor == "chromium":
+            _pellizco_cdp(p, x, y)
+            assert _escala(p) == 1, f"pellizco en {sel}"
+    # Al salir del modo táctil el viewport vuelve a ser el de siempre; las demás páginas acercan como siempre.
+    p.evaluate("TVCadTactil.salir()")
+    p.wait_for_timeout(300)
+    assert "user-scalable" not in p.evaluate("document.querySelector('meta[name=viewport]').content")
+    if motor == "chromium":
+        q = n.ir("/cad/")
+        _pellizco_cdp(q, 180, 300)
+        assert _escala(q) > 1                                                         # la prueba sí detecta un zoom
     _sin_errores(n, motor)

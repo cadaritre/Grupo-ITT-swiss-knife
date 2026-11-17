@@ -582,7 +582,7 @@
       for (const p of herr.puntos) { const [x, y] = P(p); el("circle", { class: "tt-vertice", r: 5, cx: x, cy: y }, vert); }
       if (herr.def.previa) { try { herr.def.previa(previa, herr.puntos, cursor, herr); } catch (_) { /* previa incompleta */ } }
     }
-    if (!puntero.visible) { $("tt-marca").setAttribute("visibility", "hidden"); $("tt-fijo").setAttribute("visibility", "hidden"); return; }
+    if (!puntero.visible) { $("tt-marca").setAttribute("visibility", "hidden"); $("tt-fijo").setAttribute("visibility", "hidden"); $("tt-fuera").hidden = true; return; }
     const [px, py] = posPunta(), [ax, ay] = posAsa();
     const ang = Math.atan2(py - ay, px - ax);
     $("tt-astil").setAttribute("x1", ax + Math.cos(ang) * 26); $("tt-astil").setAttribute("y1", ay + Math.sin(ang) * 26);
@@ -608,6 +608,7 @@
     // Con valores escritos, el punto que se pondrá (fijo) se marca aparte de la punta.
     if (conValores) { const [fx, fy] = P(m); fijo.setAttribute("transform", `translate(${fx},${fy})`); fijo.setAttribute("visibility", "visible"); }
     else fijo.setAttribute("visibility", "hidden");
+    pintarFuera(m);
     $("tt-imanes").dataset.apagado = refsActivas().length ? "0" : "1";
     pintarLectura(m);
   }
@@ -700,8 +701,6 @@
     $("tt-din-poner").textContent = herr ? $("tt-confirmar-texto").textContent : "Listo";
     pintarSelectorDin();
     pintar();
-    // El teclado ocupa el lugar de la barra y el área de dibujo se achica: la punta debe quedar a la vista.
-    setTimeout(() => { if (din.abierto) { const m = puntoActual(); enfocar(m[0], m[1]); } }, 450);
   }
   function cerrarDinamica() {
     if (!din.abierto) return;
@@ -731,12 +730,43 @@
     din.texto = v.slice(0, 18);
     const num = Number(din.texto);
     if (/\d/.test(din.texto) && Number.isFinite(num)) fijar(din.campo, num); else delete din.fijos[din.campo];
-    // La punta va al punto escrito (y la vista lo sigue si sale de la pantalla).
+    // Escribir nunca mueve la vista (dueño, 17-11: con UTM, un valor a medias la llevaba al origen). Si el punto escrito se ve, la punta
+    // va ahí; si no, un indicador en el borde dice hacia dónde y a qué distancia, y «Ver el punto» lleva ahí solo si se toca.
     const m = puntoActual();
-    puntero.mundo = m.slice();
+    if (enVista(m)) { puntero.mundo = m.slice(); consultarSnap(); }
     pintar();
-    enfocar(m[0], m[1]).then(() => consultarSnap());
   }
+  // El área donde se ve el dibujo, sin la lectura de abajo.
+  function areaVisible() {
+    const W = zona.clientWidth, H = zona.clientHeight;
+    const abajo = $("tt-lectura").hidden ? H : Math.min(H, $("tt-lectura").offsetTop);
+    return [8, 8, W - 8, abajo - 8];
+  }
+  function enVista(m) { const [x, y] = P(m), [a, b, c, d] = areaVisible(); return x >= a && x <= c && y >= b && y <= d; }
+  // Indicador del punto escrito fuera de la vista: en el borde, en la dirección del punto, con la distancia.
+  function pintarFuera(m) {
+    const ind = $("tt-fuera");
+    if (!puntero.visible || !hayFijos() || enVista(m)) { ind.hidden = true; return; }
+    const [a, b, c, d] = areaVisible(), cx = (a + c) / 2, cy = (b + d) / 2;
+    const [x, y] = P(m), dx = x - cx, dy = y - cy;
+    const ult = herr && herr.puntos.length ? herr.puntos[herr.puntos.length - 1] : aMundo(cx, cy);
+    $("tt-fuera-texto").textContent = `Ver el punto · ${fmtDist(dist(ult, m))}`;
+    ind.hidden = false;
+    const w = ind.offsetWidth || 150, h = ind.offsetHeight || 40;
+    // Del centro hacia el punto, hasta el borde (con lugar para el indicador).
+    const sx = dx ? ((dx > 0 ? c - w / 2 : a + w / 2) - cx) / dx : Infinity, sy = dy ? ((dy > 0 ? d - h / 2 : b + h / 2) - cy) / dy : Infinity;
+    const t = Math.max(0, Math.min(sx, sy));
+    const px = cx + dx * t, py = cy + dy * t;
+    ind.style.setProperty("--tt-fuera-x", `${Math.round(px - w / 2)}px`);
+    ind.style.setProperty("--tt-fuera-y", `${Math.round(py - h / 2)}px`);
+    $("tt-fuera-flecha").setAttribute("transform", `rotate(${grados(Math.atan2(dy, dx))} 12 12)`);
+  }
+  const fmtDist = (L) => (L >= 10000 ? `${fmt(L / 1000, 1)} km` : `${fmt(L, L >= 100 ? 0 : 1)} m`);
+  $("tt-fuera").addEventListener("click", async () => {
+    const m = puntoActual();
+    await enfocar(m[0], m[1]);
+    puntero.mundo = m.slice(); pintar(); consultarSnap();
+  });
   // Tras poner un punto: los valores fijos se sueltan; el teclado sigue abierto en el primer valor de la herramienta.
   function despuesDePoner() {
     soltarTodo();
@@ -938,10 +968,20 @@
     capac.cotas = lista.has("dim_create") || (await tieneOp({ op: "dim_style" }) && await tieneOp({ op: "dim_create", kind: "?" }));
     for (const b of document.querySelectorAll("[data-requiere]")) b.hidden = !capac[b.dataset.requiere];
   }
+  // Sin zoom del navegador mientras está el modo táctil: el viewport de esta página no deja acercar (solo aquí; las demás páginas de
+  // Herramientas acercan como siempre) y en iOS se cancelan sus gestos de pellizco (Safari ignora user-scalable en una pestaña).
+  const metaVista = document.querySelector('meta[name="viewport"]');
+  const vistaOriginal = metaVista ? metaVista.getAttribute("content") : null;
+  function sinZoomDelNavegador(si) {
+    if (metaVista) metaVista.setAttribute("content", si ? `${vistaOriginal.replace(/,\s*(maximum-scale|user-scalable)=[^,]*/g, "")}, maximum-scale=1, user-scalable=no` : vistaOriginal);
+  }
+  for (const ev of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(ev, (e) => { if (activo) e.preventDefault(); }, { passive: false });
+  document.addEventListener("dblclick", (e) => { if (activo) e.preventDefault(); }, { passive: false });
   async function entrar(recordar) {
     if (recordar) guardado.poner("tactil", true);
     if (activo) return;
     activo = true;
+    sinZoomDelNavegador(true);
     raiz.classList.add("cad-tactil");
     tt.hidden = false;
     medirZona();
@@ -967,6 +1007,7 @@
     if (!activo) return;
     cancelarHerramienta(); quitarSeleccion(); ocultarPuntero(); cerrarHojas();
     activo = false; listo = false;
+    sinZoomDelNavegador(false);
     delete tt.dataset.listo;
     tt.hidden = true;
     raiz.classList.remove("cad-tactil");

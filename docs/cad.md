@@ -135,6 +135,14 @@ la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` 
   barra de la herramienta (el plano y la punta siguen a la vista): números UTM completos, ± y punto; la punta va ahí mientras se escribe;
   el valor queda fijo (candado, punto naranja) hasta poner el punto; la × de la ficha o «Soltar» lo suelta. X/Y y los demás no se mezclan.
   El teclado del sistema no se usa (en iOS no trae signo menos y tapa medio plano).
+  **Escribir nunca mueve la vista** (dueño, 17-11): ni al teclear (con UTM un valor a medias caía lejos y la vista lo seguía hasta
+  el origen) ni al poner el punto. Si el punto escrito se ve, la punta va ahí; si no, un indicador en el borde, en su dirección, dice a
+  qué distancia está («Ver el punto · 1.2 km»); tocarlo, y solo eso, lleva la vista ahí. Igual con distancia, azimut, radio, ancho y
+  alto, ángulo y desfase.
+- **Sin zoom del navegador en modo táctil** (dueño, 17-11: el doble toque acercaba la página en el iPhone): todo alrededor del área de
+  dibujo lleva `touch-action: pan-x pan-y` (se desplaza, no se acerca) y el área de dibujo `none`; mientras el modo está activo el
+  viewport de la página del plano no deja acercar (`maximum-scale=1, user-scalable=no`, se quita al salir) y en iOS se cancelan
+  `gesturestart/gesturechange/gestureend` y `dblclick`. Las demás páginas acercan como siempre. Los campos de texto miden ≥ 16 px.
 - **Herramientas (cada figura o edición, un paso de deshacer):** polilínea, línea, rectángulo, círculo, arco por 3 puntos, punto,
   perpendicular, texto, cotas horizontal/vertical y alineada; borrar, mover, copiar, girar, desfasar (línea, polilínea, círculo, arco),
   explotar (`explode`; lo nuevo queda elegido y se dice cuántos no se pudieron), recortar y alargar (`trim`/`extend` del editor: tocar la

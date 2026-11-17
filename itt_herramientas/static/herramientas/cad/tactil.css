@@ -11,6 +11,11 @@
 :root[data-tv-tema="oscuro"] { --tt-fijo-texto: #ffbf47; --tt-snap-texto: #ff7cc6; }
 .tt, .tt-hoja, .tt-velo, .tt-simbolos { display: none; }
 html.cad-tactil, html.cad-tactil body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+/* El navegador nunca acerca la página en modo táctil (dueño, 17-11: en el iPhone el doble toque acercaba en algunas partes): en todo lo
+   de alrededor solo se deja desplazar (sin doble toque ni pellizco); el área de dibujo maneja sus propios gestos. Ver también
+   tactil.js (viewport y gestos de iOS). */
+html.cad-tactil, html.cad-tactil body, html.cad-tactil body * { touch-action: pan-x pan-y; }
+html.cad-tactil .tt-capa { touch-action: none; }
 html.cad-tactil body { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; background: var(--tt-lienzo); }
 /* La página de siempre queda detrás: sin lateral, cabecera, encabezado ni pie; el editor ocupa el área de dibujo del modo táctil. */
 html.cad-tactil .tv-lateral, html.cad-tactil .tv-cabecera, html.cad-tactil .tv-encabezado, html.cad-tactil .tv-pie, html.cad-tactil .tv-velo,
@@ -107,6 +112,11 @@ html.cad-tactil .tt > * { pointer-events: auto; }
 .tt-et { color: var(--tv-tenue); font-family: var(--tv-fuente); font-weight: 600; }
 .tt-lectura__snap { font: 600 12px/1 var(--tv-fuente); color: #fff; background: #c4006a; padding: 0 10px; min-height: 32px; border-radius: 999px; border: 0; white-space: nowrap; }
 .tt-lectura__snap:not(:disabled) { cursor: pointer; }
+/* El punto escrito está fuera de la vista: indicador en el borde (la vista nunca se mueve sola). */
+.tt-fuera { position: absolute; left: 0; top: 0; transform: translate(var(--tt-fuera-x, 0px), var(--tt-fuera-y, 0px)); display: inline-flex; align-items: center;
+  gap: 6px; min-height: 40px; padding: 0 12px 0 8px; border-radius: 20px; border: 2px solid var(--tt-fijo); background: var(--tv-superficie); color: var(--tv-texto);
+  box-shadow: var(--tt-sombra); font: 600 13px/1 var(--tv-fuente); white-space: nowrap; cursor: pointer; pointer-events: auto; }
+.tt-fuera .tv-icono { width: 18px; height: 18px; color: var(--tt-fijo-texto); fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .tt-guia { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 7px 14px; border-radius: 18px;
   background: color-mix(in srgb, var(--tv-superficie) 94%, transparent); box-shadow: var(--tt-sombra); font-size: 13.5px; text-align: center; }
 .tt-aviso { position: absolute; left: 12px; right: 12px; top: 54px; margin: 0 auto; max-width: 480px; padding: 10px 14px; border-radius: 12px;
