@@ -540,7 +540,8 @@ def test_un_plano_grande_que_solo_se_mira_nunca_queda_sin_guardar(tactil, navega
         p.locator("#tt-hoja [data-tt-cerrar]").click()
     p.wait_for_timeout(4000)                                       # más que el latido, el borrador (3 s en pruebas) y la consulta de estado
     assert p.locator("#cad-estado").get_attribute("data-estado") == "guardado", p.evaluate("TVCad.registro()")
-    cambian = [r for r in p.evaluate("TVCad.registro()") if r.get("op") not in ("canvas_only", "view_set", "select", "dim_style", "sysvar", "action")
+    # «abierto» es la marca de la página cuando el editor terminó de abrir (editor.js), no algo que se le pidió al editor.
+    cambian = [r for r in p.evaluate("TVCad.registro()") if r.get("op") not in ("abierto", "canvas_only", "view_set", "select", "dim_style", "sysvar", "action")
                and r.get("ok") is not False]
     assert not cambian, cambian
     _sin_errores(n, motor)
