@@ -26,7 +26,8 @@ from ..reportes import servicio as rep
 from ..tareas import generar_reporte_supervision
 from . import servicio
 
-supervisor = requiere_rol("herramientas", "supervision")
+#: Supervisión: quien supervisa y quien administra las herramientas (que además decide los folios repetidos).
+supervisor = requiere_rol("herramientas", "supervision", "admin")
 con_documentos = requiere_rol("herramientas", "cotizaciones", "reportes", "croquis", "admin", "supervision")
 
 
@@ -79,7 +80,7 @@ def asignar_folio(request, pk):
 
 
 def _cotizacion(pk) -> tuple[Cotizacion, object]:
-    c = get_object_or_404(Cotizacion, pk=pk)
+    c = get_object_or_404(Cotizacion, pk=pk, eliminado__isnull=True)                  # lo de la papelera no se consulta
     try:
         q = cot.validar(c.datos)
     except cot.CotizacionInvalida:
@@ -107,7 +108,7 @@ def cotizacion_pdf(request, pk):
     if q is None:
         raise Http404
     perfil = Perfil.objects.filter(clave=c.perfil).first() or Perfil.objects.get(clave="grupo_itt")
-    contenido, nombre, pendientes = cot.pdf_de(c.cuenta_id, perfil, c.datos)
+    contenido, nombre, pendientes = cot.pdf_de(c.cuenta_id, perfil, c.datos, c)
     respuesta = HttpResponse(contenido, content_type="application/pdf")
     respuesta["Content-Disposition"] = content_disposition_header(request.GET.get("descargar") == "1", nombre)
     respuesta["X-Imagenes-Pendientes"] = str(len(pendientes))
@@ -120,11 +121,12 @@ def cotizacion_foto(request, pk, sha256):
     c, q = _cotizacion(pk)
     if q is None or not _SHA.match(sha256) or f"captura:{sha256}" not in {i.path for i in q.images}:
         raise Http404
-    return _foto(request, c.cuenta_id, sha256)
+    return _foto(request, c, sha256)
 
 
-def _foto(request, cuenta_id: int, sha256: str):
-    ruta = capturas.ruta(cuenta_id, sha256) if request.GET.get("original") == "1" else capturas.miniatura(cuenta_id, sha256)
+def _foto(request, documento, sha256: str):
+    """La foto de un documento de la empresa, la haya subido quien sea de los que lo hicieron o editaron (`capturas.ruta_autorizada`)."""
+    ruta = capturas.ruta_autorizada(sha256, documento) if request.GET.get("original") == "1" else capturas.miniatura(None, sha256, documento=documento)
     if ruta is None:
         raise Http404
     respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if ruta.suffix == ".png" else "image/jpeg")
@@ -140,7 +142,7 @@ def _pdf_listo(r: Reporte):
 @require_GET
 def reporte(request, pk):
     request.tv_seccion = "supervision"
-    r = get_object_or_404(Reporte, pk=pk)
+    r = get_object_or_404(Reporte, pk=pk, eliminado__isnull=True)
     try:
         datos = rep.validar(r.datos)
     except rep.ReporteInvalido:
@@ -155,7 +157,7 @@ def reporte(request, pk):
 @require_POST
 def reporte_pdf(request, pk):
     """El PDF de la versión actual: listo → su URL; si no, se genera (202 con la tarea). 409/422 si aún no se puede."""
-    r = get_object_or_404(Reporte, pk=pk)
+    r = get_object_or_404(Reporte, pk=pk, eliminado__isnull=True)
     descarga = reverse("herramientas:supervision_reporte_descargar", kwargs={"pk": r.pk}) + f"?revision={r.revision}"
     if _pdf_listo(r) is not None:
         return _privado(JsonResponse({"url": descarga}))
@@ -174,7 +176,7 @@ def reporte_pdf(request, pk):
 @supervisor
 @require_GET
 def reporte_descargar(request, pk):
-    r = get_object_or_404(Reporte, pk=pk)
+    r = get_object_or_404(Reporte, pk=pk, eliminado__isnull=True)
     ruta = _pdf_listo(r)
     if ruta is None or request.GET.get("revision", str(r.revision)) != str(r.revision):
         raise Http404
@@ -186,10 +188,10 @@ def reporte_descargar(request, pk):
 @supervisor
 @require_GET
 def reporte_foto(request, pk, sha256):
-    r = get_object_or_404(Reporte, pk=pk)
+    r = get_object_or_404(Reporte, pk=pk, eliminado__isnull=True)
     if not _SHA.match(sha256) or sha256 not in {f.get("sha256") for f in (r.datos or {}).get("fotos", []) if isinstance(f, dict)}:
         raise Http404
-    return _foto(request, r.cuenta_id, sha256)
+    return _foto(request, r, sha256)
 
 
 @supervisor
@@ -216,9 +218,11 @@ def zip_lote(request):
 def _tipos_de(usuario) -> list[str]:
     from tvplataforma import permisos
 
-    if permisos.tiene_rol(usuario, "herramientas", "supervision") or documentos.es_admin(usuario):
+    """Los tipos de la papelera de la cuenta: los de sus herramientas y, si supervisa, cotizaciones y reportes (lo que supervisa)."""
+    if documentos.es_admin(usuario):
         return list(documentos.MODELOS)
-    return [t for t in documentos.MODELOS if documentos.puede_editar(usuario, t)]
+    supervisa = permisos.tiene_rol(usuario, "herramientas", "supervision")
+    return [t for t in documentos.MODELOS if documentos.puede_editar(usuario, t) or (supervisa and t in ("cotizacion", "reporte"))]
 
 
 def _titulo(tipo: str, d) -> str:

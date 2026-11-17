@@ -32,7 +32,7 @@ MODULO = Modulo(
         Entrada("Triangulación", "triangle", "herramientas:triangulacion", roles=("triangulacion", "admin"), grupo="Gabinete", atajo="g t", clave="triangulacion"),
         Entrada("CAD", "drafting-compass", "herramientas:cad", roles=("cad", "admin", "supervision"), grupo="Gabinete", atajo="g d", clave="cad"),
         # Quien edita ya ve todos los documentos de la empresa en su herramienta: «Supervisión» queda para quien solo supervisa.
-        Entrada("Supervisión", "users-round", "herramientas:supervision", roles=("supervision",), grupo="Supervisión", atajo="g s", clave="supervision"),
+        Entrada("Supervisión", "users-round", "herramientas:supervision", roles=("supervision", "admin"), grupo="Supervisión", atajo="g s", clave="supervision"),
         Entrada("Ajustes", "settings", "herramientas:preferencias", grupo="Cuenta", atajo="g a", clave="ajustes"),
     ],
     acciones=[
@@ -46,7 +46,7 @@ MODULO = Modulo(
         Accion("Papelera de planos", "trash-2", "herramientas:cad_papelera", roles=("cad", "admin")),
         Accion("Fuentes de CAD", "type", "herramientas:cad_fuentes", roles=("admin",)),
         Accion("Conectar Google Drive", "hard-drive-upload", "herramientas:drive"),
-        Accion("Supervisar documentos", "users-round", "herramientas:supervision", roles=("supervision",)),
+        Accion("Supervisar documentos", "users-round", "herramientas:supervision", roles=("supervision", "admin")),
         Accion("Papelera de documentos", "trash-2", "herramientas:papelera", roles=("cotizaciones", "reportes", "croquis", "admin", "supervision")),
     ],
     busqueda=Busqueda("herramientas:buscar", "Buscar documentos y planos", icono="file-text", roles=("cotizaciones", "reportes", "croquis", "cad", "admin", "supervision")),

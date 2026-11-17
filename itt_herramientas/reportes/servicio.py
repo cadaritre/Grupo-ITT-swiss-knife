@@ -145,12 +145,13 @@ def nombre_pdf(titulo: str) -> str:
     return (limpio or "Reporte") + ".pdf"
 
 
-def _fotos_de(cuenta_id: int, datos: dict) -> list[PhotoInfo]:
-    """Las fotos del reporte, las haya subido quien sea del equipo (primero las de la cuenta autora)."""
+def _fotos_de(r: Reporte, datos: dict) -> list[PhotoInfo]:
+    """Las fotos del reporte que subió quien lo hizo o lo editó (primero las de la cuenta autora): una foto ajena no entra al PDF."""
     raiz = capturas.raiz()
     filas = {}
-    for c in Captura.objects.filter(sha256__in=[f["sha256"] for f in datos["fotos"]]).order_by("recibida"):
-        if (raiz / c.ruta).is_file() and (c.sha256 not in filas or c.cuenta_id == cuenta_id):
+    cuentas = capturas.editores(r)
+    for c in Captura.objects.filter(sha256__in=[f["sha256"] for f in datos["fotos"]], cuenta_id__in=cuentas).order_by("recibida"):
+        if (raiz / c.ruta).is_file() and (c.sha256 not in filas or c.cuenta_id == r.cuenta_id):
             filas[c.sha256] = c
     faltan = sum(1 for f in datos["fotos"] if f["sha256"] not in filas)
     if faltan:
@@ -169,14 +170,14 @@ def verificar_listo(r: Reporte) -> None:
         raise ReporteInvalido("Escribe un nombre para el reporte.")
     if not datos["fotos"]:
         raise ReporteInvalido("Agrega al menos una fotografía.")
-    _fotos_de(r.cuenta_id, datos)
+    _fotos_de(r, datos)
 
 
 def _producir(r: Reporte, datos: dict, temporal: Path, informar=progreso) -> None:
     """Escribe el PDF del reporte en `temporal` (mismo documento que el escritorio, con el perfil guardado en el reporte)."""
     perfil = Perfil.objects.get(clave=r.perfil)
     opciones = perfiles.opciones_reporte(
-        perfil, datos["titulo"], date.fromisoformat(datos["fecha"]), _fotos_de(r.cuenta_id, datos), temporal,
+        perfil, datos["titulo"], date.fromisoformat(datos["fecha"]), _fotos_de(r, datos), temporal,
         incluir_credenciales=datos["con_credenciales"], include_map=datos["con_croquis"], photos_per_page=datos["fotos_por_pagina"])
     informar(0.05, "Preparando el documento…")
     extra = 1 + (1 if datos["con_credenciales"] else 0)                   # portada y, si va, la página de cédula y firma

@@ -158,6 +158,20 @@ def _ajustar_contador(folio: str) -> None:
     ContadorFolio.objects.filter(anio=anio, ultimo__lt=n).update(ultimo=n)
 
 
+def _tomar_propuesto(folio: str) -> bool:
+    """¿Se puede usar el folio de un editable importado? Con el contador de su año bloqueado (las asignaciones esperan), revisa que esté
+    libre y adelanta el contador. Si aun así otra cotización lo guarda primero, `importar_editable` cae al siguiente folio."""
+    m = _FOLIO.match(folio or "")
+    if m:
+        anio = int(m.group(1))
+        ContadorFolio.objects.bulk_create([ContadorFolio(anio=anio, ultimo=0)], ignore_conflicts=True)
+        ContadorFolio.objects.select_for_update().get(anio=anio)
+    if not folio_libre(folio):
+        return False
+    _ajustar_contador(folio)
+    return True
+
+
 def folio_libre(folio: str, excepto=None) -> bool:
     consulta = Cotizacion.objects.filter(folio=folio, folio_repetido=False)
     if excepto is not None:
@@ -180,9 +194,8 @@ def _aplicar(c: Cotizacion, q: qm.QuoteData, perfil: str, folio_propuesto: str =
     """Vuelca la cotización en el registro. El folio lo fija el servidor: el que ya tiene, o uno nuevo de la empresa si no tiene
     (`folio_propuesto`, el de un editable importado, solo si está libre)."""
     if not c.folio:
-        if folio_propuesto and folio_libre(folio_propuesto):
+        if folio_propuesto and _tomar_propuesto(folio_propuesto):
             c.folio = folio_propuesto[:60]
-            _ajustar_contador(c.folio)
         else:
             c.folio = asignar_folio()
     q.quote_number = c.folio
@@ -276,16 +289,16 @@ def nombre_pdf(q: qm.QuoteData) -> str:
     return f"COTIZACION {_limpiar(q.quote_number, 'SIN FOLIO')} - {_limpiar(q.project_title, 'SERVICIOS')}.pdf"
 
 
-def _resolver_imagenes(cuenta_id: int, q: qm.QuoteData) -> list[str]:
-    """Cambia «captura:<sha>» por la ruta de la foto (la subió cualquiera del equipo: la cotización es de la empresa; primero la de la cuenta
-    autora). Devuelve las que aún no llegan al servidor."""
+def _resolver_imagenes(cuenta_id: int, q: qm.QuoteData, documento=None) -> list[str]:
+    """Cambia «captura:<sha>» por la ruta de la foto: de la cuenta `cuenta_id` o, con `documento`, de quien hizo o editó esa cotización
+    (`capturas.ruta_autorizada`). Devuelve las que aún no llegan al servidor."""
     pendientes = []
     resueltas = []
     for imagen in q.images:
         m = _CAPTURA.match(imagen.path)
         if not m:
             continue
-        ruta = capturas.ruta_de_documento(m.group(1), cuenta_id)
+        ruta = capturas.ruta(cuenta_id, m.group(1)) or capturas.ruta_autorizada(m.group(1), documento)
         if ruta is None:
             pendientes.append(imagen.caption or m.group(1)[:8])
             continue
@@ -294,18 +307,18 @@ def _resolver_imagenes(cuenta_id: int, q: qm.QuoteData) -> list[str]:
     return pendientes
 
 
-def generar_pdf(usuario, datos: dict) -> tuple[bytes, str, list[str]]:
+def generar_pdf(usuario, datos: dict, documento=None) -> tuple[bytes, str, list[str]]:
     """PDF de la cotización con la identidad del perfil activo de la cuenta. Devuelve (bytes, nombre, imágenes pendientes de subir)."""
-    return pdf_de(usuario.pk, perfiles.perfil_activo(usuario), datos)
+    return pdf_de(usuario.pk, perfiles.perfil_activo(usuario), datos, documento)
 
 
-def pdf_de(cuenta_id: int, perfil, datos: dict) -> tuple[bytes, str, list[str]]:
+def pdf_de(cuenta_id: int, perfil, datos: dict, documento=None) -> tuple[bytes, str, list[str]]:
     """El mismo PDF para cualquier cuenta y perfil (supervisión: el de la cuenta autora con el perfil del documento)."""
     from ..dominio import branding
 
     q = validar(datos)
     nombre = nombre_pdf(q)
-    pendientes = _resolver_imagenes(cuenta_id, q)
+    pendientes = _resolver_imagenes(cuenta_id, q, documento)
     with perfiles.activar(perfil):
         logo = branding.active_profile().logo_path
         with tempfile.TemporaryDirectory() as carpeta:
@@ -327,14 +340,15 @@ def traducir(datos: dict, idioma: str) -> dict:
     return a_datos(q)
 
 
-def ruta_foto(usuario, sha256: str) -> Path | None:
-    """Archivo de una foto para las miniaturas del editor: de esta cuenta, o de una cotización de la empresa que la usa."""
+def ruta_foto(usuario, sha256: str, documento=None) -> Path | None:
+    """Archivo de una foto para las miniaturas del editor: de esta cuenta o, con `documento` (una cotización de la empresa que la usa), la
+    autorizada por ese documento."""
     propia = capturas.ruta(usuario.pk, sha256)
-    if propia is not None:
+    if propia is not None or documento is None:
         return propia
-    if Cotizacion.objects.filter(eliminado__isnull=True, datos__images__contains=[{"path": f"captura:{sha256}"}]).exists():
-        return capturas.ruta_de_documento(sha256)
-    return None
+    if f"captura:{sha256}" not in {i.get("path") for i in (documento.datos or {}).get("images", []) if isinstance(i, dict)}:
+        return None
+    return capturas.ruta_autorizada(sha256, documento)
 
 
 # -- Corrector -------------------------------------------------------------------------------------------------------------
@@ -482,7 +496,13 @@ def importar_editable(usuario, contenido: bytes, perfil: str) -> Cotizacion:
     with transaction.atomic():
         c = Cotizacion(cuenta_id=usuario.pk)
         _aplicar(c, q, perfil, folio_propuesto=original)
-        c.save()
+        try:
+            with transaction.atomic():
+                c.save()
+        except IntegrityError:                                     # otra cotización tomó ese folio en el mismo instante: el siguiente
+            c.folio = ""
+            _aplicar(c, q, perfil)
+            c.save()
         documentos.registrar_version(c, usuario, nota="Importada de un editable")
     c.folio_original = original
     return c

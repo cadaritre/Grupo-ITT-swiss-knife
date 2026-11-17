@@ -74,6 +74,28 @@ def _privado(respuesta):
     return respuesta
 
 
+#: Renglones por página de la lista (el teléfono pide todas las páginas; nunca se deduce que algo se borró por no venir en una lista).
+POR_PAGINA = 200
+
+
+def _pagina(request, consulta):
+    """(renglones, siguiente): la página `?pagina=N` (desde 1) de la consulta y el número de la siguiente, o None si fue la última."""
+    try:
+        n = max(1, int(request.GET.get("pagina", "1")))
+    except ValueError:
+        n = 1
+    filas = list(consulta[(n - 1) * POR_PAGINA:n * POR_PAGINA + 1])
+    return filas[:POR_PAGINA], (n + 1 if len(filas) > POR_PAGINA else None)
+
+
+def _en_papelera(modelo, pk):
+    """El detalle de algo de la papelera responde 410 con `eliminado`: el teléfono lo distingue de «no existe» (404) y de un fallo."""
+    if modelo.objects.filter(pk=pk, eliminado__isnull=False).exists():
+        return _privado(JsonResponse({"error": "Está en la papelera.", "eliminado": True}, status=410))
+    return None
+
+
+
 @usuario_de_cotizaciones
 @require_GET
 def contexto(request):
@@ -96,12 +118,12 @@ def contexto(request):
 @require_GET
 def lista(request):
     """Las cotizaciones de la empresa (todas las cuentas), de la más reciente a la más vieja."""
-    filas = [servicio.resumen_fila(c, request.user) for c in documentos.visibles(Cotizacion)[:500]]
-    return _privado(JsonResponse({"cotizaciones": filas}))
+    filas, siguiente = _pagina(request, documentos.visibles(Cotizacion).order_by("-actualizada", "pk"))
+    return _privado(JsonResponse({"cotizaciones": [servicio.resumen_fila(c, request.user) for c in filas], "siguiente": siguiente}))
 
 
 def _detalle(c, usuario) -> dict:
-    return {**servicio.resumen_fila(c, usuario), "datos": c.datos, "recuperacion": documentos.recuperacion_de(c, usuario)}
+    return {**servicio.resumen_fila(c, usuario), "datos": c.datos, "recuperaciones": documentos.recuperaciones_de(c, usuario)}
 
 
 def _visible(pk) -> Cotizacion:
@@ -111,6 +133,8 @@ def _visible(pk) -> Cotizacion:
 @usuario_de_cotizaciones
 @require_http_methods(["GET", "DELETE"])
 def detalle(request, pk):
+    if request.method == "GET" and (papelera := _en_papelera(Cotizacion, pk)):
+        return papelera
     c = _visible(pk)
     if request.method == "DELETE":
         fallo = vistas_documentos.borrar(c, request.user)
@@ -142,7 +166,7 @@ def version_pdf(request, pk, vid):
         raise Http404
     perfil = Perfil.objects.filter(clave=v.perfil or c.perfil).first() or Perfil.objects.get(clave=perfiles.PERFIL_POR_OMISION)
     try:
-        contenido, nombre, _ = servicio.pdf_de(c.cuenta_id, perfil, v.datos)
+        contenido, nombre, _ = servicio.pdf_de(c.cuenta_id, perfil, v.datos, c)
     except servicio.CotizacionInvalida as exc:
         return _error(exc, 422)
     respuesta = HttpResponse(contenido, content_type="application/pdf")
@@ -180,6 +204,7 @@ def pdf(request):
         cuerpo = _cuerpo(request)
         datos = cuerpo.get("datos")
         folio = str(datos.get("quote_number") or "").strip() if isinstance(datos, dict) else ""
+        c = None
         if cuerpo.get("servidor_id"):
             c = Cotizacion.objects.filter(pk=_uuid(cuerpo["servidor_id"], "servidor_id"), eliminado__isnull=True).first()
             folio = c.folio if c is not None else ""
@@ -187,7 +212,7 @@ def pdf(request):
             datos = {**datos, "quote_number": folio or "BORRADOR"}
         if not folio and request.GET.get("exportar") == "1":
             return _error(servicio.CotizacionInvalida("Esta cotización aún no tiene folio: se asigna al sincronizar. Conéctate un momento y vuelve a generar el PDF."), 409)
-        contenido, nombre, pendientes = servicio.generar_pdf(request.user, datos)
+        contenido, nombre, pendientes = servicio.generar_pdf(request.user, datos, c)
     except servicio.CotizacionInvalida as exc:
         return _error(exc, 422)
     respuesta = HttpResponse(contenido, content_type="application/pdf")
@@ -338,8 +363,15 @@ def traducir(request):
 @usuario_de_cotizaciones
 @require_GET
 def foto(request, sha256):
-    """La foto de referencia de una cotización: de esta cuenta o de una cotización de la empresa que la usa."""
-    ruta = servicio.ruta_foto(request.user, sha256)
+    """La foto de referencia de una cotización: de esta cuenta o, con `?doc=<id>`, la que usa esa cotización de la empresa (si la subió
+    alguien que la hizo o la editó)."""
+    doc = None
+    if request.GET.get("doc"):
+        try:
+            doc = Cotizacion.objects.filter(pk=uuid.UUID(request.GET["doc"]), eliminado__isnull=True).first()
+        except ValueError:
+            raise Http404 from None
+    ruta = servicio.ruta_foto(request.user, sha256, doc)
     if ruta is None:
         raise Http404
     respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if ruta.suffix == ".png" else "image/jpeg")

@@ -84,15 +84,19 @@ def vistas(tipo: str, decorador, aplicar, detalle):
     @decorador
     @require_http_methods(["GET", "POST", "DELETE"])
     def recuperacion(request, pk):
+        """GET: los borradores de recuperación de la cuenta. POST `{sesion, id?}`: usar uno. DELETE `?id=`: descartar uno (sin id, todos)."""
         doc = _doc(pk)
         if request.method == "GET":
-            return _privado(JsonResponse({"recuperacion": documentos.recuperacion_de(doc, request.user)}))
+            return _privado(JsonResponse({"recuperaciones": documentos.recuperaciones_de(doc, request.user)}))
         if request.method == "DELETE":
-            documentos.descartar_recuperacion(doc, request.user)
-            return _privado(JsonResponse({"recuperacion": None}))
+            ident = request.GET.get("id", "")
+            documentos.descartar_recuperacion(doc, request.user, int(ident) if ident.isdigit() else None)
+            return _privado(JsonResponse({"recuperaciones": documentos.recuperaciones_de(doc, request.user)}))
         try:
-            sesion = str(_cuerpo(request).get("sesion", ""))
-            doc = documentos.aplicar_recuperacion(modelo, pk, request.user, sesion, aplicar)
+            cuerpo = _cuerpo(request)
+            ident = cuerpo.get("id")
+            doc = documentos.aplicar_recuperacion(modelo, pk, request.user, str(cuerpo.get("sesion", "")), aplicar,
+                                                  ident if isinstance(ident, int) and not isinstance(ident, bool) else None)
         except ErrorUsuario as exc:
             return _error(exc)
         return _privado(JsonResponse(detalle(doc, request.user)))

@@ -123,8 +123,12 @@ class Migration(migrations.Migration):
                 ('datos', models.JSONField()),
                 ('revision_base', models.PositiveIntegerField()),
                 ('quien', models.CharField(blank=True, default='', max_length=150)),
+                ('sesion', models.CharField(blank=True, default='', max_length=64)),
                 ('creado', models.DateTimeField(default=django.utils.timezone.now)),
             ],
+            options={
+                'ordering': ['-creado'],
+            },
         ),
         migrations.CreateModel(
             name='ContadorFolio',
@@ -340,7 +344,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='borradorrecuperacion',
-            constraint=models.UniqueConstraint(fields=('tipo', 'documento_id', 'cuenta_id'), name='herramientas_recuperacion_unica'),
+            constraint=models.UniqueConstraint(fields=('tipo', 'documento_id', 'cuenta_id', 'sesion'), name='herramientas_recuperacion_unica'),
         ),
         migrations.AddConstraint(
             model_name='machote',

@@ -109,12 +109,17 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
         return {"servidor_id": str(obj.id), "revision": obj.revision, "folio": getattr(obj, "folio", ""), "autor": autoria.fila(obj),
                 "conflicto": obj.conflicto, "modificado": {"nombre": obj.modificado_por_nombre or obj.autor_nombre, "fecha": obj.actualizada.isoformat()}, **extra}
 
+    def comparar(obj):
+        """¿Ya tiene `obj` lo que manda el teléfono? (con lo que fija el servidor, como el folio, puesto)."""
+        guardados_ = normalizar(obj.datos) if normalizar else obj.datos
+        return guardados_ == (ajustar(obj, nuevos) if ajustar is not None else nuevos)
+
     with transaction.atomic():
         if servidor_id is not None:
             actual = modelo.objects.select_for_update().filter(pk=servidor_id).first()
             if actual is None:
                 # Se borró para siempre mientras el teléfono lo editaba: lo del teléfono se conserva como documento nuevo.
-                return _copia(modelo, tipo, usuario, id_cliente, revision_base, None, aplicar_copia, resumen, "un documento eliminado")
+                return _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, None, aplicar_copia, resumen, "un documento eliminado")
         else:
             actual = modelo.objects.select_for_update().filter(cuenta_id=usuario.pk, id_cliente=id_cliente).first()
             if actual is None:                                            # borrador nuevo del teléfono
@@ -126,7 +131,7 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
             if revision_base is None:                                     # reintento tras perder la respuesta de la creación
                 revision_base = 1
         if actual.eliminado:
-            return _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, aplicar_copia, resumen, f"«{documentos.referencia(actual)}» (en la papelera)")
+            return _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, actual, aplicar_copia, resumen, f"«{documentos.referencia(actual)}» (en la papelera)")
         guardados = normalizar(actual.datos) if normalizar else actual.datos
         if ajustar is not None:
             nuevos = ajustar(actual, nuevos)
@@ -137,9 +142,9 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
             otro = ""                                                     # lo editado sin conexión en este teléfono, con la misma cuenta editando: se fusiona
         if otro:
             if sesion:                                                    # tomaron el control: sus cambios, a recuperación
-                documentos.guardar_recuperacion(actual, usuario, nuevos, revision_base)
+                documentos.guardar_recuperacion(actual, usuario, nuevos, revision_base, sesion)
                 return {"resultado": "recuperacion", "quien": otro, **resumen(actual)}
-            return _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, aplicar_copia, resumen, documentos.referencia(actual))
+            return _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, actual, aplicar_copia, resumen, documentos.referencia(actual))
         if revision_base == actual.revision:
             aplicar(actual)
             actual.revision += 1
@@ -154,18 +159,37 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
             except ValueError:
                 fusion = None
             if fusion is not None:
-                aplicar_datos(actual, fusion)
+                try:
+                    aplicar_datos(actual, fusion)
+                except error:
+                    # Cada lado era válido pero juntos no (p. ej. más fotos que el tope): lo del teléfono queda como copia, nunca atora la cola.
+                    fusion = None
+            if fusion is not None:
                 actual.revision += 1
                 actual.save()
                 documentos.registrar_version(actual, usuario, nota="Fusionada con cambios hechos sin conexión")
                 return {"resultado": "fusionada", **resumen(actual), "datos": actual.datos}
-        return _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, aplicar_copia, resumen, documentos.referencia(actual))
+        return _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, actual, aplicar_copia, resumen, documentos.referencia(actual))
 
 
-def _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, aplicar_copia, resumen, ref):
-    """Copia en conflicto: lo del teléfono como documento aparte. La llave sale del borrador y de su base: reenviarlo no la duplica."""
-    llave = uuid.uuid5(id_cliente, f"copia:{revision_base}")
-    copia = modelo.objects.filter(cuenta_id=usuario.pk, id_cliente=llave).first()
+def _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, actual, aplicar_copia, resumen, ref):
+    """Copia en conflicto: lo del teléfono como documento aparte. La llave sale del borrador y de su base: reenviarlo no la duplica.
+
+    Si la copia ya existe y el teléfono manda algo más nuevo (siguió editando), eso entra como revisión nueva de la copia. Una copia que
+    ya está en la papelera no se reutiliza: se hace otra (con la siguiente llave de la serie, así reenviar sigue sin duplicar).
+    """
+    n = 0
+    while True:
+        llave = uuid.uuid5(id_cliente, f"copia:{revision_base}" + (f":{n}" if n else ""))
+        copia = modelo.objects.select_for_update().filter(cuenta_id=usuario.pk, id_cliente=llave).first()
+        if copia is None or not copia.eliminado:
+            break
+        n += 1
+    if copia is not None and not comparar(copia):
+        aplicar_copia(copia)
+        copia.revision += 1
+        copia.save()
+        documentos.registrar_version(copia, usuario)
     if copia is None:
         nombre = autoria.de_usuario(usuario)[0]
         copia = modelo(cuenta_id=usuario.pk, id_cliente=llave, copia_de=actual)

@@ -67,8 +67,8 @@ def test_las_fotos_de_un_reporte_del_equipo_se_ven_y_entran_al_pdf(cliente_de, a
     sha = crear_foto(ana, 3, settings)
     r = rep.sincronizar(ana, uuid.uuid4(), None, None, datos_reporte([foto(sha, "Fachada")], titulo="Visita"), "grupo_itt")
     cb = cliente_de(beto)
-    assert cb.get(url("reportes_foto", sha256=sha)).status_code == 200
-    assert cb.get(url("reportes_foto", sha256=f"{99:064x}")).status_code == 404                   # una foto que ningún reporte usa: no
+    assert cb.get(url("reportes_foto", sha256=sha), {"doc": r["servidor_id"]}).status_code == 200          # la foto de ESE reporte
+    assert cb.get(url("reportes_foto", sha256=f"{99:064x}"), {"doc": r["servidor_id"]}).status_code == 404  # una que el reporte no usa: no
     respuesta = post(cb, "reportes_pdf", {}, pk=r["servidor_id"])
     assert respuesta.status_code in (200, 202)
     assert Reporte.objects.get(pk=r["servidor_id"]).salida_revision == 1
@@ -94,9 +94,9 @@ def test_un_editor_a_la_vez_y_tomar_el_control(cliente_de, ana, beto):
     r = sinc_cot(ca, uuid.uuid4(), _datos_cot(ana, project_title="Cambio de Ana sin guardar"), pk, a["revision"], sesion=SESION_A)
     assert r["resultado"] == "recuperacion" and r["revision"] == a["revision"]
     assert Cotizacion.objects.get(pk=pk).proyecto == "Original"
-    rec = ca.get(url("cotizaciones_detalle", pk=pk)).json()["recuperacion"]
+    rec = ca.get(url("cotizaciones_detalle", pk=pk)).json()["recuperaciones"][0]
     assert rec["datos"]["project_title"] == "Cambio de Ana sin guardar" and rec["quien"] == "beto@grupoitt.com"
-    assert cb.get(url("cotizaciones_detalle", pk=pk)).json()["recuperacion"] is None                # es solo de Ana
+    assert cb.get(url("cotizaciones_detalle", pk=pk)).json()["recuperaciones"] == []                # es solo de Ana
     # Beto edita con el bloqueo; Ana no puede restaurar ni usar su recuperación mientras Beto edita.
     b = sinc_cot(cb, uuid.uuid4(), _datos_cot(beto, project_title="De Beto"), pk, a["revision"], sesion=SESION_B)
     assert b["resultado"] == "actualizada"
@@ -105,7 +105,7 @@ def test_un_editor_a_la_vez_y_tomar_el_control(cliente_de, ana, beto):
     bloqueo(cb, pk, "soltar", SESION_B)
     assert bloqueo(ca, pk, "tomar", SESION_A)["mio"] is True
     usado = post(ca, "cotizaciones_recuperacion", {"sesion": SESION_A}, pk=pk).json()
-    assert usado["datos"]["project_title"] == "Cambio de Ana sin guardar" and usado["recuperacion"] is None
+    assert usado["datos"]["project_title"] == "Cambio de Ana sin guardar" and usado["recuperaciones"] == []
     assert usado["datos"]["quote_number"] == a["folio"]
     assert not BorradorRecuperacion.objects.exists()
 
@@ -402,7 +402,7 @@ def test_al_eliminar_una_cuenta_sus_documentos_se_quedan(cliente_de, ana, beto):
 
     a = sinc_cot(cliente_de(ana), uuid.uuid4(), _datos_cot(ana, project_title="De la empresa"))
     bloqueo(cliente_de(ana), a["servidor_id"], "tomar", SESION_A)
-    documentos.guardar_recuperacion(Cotizacion.objects.get(pk=a["servidor_id"]), ana, {"x": 1}, 1)
+    documentos.guardar_recuperacion(Cotizacion.objects.get(pk=a["servidor_id"]), ana, {"x": 1}, 1, "pagina-de-ana-0001")
     with transaction.atomic():
         texto = documentos.al_eliminar_cuenta(ana.pk)
     assert "liberaron 1 documento" in texto and "borrador" in texto

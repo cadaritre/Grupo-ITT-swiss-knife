@@ -31,9 +31,10 @@ from .errores import ErrorUsuario
 
 log = logging.getLogger("itt_herramientas.documentos")
 
-#: El editor late cada 15 s; sin latido 60 s, el bloqueo caduca y otra persona puede editar sin tomar el control.
+#: El editor late cada 15 s (y al volver a la pestaña); sin latido 150 s, el bloqueo caduca y otra persona puede editar sin tomar el
+#: control. 150 s y no menos: un navegador deja latir una pestaña en segundo plano una vez por minuto.
 LATIDO_SEGUNDOS = 15
-BLOQUEO_SEGUNDOS = 60
+BLOQUEO_SEGUNDOS = 150
 #: Guardados seguidos de la misma persona dentro de esta ventana se muestran como una sola versión.
 AGRUPAR_MINUTOS = 10
 #: Versiones del historial que se conservan por documento (la vigente siempre).
@@ -266,31 +267,41 @@ def restaurar_version(modelo, pk, version_id: int, usuario, sesion: str, aplicar
 
 # -- Borradores de recuperación ------------------------------------------------------------------------------------------------
 
-def guardar_recuperacion(doc, usuario, datos: dict, revision_base: int | None) -> BorradorRecuperacion:
-    b, _ = BorradorRecuperacion.objects.update_or_create(tipo=tipo_de(doc), documento_id=doc.pk, cuenta_id=usuario.pk, defaults={
+def guardar_recuperacion(doc, usuario, datos: dict, revision_base: int | None, sesion: str = "") -> BorradorRecuperacion:
+    """Uno por página del editor (`sesion`): lo más nuevo de una página reemplaza lo anterior de esa misma página, nunca lo de otra."""
+    b, _ = BorradorRecuperacion.objects.update_or_create(tipo=tipo_de(doc), documento_id=doc.pk, cuenta_id=usuario.pk, sesion=sesion or "", defaults={
         "datos": datos, "revision_base": revision_base or doc.revision, "quien": doc.bloqueo_nombre or "", "creado": timezone.now()})
     return b
 
 
-def recuperacion_de(doc, usuario) -> dict | None:
-    b = BorradorRecuperacion.objects.filter(tipo=tipo_de(doc), documento_id=doc.pk, cuenta_id=usuario.pk).first()
-    if b is None:
-        return None
-    return {"creado": b.creado.isoformat(), "revision_base": b.revision_base, "quien": b.quien, "datos": b.datos}
+def _fila_recuperacion(b: BorradorRecuperacion) -> dict:
+    return {"id": b.pk, "creado": b.creado.isoformat(), "revision_base": b.revision_base, "quien": b.quien, "datos": b.datos}
 
 
-def descartar_recuperacion(doc, usuario) -> None:
-    BorradorRecuperacion.objects.filter(tipo=tipo_de(doc), documento_id=doc.pk, cuenta_id=usuario.pk).delete()
+def recuperaciones_de(doc, usuario) -> list[dict]:
+    """Los borradores de recuperación de esta cuenta en `doc`, del más nuevo al más viejo."""
+    return [_fila_recuperacion(b) for b in BorradorRecuperacion.objects.filter(tipo=tipo_de(doc), documento_id=doc.pk, cuenta_id=usuario.pk).order_by("-creado")]
 
 
-def aplicar_recuperacion(modelo, pk, usuario, sesion: str, aplicar) -> object:
-    """«Usar mis cambios»: el borrador de recuperación pasa a ser una revisión nueva (lo de los demás queda en el historial)."""
+def descartar_recuperacion(doc, usuario, recuperacion_id=None) -> None:
+    """Descarta uno (`recuperacion_id`) o, sin él, todos los de esta cuenta en `doc`."""
+    consulta = BorradorRecuperacion.objects.filter(tipo=tipo_de(doc), documento_id=doc.pk, cuenta_id=usuario.pk)
+    if recuperacion_id is not None:
+        consulta = consulta.filter(pk=recuperacion_id)
+    consulta.delete()
+
+
+def aplicar_recuperacion(modelo, pk, usuario, sesion: str, aplicar, recuperacion_id=None) -> object:
+    """«Usar mis cambios»: ese borrador de recuperación (o el más nuevo) pasa a ser una revisión nueva (lo demás queda en el historial)."""
     with transaction.atomic():
         doc = modelo.objects.select_for_update().filter(pk=pk, eliminado__isnull=True).first()
         if doc is None:
             raise ErrorUsuario("El documento ya no existe.")
         _exigir_edicion(doc, usuario, sesion)
-        b = BorradorRecuperacion.objects.filter(tipo=tipo_de(doc), documento_id=doc.pk, cuenta_id=usuario.pk).first()
+        consulta = BorradorRecuperacion.objects.filter(tipo=tipo_de(doc), documento_id=doc.pk, cuenta_id=usuario.pk).order_by("-creado")
+        if recuperacion_id is not None:
+            consulta = consulta.filter(pk=recuperacion_id)
+        b = consulta.first()
         if b is None:
             raise ErrorUsuario("Ya no hay cambios por recuperar.")
         aplicar(doc, b.datos)

@@ -157,7 +157,7 @@
       reg = r;
       latido = (opciones && opciones.latido) || latido;
       banda(null);
-      pintarRecuperacion(r.recuperacion || null);
+      pintarRecuperacion(r.recuperaciones || []);
       if (r.servidor_id && enLinea()) {
         ponerLectura(true);                                              // hasta saber si se puede editar
         await latir();
@@ -169,9 +169,13 @@
       temporizador = null;
       soltar();
       reg = null; mio = false; ultimo = null; vioOtro = false;
-      banda(null); pintarRecuperacion(null); ponerLectura(false);
+      banda(null); pintarRecuperacion([]); ponerLectura(false);
     }
     addEventListener("pagehide", soltar);
+    // Un navegador deja latir una pestaña en segundo plano una vez por minuto: al volver a ella se late en seguida.
+    const alVolver = () => { if (reg && document.visibilityState !== "hidden") latir(); };
+    document.addEventListener("visibilitychange", alVolver);
+    addEventListener("focus", alVolver);
     document.addEventListener("itt:doc", (e) => {                          // lo que no se había subido llegó como borrador de recuperación
       const d = e.detail || {};
       if (d.tipo === config.tipo && d.tipo_evento === "recuperacion" && reg && d.id === reg.id) cargarRecuperacion();
@@ -181,35 +185,41 @@
     // -- Borrador de recuperación -------------------------------------------------------------------------------------------------
     async function cargarRecuperacion() {
       if (!reg || !reg.servidor_id || !enLinea()) return;
-      try { const r = await docs.pedir(url("recuperacion", reg.servidor_id)); pintarRecuperacion(r.recuperacion); } catch (_) { /* sin red */ }
+      try { const r = await docs.pedir(url("recuperacion", reg.servidor_id)); pintarRecuperacion(r.recuperaciones || []); } catch (_) { /* sin red */ }
     }
-    function pintarRecuperacion(rec) {
+    /** Los borradores de recuperación de esta cuenta (uno por pestaña que perdió el control): se muestra el más nuevo y cuántos más hay. */
+    function pintarRecuperacion(lista) {
       const e = $(`${p}-recuperacion`);
       if (!e) return;
       limpiar(e);
+      const rec = (lista || [])[0];
       e.hidden = !rec;
       if (!rec) return;
-      e.append(h("span", {}, icono("history"), ` Tienes cambios sin guardar del ${fechaHora(rec.creado)}${rec.quien ? `, de cuando ${rec.quien} tomó el control` : ""}.`),
+      const mas = lista.length - 1;
+      e.append(h("span", {}, icono("history"), ` Tienes cambios sin guardar del ${fechaHora(rec.creado)}${rec.quien ? `, de cuando ${rec.quien} tomó el control` : ""}.`,
+          mas > 0 ? ` Hay ${mas} más de otra${mas === 1 ? "" : "s"} pestaña${mas === 1 ? "" : "s"}.` : ""),
         h("span", { class: "itt-recuperacion__acciones" },
           boton({ onclick: () => verDatos("Tus cambios sin guardar", rec.datos, null), class: "tv-boton tv-boton--secundario", "data-siempre": "1" }, "eye", "Ver"),
-          boton({ onclick: usarRecuperacion, class: "tv-boton tv-boton--secundario", id: `${p}-usar-recuperacion` }, "rotate-ccw", "Usar mis cambios"),
-          boton({ onclick: descartarRecuperacion, class: "tv-boton tv-boton--fantasma" }, "x", "Descartar")));
+          boton({ onclick: () => usarRecuperacion(rec), class: "tv-boton tv-boton--secundario", id: `${p}-usar-recuperacion` }, "rotate-ccw", "Usar mis cambios"),
+          boton({ onclick: () => descartarRecuperacion(rec), class: "tv-boton tv-boton--fantasma" }, "x", "Descartar")));
     }
-    async function usarRecuperacion() {
+    async function usarRecuperacion(rec) {
       if (!mio) return config.alMensaje && config.alMensaje(`Para usar tus cambios, primero toma el control de ${config.articulo} ${config.nombre}.`, "error");
       if (!(await confirmar("Tus cambios pasarán a ser la versión vigente. La de ahora queda en el historial.", { aceptar: "Usar mis cambios" }))) return;
       try {
-        const r = await docs.pedir(url("recuperacion", reg.servidor_id), { metodo: "POST", json: { sesion } });
+        const r = await docs.pedir(url("recuperacion", reg.servidor_id), { metodo: "POST", json: { sesion, id: rec.id } });
         await docs.guardarDelServidor(reg.id, r);
-        pintarRecuperacion(null);
+        pintarRecuperacion(r.recuperaciones || []);
         await refrescar();
         config.alMensaje && config.alMensaje("Se usaron tus cambios.", "info");
       } catch (e) { config.alMensaje && config.alMensaje(e.mensaje || "No se pudo. Inténtalo de nuevo.", "error"); }
     }
-    async function descartarRecuperacion() {
-      if (!(await confirmar("¿Descartar tus cambios sin guardar? No se pueden recuperar.", { aceptar: "Descartar", peligro: true }))) return;
-      try { await docs.pedir(url("recuperacion", reg.servidor_id), { metodo: "DELETE" }); pintarRecuperacion(null); }
-      catch (e) { config.alMensaje && config.alMensaje(e.mensaje || "No se pudo. Inténtalo de nuevo.", "error"); }
+    async function descartarRecuperacion(rec) {
+      if (!(await confirmar("¿Descartar estos cambios sin guardar? No se pueden recuperar.", { aceptar: "Descartar", peligro: true }))) return;
+      try {
+        const r = await docs.pedir(`${url("recuperacion", reg.servidor_id)}?id=${encodeURIComponent(rec.id)}`, { metodo: "DELETE" });
+        pintarRecuperacion(r.recuperaciones || []);
+      } catch (e) { config.alMensaje && config.alMensaje(e.mensaje || "No se pudo. Inténtalo de nuevo.", "error"); }
     }
 
     // -- Historial ----------------------------------------------------------------------------------------------------------------

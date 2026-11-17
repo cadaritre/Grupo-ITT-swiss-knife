@@ -122,7 +122,7 @@ def test_duplicar_y_borrar(cliente_de, usuaria):
     assert copia["folio"] != "" and Cotizacion.objects.count() == 2
     assert c.delete(url("cotizaciones_detalle", pk=copia["id"])).status_code == 200
     assert Cotizacion.objects.filter(eliminado__isnull=True).count() == 1          # a la papelera, no borrada
-    assert c.get(url("cotizaciones_detalle", pk=copia["id"])).status_code == 404
+    assert c.get(url("cotizaciones_detalle", pk=copia["id"])).status_code == 410                  # «en la papelera», distinto de «no existe»
 
 
 def test_total_guardado_es_el_del_dominio(cliente_de, usuaria):

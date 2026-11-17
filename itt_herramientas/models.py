@@ -367,7 +367,8 @@ class VersionDocumento(models.Model):
 class BorradorRecuperacion(models.Model):
     """Cambios sin guardar de una persona que perdió el control de un documento (otra tomó el control): NO son una revisión.
 
-    Uno por documento y cuenta (el último reemplaza al anterior). La persona lo ve al abrir el documento y decide si lo usa o lo descarta.
+    Uno por documento, cuenta y página del editor (`sesion`): dos pestañas que pierden el control guardan cada una lo suyo; lo más nuevo
+    de una misma página reemplaza lo anterior. La persona los ve al abrir el documento y decide si usa o descarta cada uno.
     """
 
     tipo = models.CharField(max_length=10, choices=TIPOS_DOCUMENTO)
@@ -376,10 +377,12 @@ class BorradorRecuperacion(models.Model):
     datos = models.JSONField()
     revision_base = models.PositiveIntegerField()
     quien = models.CharField(max_length=150, blank=True, default="")      # quien tomó el control
+    sesion = models.CharField(max_length=64, blank=True, default="")      # la página del editor que lo perdió
     creado = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["tipo", "documento_id", "cuenta_id"], name="herramientas_recuperacion_unica")]
+        constraints = [models.UniqueConstraint(fields=["tipo", "documento_id", "cuenta_id", "sesion"], name="herramientas_recuperacion_unica")]
+        ordering = ["-creado"]
 
 
 class AvisoDocumento(models.Model):

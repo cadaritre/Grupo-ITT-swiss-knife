@@ -33,6 +33,10 @@ CAPTURAS = os.environ.get("ITT_CAPTURAS", "")
 def produccion(settings, tmp_path_factory, monkeypatch):
     """Estáticos como en producción (nombres con huella, `manifest_strict`) y DEBUG apagado. El servidor de pruebas sirve los archivos
     recolectados (con huella) agregando STATIC_ROOT a los buscadores."""
+    monkeypatch.setattr(documentos, "LATIDO_SEGUNDOS", 2)              # el editor late cada 2 s (15 en producción): la prueba no espera
+    if os.environ.get("TV_PRUEBAS_PRODUCCION") == "1":                  # ya lo pone `_modo_produccion` (conftest) para toda la sesión
+        yield settings.STATIC_ROOT
+        return
     raiz = tmp_path_factory.mktemp("estaticos")
     settings.DEBUG = False
     settings.STATIC_ROOT = raiz
@@ -41,7 +45,6 @@ def produccion(settings, tmp_path_factory, monkeypatch):
     previos = list(getattr(settings, "STATICFILES_DIRS", []))
     settings.STATICFILES_DIRS = [*previos, str(raiz)]
     finders.get_finder.cache_clear()
-    monkeypatch.setattr(documentos, "LATIDO_SEGUNDOS", 2)              # el editor late cada 2 s (15 en producción): la prueba no espera
     yield raiz
     # Los buscadores se guardan en caché con la lista de carpetas: se devuelve la lista y se vacía la caché aquí mismo, antes de que
     # `settings` restaure lo demás, para que ninguna prueba siguiente sirva estáticos desde esta copia.

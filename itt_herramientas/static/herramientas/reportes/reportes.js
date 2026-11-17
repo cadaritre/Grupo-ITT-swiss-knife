@@ -204,7 +204,10 @@
     const mini = reg.miniaturas && reg.miniaturas[f.sha256];
     const img = h("img", { alt: "", width: 64, height: 64 });
     if (mini) img.src = mini;
-    else if (enLinea()) { img.src = (urls.foto || "").replace("SHA", f.sha256); img.addEventListener("error", () => img.removeAttribute("src")); }
+    else if (enLinea()) {                                                    // la de otra persona del equipo se pide por el reporte que la usa
+      img.src = (urls.foto || "").replace("SHA", f.sha256) + (reg && reg.servidor_id ? `?doc=${encodeURIComponent(reg.servidor_id)}` : "");
+      img.addEventListener("error", () => img.removeAttribute("src"));
+    }
     return img;
   }
   function textoUbicacion(f) {

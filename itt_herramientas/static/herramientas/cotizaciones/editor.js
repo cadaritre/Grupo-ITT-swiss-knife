@@ -427,7 +427,10 @@
       const mini = sha && reg.miniaturas ? reg.miniaturas[sha] : null;
       const foto = h("img", { alt: "", width: 64, height: 64 });
       if (mini) foto.src = mini;
-      else if (sha && enLinea()) { foto.src = url("foto", sha); foto.addEventListener("error", () => foto.removeAttribute("src")); }
+      else if (sha && enLinea()) {                                           // la de otra persona del equipo se pide por la cotización que la usa
+        foto.src = url("foto", sha) + (reg.servidor_id ? `?doc=${encodeURIComponent(reg.servidor_id)}` : "");
+        foto.addEventListener("error", () => foto.removeAttribute("src"));
+      }
       ul.append(h("li", { class: "itt-captura" }, foto,
         h("div", {},
           h("div", { class: "tv-campo" }, h("label", { for: `im-${i}` }, `Pie de la imagen ${i + 1}`),

@@ -103,9 +103,10 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
     from ..cotizaciones import servicio as cot
     from ..models import Cotizacion, Perfil, Reporte
     from ..reportes import servicio as rep
-    from . import perfiles
+    from . import documentos, perfiles
 
     lote = validar_lote(elementos)
+    _exigir_clases(lote, tipo)
     usuario = get_user_model().objects.filter(pk=cuenta_id).first()
     destino = ruta(cuenta_id, token, tipo)
     if tipo == "planos":                                           # uno a la vez por cuenta: el anterior se borra
@@ -136,6 +137,9 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
                 zf.write(cad.ruta_version(v), _unico(f"{p.nombre}.{v.formato}", usados))
                 incluidos += 1
                 continue
+            # Cada documento con el rol de su herramienta (o supervisión, que solo lee y genera aparte); nunca uno de la papelera.
+            if not supervision and (usuario is None or not documentos.puede_editar(usuario, clase)):
+                continue
             if clase == "cotizacion":
                 consulta = Cotizacion.objects.filter(pk=pk, eliminado__isnull=True)
                 c = consulta.first()
@@ -144,9 +148,9 @@ def armar(token: str, cuenta_id: int, elementos: list, tipo: str, supervision: b
                 try:
                     if supervision or usuario is None:
                         perfil = Perfil.objects.filter(clave=c.perfil).first() or Perfil.objects.get(clave=perfiles.PERFIL_POR_OMISION)
-                        contenido, nombre, _ = cot.pdf_de(c.cuenta_id, perfil, c.datos)
+                        contenido, nombre, _ = cot.pdf_de(c.cuenta_id, perfil, c.datos, c)
                     else:
-                        contenido, nombre, _ = cot.generar_pdf(usuario, c.datos)
+                        contenido, nombre, _ = cot.generar_pdf(usuario, c.datos, c)
                 except cot.CotizacionInvalida as exc:
                     omitidos.append(f"{c.folio or c.proyecto or 'Cotización'}: {exc}")
                     continue
@@ -199,6 +203,16 @@ def _bytes_de_planos(lote) -> int:
     return VersionPlano.objects.filter(plano_id__in=ids, plano__eliminado__isnull=True, numero=F("plano__revision")).aggregate(t=Sum("bytes"))["t"] or 0
 
 
+#: Qué entra en el ZIP de cada herramienta: un lote de cotizaciones nunca lleva reportes y al revés (cada lista exige su rol).
+CLASES_DE = {"cotizaciones": ("cotizacion",), "reportes": ("reporte",), "documentos": ("cotizacion", "reporte"), "planos": ("plano",)}
+
+
+def _exigir_clases(lote, tipo: str) -> None:
+    ajenas = {clase for clase, _ in lote} - set(CLASES_DE.get(tipo, ()))
+    if ajenas:
+        raise LoteInvalido("La selección no es válida para esta herramienta. Recarga la página e inténtalo de nuevo.")
+
+
 def responder(request, elementos, tipo: str, supervision: bool = False):
     """Vista común: valida el lote y encola la tarea que arma el ZIP. 202 con la tarea; 422 con un mensaje si no se puede."""
     from django.http import JsonResponse
@@ -207,6 +221,7 @@ def responder(request, elementos, tipo: str, supervision: bool = False):
 
     try:
         lote = validar_lote(elementos)
+        _exigir_clases(lote, tipo)
         if tipo == "planos" and _bytes_de_planos(lote) > MAX_BYTES_PLANOS:
             raise LoteInvalido(f"Esos planos pesan más de {MAX_BYTES_PLANOS // 1024 ** 3} GB juntos. Elige menos planos y descárgalos en varias partes.")
     except LoteInvalido as exc:

@@ -118,7 +118,7 @@
 
     function aRegistro(fila, datos, cuenta, previo) {
       return Object.assign({ tipo, miniaturas: {}, aviso: "", creada: Date.parse(fila.actualizada) || Date.now() }, previo || {}, {
-        id: previo ? previo.id : fila.id, cuenta, servidor_id: fila.id, revision_base: fila.revision, datos, sucio: false, borrada: false, error: "",
+        id: previo ? previo.id : fila.id, cuenta, servidor_id: fila.id, revision_base: fila.revision, datos, sucio: false, borrada: false, error: "", eliminado_en_servidor: false,
         actualizada: previo ? previo.actualizada : Date.parse(fila.actualizada) || Date.now(),
       }, delServidor(fila, previo));
     }
@@ -130,7 +130,7 @@
       const detalle = await pedir(url("detalle", local.servidor_id));
       const cuenta = await cola().ajuste("cuenta", null);
       const nuevo = aRegistro(detalle, detalle.datos, cuenta, { id: local.id, miniaturas: local.miniaturas, aviso: local.aviso, creada: local.creada });
-      nuevo.recuperacion = detalle.recuperacion || null;
+      nuevo.recuperaciones = detalle.recuperaciones || [];
       await cola().guardarBorrador(nuevo);
       return nuevo;
     }
@@ -143,8 +143,20 @@
     }
 
     /** Trae del servidor lo que el teléfono no tiene o tiene desactualizado (y no tiene cambios propios sin subir). */
+    /** Todas las páginas de la lista del servidor (los documentos son del equipo: pueden ser muchos). */
+    async function listaCompleta() {
+      const filas = [];
+      let pagina = 1;
+      for (let vueltas = 0; pagina && vueltas < 500; vueltas++) {
+        const r = await pedir(pagina === 1 ? urls.lista : `${urls.lista}${urls.lista.includes("?") ? "&" : "?"}pagina=${pagina}`);
+        filas.push(...(r[config.lista || "cotizaciones"] || []));
+        pagina = r.siguiente || null;
+      }
+      return filas;
+    }
+
     async function descargar(cuenta) {
-      const { [config.lista || "cotizaciones"]: filas } = await pedir(urls.lista);
+      const filas = await listaCompleta();
       const locales = (await cola().borradores()).filter(esMio);
       const porServidor = new Map(locales.filter((b) => b.servidor_id).map((b) => [b.servidor_id, b]));
       const vigentes = new Set(filas.map((c) => c.id));
@@ -161,10 +173,19 @@
         const detalle = await pedir(url("detalle", fila.id));
         await cola().guardarBorrador(aRegistro(fila, detalle.datos, cuenta, local));
       }
-      // Lo que se borró en otro dispositivo se quita aquí, salvo que tenga cambios sin subir (esos se vuelven a crear al sincronizar).
+      // Lo que no vino en la lista NO se da por borrado: se pregunta al servidor. Si está en la papelera (410) o ya no existe (404) y aquí
+      // no tiene cambios, se quita del teléfono; con cambios se queda tal cual, con su `servidor_id`: al subir, el servidor guarda lo de
+      // aquí como copia en conflicto. Nunca se olvida el `servidor_id` (eso creaba un documento nuevo, con otro folio y sin marca).
       for (const b of locales) {
-        if (b.servidor_id && !vigentes.has(b.servidor_id) && !b.sucio) await cola().quitarBorrador(b.id);
-        else if (b.servidor_id && !vigentes.has(b.servidor_id) && b.sucio && !b.borrada) await cola().actualizarBorrador(b.id, (x) => Object.assign(x, { servidor_id: null, revision_base: null }));
+        if (!b.servidor_id || vigentes.has(b.servidor_id) || b.borrada) continue;
+        try {
+          const detalle = await pedir(url("detalle", b.servidor_id));
+          if (!b.sucio && detalle.revision !== b.revision_base) await cola().guardarBorrador(aRegistro(detalle, detalle.datos, cuenta, b));
+        } catch (e) {
+          if ((e.estado === 410 || e.estado === 404) && !b.sucio) await cola().quitarBorrador(b.id);
+          else if (e.estado === 410 || e.estado === 404) await cola().actualizarBorrador(b.id, (x) => Object.assign(x, { eliminado_en_servidor: true }));
+          else if (e.clase === "red" || e.clase === "sesion") throw e;
+        }
       }
     }
 
@@ -187,22 +208,28 @@
       const r = await pedir(urls.sincronizar, { metodo: "POST", json: { id_cliente: b.id, servidor_id: b.servidor_id, revision_base: b.revision_base, datos: datosEnviados, sesion: b.sesion || "" } });
       if (r.resultado === "recuperacion") {
         // Otra persona tomó el control: lo de aquí quedó en el servidor como borrador de recuperación; el teléfono vuelve a la versión vigente.
-        const detalle = await pedir(url("detalle", r.servidor_id));
+        // Si aquí se siguió escribiendo mientras viajaba la petición, eso también se sube (va al mismo borrador de recuperación de esta
+        // página): el teléfono no vuelve a la versión vigente hasta que lo último escrito llegó al servidor.
         const actual = await cola().borrador(b.id);
+        if (actual && actual.actualizada !== enviado) { repetir = true; avisar({ tipo_evento: "recuperacion", id: b.id, quien: r.quien }); return; }
+        const detalle = await pedir(url("detalle", r.servidor_id));
         const nuevo = aRegistro(detalle, detalle.datos, cuenta, actual ? { id: actual.id, miniaturas: actual.miniaturas, creada: actual.creada } : { id: b.id });
-        nuevo.recuperacion = detalle.recuperacion || null;
+        nuevo.recuperaciones = detalle.recuperaciones || [];
         await cola().guardarBorrador(nuevo);
         avisar({ tipo_evento: "recuperacion", id: b.id, quien: r.quien });
         return;
       }
       if (r.resultado === "fusionada") {
-        // El servidor cambió y no chocaba: guardó la fusión. Si aquí no se editó mientras tanto, se toma la fusión.
+        // El servidor cambió y no chocaba: guardó la fusión. Si aquí no se editó mientras tanto, se toma la fusión y su revisión. Si se
+        // editó, lo de aquí NO incluye lo del equipo: se conserva la revisión base anterior para que el servidor vuelva a fusionar (si se
+        // tomara la nueva, el siguiente guardado pisaría lo del equipo).
         await cola().actualizarBorrador(b.id, (x) => {
-          x.servidor_id = r.servidor_id; x.revision_base = r.revision; x.error = ""; x.sesion = "";
+          x.servidor_id = r.servidor_id; x.error = ""; x.sesion = "";
           if (r.modificado) x.modificado = r.modificado;
-          if (x.actualizada === enviado) { x.datos = r.datos; x.sucio = false; }
+          if (x.actualizada === enviado) { x.datos = r.datos; x.sucio = false; x.revision_base = r.revision; }
           return x;
         });
+        if ((await cola().borrador(b.id) || {}).sucio) repetir = true;
         avisar({ tipo_evento: "fusionada", id: b.id });
         return;
       }

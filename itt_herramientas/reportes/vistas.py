@@ -67,6 +67,28 @@ def _privado(respuesta):
     return respuesta
 
 
+#: Renglones por página de la lista (el teléfono pide todas las páginas; nunca se deduce que algo se borró por no venir en una lista).
+POR_PAGINA = 200
+
+
+def _pagina(request, consulta):
+    """(renglones, siguiente): la página `?pagina=N` (desde 1) de la consulta y el número de la siguiente, o None si fue la última."""
+    try:
+        n = max(1, int(request.GET.get("pagina", "1")))
+    except ValueError:
+        n = 1
+    filas = list(consulta[(n - 1) * POR_PAGINA:n * POR_PAGINA + 1])
+    return filas[:POR_PAGINA], (n + 1 if len(filas) > POR_PAGINA else None)
+
+
+def _en_papelera(modelo, pk):
+    """El detalle de algo de la papelera responde 410 con `eliminado`: el teléfono lo distingue de «no existe» (404) y de un fallo."""
+    if modelo.objects.filter(pk=pk, eliminado__isnull=False).exists():
+        return _privado(JsonResponse({"error": "Está en la papelera.", "eliminado": True}, status=410))
+    return None
+
+
+
 def _error(exc, estado=422):
     return JsonResponse({"error": str(exc), **({"faltan": exc.faltan} if isinstance(exc, servicio.FotosPendientes) else {})}, status=estado)
 
@@ -87,11 +109,12 @@ def contexto(request):
 @require_GET
 def lista(request):
     """Los reportes de la empresa (todas las cuentas)."""
-    return _privado(JsonResponse({"reportes": [servicio.resumen_fila(r, request.user) for r in documentos.visibles(Reporte)[:300]]}))
+    filas, siguiente = _pagina(request, documentos.visibles(Reporte).order_by("-actualizada", "pk"))
+    return _privado(JsonResponse({"reportes": [servicio.resumen_fila(r, request.user) for r in filas], "siguiente": siguiente}))
 
 
 def _detalle(r, usuario) -> dict:
-    return {**servicio.resumen_fila(r, usuario), "datos": r.datos, "recuperacion": documentos.recuperacion_de(r, usuario)}
+    return {**servicio.resumen_fila(r, usuario), "datos": r.datos, "recuperaciones": documentos.recuperaciones_de(r, usuario)}
 
 
 def _visible(pk) -> Reporte:
@@ -101,6 +124,8 @@ def _visible(pk) -> Reporte:
 @usuario_de_reportes
 @require_http_methods(["GET", "DELETE"])
 def detalle(request, pk):
+    if request.method == "GET" and (papelera := _en_papelera(Reporte, pk)):
+        return papelera
     r = _visible(pk)
     if request.method == "DELETE":
         fallo = vistas_documentos.borrar(r, request.user)
@@ -166,11 +191,17 @@ def descargar(request, pk):
 @usuario_de_reportes
 @require_GET
 def foto(request, sha256):
-    """Miniatura (por omisión) u original (`?original=1`) de una foto de esta cuenta o de un reporte de la empresa que la usa."""
+    """Miniatura (por omisión) u original (`?original=1`) de una foto de esta cuenta o, con `?doc=<id>`, la que usa ese reporte de la
+    empresa (si la subió alguien que lo hizo o lo editó)."""
     original = request.GET.get("original") == "1"
     ruta = capturas.ruta(request.user.pk, sha256) if original else capturas.miniatura(request.user.pk, sha256)
-    if ruta is None and Reporte.objects.filter(eliminado__isnull=True, datos__fotos__contains=[{"sha256": sha256}]).exists():
-        ruta = capturas.ruta_de_documento(sha256) if original else capturas.miniatura(None, sha256)
+    if ruta is None and request.GET.get("doc"):
+        try:
+            doc = Reporte.objects.filter(pk=uuid.UUID(request.GET["doc"]), eliminado__isnull=True, datos__fotos__contains=[{"sha256": sha256}]).first()
+        except ValueError:
+            raise Http404 from None
+        if doc is not None:
+            ruta = capturas.ruta_autorizada(sha256, doc) if original else capturas.miniatura(None, sha256, documento=doc)
     if ruta is None:
         raise Http404
     respuesta = FileResponse(open(ruta, "rb"), content_type="image/png" if ruta.suffix == ".png" else "image/jpeg")
