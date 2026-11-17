@@ -114,12 +114,16 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
         guardados_ = normalizar(obj.datos) if normalizar else obj.datos
         return guardados_ == (ajustar(obj, nuevos) if ajustar is not None else nuevos)
 
+    def copiar_(actual, ref):
+        return _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, ref, nuevos=nuevos, aplicar_copia=aplicar_copia, resumen=resumen,
+                      comparar=comparar, normalizar=normalizar, ajustar=ajustar, aplicar_datos=aplicar_datos, claves=claves, error=error)
+
     with transaction.atomic():
         if servidor_id is not None:
             actual = modelo.objects.select_for_update().filter(pk=servidor_id).first()
             if actual is None:
                 # Se borró para siempre mientras el teléfono lo editaba: lo del teléfono se conserva como documento nuevo.
-                return _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, None, aplicar_copia, resumen, "un documento eliminado")
+                return copiar_(None, "un documento eliminado")
         else:
             actual = modelo.objects.select_for_update().filter(cuenta_id=usuario.pk, id_cliente=id_cliente).first()
             if actual is None:                                            # borrador nuevo del teléfono
@@ -131,7 +135,7 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
             if revision_base is None:                                     # reintento tras perder la respuesta de la creación
                 revision_base = 1
         if actual.eliminado:
-            return _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, actual, aplicar_copia, resumen, f"«{documentos.referencia(actual)}» (en la papelera)")
+            return copiar_(actual, f"«{documentos.referencia(actual)}» (en la papelera)")
         guardados = normalizar(actual.datos) if normalizar else actual.datos
         if ajustar is not None:
             nuevos = ajustar(actual, nuevos)
@@ -144,7 +148,7 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
             if sesion:                                                    # tomaron el control: sus cambios, a recuperación
                 documentos.guardar_recuperacion(actual, usuario, nuevos, revision_base, sesion)
                 return {"resultado": "recuperacion", "quien": otro, **resumen(actual)}
-            return _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, actual, aplicar_copia, resumen, documentos.referencia(actual))
+            return copiar_(actual, documentos.referencia(actual))
         if revision_base == actual.revision:
             aplicar(actual)
             actual.revision += 1
@@ -169,34 +173,74 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
                 actual.save()
                 documentos.registrar_version(actual, usuario, nota="Fusionada con cambios hechos sin conexión")
                 return {"resultado": "fusionada", **resumen(actual), "datos": actual.datos}
-        return _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, actual, aplicar_copia, resumen, documentos.referencia(actual))
+        return copiar_(actual, documentos.referencia(actual))
 
 
-def _copia(modelo, tipo, usuario, id_cliente, revision_base, comparar, actual, aplicar_copia, resumen, ref):
+
+#: Notas de las versiones que escribe la sincronización en una copia en conflicto (lo del teléfono).
+NOTA_COPIA, NOTA_COPIA_TELEFONO = "Copia en conflicto", "Copia en conflicto · lo más nuevo del teléfono"
+
+
+def _copia(modelo, tipo, usuario, id_cliente, revision_base, actual, ref, *, nuevos, aplicar_copia, resumen, comparar, normalizar, ajustar,
+           aplicar_datos, claves, error):
     """Copia en conflicto: lo del teléfono como documento aparte. La llave sale del borrador y de su base: reenviarlo no la duplica.
 
-    Si la copia ya existe y el teléfono manda algo más nuevo (siguió editando), eso entra como revisión nueva de la copia. Una copia que
-    ya está en la papelera no se reutiliza: se hace otra (con la siguiente llave de la serie, así reenviar sigue sin duplicar).
+    Si la copia ya existe y el teléfono manda algo más nuevo (siguió editando):
+    - si la versión vigente de la copia es la que escribió el teléfono, entra como revisión nueva;
+    - si alguien la cambió después (en la oficina), se fusiona con lo que había escrito el teléfono; si choca, o alguien la está editando
+      ahora, va a otra copia (la siguiente llave de la serie). Nunca se pisa lo que otra persona hizo en la copia.
+    Una copia que está en la papelera no se reutiliza.
     """
+    from ..models import VersionDocumento
+
     n = 0
     while True:
         llave = uuid.uuid5(id_cliente, f"copia:{revision_base}" + (f":{n}" if n else ""))
         copia = modelo.objects.select_for_update().filter(cuenta_id=usuario.pk, id_cliente=llave).first()
-        if copia is None or not copia.eliminado:
+        if copia is None:
             break
-        n += 1
-    if copia is not None and not comparar(copia):
-        aplicar_copia(copia)
+        if copia.eliminado:
+            n += 1
+            continue
+        if comparar(copia):
+            break                                                         # ya tiene lo del teléfono (reenvío)
+        if documentos.bloqueo_activo(copia):
+            n += 1                                                        # alguien la está editando ahora: a otra copia
+            continue
+        del_telefono = (VersionDocumento.objects.filter(tipo=tipo, documento_id=copia.pk, cuenta_id=usuario.pk, nota__in=(NOTA_COPIA, NOTA_COPIA_TELEFONO))
+                        .order_by("-revision").first())
+        if del_telefono is not None and del_telefono.revision == copia.revision:
+            aplicar_copia(copia)
+            copia.revision += 1
+            copia.save()
+            documentos.registrar_version(copia, usuario, nota=NOTA_COPIA_TELEFONO)
+            break
+        fusion = None
+        if del_telefono is not None and aplicar_datos is not None:
+            try:
+                base = normalizar(del_telefono.datos) if normalizar else del_telefono.datos
+                guardados = normalizar(copia.datos) if normalizar else copia.datos
+                propios = ajustar(copia, nuevos) if ajustar is not None else nuevos
+                fusion = fusionar(base, guardados, propios, claves) if base is not None and guardados is not None else None
+                if fusion is not None:
+                    aplicar_datos(copia, fusion)
+            except (ValueError, error):
+                fusion = None
+        if fusion is None:
+            n += 1                                                        # choca con lo que hicieron en la copia: a otra copia
+            continue
         copia.revision += 1
         copia.save()
-        documentos.registrar_version(copia, usuario)
+        documentos.registrar_version(copia, usuario, nota="Fusionada con cambios hechos sin conexión")
+        break
     if copia is None:
         nombre = autoria.de_usuario(usuario)[0]
-        copia = modelo(cuenta_id=usuario.pk, id_cliente=llave, copia_de=actual)
+        heredados = {*(actual.autorizados or []), actual.cuenta_id} if actual is not None else set()
+        copia = modelo(cuenta_id=usuario.pk, id_cliente=llave, copia_de=actual, autorizados=sorted(heredados | {usuario.pk}))   # sus fotos siguen valiendo
         aplicar_copia(copia)
         copia.conflicto = f"Copia en conflicto de {ref} ({nombre}, {timezone.localtime().strftime('%d/%m/%Y %H:%M')})"[:300]
         copia.save()
-        documentos.registrar_version(copia, usuario, nota="Copia en conflicto")
+        documentos.registrar_version(copia, usuario, nota=NOTA_COPIA)
         if actual is not None and actual.modificado_por_id and actual.modificado_por_id != usuario.pk:
             documentos.avisar(actual.modificado_por_id, tipo, actual.pk,
                               f"{nombre} editó «{documentos.referencia(actual)}» sin conexión al mismo tiempo que tú. Tu versión sigue vigente; "

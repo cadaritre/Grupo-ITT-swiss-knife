@@ -67,19 +67,6 @@ def _privado(respuesta):
     return respuesta
 
 
-#: Renglones por página de la lista (el teléfono pide todas las páginas; nunca se deduce que algo se borró por no venir en una lista).
-POR_PAGINA = 200
-
-
-def _pagina(request, consulta):
-    """(renglones, siguiente): la página `?pagina=N` (desde 1) de la consulta y el número de la siguiente, o None si fue la última."""
-    try:
-        n = max(1, int(request.GET.get("pagina", "1")))
-    except ValueError:
-        n = 1
-    filas = list(consulta[(n - 1) * POR_PAGINA:n * POR_PAGINA + 1])
-    return filas[:POR_PAGINA], (n + 1 if len(filas) > POR_PAGINA else None)
-
 
 def _en_papelera(modelo, pk):
     """El detalle de algo de la papelera responde 410 con `eliminado`: el teléfono lo distingue de «no existe» (404) y de un fallo."""
@@ -109,8 +96,7 @@ def contexto(request):
 @require_GET
 def lista(request):
     """Los reportes de la empresa (todas las cuentas)."""
-    filas, siguiente = _pagina(request, documentos.visibles(Reporte).order_by("-actualizada", "pk"))
-    return _privado(JsonResponse({"reportes": [servicio.resumen_fila(r, request.user) for r in filas], "siguiente": siguiente}))
+    return vistas_documentos.lista_incremental(request, "reporte", "reportes", servicio.resumen_fila)
 
 
 def _detalle(r, usuario) -> dict:

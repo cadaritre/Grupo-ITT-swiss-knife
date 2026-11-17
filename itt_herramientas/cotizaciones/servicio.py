@@ -184,7 +184,7 @@ def folio_libre(folio: str, excepto=None) -> bool:
 def resumen_fila(c: Cotizacion, usuario=None) -> dict:
     fila = {"id": str(c.id), "id_cliente": str(c.id_cliente) if c.id_cliente else None, "revision": c.revision, "folio": c.folio, "cliente": c.cliente,
             "proyecto": c.proyecto, "moneda": c.moneda, "total": float(c.total), "actualizada": c.actualizada.isoformat(), "copia": c.copia_de_id is not None,
-            "perfil": c.perfil, "autor": autoria.fila(c), "folio_repetido": c.folio_repetido}
+            "perfil": c.perfil, "autor": autoria.fila(c), "folio_repetido": c.folio_repetido, "fecha": (c.datos or {}).get("quote_date", "")}
     if usuario is not None:
         fila.update(documentos.fila(c, usuario))
     return fila
@@ -243,7 +243,7 @@ def duplicar(usuario, c: Cotizacion) -> Cotizacion:
     q.quote_date = timezone.localdate().strftime("%d/%m/%Y")
     q.spelling_checked = False
     with transaction.atomic():
-        copia = Cotizacion(cuenta_id=usuario.pk)
+        copia = Cotizacion(cuenta_id=usuario.pk, copia_de=c, autorizados=sorted({*(c.autorizados or []), c.cuenta_id, usuario.pk}))   # hereda sus fotos
         _aplicar(copia, q, c.perfil)
         copia.save()
         documentos.registrar_version(copia, usuario, nota=f"Duplicada de {c.folio}" if c.folio else "")
@@ -289,16 +289,24 @@ def nombre_pdf(q: qm.QuoteData) -> str:
     return f"COTIZACION {_limpiar(q.quote_number, 'SIN FOLIO')} - {_limpiar(q.project_title, 'SERVICIOS')}.pdf"
 
 
-def _resolver_imagenes(cuenta_id: int, q: qm.QuoteData, documento=None) -> list[str]:
+def imagenes_de(datos) -> set[str]:
+    """Las «captura:<sha>» que usan unos datos de cotización."""
+    return {i.get("path") for i in (datos or {}).get("images", []) if isinstance(i, dict) and isinstance(i.get("path"), str)}
+
+
+def _resolver_imagenes(cuenta_id: int, q: qm.QuoteData, documento=None, permitidas: set[str] | None = None) -> list[str]:
     """Cambia «captura:<sha>» por la ruta de la foto: de la cuenta `cuenta_id` o, con `documento`, de quien hizo o editó esa cotización
-    (`capturas.ruta_autorizada`). Devuelve las que aún no llegan al servidor."""
+    (`capturas.ruta_autorizada`), pero solo si esa imagen está en lo guardado de la cotización (`permitidas`; por omisión, sus datos
+    vigentes): mandar otros datos con el `servidor_id` de una cotización ajena no descubre fotos. Devuelve las que aún no llegan."""
+    if permitidas is None:
+        permitidas = imagenes_de(documento.datos) if documento is not None else set()
     pendientes = []
     resueltas = []
     for imagen in q.images:
         m = _CAPTURA.match(imagen.path)
         if not m:
             continue
-        ruta = capturas.ruta(cuenta_id, m.group(1)) or capturas.ruta_autorizada(m.group(1), documento)
+        ruta = capturas.ruta(cuenta_id, m.group(1)) or (capturas.ruta_autorizada(m.group(1), documento) if imagen.path in permitidas else None)
         if ruta is None:
             pendientes.append(imagen.caption or m.group(1)[:8])
             continue
@@ -312,13 +320,13 @@ def generar_pdf(usuario, datos: dict, documento=None) -> tuple[bytes, str, list[
     return pdf_de(usuario.pk, perfiles.perfil_activo(usuario), datos, documento)
 
 
-def pdf_de(cuenta_id: int, perfil, datos: dict, documento=None) -> tuple[bytes, str, list[str]]:
+def pdf_de(cuenta_id: int, perfil, datos: dict, documento=None, permitidas: set[str] | None = None) -> tuple[bytes, str, list[str]]:
     """El mismo PDF para cualquier cuenta y perfil (supervisión: el de la cuenta autora con el perfil del documento)."""
     from ..dominio import branding
 
     q = validar(datos)
     nombre = nombre_pdf(q)
-    pendientes = _resolver_imagenes(cuenta_id, q, documento)
+    pendientes = _resolver_imagenes(cuenta_id, q, documento, permitidas)
     with perfiles.activar(perfil):
         logo = branding.active_profile().logo_path
         with tempfile.TemporaryDirectory() as carpeta:

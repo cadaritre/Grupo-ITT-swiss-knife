@@ -22,7 +22,7 @@ from tvplataforma.tareas import cancelada, progreso
 
 from ..comun import autoria, capturas, documentos, errores, perfiles, sincronizacion
 from ..dominio import branding, geospatial_converter as gc, location_sketch as ls, osm_vector, terrain_contours
-from ..models import Croquis, Perfil
+from ..models import Croquis, Perfil, tocar
 
 LIMITE_KM2 = 50.0                      # web; arriba: «Exportar proyecto para el módulo local» (el escritorio llega a 200 km²)
 MAX_VERTICES = 500
@@ -130,7 +130,8 @@ def resumen_fila(c: Croquis, usuario=None) -> dict:
     fila = {"id": str(c.id), "id_cliente": str(c.id_cliente) if c.id_cliente else None, "revision": c.revision, "titulo": c.titulo, "actualizada": c.actualizada.isoformat(),
             "copia": c.copia_de_id is not None, "perfil": c.perfil, "vectores": estado_vectores(c), "resumen": c.vectores_resumen,
             "vectorizado": c.vectorizado.isoformat() if c.vectorizado else None, "area_km2": round(area_km2(c.datos), 3),
-            "pdf_al_dia": bool(c.salida_ruta) and c.salida_fuente == _huella_salida(c), "autor": autoria.fila(c)}
+            "pdf_al_dia": bool(c.salida_ruta) and c.salida_fuente == _huella_salida(c), "autor": autoria.fila(c),
+            "cliente": (c.datos or {}).get("client", ""), "proyecto": (c.datos or {}).get("project", ""), "vertices": len((c.datos or {}).get("points", []))}
     if usuario is not None:
         fila.update(documentos.fila(c, usuario))
     return fila
@@ -194,6 +195,7 @@ def vectorizar(c: Croquis) -> None:
     conteos = osm_vector.feature_counts(features)
     Croquis.objects.filter(pk=c.pk).update(vectores_ruta=(carpeta / "vectores.json").relative_to(capturas.raiz()).as_posix(), vectores_fuente=huella, vectorizado=timezone.now(),
                                            vectores_resumen={"total": len(features), "conteos": conteos, "area_km2": round(km2, 3)})
+    tocar(Croquis, c.pk)
     progreso(1.0, "Listo")
 
 
@@ -269,6 +271,7 @@ def generar(c: Croquis, formato: str) -> Path:
     temporal.replace(destino)
     Croquis.objects.filter(pk=c.pk).update(salida_ruta=destino.relative_to(capturas.raiz()).as_posix(), salida_nombre=nombre_salida(c, formato), salida_formato=formato,
                                            salida_fuente=_huella_salida(c))
+    tocar(Croquis, c.pk)
     progreso(1.0, "Listo")
     return destino
 

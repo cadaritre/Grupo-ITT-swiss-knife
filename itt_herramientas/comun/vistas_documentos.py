@@ -115,6 +115,36 @@ def vistas(tipo: str, decorador, aplicar, detalle):
     return {"bloqueo": bloqueo, "versiones": versiones, "version": version, "restaurar": restaurar, "recuperacion": recuperacion, "avisos": avisos}
 
 
+#: Renglones por respuesta de la lista incremental; el teléfono sigue pidiendo mientras `mas` sea verdadero.
+POR_PAGINA = 200
+
+
+def lista_incremental(request, tipo: str, clave: str, fila):
+    """Lista incremental de los documentos de `tipo` para el teléfono: `?desde=<cursor>` (0 o nada: todo).
+
+    Responde `{clave: [resúmenes de lo que cambió], "eliminados": [ids que se fueron a la papelera], "cursor": N, "mas": bool}`, en el orden
+    de su número de cambio (`models.siguiente_cambio`), así el cursor es estable y no se salta nada. Si desde ese cursor se borraron
+    documentos para siempre, agrega `"vigentes": [ids]` para que el teléfono quite los demás. Solo van resúmenes: los datos de cada
+    documento se piden aparte, cuando hacen falta.
+    """
+    from ..models import PurgaDocumentos
+
+    modelo = documentos.MODELOS[tipo]
+    try:
+        desde = max(0, int(request.GET.get("desde", "0") or 0))
+    except ValueError:
+        desde = 0
+    filas = list(modelo.objects.filter(cambio__gt=desde).order_by("cambio")[:POR_PAGINA + 1])
+    mas = len(filas) > POR_PAGINA
+    filas = filas[:POR_PAGINA]
+    cuerpo = {clave: [fila(d, request.user) for d in filas if d.eliminado is None], "eliminados": [str(d.pk) for d in filas if d.eliminado is not None],
+              "cursor": filas[-1].cambio if filas else desde, "mas": mas}
+    purga = PurgaDocumentos.objects.filter(tipo=tipo).values_list("hasta", flat=True).first()
+    if desde and purga and desde < purga:
+        cuerpo["vigentes"] = [str(pk) for pk in documentos.visibles(modelo).values_list("pk", flat=True)]
+    return _privado(JsonResponse(cuerpo))
+
+
 def rutas(prefijo: str, nombre: str, v: dict) -> list:
     """Las URL de `vistas()` bajo `<prefijo>/api/`, con nombres `<nombre>_bloqueo`, `<nombre>_versiones`, …"""
     from django.urls import path

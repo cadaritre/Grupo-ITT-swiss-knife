@@ -72,7 +72,7 @@ def test_el_contexto_de_reportes_trae_las_sugerencias(cliente_de, ana, beto):
     _rep(ana, cliente="Agrícola Norte")
     _rep(beto, cliente="Otro cliente")
     assert cliente_de(ana).get(url("reportes_contexto")).json()["clientes"] == ["Otro cliente", "Agrícola Norte"]
-    assert cliente_de(ana).get(url("reportes_lista")).json()["reportes"][0]["cliente"] == "Otro cliente"
+    assert {f["cliente"] for f in cliente_de(ana).get(url("reportes_lista")).json()["reportes"]} == {"Otro cliente", "Agrícola Norte"}   # en orden de cambio
 
 
 def test_la_migracion_llena_la_columna_desde_los_datos(ana):

@@ -100,21 +100,42 @@ def test_el_bloqueo_aguanta_dos_minutos_sin_latido(cliente_de, ana, beto):
 
 # 4. Listas por páginas, y lo eliminado se dice explícitamente ------------------------------------------------------------------
 
-def test_la_lista_va_por_paginas_y_el_detalle_dice_si_esta_en_la_papelera(cliente_de, ana, monkeypatch):
-    from itt_herramientas.cotizaciones import vistas
+def test_la_lista_es_incremental_con_cursor_y_marca_lo_de_la_papelera(cliente_de, ana, monkeypatch):
+    from itt_herramientas.comun import vistas_documentos
 
-    monkeypatch.setattr(vistas, "POR_PAGINA", 3)
+    monkeypatch.setattr(vistas_documentos, "POR_PAGINA", 3)
     for n in range(5):
         _cot(ana, proyecto=f"P{n}")
     c = cliente_de(ana)
     uno = c.get(url("cotizaciones_lista")).json()
-    dos = c.get(url("cotizaciones_lista"), {"pagina": uno["siguiente"]}).json()
-    assert len(uno["cotizaciones"]) == 3 and len(dos["cotizaciones"]) == 2 and dos["siguiente"] is None
+    dos = c.get(url("cotizaciones_lista"), {"desde": uno["cursor"]}).json()
+    assert len(uno["cotizaciones"]) == 3 and uno["mas"] and len(dos["cotizaciones"]) == 2 and not dos["mas"]
     assert {f["id"] for f in uno["cotizaciones"]} | {f["id"] for f in dos["cotizaciones"]} == {str(x) for x in Cotizacion.objects.values_list("pk", flat=True)}
+    assert "datos" not in uno["cotizaciones"][0]                                              # solo resúmenes: los datos, aparte
+    nada = c.get(url("cotizaciones_lista"), {"desde": dos["cursor"]}).json()
+    assert nada["cotizaciones"] == [] and nada["eliminados"] == [] and nada["cursor"] == dos["cursor"]
+    # Un latido no mueve el cursor; tirar a la papelera, sí (y llega como eliminado, no como renglón).
     tirada = Cotizacion.objects.first()
-    Cotizacion.objects.filter(pk=tirada.pk).update(eliminado=timezone.now())
+    post(c, "cotizaciones_bloqueo", {"accion": "tomar", "sesion": "pagina-de-ana-0001"}, pk=tirada.pk)
+    con_bloqueo = c.get(url("cotizaciones_lista"), {"desde": dos["cursor"]}).json()
+    post(c, "cotizaciones_bloqueo", {"accion": "latido", "sesion": "pagina-de-ana-0001"}, pk=tirada.pk)
+    assert c.get(url("cotizaciones_lista"), {"desde": con_bloqueo["cursor"]}).json()["cotizaciones"] == []
+    post(c, "cotizaciones_bloqueo", {"accion": "soltar", "sesion": "pagina-de-ana-0001"}, pk=tirada.pk)
+    assert c.delete(url("cotizaciones_detalle", pk=tirada.pk)).status_code == 200
+    despues = c.get(url("cotizaciones_lista"), {"desde": con_bloqueo["cursor"]}).json()
+    assert str(tirada.pk) in despues["eliminados"]
     r = c.get(url("cotizaciones_detalle", pk=tirada.pk))
     assert r.status_code == 410 and r.json()["eliminado"] is True
+
+
+def test_tras_borrar_para_siempre_un_cursor_viejo_recibe_los_vigentes(cliente_de, ana, administradora):
+    a, b = _cot(ana), _cot(ana)
+    c = cliente_de(ana)
+    cursor = c.get(url("cotizaciones_lista")).json()["cursor"]
+    c.delete(url("cotizaciones_detalle", pk=b.pk))
+    documentos.destruir(Cotizacion.objects.get(pk=b.pk))
+    r = c.get(url("cotizaciones_lista"), {"desde": cursor}).json()
+    assert r["vigentes"] == [str(a.pk)]
 
 
 def test_quien_no_es_el_autor_y_edito_algo_que_se_elimino_recibe_copia_en_conflicto(ana, beto):
@@ -201,3 +222,80 @@ def test_quien_administra_asigna_folios_nuevos(cliente_de, ana, beto, administra
     Cotizacion.objects.filter(pk=b.pk).update(folio=a.folio, folio_repetido=True)
     assert cliente_de(administradora).post(url("supervision_asignar_folio", pk=b.pk)).status_code == 302
     assert not Cotizacion.objects.get(pk=b.pk).folio_repetido
+
+
+# D. Las fotos del equipo siguen valiendo en duplicados, copias en conflicto y con el historial recortado --------------------------
+
+def test_fotos_del_equipo_en_duplicado_copia_y_con_historial_recortado(cliente_de, ana, beto, crear_usuario, roles, settings, monkeypatch):
+    from itt_herramientas.models import Captura
+
+    carla = crear_usuario("carla")
+    roles.conceder(carla, "herramientas", "cotizaciones", "reportes")
+    # Reporte de Ana; Beto le agrega su foto. La oficina (Carla) cambia el título mientras el campo (Ana) agrega otra foto que choca.
+    sha_b = crear_foto(beto, 21, settings)
+    r = rep.sincronizar(ana, uuid.uuid4(), None, None, datos_reporte([], titulo="Visita"), "grupo_itt")
+    rep.sincronizar(beto, uuid.uuid4(), uuid.UUID(r["servidor_id"]), 1, datos_reporte([foto(sha_b, "De Beto")], titulo="Visita"), "grupo_itt")
+    rep.sincronizar(carla, uuid.uuid4(), uuid.UUID(r["servidor_id"]), 2, datos_reporte([foto(sha_b, "Oficina")], titulo="Visita"), "grupo_itt")
+    copia = rep.sincronizar(ana, uuid.uuid4(), uuid.UUID(r["servidor_id"]), 2, datos_reporte([foto(sha_b, "Campo")], titulo="Visita"), "grupo_itt")
+    assert copia["resultado"] == "copia"
+    copia_r = Reporte.objects.get(pk=copia["servidor_id"])
+    rep.verificar_listo(copia_r)                                                    # la foto de Beto entra al PDF de la copia
+    assert cliente_de(carla).get(url("reportes_foto", sha256=sha_b), {"doc": str(copia_r.pk)}).status_code == 200
+    # Cotización de Ana con la foto de Beto; Carla la duplica: el duplicado ve la foto.
+    sha_c = crear_foto(beto, 22, settings)
+    a = _cot(ana)
+    cot.sincronizar(beto, uuid.uuid4(), a.pk, 1, {**Cotizacion.objects.get(pk=a.pk).datos, "images": [{"path": f"captura:{sha_c}", "caption": ""}]}, "grupo_itt")
+    dup = cliente_de(carla).post(url("cotizaciones_duplicar", pk=a.pk)).json()
+    _, _, pendientes = cot.generar_pdf(carla, dup["datos"], Cotizacion.objects.get(pk=dup["id"]))
+    assert pendientes == []
+    assert cliente_de(carla).get(url("cotizaciones_foto", sha256=sha_c), {"doc": dup["id"]}).status_code == 200
+    # Recortar el historial (Beto ya no está entre las versiones que quedan) no quita su foto.
+    monkeypatch.setattr(documentos, "VERSIONES_VISIBLES", 1)
+    for n in range(3):
+        cot.sincronizar(ana, uuid.uuid4(), a.pk, Cotizacion.objects.get(pk=a.pk).revision, {**Cotizacion.objects.get(pk=a.pk).datos, "notes": f"n{n}"}, "grupo_itt")
+    from itt_herramientas.models import VersionDocumento
+
+    assert not VersionDocumento.objects.filter(documento_id=a.pk, cuenta_id=beto.pk, visible=True).exists()
+    assert Captura.objects.filter(sha256=sha_c, cuenta_id=beto.pk).exists()
+    assert cliente_de(carla).get(url("cotizaciones_foto", sha256=sha_c), {"doc": str(a.pk)}).status_code == 200
+
+
+# 7. Lo que la oficina hizo en una copia en conflicto no lo pisa un reintento del teléfono ----------------------------------------
+
+def test_reintento_no_pisa_lo_que_la_oficina_hizo_en_la_copia(cliente_de, ana, beto):
+    a = _cot(ana, proyecto="Original")
+    cot.sincronizar(beto, uuid.uuid4(), a.pk, 1, {**a.datos, "project_title": "Oficina"}, "grupo_itt")
+    idc = uuid.uuid4()
+    primera = cot.sincronizar(ana, idc, a.pk, 1, {**a.datos, "project_title": "Campo"}, "grupo_itt")
+    copia = Cotizacion.objects.get(pk=primera["servidor_id"])
+    # En la oficina, Beto corrige el cliente de la copia.
+    cot.sincronizar(beto, uuid.uuid4(), copia.pk, copia.revision, {**copia.datos, "client_name": "Cliente corregido"}, "grupo_itt")
+    # El teléfono reintenta con un cambio que no choca (notas): se fusiona, nada de Beto se pierde.
+    otra = cot.sincronizar(ana, idc, a.pk, 1, {**a.datos, "project_title": "Campo", "notes": "Más notas"}, "grupo_itt")
+    c = Cotizacion.objects.get(pk=otra["servidor_id"])
+    assert otra["servidor_id"] == primera["servidor_id"] and c.cliente == "Cliente corregido" and c.datos["notes"] == "Más notas"
+    # Y si choca con lo de Beto, va a otra copia.
+    tercera = cot.sincronizar(ana, idc, a.pk, 1, {**a.datos, "project_title": "Campo", "notes": "Más notas", "client_name": "Del campo"}, "grupo_itt")
+    assert tercera["servidor_id"] != primera["servidor_id"]
+    assert Cotizacion.objects.get(pk=primera["servidor_id"]).cliente == "Cliente corregido"
+
+
+def test_reintento_no_toca_una_copia_que_alguien_edita(cliente_de, ana, beto):
+    a = _cot(ana, proyecto="Original")
+    cot.sincronizar(beto, uuid.uuid4(), a.pk, 1, {**a.datos, "project_title": "Oficina"}, "grupo_itt")
+    idc = uuid.uuid4()
+    primera = cot.sincronizar(ana, idc, a.pk, 1, {**a.datos, "project_title": "Campo"}, "grupo_itt")
+    post(cliente_de(beto), "cotizaciones_bloqueo", {"accion": "tomar", "sesion": "pagina-de-beto-0001"}, pk=primera["servidor_id"])
+    otra = cot.sincronizar(ana, idc, a.pk, 1, {**a.datos, "project_title": "Campo 2"}, "grupo_itt")
+    assert otra["servidor_id"] != primera["servidor_id"] and Cotizacion.objects.get(pk=primera["servidor_id"]).proyecto == "Campo"
+
+
+# 10. El PDF del editor solo usa las imágenes guardadas en la cotización (o las propias) -------------------------------------------
+
+def test_pdf_con_servidor_id_ajeno_no_descubre_fotos(cliente_de, ana, beto, settings):
+    sha = crear_foto(ana, 23, settings)                                             # de Ana, en otra cotización suya
+    rep.sincronizar(ana, uuid.uuid4(), None, None, datos_reporte([foto(sha)], titulo="Cualquiera"), "grupo_itt")
+    cualquiera = _cot(ana)                                                          # sin imágenes; Beto la usa de llave
+    datos = {**cualquiera.datos, "items": [{"title": "x", "unit": "Lote", "quantity": 1, "unit_price": 1}], "images": [{"path": f"captura:{sha}", "caption": "A"}]}
+    r = post(cliente_de(beto), "cotizaciones_pdf", {"datos": datos, "servidor_id": str(cualquiera.pk)})
+    assert r.status_code == 200 and r["X-Imagenes-Pendientes"] == "1"

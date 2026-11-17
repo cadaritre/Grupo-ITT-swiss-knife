@@ -33,12 +33,9 @@ def ruta(cuenta_id: int, sha256: str) -> Path | None:
 
 
 def editores(documento) -> set[int]:
-    """Las cuentas que hicieron o guardaron alguna revisión de `documento` (autor, quien lo modificó y su historial)."""
-    from ..models import VersionDocumento
-    from .documentos import tipo_de
-
-    cuentas = {documento.cuenta_id, getattr(documento, "modificado_por_id", None)}
-    cuentas |= set(VersionDocumento.objects.filter(tipo=tipo_de(documento), documento_id=documento.pk).values_list("cuenta_id", flat=True))
+    """Las cuentas cuyas fotos puede usar `documento`: su autor y las de `autorizados` (quien lo editó alguna vez y lo heredado de su
+    origen, si es un duplicado o una copia en conflicto). Recortar el historial no las quita."""
+    cuentas = {documento.cuenta_id, *(getattr(documento, "autorizados", None) or [])}
     return {c for c in cuentas if c is not None}
 
 

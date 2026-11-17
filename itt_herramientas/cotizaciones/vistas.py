@@ -74,19 +74,6 @@ def _privado(respuesta):
     return respuesta
 
 
-#: Renglones por página de la lista (el teléfono pide todas las páginas; nunca se deduce que algo se borró por no venir en una lista).
-POR_PAGINA = 200
-
-
-def _pagina(request, consulta):
-    """(renglones, siguiente): la página `?pagina=N` (desde 1) de la consulta y el número de la siguiente, o None si fue la última."""
-    try:
-        n = max(1, int(request.GET.get("pagina", "1")))
-    except ValueError:
-        n = 1
-    filas = list(consulta[(n - 1) * POR_PAGINA:n * POR_PAGINA + 1])
-    return filas[:POR_PAGINA], (n + 1 if len(filas) > POR_PAGINA else None)
-
 
 def _en_papelera(modelo, pk):
     """El detalle de algo de la papelera responde 410 con `eliminado`: el teléfono lo distingue de «no existe» (404) y de un fallo."""
@@ -117,9 +104,8 @@ def contexto(request):
 @usuario_de_cotizaciones
 @require_GET
 def lista(request):
-    """Las cotizaciones de la empresa (todas las cuentas), de la más reciente a la más vieja."""
-    filas, siguiente = _pagina(request, documentos.visibles(Cotizacion).order_by("-actualizada", "pk"))
-    return _privado(JsonResponse({"cotizaciones": [servicio.resumen_fila(c, request.user) for c in filas], "siguiente": siguiente}))
+    """Las cotizaciones de la empresa que cambiaron desde `?desde=` (lista incremental, `vistas_documentos.lista_incremental`)."""
+    return vistas_documentos.lista_incremental(request, "cotizacion", "cotizaciones", servicio.resumen_fila)
 
 
 def _detalle(c, usuario) -> dict:
@@ -166,7 +152,7 @@ def version_pdf(request, pk, vid):
         raise Http404
     perfil = Perfil.objects.filter(clave=v.perfil or c.perfil).first() or Perfil.objects.get(clave=perfiles.PERFIL_POR_OMISION)
     try:
-        contenido, nombre, _ = servicio.pdf_de(c.cuenta_id, perfil, v.datos, c)
+        contenido, nombre, _ = servicio.pdf_de(c.cuenta_id, perfil, v.datos, c, servicio.imagenes_de(v.datos))     # las de esa versión
     except servicio.CotizacionInvalida as exc:
         return _error(exc, 422)
     respuesta = HttpResponse(contenido, content_type="application/pdf")

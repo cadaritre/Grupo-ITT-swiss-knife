@@ -55,9 +55,56 @@ class DocumentoCompartido(ConAutor):
     eliminado_por_nombre = models.CharField(max_length=150, blank=True, default="")
     # «Copia en conflicto de COT-2026-0007 (Ana López, 16/11/2026 13:05)»: lo que se guardó sin conexión y chocaba con otra versión.
     conflicto = models.CharField(max_length=300, blank=True, default="")
+    # Cuentas cuyas fotos puede usar este documento: quien lo hizo o lo editó alguna vez, y lo heredado de su origen (duplicado o copia
+    # en conflicto). Solo crece; recortar el historial no lo toca (`capturas.ruta_autorizada`).
+    autorizados = models.JSONField(default=list, blank=True)
+    # Número de cambio (secuencia `herramientas_documento_cambio`): sube con cada guardado que cambia lo que se ve en una lista, en el
+    # orden en que se confirman. Es el cursor de la sincronización incremental de los teléfonos (`?desde=`).
+    cambio = models.BigIntegerField(default=0, db_index=True)
 
     class Meta:
         abstract = True
+
+    #: Guardados que no mueven el cursor (el latido del bloqueo, cada 15 s por página abierta).
+    SIN_CAMBIO = frozenset({"bloqueo_latido"})
+
+    def save(self, *args, **kwargs):
+        campos = kwargs.get("update_fields")
+        if campos is not None and set(campos) <= self.SIN_CAMBIO:
+            return super().save(*args, **kwargs)
+        from django.db import transaction
+
+        with transaction.atomic():                                  # el número y el guardado se confirman juntos, en orden
+            self.cambio = siguiente_cambio()
+            if campos is not None:
+                kwargs["update_fields"] = [*campos, "cambio"]
+            return super().save(*args, **kwargs)
+
+
+def siguiente_cambio() -> int:
+    """Siguiente número de cambio de los documentos compartidos, dentro de la transacción en curso.
+
+    Un candado de transacción (`pg_advisory_xact_lock`) pone en fila a quienes escriben hasta que cada uno confirma: así el orden de los
+    números es el orden en que se confirman, y un teléfono que ya vio el N nunca se salta un N-1 que se confirmó después.
+    """
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [CANDADO_CAMBIOS])
+        cursor.execute("SELECT nextval('herramientas_documento_cambio')")
+        return cursor.fetchone()[0]
+
+
+def tocar(modelo, pk) -> None:
+    """Mueve el cursor de un documento que cambió por `QuerySet.update` (p. ej. su PDF ya está al día)."""
+    from django.db import transaction
+
+    with transaction.atomic():
+        modelo.objects.filter(pk=pk).update(cambio=siguiente_cambio())
+
+
+#: Llave del candado de transacción de los números de cambio (cualquier entero fijo y propio de esta app).
+CANDADO_CAMBIOS = 7_461_033_901
 
 
 class Perfil(models.Model):
@@ -383,6 +430,14 @@ class BorradorRecuperacion(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["tipo", "documento_id", "cuenta_id", "sesion"], name="herramientas_recuperacion_unica")]
         ordering = ["-creado"]
+
+
+class PurgaDocumentos(models.Model):
+    """Hasta qué número de cambio se borraron documentos para siempre (de la papelera). Un teléfono cuyo cursor es anterior ya no verá su
+    marca de eliminado: el servidor le manda la lista de los que siguen vigentes para que quite los demás."""
+
+    tipo = models.CharField(max_length=10, unique=True)
+    hasta = models.BigIntegerField(default=0)
 
 
 class AvisoDocumento(models.Model):

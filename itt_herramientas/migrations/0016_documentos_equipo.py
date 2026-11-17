@@ -9,7 +9,8 @@ Las cotizaciones, los reportes y los croquis dejan de ser de cada cuenta y pasan
    mayor. Desde aquí la base de datos no admite dos cotizaciones con el mismo folio.
 3. Machotes: pasan a ser de la empresa. Si dos cuentas tenían uno con el mismo nombre, el más antiguo lo conserva y los demás se renombran
    «<nombre> (de <autor>)»; un identificador repetido se cambia por uno nuevo.
-4. «Modificado por» empieza siendo el autor, y la revisión actual de cada documento queda como la primera de su historial.
+4. «Modificado por» empieza siendo el autor, y la revisión actual de cada documento queda como la primera de su historial. Cada
+   documento recibe su número de cambio (cursor de la sincronización de los teléfonos) y su autor como única cuenta cuyas fotos usa.
 """
 
 import django.db.models.functions.text
@@ -79,12 +80,16 @@ def compartir(apps, schema_editor):
         cambios["modificado_por_nombre"] = cambios.get("autor_nombre") or m.autor_nombre
         Machote.objects.filter(pk=m.pk).update(**cambios)
 
-    # 3. «Modificado por» = autor, y la revisión actual como primera versión del historial.
+    # 3. «Modificado por» = autor, la revisión actual como primera versión del historial, quien puede aportar fotos (el autor) y el
+    #    número de cambio (en el orden de su última modificación) para la sincronización incremental de los teléfonos.
     ahora = timezone.now()
     for tipo, modelo in (("cotizacion", Cotizacion), ("reporte", Reporte), ("croquis", Croquis)):
-        for d in modelo.objects.all().iterator():
+        for d in modelo.objects.order_by("actualizada", "pk").iterator():
             nombre = nombre_de(d.cuenta_id, d.autor_nombre)
-            modelo.objects.filter(pk=d.pk).update(modificado_por_id=d.cuenta_id, modificado_por_nombre=nombre)
+            with schema_editor.connection.cursor() as cursor:
+                cursor.execute("SELECT nextval('herramientas_documento_cambio')")
+                cambio = cursor.fetchone()[0]
+            modelo.objects.filter(pk=d.pk).update(modificado_por_id=d.cuenta_id, modificado_por_nombre=nombre, autorizados=[d.cuenta_id], cambio=cambio)
             VersionDocumento.objects.create(tipo=tipo, documento_id=d.pk, revision=d.revision, datos=d.datos, perfil=d.perfil, cuenta_id=d.cuenta_id,
                                             autor_nombre=nombre, nota="Versión al compartir con el equipo", inicio=d.actualizada or ahora,
                                             creada=d.actualizada or ahora)
@@ -336,6 +341,21 @@ class Migration(migrations.Migration):
             name='modificado_por_nombre',
             field=models.CharField(blank=True, default='', max_length=150),
         ),
+        migrations.AddField(model_name='cotizacion', name='autorizados', field=models.JSONField(blank=True, default=list)),
+        migrations.AddField(model_name='cotizacion', name='cambio', field=models.BigIntegerField(db_index=True, default=0)),
+        migrations.AddField(model_name='croquis', name='autorizados', field=models.JSONField(blank=True, default=list)),
+        migrations.AddField(model_name='croquis', name='cambio', field=models.BigIntegerField(db_index=True, default=0)),
+        migrations.AddField(model_name='reporte', name='autorizados', field=models.JSONField(blank=True, default=list)),
+        migrations.AddField(model_name='reporte', name='cambio', field=models.BigIntegerField(db_index=True, default=0)),
+        migrations.CreateModel(
+            name='PurgaDocumentos',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('tipo', models.CharField(max_length=10, unique=True)),
+                ('hasta', models.BigIntegerField(default=0)),
+            ],
+        ),
+        migrations.RunSQL("CREATE SEQUENCE IF NOT EXISTS herramientas_documento_cambio", "DROP SEQUENCE IF EXISTS herramientas_documento_cambio"),
         migrations.RunPython(compartir, migrations.RunPython.noop),
         migrations.AlterField(model_name='machote', name='plantilla_id', field=models.UUIDField(default=uuid.uuid4, unique=True)),
         migrations.AddConstraint(

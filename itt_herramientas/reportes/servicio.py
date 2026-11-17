@@ -16,7 +16,7 @@ from tvplataforma.tareas import cancelada, progreso
 from ..comun import autoria, capturas, documentos, perfiles, sincronizacion
 from ..dominio import document_texts, pdf_generator
 from ..dominio.metadata import PhotoInfo
-from ..models import Captura, Perfil, Reporte
+from ..models import Captura, Perfil, Reporte, tocar
 
 MAX_FOTOS = 150
 MAX_NOTA = 1000
@@ -128,7 +128,7 @@ def resumen_fila(r: Reporte, usuario=None) -> dict:
     fila = {"id": str(r.id), "id_cliente": str(r.id_cliente) if r.id_cliente else None, "revision": r.revision, "titulo": r.titulo, "fotos": r.fotos,
             "actualizada": r.actualizada.isoformat(), "copia": r.copia_de_id is not None, "perfil": r.perfil,
             "pdf": bool(r.salida_ruta), "pdf_al_dia": bool(r.salida_ruta) and r.salida_revision == r.revision, "pdf_revision": r.salida_revision,
-            "cliente": r.cliente, "autor": autoria.fila(r)}
+            "cliente": r.cliente, "autor": autoria.fila(r), "fecha": (r.datos or {}).get("fecha", "")}
     if usuario is not None:
         fila.update(documentos.fila(r, usuario))
     return fila
@@ -205,6 +205,7 @@ def generar(r: Reporte, informar=progreso, cuenta_id: int | None = None) -> Path
     temporal.replace(destino)
     Reporte.objects.filter(pk=r.pk).update(salida_ruta=destino.relative_to(capturas.raiz()).as_posix(), salida_nombre=nombre_pdf(datos["titulo"]),
                                            salida_revision=revision, generado=timezone.now())
+    tocar(Reporte, r.pk)                                                        # su PDF ya está al día: las listas de los teléfonos lo ven
     informar(1.0, "Listo")
     from ..drive import servicio as drive
 

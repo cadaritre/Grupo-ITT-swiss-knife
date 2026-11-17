@@ -129,6 +129,10 @@ def _de_otro(doc, usuario, sesion: str, ahora) -> str:
 
 
 def _tomar(doc, usuario, sesion: str, ahora) -> None:
+    if doc.bloqueo_sesion == sesion and doc.bloqueo_cuenta_id == usuario.pk and bloqueo_activo(doc, ahora):
+        doc.bloqueo_latido = ahora                                    # el latido de la misma página: no mueve el cursor de las listas
+        doc.save(update_fields=["bloqueo_latido"])
+        return
     if doc.bloqueo_sesion != sesion or not bloqueo_activo(doc, ahora):
         doc.bloqueo_desde = ahora
     doc.bloqueo_cuenta_id, doc.bloqueo_nombre = usuario.pk, autoria.de_usuario(usuario)[0]
@@ -198,8 +202,9 @@ def registrar_version(doc, usuario, nota: str = "") -> VersionDocumento:
     nombre = autoria.de_usuario(usuario)[0] if usuario is not None else ""
     cuenta = usuario.pk if usuario is not None else None
     ahora = timezone.now()
-    type(doc).objects.filter(pk=doc.pk).update(modificado_por_id=cuenta, modificado_por_nombre=nombre)
-    doc.modificado_por_id, doc.modificado_por_nombre = cuenta, nombre
+    autorizados = sorted({*(doc.autorizados or []), doc.cuenta_id, *([cuenta] if cuenta is not None else [])} - {None})
+    type(doc).objects.filter(pk=doc.pk).update(modificado_por_id=cuenta, modificado_por_nombre=nombre, autorizados=autorizados)
+    doc.modificado_por_id, doc.modificado_por_nombre, doc.autorizados = cuenta, nombre, autorizados
     previa = VersionDocumento.objects.filter(tipo=tipo, documento_id=doc.pk, visible=True).order_by("-revision").first()
     inicio = ahora
     if (previa is not None and not nota and not previa.nota and previa.cuenta_id == cuenta and cuenta is not None
@@ -354,7 +359,12 @@ def recuperar(doc, usuario) -> None:
 
 def destruir(doc) -> None:
     """Borra el documento para siempre, con su historial, borradores de recuperación y avisos."""
+    from ..models import PurgaDocumentos, siguiente_cambio
+
     tipo = tipo_de(doc)
+    with transaction.atomic():                                     # los teléfonos con un cursor anterior ya no verán su marca: se les avisa
+        marca = siguiente_cambio()
+        PurgaDocumentos.objects.update_or_create(tipo=tipo, defaults={"hasta": marca})
     VersionDocumento.objects.filter(tipo=tipo, documento_id=doc.pk).delete()
     BorradorRecuperacion.objects.filter(tipo=tipo, documento_id=doc.pk).delete()
     AvisoDocumento.objects.filter(tipo=tipo, documento_id=doc.pk).delete()
