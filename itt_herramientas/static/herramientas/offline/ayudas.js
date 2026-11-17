@@ -51,11 +51,28 @@
     m.classList.add("itt-aviso--flotante");
     clearTimeout(m._retirar);
     if (!texto) return;
-    const barra = [...document.querySelectorAll(".cot-barra, .cq-barra")].find((b) => b.offsetParent !== null && getComputedStyle(b).position !== "static");
-    // Con barra: la distancia ya incluye la banda de pendientes que pudiera haber debajo. Sin barra: el CSS se coloca sobre la banda.
-    if (barra) m.style.setProperty("--itt-flota", `${Math.round(Math.max(0, innerHeight - barra.getBoundingClientRect().top) + 8)}px`);
-    else m.style.removeProperty("--itt-flota");
+    colocar(m);
     m._retirar = setTimeout(() => { m.hidden = true; }, tipo === "error" ? 12000 : 6000);
+  }
+
+  /** Pega el aviso encima de la barra de acciones visible, y lo mantiene ahí mientras se ve: la barra sube o baja cuando aparece la banda
+   * de pendientes, el teclado o un cambio de tamaño, y el aviso (de cualquier largo) la sigue cuadro a cuadro sin taparla nunca. */
+  function colocar(m) {
+    cancelAnimationFrame(m._seguir);
+    let ultimo = null;
+    const paso = () => {
+      if (m.hidden || !m.isConnected) return;
+      // Visible = con cajas en la pantalla (`offsetParent` es null para lo fijo, así que no sirve para saberlo) y no estática.
+      const barra = [...document.querySelectorAll(".cot-barra, .cq-barra")].find((b) => b.getClientRects().length && getComputedStyle(b).position !== "static");
+      // Con barra: la distancia ya incluye la banda de pendientes que pudiera haber debajo. Sin barra: el CSS se coloca sobre la banda.
+      const valor = barra ? `${Math.round(Math.max(0, innerHeight - barra.getBoundingClientRect().top) + 8)}px` : "";
+      if (valor !== ultimo) {
+        if (valor) m.style.setProperty("--itt-flota", valor); else m.style.removeProperty("--itt-flota");
+        ultimo = valor;
+      }
+      m._seguir = requestAnimationFrame(paso);
+    };
+    paso();
   }
 
   /** Resuelve true/false, o el texto escrito si `opciones.entrada` es una cadena (aparece un campo de texto), o "alt" si se eligió `opciones.alternativa` (tercer botón). */

@@ -449,3 +449,32 @@ def test_machotes_como_en_el_escritorio(motor, tmp_path, servidor, sesion_de, us
         assert Machote.objects.filter(cuenta_id=usuaria.pk).count() == 2
     finally:
         ctx.close()
+
+
+@pytest.mark.parametrize("ancho", [360, 1280])
+def test_un_aviso_largo_sigue_pegado_a_la_barra_cuando_la_barra_se_mueve(motor, tmp_path, servidor, sesion_de, usuaria, ancho):
+    """UX-ITT-08: el aviso flotante, por largo que sea, queda justo encima de la barra de abajo, también si la barra se mueve después de
+    mostrarlo (aparece la banda de pendientes, cambia el tamaño de la ventana)."""
+    ctx = contexto(motor, tmp_path, servidor, sesion_de(usuaria), viewport={"width": ancho, "height": 780})
+    try:
+        pagina = abrir(ctx, servidor)
+        pagina.locator("#cot-nueva").click()
+        pagina.wait_for_selector("#cot-vista-editor:not([hidden])")
+        largo = "Sin conexión con el servidor. Lo que escribiste está a salvo en este teléfono y se sube solo en cuanto vuelva la señal. " * 3
+        pagina.evaluate("(t) => ITT.ui.mensaje('cot-mensaje', t, 'error')", largo)
+        pagina.evaluate("() => document.getElementById('cot').style.setProperty('--cot-alto-pendientes', '140px')")    # la barra sube después
+        pagina.wait_for_timeout(300)
+
+        def junto():
+            barra = pagina.locator("#cot-barra").bounding_box()
+            caja = pagina.locator("#cot-mensaje").bounding_box()
+            return caja["y"] + caja["height"] <= barra["y"] + 1 and barra["y"] - (caja["y"] + caja["height"]) < 40, (caja, barra)
+
+        bien, cajas = junto()
+        assert bien, cajas
+        pagina.set_viewport_size({"width": ancho, "height": 700})                                              # y si cambia la ventana
+        pagina.wait_for_timeout(300)
+        bien, cajas = junto()
+        assert bien, cajas
+    finally:
+        ctx.close()
