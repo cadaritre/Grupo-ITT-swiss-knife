@@ -1225,14 +1225,39 @@
   // `query near` devuelve los objetos por distancia (con `distance`), también los que viven dentro de las definiciones de bloques: solo
   // cuentan los del espacio que se ve.
   const delEspacio = (e) => !!(e && e.handle && (est.presentacion ? /^\*Paper_Space/i.test(e.space || "") : e.space === "*Model_Space"));
+  // `near` solo da curvas: un bloque, un texto, una cota o un sombreado no salen. Sin curva cerca, se busca lo que tiene su caja bajo el
+  // dedo: un texto por su caja; un bloque (y lo demás) solo si hay dibujo de verdad bajo el dedo (la referencia «Cercano» del editor,
+  // que ve dentro de los bloques) o si es chico en la pantalla. Entre varios, el de caja más chica (el de encima de otro más grande).
   async function objetoEn(m, tolPx = 14, detalle = "geometry") {
     const t = tolPx * vista.k;
     const r = await pedirSuave({ op: "query", near: [m[0], m[1]], bounds: [m[0] - t, m[1] - t, m[0] + t, m[1] + t], limit: 12, detail: "summary" });
-    const e = lista(r).find((x) => delEspacio(x) && (x.distance === undefined || x.distance <= t));
+    let e = lista(r).find((x) => delEspacio(x) && (x.distance === undefined || x.distance <= t));
+    if (!e) e = await objetoPorCaja(m, t);
     if (!e) return null;
     if (detalle === "summary") return e;
     const [d] = await detalleDe([e.handle], detalle);
     return d || e;
+  }
+  async function objetoPorCaja(m, t) {
+    const r = await pedirSuave({ op: "query", bounds: [m[0] - t, m[1] - t, m[0] + t, m[1] + t], limit: 200, detail: "full", fields: ["bounds", "space", "layer"] });
+    const cands = lista(r).filter(delEspacio).map((x) => ({ x, c: cajaDe(x) })).filter((o) => o.c);
+    if (!cands.length) return null;
+    const dentro = (c, p, h = 0) => p[0] >= c[0] - h && p[0] <= c[2] + h && p[1] >= c[1] - h && p[1] <= c[3] + h;
+    const area = (c) => (c[2] - c[0]) * (c[3] - c[1]);
+    let bajo = null;                                  // un punto del dibujo bajo el dedo (también dentro de bloques)
+    if (capac.modos) {
+      const s = await pedirSuave({ op: "snap", point: m, modes: ["Nearest", "Endpoint", "Insertion", "Node", "Midpoint", "Center"], limit: 1 }, 5000);
+      const w = s && (s.world || (s.hits && s.hits[0] && s.hits[0].world));
+      if (w && dist(w, m) <= t) bajo = [w[0], w[1]];
+    }
+    const chico = (c) => Math.max(c[2] - c[0], c[3] - c[1]) / vista.k <= 48;
+    const sirve = cands.filter(({ x, c }) => {
+      const tipo = tipoDe(x);
+      if (tipo === "Text" || tipo === "MText") return dentro(c, m, t);
+      return (bajo && dentro(c, bajo, t * 0.25)) || (chico(c) && dentro(c, m, t));
+    });
+    sirve.sort((a, b) => area(a.c) - area(b.c));
+    return sirve.length ? sirve[0].x : null;
   }
   // Longitud y área que calcula el editor (`measure`): {length, area} o null.
   async function medida(handle) {
@@ -2028,7 +2053,8 @@
   }
 
   // -- Explotar, recortar y alargar (ops del editor desde tv-v2026.45-9; sin ellas, las herramientas no se muestran) ----------------
-  const RAZONES = { locked_layer: "está en una capa bloqueada" };
+  const RAZONES = { locked_layer: "está en una capa bloqueada", minsert: "es un bloque en arreglo", xref: "es una referencia a otro plano",
+    nonuniform_scale: "tiene escala distinta en X y en Y", not_explodable: "ese objeto no se puede explotar", entity_absent: "ya no existe" };
   async function explotar() {
     if (!est.editable || !capac.explotar) return;
     const handles = [...seleccion.keys()];
@@ -2044,7 +2070,8 @@
     await reflejarSeleccion();
     const nada = saltados.length === 1 ? "1 no se pudo explotar" : `${saltados.length} no se pudieron explotar`;
     if (!creados.length) {
-      const motivo = saltados.length === 1 && RAZONES[saltados[0].reason];
+      const motivos = [...new Set(saltados.map((x) => x.reason))];
+      const motivo = motivos.length === 1 && RAZONES[motivos[0]];
       aviso(`No se pudo explotar: ${motivo || (saltados.length > 1 ? "ninguno de estos objetos se puede explotar" : saltados.length ? "ese objeto no se puede explotar" : "no había nada que explotar")}.`, "error", 4000);
     } else aviso(`Explotado: ${creados.length === 1 ? "1 objeto nuevo" : `${creados.length} objetos nuevos`}${saltados.length ? ` · ${nada}` : ""}`, "", saltados.length ? 4500 : 2800);
   }
@@ -2062,7 +2089,11 @@
     } finally { ocupado = false; window.TVCad.soltar(); }
     if (herr !== h) return !!(r && r.changed);
     if (!r || !r.changed) {
-      aviso(op === "trim" ? "Ahí no hay nada que recortar. Toca justo sobre la parte que sobra." : "No hay hacia dónde alargar: no hay otro objeto en esa dirección.");
+      const motivo = r && r.reason;
+      aviso(motivo === "locked_layer" ? "Ese objeto está en una capa bloqueada."
+        : motivo === "no_boundary" ? "No hay hacia dónde alargar: ningún objeto en esa dirección."
+        : motivo === "nothing_to_trim" ? "No hay nada que lo corte."
+        : op === "trim" ? "Ahí no hay nada que recortar. Toca justo sobre la parte que sobra." : "Ahí no hay nada que alargar. Toca cerca del extremo.");
       return false;
     }
     if (navigator.vibrate) { try { navigator.vibrate(8); } catch (_) { /* nada */ } }

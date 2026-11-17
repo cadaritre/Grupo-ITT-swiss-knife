@@ -365,7 +365,7 @@ def test_referencias_en_bloques_girados_reflejados_anidados_y_a_escala(tactil, n
         ((X0 + 10 + 2 * c30 - s30, Y0 + 2 * s30 + c30), "Endpoint"),               # girado 30°
         ((X0 + 20 - 2, Y0 + 1), "Endpoint"),                                       # reflejado
         ((X0 + 30 + 4, Y0 + 3), "Endpoint"),                                       # escala 2 × 3
-        ((X0 + 30 + 2, Y0 + 1.5), "Center"),                                       # círculo anidado (centro (1, 0.5) × 2 × 3)
+        ((X0 + 30 + 2, Y0 + 1.5), ("Center", "Midpoint")),                         # círculo anidado (centro (1, 0.5) × 2 × 3) = medio de la diagonal
         ((X0 + 40 + 1, Y0 + 1 + 2), "Endpoint"),                                   # anidado y girado 90°: (2, 0) → (0, 2) + (1, 1)
     ]
     _herramienta(p, "dibujar", "Punto")
@@ -378,8 +378,9 @@ def test_referencias_en_bloques_girados_reflejados_anidados_y_a_escala(tactil, n
         p.evaluate("TVCadTactil.releer()")
         p.wait_for_timeout(700)
         llevar_punta(p, x + 0.08, y + 0.06)
+        tipos = tipo if isinstance(tipo, tuple) else (tipo,)
         try:
-            esperar(p, f"TVCadTactil.puntero().snap === '{tipo}'", 3000)
+            esperar(p, " || ".join(f"TVCadTactil.puntero().snap === '{t}'" for t in tipos), 3000)
         except AssertionError:
             raise AssertionError((x, y, tipo, p.evaluate("TVCadTactil.puntero()"))) from None
         m = p.evaluate("TVCadTactil.puntero().mundo")
@@ -401,7 +402,10 @@ def test_explotar_un_bloque_deja_elegido_lo_nuevo_y_es_un_paso(tactil, navegar, 
     p.wait_for_timeout(700)
     sx, sy = _pantalla(p, X0 + 1, Y0)
     p.evaluate("([x, y]) => __g.tocar(x, y)", [sx, sy])
-    expect(p.locator("#tt-seleccion")).to_be_visible()
+    try:
+        expect(p.locator("#tt-seleccion")).to_be_visible(timeout=5000)
+    except AssertionError:
+        raise AssertionError(p.evaluate("([x, y]) => TVCadTactil.cercanos(x, y)", [sx, sy])) from None
     p.locator('#tt-seleccion [data-editar="explotar"]').click()
     expect(p.locator("#tt-aviso")).to_contain_text("Explotado: 3 objetos nuevos")
     assert len(p.evaluate("TVCadTactil.seleccion()")) == 3
@@ -419,7 +423,7 @@ def test_recortar_y_alargar_con_toque_puntero_y_linea_cada_uno_un_paso(tactil, n
     p0 = plano_bloques(ana)
     n, p = abrir(navegar, ana, motor, p0=p0)
     _requiere(p, "recortar", "alargar")
-    p.evaluate("TVCad.pedir({op: 'view_set', center: [%r, %r], height: 16})" % (X0 + 15, Y0 + 10))
+    p.evaluate("TVCad.pedir({op: 'view_set', center: [%r, %r], height: 60})" % (X0 + 15, Y0 + 10))
     p.evaluate("TVCadTactil.releer()")
     p.wait_for_timeout(700)
 
@@ -469,16 +473,42 @@ def test_recortar_y_alargar_con_toque_puntero_y_linea_cada_uno_un_paso(tactil, n
     p.wait_for_timeout(400)
     assert lineas() == l0
     # Donde no hay nada: aviso claro, nada cambia.
-    sx, sy = _pantalla(p, X0 + 15, Y0 + 4)
+    sx, sy = _pantalla(p, X0 + 15, Y0 + 25)
     p.evaluate("([x, y]) => __g.tocar(x, y)", [sx, sy])
-    expect(p.locator("#tt-aviso")).to_contain_text("No hay hacia dónde alargar")
+    expect(p.locator("#tt-aviso")).to_contain_text("no hay nada que alargar")
     _sin_errores(n, motor)
 
 
+def plano_grande(usuario):
+    """Un plano «de verdad»: 120 capas, 80 bloques con atributos y 3 000 inserciones giradas en capas distintas, y textos."""
+    import ezdxf
+
+    d = ezdxf.new("R2018", setup=True)
+    m = d.modelspace()
+    for i in range(120):
+        d.layers.add(f"CAPA-{i:03d}", color=1 + i % 250)
+    for b in range(80):
+        blk = d.blocks.new(f"B{b:03d}")
+        blk.add_lwpolyline([(0, 0), (2, 0), (2, 1), (0, 1)], close=True)
+        blk.add_circle((1, 0.5), 0.3)
+        blk.add_text(f"T{b}", dxfattribs={"height": 0.2})
+        blk.add_attdef("NUM", (0, -0.4), dxfattribs={"height": 0.2})
+    for i in range(3000):
+        ins = m.add_blockref(f"B{i % 80:03d}", (X0 + (i % 60) * 4, Y0 + (i // 60) * 3), dxfattribs={"layer": f"CAPA-{i % 120:03d}", "rotation": (i * 7) % 360})
+        ins.add_auto_attribs({"NUM": str(i)})
+    for i in range(200):
+        m.add_text(f"Texto {i}", dxfattribs={"height": 1, "insert": (X0 + i, Y0 - 10), "layer": f"CAPA-{i % 120:03d}"})
+    return _guardar(usuario, d, "Grande")
+
+
 @pytest.mark.parametrize("motor", MOTORES)
-def test_ver_mover_acercar_referencias_y_elegir_no_dejan_sin_guardar(tactil, navegar, crear_usuario, roles, motor):
+def test_un_plano_grande_que_solo_se_mira_nunca_queda_sin_guardar(tactil, navegar, crear_usuario, roles, motor):
+    """El dueño (17-11): un plano con muchos bloques y capas que solo abrió, movió, acercó y en el que abrió la hoja «Dibujar» quedó
+    «Sin guardar». Abrir, mover, acercar, tres toques, elegir, el puntero con referencias, el recuadro y cada hoja (Dibujar, Editar,
+    Capas, Más, Referencias, Modelo y presentaciones) dejan el plano guardado, y la página no le pide al editor nada que cambie el
+    dibujo (`TVCad.registro()`)."""
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
-    p0 = plano_bloques(ana)
+    p0 = plano_grande(ana)
     n, p = abrir(navegar, ana, motor, p0=p0)
     _requiere(p, "modos")
     esperar_estado(p, "guardado")
@@ -488,49 +518,88 @@ def test_ver_mover_acercar_referencias_y_elegir_no_dejan_sin_guardar(tactil, nav
     p.wait_for_timeout(600)
     p.evaluate("__g.toques(200, 300, 3)")
     p.wait_for_timeout(1200)
-    sx, sy = _pantalla(p, X0 + 1, Y0)
-    p.evaluate("([x, y]) => __g.tocar(x, y)", [sx, sy])
+    p.evaluate("__g.tocar(190, 330)")
     p.wait_for_timeout(500)
-    p.evaluate("([x, y]) => __g.mantener(x, y + 88)", [sx, sy])
-    p.evaluate("([x, y]) => __g.mover(x + 10, y + 90)", [sx, sy])
-    p.evaluate("([x, y]) => __g.soltar(x + 10, y + 90)", [sx, sy])
-    p.wait_for_timeout(1500)                                               # más que el latido y el borrador de recuperación
-    assert p.locator("#cad-estado").get_attribute("data-estado") == "guardado"
+    p.evaluate("__g.tocarYArrastrar(60, 200, 200, 150)")
+    p.wait_for_timeout(1000)
+    p.evaluate("__g.mantener(200, 420)")
+    p.evaluate("__g.mover(210, 430)")
+    p.evaluate("__g.soltar(210, 430)")
+    p.wait_for_timeout(800)
+    if p.locator("#tt-seleccion-quitar").is_visible():
+        p.locator("#tt-seleccion-quitar").click()
+    for grupo in ("dibujar", "editar", "medir", "cota", "texto", "capas"):
+        p.locator(f'.tt-pestanas [data-grupo="{grupo}"]').click()
+        p.wait_for_timeout(700)
+        p.locator("#tt-hoja [data-tt-cerrar]").click()
+    for fila in ("Referencias a objetos", "Modelo y presentaciones"):
+        p.locator("#tt-mas").click()
+        p.locator("#tt-hoja").get_by_role("button", name=fila).click()
+        p.wait_for_timeout(700)
+        p.locator("#tt-hoja [data-tt-cerrar]").click()
+    p.wait_for_timeout(4000)                                       # más que el latido, el borrador (3 s en pruebas) y la consulta de estado
+    assert p.locator("#cad-estado").get_attribute("data-estado") == "guardado", p.evaluate("TVCad.registro()")
+    cambian = [r for r in p.evaluate("TVCad.registro()") if r.get("op") not in ("canvas_only", "view_set", "select", "dim_style", "sysvar", "action")
+               and r.get("ok") is not False]
+    assert not cambian, cambian
     _sin_errores(n, motor)
 
 
 # -- Cotas del tamaño de la vista --------------------------------------------------------------------------------------------------
 
 def _cotas(p):
-    return p.evaluate("""TVCad.pedir({op: 'query', type: 'Dimension', detail: 'full', limit: 50})
-      .then(r => r.entities.filter(e => e.space === '*Model_Space').map(e => ({h: e.handle, s: (e.properties || {}).dimscale ?? e.dimscale})))""")
+    """Cotas del modelo: {handle: su DIMSCALE propio (XDATA ACAD «DSTYLE», código 40) o None}."""
+    es = p.evaluate("TVCad.pedir({op: 'query', type: 'Dimension', detail: 'full', limit: 50}).then(r => r.entities).catch(() => [])")
+    out = {}
+    for e in es:
+        if e.get("space") != "*Model_Space":
+            continue
+        props = next(iter(e["properties"].values()))
+        base = props.get("base", props)
+        escala = None
+        for rec in base["common"]["extended_data"]["records"]:
+            if rec["application_name"] == "ACAD":
+                vals = rec["values"]
+                for i, v in enumerate(vals[:-1]):
+                    if v.get("Integer16") == 40:
+                        escala = vals[i + 1].get("Real")
+        out[e["handle"]] = escala
+    return out
 
 
 @pytest.mark.parametrize("motor", MOTORES)
 def test_las_cotas_toman_el_tamano_de_la_vista(tactil, navegar, crear_usuario, roles, motor):
+    """Pedido del dueño 17-11: la misma cota puesta con 10 veces más de vista sale 10 veces más grande (letras, flechas, separaciones);
+    las cotas que ya había no cambian; cada una es un paso de deshacer. Los puntos se escriben en la lectura (sin referencias). El alto
+    de su texto (DIMTXT × su DIMSCALE propio) es de la serie 1, 2, 2.5, 5 × 10ⁿ."""
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = plano_utm(ana)
     n, p = abrir(navegar, ana, motor, p0=p0)
     _requiere(p, "cotas")
     tamanos = []
-    for altura in (40, 400):
-        p.evaluate("TVCad.pedir({op: 'view_set', center: [%r, %r], height: %r})" % (X0 + 10, Y0 + 10, altura))
+
+    def punto(x, y):
+        _escribir(p, "x", repr(x)); p.locator('#tt-din [data-d="siguiente"]').click(); _din(p, repr(y))
+        p.locator('#tt-din [data-d="poner"]').click()
+    for altura in (30, 300):
+        p.evaluate("TVCad.pedir({op: 'view_set', center: [%r, %r], height: %r})" % (X0 + 10, Y0, altura))
         p.evaluate("TVCadTactil.releer()")
-        p.wait_for_timeout(700)
-        antes = {c["h"]: c["s"] for c in _cotas(p)}
+        antes = _cotas(p)
         _herramienta(p, "cota", "Cota alineada")
-        llevar_punta(p, X0, Y0); poner(p); llevar_punta(p, X0 + 20, Y0); poner(p); llevar_punta(p, X0 + 10, Y0 - 3); poner(p)
-        p.wait_for_timeout(500)
-        ahora = {c["h"]: c["s"] for c in _cotas(p)}
-        nuevas = [s for h, s in ahora.items() if h not in antes]
-        assert len(nuevas) == 1 and all(ahora[h] == s for h, s in antes.items()), (antes, ahora)   # las de antes no cambian
-        tamanos.append(nuevas[0])
-        if altura == 40:
+        punto(X0, Y0 - 1); punto(X0 + 20, Y0 - 1); punto(X0 + 10, Y0 - 9)
+        p.wait_for_timeout(600)
+        ahora = _cotas(p)
+        nuevas = [h for h in ahora if h not in antes]
+        assert len(nuevas) == 1 and all(ahora[h] == v for h, v in antes.items()), (antes, ahora)   # las de antes no cambian
+        tamanos.append(ahora[nuevas[0]])
+        if altura == 30:
             un = entidades(p)
             p.locator("#tt-deshacer").click(); p.wait_for_timeout(400)
             assert entidades(p) == un - 1                                                      # un paso de deshacer
             p.locator("#tt-rehacer").click(); p.wait_for_timeout(400)
-    assert 7 < tamanos[1] / tamanos[0] < 14, tamanos                                          # 10× más de vista ≈ 10× (redondeado)
+    assert tamanos[0] and 7 < tamanos[1] / tamanos[0] < 14, tamanos
+    estilo = p.evaluate("TVCad.pedir({op: 'dim_style'})")
+    assert {round(s * estilo["dimtxt"], 9) for s in tamanos} <= {0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10}, (tamanos, estilo)   # serie redonda
     _sin_errores(n, motor)
 
 

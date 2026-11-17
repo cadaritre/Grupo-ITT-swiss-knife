@@ -146,6 +146,13 @@ la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` 
 - **Cotas y textos del tamaño de la vista** (pedido del dueño 17-11): alto ≈ 3 % del ancho visible en un teléfono (2.5 % en tableta),
   redondeado a 1, 2, 2.5 o 5 × 10ⁿ. La cota se crea con `dim_create` y su propia escala (DIMSCALE = alto / DIMTXT del estilo, `dim_style`);
   el estilo del plano y las cotas que ya había no cambian. La vista previa usa el mismo tamaño; el texto sugiere ese alto.
+- **Tocar un bloque, un texto o una cota** lo elige: `query near` solo da curvas, así que sin una curva bajo el dedo se busca por caja (el
+  texto por su caja; un bloque solo si hay dibujo de verdad bajo el dedo, con la referencia «Cercano» del editor que ve dentro de los
+  bloques, o si es chico en la pantalla; entre varios, el más chico).
+- **Un plano que solo se mira nunca queda «Sin guardar».** La revisión de partida se toma cuando el editor terminó de abrir (respuesta de
+  `open` y revisión quieta), no al ver aparecer su pestaña: en un plano grande la página daba el plano por cargado a media apertura (y la
+  capa táctil empezaba a pedirle cosas al editor). `TVCad.registro()` (y la consola, al pasar a «Sin guardar») dice qué le pidió la
+  página al editor justo antes, para diagnosticar en el teléfono.
 - **Lo que depende del editor.** Al entrar se mira qué ops tiene (`state.capabilities` o una petición que solo se rechaza por sus datos):
   sin `explode`, `trim`, `extend` o `dim_create` esas herramientas no se muestran y las cotas se dibujan como antes.
 - **Hoja numérica** para el texto, la altura del texto y el nombre de una capa.
