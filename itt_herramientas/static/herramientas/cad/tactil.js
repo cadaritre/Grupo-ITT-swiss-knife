@@ -767,8 +767,6 @@
       f.querySelector(".tt-valor__quitar").hidden = !fijo;
     }
     if (din.abierto) {
-      const c = cs.find((x) => x.k === din.campo);
-      $("tt-din-et").textContent = c ? c.et : "";
       $("tt-din-soltar").disabled = din.fijos[din.campo] === undefined;
       for (const b of $("tt-din-campos").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.campo === din.campo));
     }

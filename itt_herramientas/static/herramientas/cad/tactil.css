@@ -79,7 +79,7 @@ html.cad-tactil .tt > * { pointer-events: auto; }
 .tt-cerca { stroke: var(--tt-corte); stroke-width: 2.5; stroke-dasharray: 8 5; stroke-linecap: round; }
 .tt-previa .tt-cota-escala { fill: var(--tt-previa); stroke: none; font-family: var(--tv-fuente); font-weight: 600; }
 
-.tt-lectura { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;
+.tt-lectura { position: absolute; left: 8px; right: 8px; bottom: 10px; width: fit-content; margin: 0 auto; display: flex; flex-direction: column; align-items: center;
   gap: 4px; padding: 5px 6px; pointer-events: auto; border-radius: 18px; background: color-mix(in srgb, var(--tv-superficie) 94%, transparent); box-shadow: var(--tt-sombra);
   font: 600 14px/1.2 var(--tv-fuente-mono, ui-monospace, Menlo, monospace); font-variant-numeric: tabular-nums; white-space: nowrap; max-width: calc(100% - 16px); }
 .tt-lectura__fila { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; max-width: 100%; }
@@ -230,8 +230,7 @@ html.cad-tactil .tt-velo { display: block; position: fixed; inset: 0; z-index: 3
 .tt-din__campos { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .tt-din__campos button { min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--tv-separador); background: var(--tv-fondo); font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .tt-din__campos button[aria-pressed="true"] { background: var(--tv-primario); color: var(--tv-sobre-primario); border-color: transparent; }
-.tt-din__et { margin: 4px 2px 6px; font-size: 12.5px; color: var(--tv-tenue); }
-.tt-din__et:empty { display: none; }
+.tt-din__cabeza { margin-bottom: 6px; }
 .tt-teclado--din { gap: 6px; }
 .tt-teclado--din button { min-height: 46px; font-size: 21px; }
 .tt-teclado__poner { grid-column: span 2; }
@@ -260,7 +259,9 @@ html.cad-tactil .tt-velo { display: block; position: fixed; inset: 0; z-index: 3
   .tt-lectura { font-size: 13px; padding: 4px 5px; }
   .tt-valor__b { min-height: 34px; }
   .tt-teclado--din button { min-height: 38px; font-size: 18px; }
+  .tt-din__campos { flex-wrap: wrap; }
   .tt-din__campos button { min-height: 34px; padding: 0 8px; }
+  .tt-teclado__sig { overflow-wrap: anywhere; }
 }
 /* Tableta: pestañas centradas con más aire; las hojas salen como panel flotante. */
 @media (min-width: 700px) and (min-height: 501px) {
