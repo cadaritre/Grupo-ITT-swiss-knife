@@ -149,7 +149,7 @@ def sincronizar(request):
                                          sesion if documentos.sesion_valida(sesion) else "")
     except servicio.CroquisInvalido as exc:
         return _error(exc)
-    return _privado(JsonResponse(resultado))
+    return _privado(JsonResponse(vistas_documentos.con_aviso_de_perfil(request, cuerpo, resultado)))
 
 
 def _encolar(request, c: Croquis, tarea_fn, *args):

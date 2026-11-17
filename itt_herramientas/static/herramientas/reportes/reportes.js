@@ -663,6 +663,7 @@
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "reporte") return;
+      if (d.tipo_evento === "aviso" && d.mensaje) mensaje(d.mensaje, "info");     // dónde quedó lo de un perfil que ya no se puede usar
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
         await confirmar("Este reporte cambió mientras lo editabas sin conexión y los cambios chocaban. Tu versión, con todas sus fotos, quedó a salvo como copia en conflicto.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/r/${d.copia}`;

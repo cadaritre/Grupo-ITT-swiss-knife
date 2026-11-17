@@ -185,6 +185,14 @@ def perfil_de_nuevo(request, cuerpo: dict) -> str:
     return clave if clave and perfiles.puede_usar(request.user, clave) else perfiles.clave_activa(request.user)
 
 
+def con_aviso_de_perfil(request, cuerpo: dict, resultado: dict) -> dict:
+    """Un borrador nuevo de un perfil que la cuenta ya no puede usar se guardó en su perfil activo (`perfil_de_nuevo`): se le dice dónde."""
+    pedido = str(cuerpo.get("perfil") or "")
+    if resultado.get("resultado") == "creada" and pedido and pedido != resultado.get("perfil") and not perfiles.puede_usar(request.user, pedido):
+        return {**resultado, "aviso": f"Ya no tienes acceso al perfil {perfiles.nombre_de(pedido)}: se guardó en {perfiles.nombre_de(resultado['perfil'])}."}
+    return resultado
+
+
 def borrar(doc, usuario):
     """DELETE de un documento: a la papelera. 409 sin permiso o si otra persona lo edita."""
     try:

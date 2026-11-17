@@ -77,8 +77,9 @@
   const perfilActivo = () => cola().ajuste("perfil", null);
   /** Perfil de un registro: el suyo o, en uno guardado antes de separar los perfiles, el de su resumen del servidor. */
   const perfilDe = (b) => b.perfil || (b.resumen && b.resumen.perfil) || null;
-  /** ¿Es del perfil `perfil`? Un borrador que nunca ha subido y no sabe su perfil es del activo (subirá con él). */
-  const delPerfil = (b, perfil) => perfil == null || (perfilDe(b) || perfil) === perfil;
+  /** ¿Es del perfil `perfil`? Nunca se mezclan: sin perfil activo conocido no hay ninguno, y un registro que aún no sabe su perfil (un
+   * borrador de antes de separar los perfiles que no ha subido) no se muestra hasta que el servidor se lo asigna al subirlo. */
+  const delPerfil = (b, perfil) => perfil != null && perfilDe(b) === perfil;
 
   /** Recuerda el perfil activo que dijo el servidor. Si cambió (se cambió aquí o en otro dispositivo), lo avisa: la página vuelve a pintar
    * la lista con los documentos del otro perfil. */
@@ -201,7 +202,8 @@
           cursor = await cola().ajuste(llave(), 0);
           continue;
         }
-        const locales = (await cola().borradores()).filter((b) => esMio(b) && delPerfil(b, perfil));
+        // Lo de los otros perfiles no se toca (los vigentes de este perfil no lo borran). Sin perfil conocido (un servidor que no lo dice) no hay qué separar.
+        const locales = (await cola().borradores()).filter((b) => esMio(b) && (perfil == null || delPerfil(b, perfil)));
         const porServidor = new Map(locales.filter((b) => b.servidor_id).map((b) => [b.servidor_id, b]));
         for (const fila of r[config.lista || "cotizaciones"] || []) {
           const local = porServidor.get(fila.id);
@@ -260,13 +262,8 @@
       const datosEnviados = copiar(b.datos);
       const perfilEnviado = perfilDe(b) || (await perfilActivo()) || "";
       const r = await pedir(urls.sincronizar, { metodo: "POST", json: { id_cliente: b.id, servidor_id: b.servidor_id, revision_base: b.revision_base, datos: datosEnviados, sesion: b.sesion || "", perfil: perfilEnviado } });
-      if (r.ajeno) {
-        // Es de un perfil que esta cuenta ya no puede usar (lo editó antes de que se separaran los perfiles o de perder el permiso): quedó
-        // guardado en el servidor, en el espacio de su perfil; aquí ya no se muestra.
-        await cola().quitarBorrador(b.id);
-        avisar({ tipo_evento: "ajeno", id: b.id });
-        return;
-      }
+      // `aviso`: lo de un perfil que la cuenta ya no puede usar se guardó en uno que sí (como copia, o el borrador nuevo): se dice dónde.
+      if (r.aviso) avisar({ tipo_evento: "aviso", id: b.id, mensaje: r.aviso });
       if (r.resultado === "recuperacion") {
         // Otra persona tomó el control: lo de aquí quedó en el servidor como borrador de recuperación; el teléfono vuelve a la versión vigente.
         // Si aquí se siguió escribiendo mientras viajaba la petición, eso también se sube (va al mismo borrador de recuperación de esta
@@ -314,7 +311,7 @@
         const cambioDespues = actual && actual.actualizada !== enviado;
         const copia = Object.assign({ id: r.servidor_id, tipo, cuenta, perfil: r.perfil || perfilEnviado || null, servidor_id: r.servidor_id, revision_base: r.revision, datos: cambioDespues ? actual.datos : servidorCopia.datos,
           sucio: !!cambioDespues, borrada: false, creada: Date.now(), actualizada: Date.now(), miniaturas: actual ? actual.miniaturas : {},
-          aviso: `${r.conflicto || "Copia en conflicto"}. ${config.avisoCopia || "Este documento cambió mientras lo editabas sin conexión: tu versión quedó aparte, nada se perdió."}` },
+          aviso: r.aviso || `${r.conflicto || "Copia en conflicto"}. ${config.avisoCopia || "Este documento cambió mientras lo editabas sin conexión: tu versión quedó aparte, nada se perdió."}` },
         delServidor(servidorCopia));
         await cola().guardarBorrador(copia);
         if (original) await cola().guardarBorrador(aRegistro(original, original.datos, cuenta, actual ? { id: actual.id, miniaturas: actual.miniaturas } : { id: b.id }));

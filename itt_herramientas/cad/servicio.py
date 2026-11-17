@@ -782,12 +782,13 @@ def proyectos() -> list[str]:
     return salida[:500]
 
 
-def sugerencias_proyecto(cuenta_id: int) -> list[str]:
-    """Los de la biblioteca y, después, los clientes de los reportes y cotizaciones de la persona."""
+def sugerencias_proyecto(cuenta_id: int, perfil: str = "grupo_itt") -> list[str]:
+    """Los de la biblioteca y, después, los clientes de los reportes y cotizaciones del perfil activo de la persona (cada perfil es un
+    espacio aparte: quien solo trabaja en Grupo ITT nunca ve clientes de TresVizo)."""
     from ..comun.clientes import clave, sugerencias
 
     salida, vistos = [], set()
-    for nombre in proyectos() + sugerencias(cuenta_id):
+    for nombre in proyectos() + sugerencias(cuenta_id, perfil=perfil):
         k = clave(nombre)
         if k and k not in vistos:
             vistos.add(k)

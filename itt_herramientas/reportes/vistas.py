@@ -141,7 +141,7 @@ def sincronizar(request):
                                          sesion if documentos.sesion_valida(sesion) else "")
     except servicio.ReporteInvalido as exc:
         return _error(exc)
-    return _privado(JsonResponse(resultado))
+    return _privado(JsonResponse(vistas_documentos.con_aviso_de_perfil(request, cuerpo, resultado)))
 
 
 @usuario_de_reportes

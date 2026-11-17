@@ -55,24 +55,40 @@ def test_la_lista_es_del_perfil_activo_y_cada_perfil_tiene_su_cursor():
     assert r["ahora"] == ["T", "V"]
 
 
-def test_lo_pendiente_de_otro_perfil_sube_con_su_perfil_y_lo_ajeno_se_suelta():
+def test_lo_pendiente_de_otro_perfil_sube_con_su_perfil_y_lo_de_un_perfil_perdido_queda_como_copia():
     r = correr(REGISTROS + r"""
       almacen.set("P", reg("P", "tresvizo", { servidor_id: null, revision_base: null, parcial: false, sucio: true, datos: { a: 1 }, actualizada: 5 }));
       almacen.set("Q", reg("Q", "tresvizo", { parcial: false, sucio: true, datos: { a: 2 }, actualizada: 6 }));
+      const AVISO = "Ya no tienes acceso a ese perfil: tus cambios se guardaron como copia en Grupo ITT.";
       servidor = async (ruta, o) => {
         if (ruta === "/s/") {
           const c = JSON.parse(o.body);
-          if (c.id_cliente === "P") return { status: 200, body: { resultado: "creada", servidor_id: "SP", revision: 1, perfil: "tresvizo", ajeno: false } };
-          return { status: 200, body: { resultado: "actualizada", servidor_id: "SQ", revision: 2, perfil: "tresvizo", ajeno: true } };
+          if (c.id_cliente === "P") return { status: 200, body: { resultado: "creada", servidor_id: "SP", revision: 1, perfil: "tresvizo" } };
+          return { status: 200, body: { resultado: "copia", servidor_id: "SC", revision: 1, perfil: "grupo_itt", copia_de: null, conflicto: "Copia en conflicto de un documento de otro perfil", aviso: AVISO } };
         }
+        if (ruta === "/d/SC/") return { status: 200, body: { id: "SC", revision: 1, actualizada: "2026-11-17T10:00:00Z", perfil: "grupo_itt", datos: { a: 2 } } };
         if (ruta.startsWith("/l/")) return { status: 200, body: { cotizaciones: [], eliminados: [], cursor: 3, mas: false, perfil: "grupo_itt" } };
         return { status: 500, body: {} };
       };
       await docs.sincronizar();
       console.log(JSON.stringify({ subidas: peticiones.filter((p) => p.ruta === "/s/").map((p) => [p.cuerpo.id_cliente, p.cuerpo.perfil]).sort(),
-        P: almacen.get("P"), Q: almacen.get("Q") || null, lista: (await docs.listar()).map((b) => b.id), ajenos: eventos.filter((e) => e && e.tipo_evento === "ajeno").map((e) => e.id) }));
+        pedidos: peticiones.map((p) => p.ruta), P: almacen.get("P"), Q: almacen.get("Q") || null, SC: almacen.get("SC"),
+        lista: (await docs.listar()).map((b) => b.id).sort(), avisos: eventos.filter((e) => e && e.tipo_evento === "aviso").map((e) => e.mensaje) }));
     """)
     assert r["subidas"] == [["P", "tresvizo"], ["Q", "tresvizo"]]                          # con Grupo ITT activo, cada uno con el suyo
     assert r["P"]["sucio"] is False and r["P"]["servidor_id"] == "SP" and r["P"]["perfil"] == "tresvizo"
-    assert r["Q"] is None and r["ajenos"] == ["Q"]                                         # quedó en el servidor; aquí ya no se muestra
-    assert r["lista"] == ["A"]                                                              # P sigue guardado, en el espacio de TresVizo
+    assert "/d/SQ/" not in r["pedidos"]                                                     # el original de otro perfil ni se pide
+    assert r["Q"] is None and r["SC"]["perfil"] == "grupo_itt" and r["SC"]["datos"] == {"a": 2} and r["SC"]["aviso"].startswith("Ya no tienes acceso")
+    assert r["avisos"] == ["Ya no tienes acceso a ese perfil: tus cambios se guardaron como copia en Grupo ITT."]
+    assert r["lista"] == ["A", "SC"]                                                        # P sigue guardado, en el espacio de TresVizo
+
+
+def test_nunca_se_mezclan_sin_perfil_conocido_ni_con_registros_sin_perfil():
+    r = correr(REGISTROS + r"""
+      almacen.set("X", reg("X", undefined, { servidor_id: null, resumen: null, parcial: false, sucio: true, datos: { a: 1 } }));   // borrador de antes, sin subir
+      const conPerfil = (await docs.listar()).map((b) => b.id).sort();
+      delete ajustes.perfil;                                                                // nunca se supo el perfil activo
+      const sinPerfil = (await docs.listar()).map((b) => b.id);
+      console.log(JSON.stringify({ conPerfil, sinPerfil }));
+    """)
+    assert r["conPerfil"] == ["A"] and r["sinPerfil"] == []

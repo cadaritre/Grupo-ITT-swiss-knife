@@ -672,6 +672,7 @@
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "croquis") return;
+      if (d.tipo_evento === "aviso" && d.mensaje) mensaje(d.mensaje, "info");     // dónde quedó lo de un perfil que ya no se puede usar
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
         await confirmar("Este croquis cambió mientras lo editabas sin conexión y los cambios chocaban. Tu versión quedó a salvo como copia en conflicto.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/q/${d.copia}`;

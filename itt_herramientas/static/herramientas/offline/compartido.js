@@ -330,6 +330,11 @@
       const e = $(`${p}-espacio`);
       if (!e) return;
       limpiar(e);
+      if (!ctx) {                                         // sin perfil conocido no se muestra nada (nunca los dos perfiles mezclados)
+        e.hidden = false;
+        e.append(h("span", { class: "tv-tenue" }, "Abre esta herramienta una vez con señal para ver sus documentos."));
+        return;
+      }
       const a = activo(ctx);
       e.hidden = !a || !otros(ctx).length;
       if (e.hidden) return;

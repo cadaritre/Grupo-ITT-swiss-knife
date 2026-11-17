@@ -23,7 +23,7 @@ from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import zips
+from ..comun import perfiles, zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
 from ..civil import pagina as civil_pagina
@@ -159,7 +159,7 @@ def lista(request):
     papelera = servicio.papelera(usuario).count() if servicio.puede_editar(usuario) else 0
     return _privado(render(request, "herramientas/cad/lista.html", {
         "filtros": filtros, "pagina": pagina, "filas": filas, "hay_planos": filtros.activos or base.exists(),
-        "autores": _autores(), "proyectos": servicio.sugerencias_proyecto(usuario.pk), "ordenes": ORDENES,
+        "autores": _autores(), "proyectos": servicio.sugerencias_proyecto(usuario.pk, perfiles.clave_activa(usuario)), "ordenes": ORDENES,
         "puede_editar": servicio.puede_editar(usuario), "es_admin": servicio.es_admin(usuario), "papelera": papelera,
         "limite_bytes": servicio.limites()["bytes"], "limite_mb": servicio.limites()["bytes"] // (1024 * 1024), "maximo_zip": zips.MAXIMO,
         "drive": _drive_disponible(usuario), "espacio": servicio.espacio(),
@@ -247,7 +247,7 @@ def plano(request, pk):
         "p": p, "v": v, "config": config, "versiones": _versiones(p), "puede_editar": puede, "es_admin": servicio.es_admin(usuario),
         "puede_eliminar": servicio.puede_eliminar(usuario, p), "papeles": nativo.PAPELES, "papel": nativo.PAPEL_POR_OMISION,
         "orientaciones": nativo.ORIENTACIONES, "areas": nativo.AREAS, "escalas": nativo.ESCALAS, "nativo": nativo.disponible() and not sin_archivo,
-        "proyectos": servicio.sugerencias_proyecto(usuario.pk), "drive": _drive_disponible(usuario) and not sin_archivo,
+        "proyectos": servicio.sugerencias_proyecto(usuario.pk, perfiles.clave_activa(usuario)), "drive": _drive_disponible(usuario) and not sin_archivo,
         "editor_listo": editor.disponible() and not sin_archivo, "sin_archivo": sin_archivo,
         "versiones_max": servicio.limites()["versiones"], "versiones_minimas": servicio.VERSIONES_MINIMAS,
         # Civil (topografía) solo dibuja: aparece para quien puede editar, en la versión vigente y con el editor disponible.

@@ -832,6 +832,7 @@
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "cotizacion") return;
+      if (d.tipo_evento === "aviso" && d.mensaje) mensaje(d.mensaje, "info");     // dónde quedó lo de un perfil que ya no se puede usar
       if (d.tipo_evento === "copia" && reg && reg.id === d.id) {
         await confirmar("Esta cotización cambió mientras la editabas sin conexión. Tu versión quedó a salvo como copia en conflicto, con su propio folio.", { aceptar: "Ver la copia", soloAviso: true });
         location.hash = `#/c/${d.copia}`;

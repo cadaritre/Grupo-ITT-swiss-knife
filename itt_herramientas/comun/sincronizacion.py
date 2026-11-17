@@ -107,13 +107,14 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
 
     `perfil`: el perfil corporativo de un documento NUEVO (el del borrador en el teléfono). Uno que ya existe se queda en su perfil (es fijo
     desde que se creó) y sus copias en conflicto también: lo pendiente en el teléfono sube aunque la cuenta tenga otro perfil activo. La
-    respuesta dice su `perfil` y, si la cuenta ya no puede usar ese perfil (`ajeno`), el teléfono lo quita al subirlo: quedó en el servidor."""
+    respuesta dice su `perfil`. Un documento de un perfil que la cuenta ya no puede usar no existe para ella: lo del teléfono queda como
+    copia en `perfil` (`aviso` dice dónde) y el original no se lee ni se toca."""
     tipo = next(t for t, m in documentos.MODELOS.items() if m is modelo)
 
     def resumen(obj, **extra):
         return {"servidor_id": str(obj.id), "revision": obj.revision, "folio": getattr(obj, "folio", ""), "autor": autoria.fila(obj),
                 "conflicto": obj.conflicto, "modificado": {"nombre": obj.modificado_por_nombre or obj.autor_nombre, "fecha": obj.actualizada.isoformat()},
-                "perfil": obj.perfil, "ajeno": not perfiles.puede_usar(usuario, obj.perfil), **extra}
+                "perfil": obj.perfil, **extra}
 
     def comparar(obj):
         """¿Ya tiene `obj` lo que manda el teléfono? (con lo que fija el servidor, como el folio, puesto)."""
@@ -125,14 +126,25 @@ def sincronizar(modelo, usuario, id_cliente: uuid.UUID, servidor_id: uuid.UUID |
                       comparar=comparar, normalizar=normalizar, ajustar=ajustar, aplicar_datos=aplicar_datos, claves=claves, error=error,
                       perfil=perfil)
 
+    def de_otro_perfil():
+        """El documento es de un perfil que la cuenta ya no puede usar: para ella no existe (ni se lee ni se toca). Lo del teléfono se
+        conserva como documento nuevo en `perfil` (uno que sí puede usar) y se le dice dónde quedó."""
+        r = copiar_(None, "un documento de otro perfil")
+        return {**r, "aviso": f"Ya no tienes acceso a ese perfil: tus cambios se guardaron como copia en {perfiles.nombre_de(r['perfil'])}."}
+
+    alcanzables = documentos.alcanzables(modelo, usuario)
     with transaction.atomic():
         if servidor_id is not None:
-            actual = modelo.objects.select_for_update().filter(pk=servidor_id).first()
+            if modelo.objects.filter(pk=servidor_id).exclude(pk__in=alcanzables.values("pk")).exists():
+                return de_otro_perfil()
+            actual = alcanzables.select_for_update().filter(pk=servidor_id).first()
             if actual is None:
                 # Se borró para siempre mientras el teléfono lo editaba: lo del teléfono se conserva como documento nuevo.
                 return copiar_(None, "un documento eliminado")
         else:
             actual = modelo.objects.select_for_update().filter(cuenta_id=usuario.pk, id_cliente=id_cliente).first()
+            if actual is not None and not perfiles.puede_usar(usuario, actual.perfil):
+                return de_otro_perfil()
             if actual is None:                                            # borrador nuevo del teléfono
                 nuevo = modelo(cuenta_id=usuario.pk, id_cliente=id_cliente, perfil=perfil)
                 aplicar(nuevo)

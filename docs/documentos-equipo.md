@@ -24,8 +24,11 @@ Decisión del propietario (17-11-2026): estando en el perfil **TresVizo** no apa
 - **Teléfono** (`offline/documentos.js`): cada registro guarda su `perfil`; la lista muestra solo los del perfil activo (que da el servidor en
   el contexto y en cada lista) y **cada perfil tiene su propio cursor**, así los dos espacios nunca se mezclan y al volver a un perfil se
   sigue desde donde iba. **Lo pendiente sube siempre**, sea del perfil que sea: el borrador nuevo lleva su perfil y el servidor lo crea ahí
-  (si la cuenta ya no puede usar ese perfil, en el activo); uno que ya existe se queda en el suyo, y sus copias en conflicto también. Si la
-  cuenta ya no puede usar el perfil de algo que subió (`ajeno`), quedó guardado en el servidor y el teléfono lo deja de mostrar. Si el perfil
+  (si la cuenta ya no puede usar ese perfil, en el activo, y se le dice dónde quedó); uno que ya existe se queda en el suyo, y sus copias en
+  conflicto también. Un documento de un perfil que la cuenta ya no puede usar no existe para ella, tampoco al sincronizar: lo del teléfono
+  queda como copia en su perfil activo («Ya no tienes acceso a ese perfil: tus cambios se guardaron como copia en Grupo ITT») y el
+  original no se lee, no se toca ni avisa a nadie. Un registro que aún no sabe su perfil no se muestra hasta que el servidor se lo asigna,
+  y sin perfil activo conocido no se muestra ninguno: nunca se mezclan. Si el perfil
   activo cambia en otro dispositivo, la página se vuelve a abrir en el nuevo espacio (al volver a la lista, si se estaba editando).
 - Machotes, diccionarios y preferencias siguen siendo compartidos (no son de un perfil).
 
@@ -122,9 +125,11 @@ ni en una copia en conflicto (la copia lleva todas las fotos).
 - **Migración** (`0016_documentos_equipo`): ningún folio cambia solo. Si dos cotizaciones tenían el mismo (antes se contaba por cuenta), la más
   antigua lo conserva y las demás quedan marcadas. En **Supervisión → Folios repetidos** el propietario (o quien administra) pulsa
   **«Asignar folio nuevo»** (también quien administra las herramientas). El contador de cada año sigue desde el mayor folio existente.
-- **Migración** (`0017_perfiles_separados`): tampoco renumera nada. Los repetidos se cuentan dentro de cada perfil (uno marcado solo porque el
-  otro perfil tenía ese folio deja de estarlo) y cada perfil sigue desde su mayor folio del año: con Grupo ITT en 0001–0004 y TresVizo en
-  0005, la siguiente de Grupo ITT es 0005 y la siguiente de TresVizo 0006. Es reversible (al revertir, los folios vuelven a ser únicos en la
+- **Migración** (`0017_perfiles_separados`): tampoco renumera nada. Los repetidos se cuentan dentro de cada perfil: uno marcado solo porque el
+  otro perfil tenía ese folio deja de estarlo, y nunca se le quita el folio a la que ya lo tiene sin marca. Cada perfil nunca vuelve a dar un
+  folio que ya salió: sigue desde su mayor folio del año o desde el mayor que el contador de la empresa ya dio y que no es del otro perfil
+  (uno borrado para siempre de la papelera no se sabe de qué perfil era: cuenta para los dos). Con Grupo ITT en 0001–0004 y TresVizo en 0005
+  (contador en 5), la siguiente de Grupo ITT es 0005 y la de TresVizo 0006. Es reversible (al revertir, los folios vuelven a ser únicos en la
   empresa: el más antiguo conserva el suyo y los demás quedan marcados; un contador por año, el mayor). No convive con la versión anterior en
   marcha: se despliega con parada.
 

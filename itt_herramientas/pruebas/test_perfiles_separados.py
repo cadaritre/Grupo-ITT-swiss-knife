@@ -15,7 +15,7 @@ from django.utils import timezone
 from itt_herramientas.comun import documentos, perfiles
 from itt_herramientas.cotizaciones import servicio as cot
 from itt_herramientas.croquis import servicio as crq
-from itt_herramientas.models import AvisoDocumento, ContadorFolio, Cotizacion, Croquis, Perfil, Reporte, VersionDocumento
+from itt_herramientas.models import AvisoDocumento, BorradorRecuperacion, ContadorFolio, Cotizacion, Croquis, Perfil, Reporte, VersionDocumento
 from itt_herramientas.reportes import servicio as rep
 
 from .conftest import url
@@ -99,7 +99,7 @@ def espacios(cliente_de, ana, dora):
 def test_cada_perfil_ve_solo_sus_documentos(espacios):
     ca, cd, itt, tv = espacios
     for d in itt.values():
-        assert d["perfil"] == "grupo_itt" and not d["ajeno"]
+        assert d["perfil"] == "grupo_itt" and "aviso" not in d
     for d in tv.values():
         assert d["perfil"] == "tresvizo"
     for nombre, clave, k in (("cotizaciones_lista", "cotizaciones", "cot"), ("reportes_lista", "reportes", "rep"), ("croquis_lista", "croquis", "crq")):
@@ -301,19 +301,72 @@ def test_un_borrador_nuevo_sube_a_su_perfil_aunque_la_cuenta_ya_este_en_otro(esp
     assert r["folio"] == f"COT-{HOY}-0002"                                           # de la serie de TresVizo
     # Quien no puede usar TresVizo: su borrador entra en su perfil activo (nunca se pierde).
     r = sinc(ca, "croquis", datos_croquis(title="De Ana"), perfil="tresvizo")
-    assert r["perfil"] == "grupo_itt" and not r["ajeno"]
+    assert r["perfil"] == "grupo_itt"
 
 
-def test_una_edicion_pendiente_de_antes_de_separar_llega_y_el_telefono_la_suelta(espacios, ana):
-    """Ana editó sin señal un reporte de TresVizo cuando todo era de la empresa. Al subir, entra en ese reporte (en TresVizo) y el teléfono,
-    que ya no puede mostrarlo, lo quita (`ajeno`)."""
+@pytest.mark.parametrize("caso", ["al_dia", "base_vieja_sin_choque", "base_vieja_con_choque", "con_sesion_y_otro_editando", "reintento_por_id_cliente"])
+def test_lo_pendiente_de_un_perfil_que_ya_no_se_puede_usar_queda_como_copia_y_el_original_no_se_toca(espacios, ana, dora, caso):
+    """Ana editó sin señal un reporte de TresVizo cuando todo era de la empresa (o antes de perder el permiso). Para ella ese perfil no
+    existe: en ningún caso se aplica, se fusiona, se lee ni se toma el bloqueo del original; lo suyo queda como copia en su perfil activo y
+    se le dice dónde. Quien editaba en TresVizo no recibe aviso (no hay nada de Ana en su espacio)."""
     ca, cd, itt, tv = espacios
-    r = sinc(ca, "reportes", datos_reporte([], titulo="Visita TV corregida", cliente="Cliente Sur"), tv["rep"]["servidor_id"], tv["rep"]["revision"])
-    assert r["resultado"] == "actualizada" and r["ajeno"] is True and r["perfil"] == "tresvizo"
-    assert Reporte.objects.get(pk=tv["rep"]["servidor_id"]).titulo == "Visita TV corregida"
-    # Si chocaba, la copia en conflicto queda en el espacio del original.
-    r = sinc(ca, "reportes", datos_reporte([], titulo="Otra versión de Ana", cliente="Cliente Sur"), tv["rep"]["servidor_id"], tv["rep"]["revision"])
-    assert r["resultado"] == "copia" and r["perfil"] == "tresvizo" and r["ajeno"] is True
+    pk = tv["rep"]["servidor_id"]
+    antes = Reporte.objects.get(pk=pk)
+    base, sesion, idc = tv["rep"]["revision"], "", uuid.uuid4()
+    if caso != "al_dia":                                                              # TresVizo siguió editando
+        sinc(cd, "reportes", datos_reporte([], titulo="Visita TV", cliente="Cliente Sur, oficina"), pk, 1)
+        antes = Reporte.objects.get(pk=pk)
+    if caso == "con_sesion_y_otro_editando":
+        post(cd, "reportes_bloqueo", {"accion": "tomar", "sesion": "pagina-dora-0001"}, pk=pk)
+        antes = Reporte.objects.get(pk=pk)
+        sesion = "pagina-ana-0001"
+    datos = datos_reporte([], titulo="Visita TV" if caso == "base_vieja_sin_choque" else "Corregida por Ana", cliente="Cliente Sur, Ana")
+    if caso == "reintento_por_id_cliente":                                           # el borrador lo creó Ana y se perdió la respuesta
+        Reporte.objects.filter(pk=pk).update(cuenta_id=ana.pk, id_cliente=idc)
+        antes = Reporte.objects.get(pk=pk)
+        cuerpo = {"id_cliente": str(idc), "servidor_id": None, "revision_base": None, "datos": datos, "perfil": "tresvizo"}
+    else:
+        cuerpo = {"id_cliente": str(idc), "servidor_id": pk, "revision_base": base, "datos": datos, "sesion": sesion, "perfil": "tresvizo"}
+    r = post(ca, "reportes_sincronizar", cuerpo)
+    assert r.status_code == 200, r.content
+    r = r.json()
+    assert r["resultado"] == "copia" and r["perfil"] == "grupo_itt" and r["copia_de"] is None and "datos" not in r
+    assert r["aviso"] == "Ya no tienes acceso a ese perfil: tus cambios se guardaron como copia en Grupo ITT."
+    assert "Visita TV" not in r["conflicto"] and "un documento de otro perfil" in r["conflicto"]        # nada del original
+    copia = Reporte.objects.get(pk=r["servidor_id"])
+    assert copia.perfil == "grupo_itt" and copia.cuenta_id == ana.pk and copia.cliente == "Cliente Sur, Ana" and copia.copia_de_id is None
+    despues = Reporte.objects.get(pk=pk)
+    assert (despues.revision, despues.titulo, despues.cliente, despues.cambio, despues.bloqueo_cuenta_id) == (
+        antes.revision, antes.titulo, antes.cliente, antes.cambio, antes.bloqueo_cuenta_id)
+    assert not BorradorRecuperacion.objects.filter(documento_id=pk).exists()
+    assert not AvisoDocumento.objects.filter(documento_id=pk).exists() and not AvisoDocumento.objects.filter(cuenta_id=dora.pk).exists()
+    assert ana.pk not in despues.autorizados
+    # Reenviar lo mismo (respuesta perdida) no duplica la copia.
+    again = post(ca, "reportes_sincronizar", cuerpo).json()
+    assert again["servidor_id"] == r["servidor_id"] and Reporte.objects.filter(perfil="grupo_itt", cuenta_id=ana.pk, conflicto__startswith="Copia").count() == 1
+
+
+def test_una_cotizacion_pendiente_de_otro_perfil_queda_como_copia_con_folio_de_grupo_itt(espacios, ana):
+    ca, cd, itt, tv = espacios
+    r = sinc(ca, "cotizaciones", _datos_cot(project_title="Cambio de Ana"), tv["cot"]["servidor_id"], tv["cot"]["revision"], perfil="tresvizo")
+    assert r["resultado"] == "copia" and r["perfil"] == "grupo_itt" and r["folio"] == f"COT-{HOY}-0002" and "aviso" in r
+    assert Cotizacion.objects.get(pk=tv["cot"]["servidor_id"]).proyecto == "Deslinde TV"
+
+
+def test_un_borrador_nuevo_de_un_perfil_que_ya_no_se_puede_usar_dice_donde_quedo(espacios, ana, dora):
+    ca, cd, itt, tv = espacios
+    r = sinc(ca, "reportes", datos_reporte([], titulo="Hecho sin señal"), perfil="tresvizo")
+    assert r["resultado"] == "creada" and r["perfil"] == "grupo_itt"
+    assert r["aviso"] == "Ya no tienes acceso al perfil TresVizo: se guardó en Grupo ITT."
+    assert "aviso" not in sinc(cd, "reportes", datos_reporte([], titulo="De Dora"), perfil="tresvizo")      # quien puede usarlo: sin aviso
+    assert "aviso" not in sinc(ca, "reportes", datos_reporte([], titulo="Normal"), perfil="grupo_itt")
+
+
+def test_las_sugerencias_de_cad_son_del_perfil_activo(espacios, ana, dora):
+    from itt_herramientas.cad import servicio as cad
+
+    assert "Cliente Sur" not in cad.sugerencias_proyecto(ana.pk, "grupo_itt") and "Cliente Norte" in cad.sugerencias_proyecto(ana.pk, "grupo_itt")
+    assert "Cliente Sur" in cad.sugerencias_proyecto(dora.pk, "tresvizo") and "Cliente Norte" not in cad.sugerencias_proyecto(dora.pk, "tresvizo")
 
 
 # -- Copiar a otro perfil ---------------------------------------------------------------------------------------------------------
@@ -430,4 +483,37 @@ def test_migracion_de_ida_y_vuelta_con_datos_como_los_de_produccion():
     ejecutor.loader.build_graph()
     ejecutor.migrate(despues)
     assert set(Cotizacion.objects.filter(folio_repetido=True).values_list("pk", flat=True)) == {a2b.pk}
-    assert dict(ContadorFolio.objects.values_list("perfil", "ultimo")) == {"grupo_itt": 4, "tresvizo": 5}      # de los datos, como la primera vez
+    # El 0006 ya lo dio el contador (la asignación de arriba): ninguno de los dos lo vuelve a dar.
+    assert dict(ContadorFolio.objects.values_list("perfil", "ultimo")) == {"grupo_itt": 6, "tresvizo": 6}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_migracion_nunca_vuelve_a_dar_un_folio_borrado_para_siempre_ni_quita_el_folio_a_quien_lo_tomo():
+    """El contador de la empresa llegó a 9: la 0009 (y la 0008) se borraron para siempre de la papelera y su PDF pudo llegar a un cliente;
+    no se sabe de qué perfil eran, así que ninguno las vuelve a dar. Y el 0002 de Grupo ITT: quien lo conservaba se borró para siempre y una
+    importación lo tomó después (sin marca); la más antigua que seguía marcada sigue marcada."""
+    from django.db.migrations.executor import MigrationExecutor
+
+    antes, despues = [("herramientas", "0016_documentos_equipo")], [("herramientas", "0017_perfiles_separados")]
+    ejecutor = MigrationExecutor(connection)
+    ejecutor.migrate(antes)
+    viejas = ejecutor.loader.project_state(antes).apps
+    C = viejas.get_model("herramientas", "Cotizacion")
+    K = viejas.get_model("herramientas", "ContadorFolio")
+    t0 = timezone.now() - timedelta(days=60)
+
+    def cot_vieja(folio, perfil, dias, **extra):
+        return C.objects.create(cuenta_id=1, folio=folio, perfil=perfil, datos={"quote_number": folio}, creada=t0 + timedelta(days=dias), actualizada=t0, **extra)
+
+    cot_vieja("COT-2026-0001", "grupo_itt", 1)
+    marcada = cot_vieja("COT-2026-0002", "grupo_itt", 2, folio_repetido=True)        # la que la conservaba ya no existe
+    importada = cot_vieja("COT-2026-0002", "grupo_itt", 20)                          # la tomó después, legítimamente
+    cot_vieja("COT-2026-0005", "tresvizo", 5)
+    cot_vieja("COT-2026-0007", "tresvizo", 7)
+    K.objects.create(anio=2026, ultimo=9)
+    ejecutor = MigrationExecutor(connection)
+    ejecutor.loader.build_graph()
+    ejecutor.migrate(despues)
+    assert Cotizacion.objects.get(pk=marcada.pk).folio_repetido and not Cotizacion.objects.get(pk=importada.pk).folio_repetido
+    assert dict(ContadorFolio.objects.values_list("perfil", "ultimo")) == {"grupo_itt": 9, "tresvizo": 9}
+    assert cot.asignar_folio("grupo_itt", date(2026, 12, 1)) == "COT-2026-0010" and cot.asignar_folio("tresvizo", date(2026, 12, 1)) == "COT-2026-0010"
