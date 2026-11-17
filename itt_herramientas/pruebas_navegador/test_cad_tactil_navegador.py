@@ -1,6 +1,6 @@
 """CAD · «Modo táctil» con el editor real, en un teléfono y una tableta emulados (toque, `hasTouch`), Chromium y WebKit.
 
-Plano propio en UTM 14N (X≈390 000, Y≈3 168 000). Los gestos se mandan a la capa táctil como eventos de puntero táctiles; el editor
+Plano propio en UTM (X≈395 000, Y≈3 175 000). Los gestos se mandan a la capa táctil como eventos de puntero táctiles; el editor
 recibe lo que la capa le pide por su canal de control. Comprueba: entrar al modo, mover y acercar exactos, el puntero con referencias,
 cada herramienta de la v1 como un solo paso de deshacer, guardar como versión y reabrir, solo lectura, y las capturas de cada pantalla.
 Corre bajo el candado de la máquina compartida, un navegador a la vez.
@@ -24,7 +24,7 @@ from .test_pwa_navegador import esperar
 
 pytestmark = [pytest.mark.navegador, pytest.mark.django_db(transaction=True)]
 CAPTURAS = os.environ.get("ITT_CAPTURAS", "")
-X0, Y0 = 390000.0, 3168000.0
+X0, Y0 = 395000.0, 3175000.0
 TAMANOS = {"telefono": (375, 812), "grande": (430, 932), "tableta": (768, 1024), "horizontal": (812, 375)}
 
 
@@ -77,10 +77,19 @@ GESTOS = r"""
     pe("pointerup", cx - d1 / 2, cy, 1); pe("pointerup", cx + d1 / 2, cy, 2);
   }
   async function tocar(x, y) { pe("pointerdown", x, y, 1); await espera(40); pe("pointerup", x, y, 1); }
+  async function toques(x, y, n, pausa = 90) { for (let i = 0; i < n; i++) { if (i) await espera(pausa); await tocar(x, y); } }
+  // Toque y, otra vez en el mismo lugar, arrastre (la selección con recuadro); `quieto`: ms con el dedo quieto al final antes de soltar.
+  async function tocarYArrastrar(x, y, dx, dy, {pausa = 90, pasos = 12, quieto = 0, x2 = x, y2 = y} = {}) {
+    await tocar(x, y); await espera(pausa);
+    pe("pointerdown", x2, y2, 1);
+    for (let i = 1; i <= pasos; i++) { pe("pointermove", x2 + dx * i / pasos, y2 + dy * i / pasos, 1); await espera(16); }
+    if (quieto) { const t = performance.now(); while (performance.now() - t < quieto) { pe("pointermove", x2 + dx, y2 + dy, 1); await espera(16); } }
+    pe("pointerup", x2 + dx, y2 + dy, 1);
+  }
   async function mantener(x, y) { pe("pointerdown", x, y, 1); await espera(600); }
   async function soltar(x, y) { pe("pointerup", x, y, 1); }
   async function mover(x, y) { pe("pointermove", x, y, 1); }
-  window.__g = {pe, arrastrar, pellizcar, tocar, mantener, soltar, mover};
+  window.__g = {pe, arrastrar, pellizcar, tocar, toques, tocarYArrastrar, mantener, soltar, mover};
 })()
 """
 
@@ -149,8 +158,11 @@ def test_mover_acercar_y_ver_todo_son_exactos_en_utm(tactil, navegar, crear_usua
     assert abs(v1["k"] / v2["k"] - 2.0) < 0.02
     despues = p.evaluate("TVCadTactil.aPantalla(%r, %r)" % tuple(centro))
     assert abs(despues[0] - 180) < 1.5 and abs(despues[1] - 300) < 1.5
-    # Doble toque: ver todo.
-    p.evaluate("(async () => { await __g.tocar(200, 300); await new Promise(r => setTimeout(r, 80)); await __g.tocar(200, 300); })()")
+    # Dos toques ya no ven todo (pedido del dueño 17-11); tres toques sí.
+    p.evaluate("__g.toques(200, 300, 2)")
+    p.wait_for_timeout(1000)
+    assert p.evaluate("TVCadTactil.vista()")["k"] == v2["k"]
+    p.evaluate("__g.toques(200, 300, 3)")
     p.wait_for_timeout(1200)
     v3 = p.evaluate("TVCadTactil.vista()")
     assert v3["k"] > v2["k"]
@@ -264,27 +276,23 @@ def test_mover_el_puntero_no_mueve_la_vista_ni_un_cambio_de_alto_la_escala(tacti
     assert not n.errores, n.errores
 
 
-def test_circulo_por_coordenada_con_la_hoja_numerica(tactil, navegar, crear_usuario, roles):
+def test_circulo_escribiendo_centro_y_radio_en_la_lectura(tactil, navegar, crear_usuario, roles):
+    """Lo que hacía «Círculo por coordenada»: X e Y del centro y el radio se escriben en la lectura del círculo."""
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = plano_utm(ana)
     n, p = abrir(navegar, ana, "chromium", p0=p0)
     p.locator('.tt-pestanas [data-grupo="dibujar"]').click()
-    p.locator("#tt-hoja").get_by_role("button", name="Círculo por coordenada").click()
-    hoja = p.locator("#tt-num")
-    expect(hoja).to_be_visible()
-
-    def teclear(texto):
-        for ch in texto:
-            hoja.locator(f'[data-t="{ch}"]').click()
-    teclear("390030.5"); hoja.locator('[data-t="siguiente"]').click()
-    teclear("3168012.25"); hoja.locator('[data-t="siguiente"]').click()
-    hoja.locator('[data-t="listo"]').click()
-    expect(p.locator("#tt-num-error")).to_have_text("Escribe un radio mayor que cero.")
-    teclear("2.5"); hoja.locator('[data-t="listo"]').click()
-    expect(hoja).to_be_hidden()
+    assert p.locator("#tt-hoja").get_by_role("button", name="Círculo por coordenada").count() == 0
+    p.locator("#tt-hoja").get_by_role("button", name="Círculo", exact=True).click()
+    _escribir(p, "x", "395030.5"); p.locator('#tt-din [data-d="siguiente"]').click(); _din(p, "3175012.25")
+    p.locator('#tt-din [data-d="poner"]').click()
+    expect(p.locator('.tt-valor[data-campo="r"]')).to_be_visible()
+    _escribir(p, "r", "2.5")
+    p.locator('#tt-din [data-d="poner"]').click()
+    p.wait_for_timeout(500)
     r = p.evaluate("TVCad.pedir({op: 'query', type: 'Circle', detail: 'geometry'}).then(r => r.entities)")
     nuevo = [c for c in r if abs(c["radius"] - 2.5) < 1e-9]
-    assert nuevo and abs(nuevo[0]["center"][0] - 390030.5) < 1e-9 and abs(nuevo[0]["center"][1] - 3168012.25) < 1e-9
+    assert nuevo and abs(nuevo[0]["center"][0] - 395030.5) < 1e-9 and abs(nuevo[0]["center"][1] - 3175012.25) < 1e-9
     assert not n.errores, n.errores
 
 
@@ -318,6 +326,19 @@ def _teclear(p, texto):
         p.locator(f'#tt-num [data-t="{ch}"]').click()
 
 
+def _din(p, texto):
+    """Teclea en el teclado de la entrada dinámica («-» es el botón ±)."""
+    for ch in texto:
+        p.locator(f'#tt-din [data-d="{"signo" if ch == "-" else ch}"]').click()
+
+
+def _escribir(p, campo, texto):
+    """Toca el valor de la lectura y lo escribe."""
+    p.locator(f'.tt-valor[data-campo="{campo}"] .tt-valor__b').click()
+    expect(p.locator("#tt-din")).to_be_visible()
+    _din(p, texto)
+
+
 def _revision(p):
     return p.evaluate("TVCad.pedir({op: 'state'}).then(s => s.documents.find(d => !d.start).revision)")
 
@@ -346,7 +367,7 @@ def test_cada_herramienta_cambia_el_dibujo_en_un_solo_paso(tactil, navegar, crea
     def circulo_radio():
         _herramienta(p, "dibujar", "Círculo")
         llevar_punta(p, X0 + 10, Y0 + 10); poner(p)
-        p.locator("#tt-coord").click(); _teclear(p, "4"); p.locator('#tt-num [data-t="listo"]').click()
+        _escribir(p, "r", "4"); p.locator('#tt-din [data-d="poner"]').click()
     un_paso(circulo_radio)
 
     def arco():
@@ -379,18 +400,16 @@ def test_cada_herramienta_cambia_el_dibujo_en_un_solo_paso(tactil, navegar, crea
     rev = _revision(p)
     p.locator('#tt-seleccion [data-editar="mover"]').click()
     llevar_punta(p, X0 + 40, Y0 + 10); poner(p)
-    p.locator("#tt-coord").click()
-    hoja = p.locator("#tt-num")
-    hoja.locator('[data-campo="x"]').click(); _teclear(p, "390050")
-    hoja.locator('[data-campo="y"]').click(); _teclear(p, "3168010")
-    hoja.locator('[data-t="listo"]').click()
+    _escribir(p, "x", "395050")
+    p.locator('#tt-din [data-d="siguiente"]').click(); _din(p, "3175010")
+    p.locator('#tt-din [data-d="poner"]').click()
     p.wait_for_timeout(500)
     c = p.evaluate("TVCad.pedir({op: 'query', type: 'Circle', detail: 'geometry'}).then(r => r.entities.filter(e => e.space === '*Model_Space'))")
     assert any(abs(e["center"][0] - (X0 + 50)) < 1e-9 for e in c), (c, p.evaluate("TVCadTactil.seleccion()"), p.locator("#tt-aviso").text_content())
     assert _revision(p) > rev
     # Desfasar el cuadro 2 m hacia afuera: una polilínea nueva de 24 × 24. Primero se ve todo (el cuadro quedó fuera de la vista).
     p.locator("#tt-seleccion-quitar").click()
-    p.evaluate("(async () => { await __g.tocar(300, 300); await new Promise(r => setTimeout(r, 80)); await __g.tocar(300, 300); })()")
+    p.evaluate("__g.toques(300, 300, 3)")
     p.wait_for_timeout(1200)
     sx, sy = punto_en_pantalla(p, X0 + 20, Y0 + 5)
     p.evaluate("([x, y]) => __g.tocar(x, y)", [sx, sy])
@@ -400,8 +419,8 @@ def test_cada_herramienta_cambia_el_dibujo_en_un_solo_paso(tactil, navegar, crea
         raise AssertionError(("sin selección", p.evaluate("([x, y]) => TVCadTactil.cercanos(x, y)", [sx, sy]), p.evaluate("TVCadTactil.vista()"), [sx, sy],
                               p.evaluate("TVCadTactil.puntero()"), p.evaluate("TVCadTactil.herramienta()"))) from None
     p.locator('#tt-seleccion [data-editar="desfasar"]').click()
-    _teclear(p, "2"); p.locator('#tt-num [data-t="listo"]').click()
-    llevar_punta(p, X0 + 25, Y0 + 5); poner(p)
+    llevar_punta(p, X0 + 25, Y0 + 5)
+    _escribir(p, "dist", "2"); p.locator('#tt-din [data-d="poner"]').click()
     p.wait_for_timeout(400)
     pl = p.evaluate("TVCad.pedir({op: 'query', type: 'Polyline', detail: 'geometry'}).then(r => r.entities.filter(e => e.space === '*Model_Space'))")
     assert any([X0 - 2, Y0 - 2] in [v[:2] for v in e["vertices"]] for e in pl), pl
@@ -443,8 +462,11 @@ def test_solo_lectura_deja_ver_y_medir(tactil, navegar, crear_usuario, roles):
     expect(pb.locator("#cad-aviso-lectura")).to_contain_text("Ana López está editando este plano")
     pb.locator('.tt-pestanas [data-grupo="medir"]').click()
     pb.locator("#tt-hoja").get_by_role("button", name="Distancia", exact=True).click()
+    antes = pb.evaluate("[TVCadTactil.puntero(), TVCadTactil.vista(), TVCadTactil.aPantalla(%r, %r)]" % (X0, Y0))
     llevar_punta(pb, X0, Y0)
-    a = pb.evaluate("TVCadTactil.puntero()"); poner(pb)
+    a = pb.evaluate("TVCadTactil.puntero()")
+    assert abs(a["mundo"][0] - X0) < 1 and abs(a["mundo"][1] - Y0) < 1, (antes, a, pb.evaluate("TVCadTactil.vista()"))
+    poner(pb)
     llevar_punta(pb, X0 + 20, Y0 + 20)
     b = pb.evaluate("TVCadTactil.puntero()"); poner(pb)
     try:
@@ -476,10 +498,12 @@ def test_capturas_de_cada_pantalla(tactil, navegar, crear_usuario, roles, tam, t
     llevar_punta(p, X0 + 20.3, Y0 + 0.1)
     p.wait_for_timeout(400)
     p.screenshot(path=f"{base}-3-puntero.png", caret="initial")
-    p.locator("#tt-coord").click()
+    p.locator('.tt-valor[data-campo="d"] .tt-valor__b').click()
+    for ch in "12.5":
+        p.locator(f'#tt-din [data-d="{ch}"]').click()
     p.wait_for_timeout(300)
     p.screenshot(path=f"{base}-4-numerica.png", caret="initial")
-    p.locator("#tt-num-cerrar").click()
+    p.locator('#tt-din [data-d="cerrar"]').click()
     p.locator("#tt-cancelar").click()
     p.locator('.tt-pestanas [data-grupo="medir"]').click()
     p.wait_for_timeout(300)
@@ -621,15 +645,10 @@ def test_sin_conexion_se_dibuja_en_el_telefono_y_al_volver_es_version_nueva(tact
     expect(p.locator("#tt-nombre")).to_have_text("Lotes Norte")
     p.evaluate(GESTOS)
     p.locator('.tt-pestanas [data-grupo="dibujar"]').click()
-    p.locator("#tt-hoja").get_by_role("button", name="Círculo por coordenada").click()
-    for ch in "390050":
-        p.locator(f'#tt-num [data-t="{ch}"]').click()
-    p.locator('#tt-num [data-t="siguiente"]').click()
-    for ch in "3168010":
-        p.locator(f'#tt-num [data-t="{ch}"]').click()
-    p.locator('#tt-num [data-t="siguiente"]').click()
-    p.locator('#tt-num [data-t="3"]').click()
-    p.locator('#tt-num [data-t="listo"]').click()
+    p.locator("#tt-hoja").get_by_role("button", name="Círculo", exact=True).click()
+    _escribir(p, "x", "395050"); p.locator('#tt-din [data-d="siguiente"]').click(); _din(p, "3175010")
+    p.locator('#tt-din [data-d="poner"]').click()
+    _escribir(p, "r", "3"); p.locator('#tt-din [data-d="poner"]').click()
     expect(p.locator("#tt")).to_have_attribute("data-estado", "sucio")
     p.locator("#tt-guardar").click()
     expect(p.locator("#tt-sub-texto")).to_have_text("Guardado en el teléfono")
@@ -664,7 +683,7 @@ def test_sin_conexion_si_otro_guardo_mientras_tanto_es_una_copia(tactil, telefon
     n.contexto.set_offline(True)
     p.goto(n.servidor.url + f"/cad/sin-conexion/?plano={p0.pk}")
     _listo_sin_conexion(p, consola)
-    p.evaluate("TVCad.ejecutar('CIRCLE 390060,3168010 4')")
+    p.evaluate("TVCad.ejecutar('CIRCLE 395060,3175010 4')")
     expect(p.locator("#tt")).to_have_attribute("data-estado", "sucio")
     p.locator("#tt-guardar").click()
     expect(p.locator("#tt-sub-texto")).to_have_text("Guardado en el teléfono")

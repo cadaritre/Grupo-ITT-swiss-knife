@@ -114,19 +114,41 @@ la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` 
   guardar, versiones, bloqueo y borradores. Diseño (a) de la compuerta del 15-11-2026.
 - **Cuándo.** Interruptor «Modo táctil» en la cabecera del plano, recordado por dispositivo (`localStorage tv.cad.tactil`); la primera vez en
   un dispositivo solo táctil abre ya en modo táctil. «Más › Modo completo» vuelve al editor de siempre sin recargar el plano.
-- **Gestos.** Un dedo mueve; dos dedos acercan alrededor de los dedos; doble toque = ver todo; mantener pulsado = el puntero; tocar =
-  elegir un objeto; «Seleccionar área» = ventana (izquierda → derecha, lo que queda dentro; al revés, lo que toca). Durante el gesto el
-  marco del editor se mueve en el compositor del navegador y al soltar un `ZOOM W` exacto (f64) lo deja donde se ve.
+- **Gestos.** Un dedo mueve; dos dedos acercan alrededor de los dedos; mantener pulsado = el puntero. Los toques son una sola máquina
+  («racha»: toques seguidos a ≤ 320 ms y ≤ 40 px del primero): un toque elige al momento; toque y, otra vez en el mismo lugar, arrastre =
+  recuadro de selección (izquierda → derecha, azul, lo que queda dentro; al revés, verde punteado, lo que toca) que suma a la selección
+  y corre el plano solo cuando el dedo llega al borde; tres toques = ver todo. Lo que cambiaron los primeros toques (selección, punta,
+  un recorte) se deshace antes del recuadro o de ver todo. Un segundo toque tarde o lejos es un toque o un arrastre nuevos.
+  «Más › Seleccionar área» sigue como alternativa. Durante el gesto el marco del editor se mueve en el compositor del navegador y al
+  soltar `view_set` (f64) lo deja donde se ve.
 - **Puntero con desfase.** La punta queda 88 px arriba del asa (96 en tableta; a la izquierda para zurdos). Referencias del editor
-  (`op: snap`, con `from` para la perpendicular), lectura X/Y y Δ/azimut desde el último punto, «Poner punto» para confirmar.
-- **Herramientas (cada figura o edición, un paso de deshacer):** polilínea, línea, rectángulo, círculo (centro y radio, o radio escrito),
-  círculo por coordenada, arco por 3 puntos, punto y punto por coordenada, perpendicular, texto, cotas horizontal/vertical y alineada;
-  borrar, mover, copiar, girar (por puntos o ángulo), desfasar (línea, polilínea, círculo, arco), capa y color; medir coordenadas,
+  (`op: snap`, con `from` desde el último punto), «Poner punto» para confirmar.
+- **Referencias de la persona.** El imán de la lectura (y «Más › Referencias a objetos») abre la hoja: interruptor general, «Todas»,
+  «Ninguna» y cada tipo con su marca (extremo, punto medio, intersección, intersección aparente, centro, centro geométrico, cuadrante, perpendicular,
+  tangente, nodo, inserción, cercano), recordados en el dispositivo (`tv.cad.referencias.v2`, `tv.cad.referencias.encendidas`). Van en
+  cada `snap` como `modes` (y `limit` 4: si el editor ofrece varias en el mismo lugar, la etiqueta de la referencia dice «1 de 3» y
+  tocarla pasa a la siguiente, como Tab en CAD). Con un editor que no entiende `modes` (anterior a tv-v2026.45-9, o una copia vieja
+  guardada en el teléfono) se filtra en la página. Nunca se toca OSMODE: marcaría el plano «Sin guardar».
+- **Entrada dinámica (la lectura).** Muestra X e Y y, con la herramienta en marcha, lo que importa: distancia y azimut desde el último
+  punto (línea, polilínea, mover, copiar), radio y diámetro (círculo), ancho y alto con signo (rectángulo), ángulo (girar; con el ángulo
+  escrito gira ya), distancia (desfasar; queda puesta la última, como en CAD). Tocar un valor abre el teclado propio en lugar de la
+  barra de la herramienta (el plano y la punta siguen a la vista): números UTM completos, ± y punto; la punta va ahí mientras se escribe;
+  el valor queda fijo (candado, punto naranja) hasta poner el punto; la × de la ficha o «Soltar» lo suelta. X/Y y los demás no se mezclan.
+  El teclado del sistema no se usa (en iOS no trae signo menos y tapa medio plano).
+- **Herramientas (cada figura o edición, un paso de deshacer):** polilínea, línea, rectángulo, círculo, arco por 3 puntos, punto,
+  perpendicular, texto, cotas horizontal/vertical y alineada; borrar, mover, copiar, girar, desfasar (línea, polilínea, círculo, arco),
+  explotar (`explode`; lo nuevo queda elegido y se dice cuántos no se pudieron), recortar y alargar (`trim`/`extend` del editor: tocar la
+  parte, la punta y «Recortar aquí», o arrastrar una línea que cruce varias — `fence` —; cada vez un paso; dos dedos mueven el plano;
+  «Listo» termina), capa y color; medir coordenadas,
   distancia, distancia continua, área y perímetro (por puntos o de un objeto cerrado), ángulo, longitud, info del objeto; decimales 0–4.
   Capas: actual, encender/apagar, apagar las demás, encender todas, como estaban, nueva; color de lo nuevo (ACI, por capa, por bloque).
   Modelo y presentaciones (en una presentación solo se ve y se mide).
-- **Hoja numérica propia** (el teclado del sistema no trae signo menos en iOS y tapa medio plano): coordenadas, distancia y azimut desde el
-  último punto, radio, ángulo, altura de texto.
+- **Cotas y textos del tamaño de la vista** (pedido del dueño 17-11): alto ≈ 3 % del ancho visible en un teléfono (2.5 % en tableta),
+  redondeado a 1, 2, 2.5 o 5 × 10ⁿ. La cota se crea con `dim_create` y su propia escala (DIMSCALE = alto / DIMTXT del estilo, `dim_style`);
+  el estilo del plano y las cotas que ya había no cambian. La vista previa usa el mismo tamaño; el texto sugiere ese alto.
+- **Lo que depende del editor.** Al entrar se mira qué ops tiene (`state.capabilities` o una petición que solo se rechaza por sus datos):
+  sin `explode`, `trim`, `extend` o `dim_create` esas herramientas no se muestran y las cotas se dibujan como antes.
+- **Hoja numérica** para el texto, la altura del texto y el nombre de una capa.
 - **Área de dibujo siempre oscura** (decisión del dueño): lo claro del plano se lee bien; la interfaz alrededor sigue el tema de la cuenta.
 - **El marco del editor** en modo táctil: solo el área de dibujo, con la opción «solo lienzo» del editor (op `canvas_only`, o
   `?canvas=1` en la página sin conexión; build tv-v2026.45-6). Es un estado de la sesión que el editor no guarda: el editor completo del

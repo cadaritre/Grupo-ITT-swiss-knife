@@ -2,11 +2,13 @@
  * Colores de los tokens del armazón (claro por omisión, oscuro solo por elección de la cuenta). El área de dibujo es siempre oscura,
  * como en los programas de CAD: el amarillo y los colores claros del plano se leen bien (decisión del dueño, 15-11-2026). */
 :root {
-  --tt-lienzo: #0b0d10; --tt-puntero: #59b4ff; --tt-snap: #ff4fb0; --tt-previa: #59b4ff; --tt-ventana: #3d8bff; --tt-cruce: #34c46a;
+  --tt-fijo-texto: #a86a00; --tt-snap-texto: #c4006a;
+  --tt-lienzo: #0b0d10; --tt-puntero: #59b4ff; --tt-snap: #ff4fb0; --tt-previa: #59b4ff; --tt-ventana: #3d8bff; --tt-cruce: #34c46a; --tt-fijo: #ffb020; --tt-corte: #ff6a3d;
   --tt-arriba: env(safe-area-inset-top, 0px); --tt-abajo: env(safe-area-inset-bottom, 0px);
   --tt-izq: env(safe-area-inset-left, 0px); --tt-der: env(safe-area-inset-right, 0px);
   --tt-sombra: 0 6px 24px rgba(15, 23, 42, .18);
 }
+:root[data-tv-tema="oscuro"] { --tt-fijo-texto: #ffbf47; --tt-snap-texto: #ff7cc6; }
 .tt, .tt-hoja, .tt-velo, .tt-simbolos { display: none; }
 html.cad-tactil, html.cad-tactil body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 html.cad-tactil body { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; background: var(--tt-lienzo); }
@@ -71,14 +73,40 @@ html.cad-tactil .tt > * { pointer-events: auto; }
 .tt-asa { fill: color-mix(in srgb, var(--tt-puntero) 22%, transparent); stroke: var(--tt-puntero); stroke-width: 2.5; }
 .tt-asa-flecha { fill: var(--tt-puntero); }
 .tt-marca path { fill: none; stroke: var(--tt-snap); stroke-width: 2.5; }
+/* El punto que se pondrá con los valores escritos (con candado), aparte de la punta. */
+.tt-fijo circle, .tt-fijo path { fill: none; stroke: var(--tt-fijo); stroke-width: 2.5; }
+/* Línea que cruza lo que se recorta o alarga. */
+.tt-cerca { stroke: var(--tt-corte); stroke-width: 2.5; stroke-dasharray: 8 5; stroke-linecap: round; }
+.tt-previa .tt-cota-escala { fill: var(--tt-previa); stroke: none; font-family: var(--tv-fuente); font-weight: 600; }
 
-.tt-lectura { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
-  gap: 4px 12px; padding: 7px 14px; border-radius: 18px; background: color-mix(in srgb, var(--tv-superficie) 94%, transparent); box-shadow: var(--tt-sombra);
+.tt-lectura { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;
+  gap: 4px; padding: 5px 6px; pointer-events: auto; border-radius: 18px; background: color-mix(in srgb, var(--tv-superficie) 94%, transparent); box-shadow: var(--tt-sombra);
   font: 600 14px/1.2 var(--tv-fuente-mono, ui-monospace, Menlo, monospace); font-variant-numeric: tabular-nums; white-space: nowrap; max-width: calc(100% - 16px); }
-.tt-lectura__xy { display: inline-flex; gap: 6px; }
-.tt-lectura__delta { flex-basis: 100%; text-align: center; font-size: 12.5px; color: var(--tv-tenue); }
+.tt-lectura__fila { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; max-width: 100%; }
+.tt-lectura__fila[hidden] { display: none; }
+.tt-valores { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.tt-lectura__delta { text-align: center; font-size: 12.5px; color: var(--tv-tenue); padding: 0 8px 2px; }
+/* Cada valor de la lectura se toca para escribirlo; con un valor escrito queda con candado y una × para soltarlo. */
+.tt-valor { display: inline-flex; align-items: stretch; border-radius: 12px; background: var(--tv-fondo); border: 1.5px solid transparent; }
+.tt-valor__b { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
+  font: inherit; color: inherit; border-radius: 12px; }
+.tt-valor__b .tv-icono { display: none; width: 15px; height: 15px; color: var(--tt-fijo-texto); }
+.tt-valor[data-fijo="1"] { border-color: var(--tt-fijo-texto); background: color-mix(in srgb, var(--tt-fijo) 14%, var(--tv-superficie)); }
+.tt-valor[data-fijo="1"] .tv-icono { display: inline-block; }
+.tt-valor[data-editando="1"] { border-color: var(--tv-foco); box-shadow: 0 0 0 2px color-mix(in srgb, var(--tv-foco) 35%, transparent); }
+.tt-valor[data-editando="1"] .tt-valor__v::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px; background: currentColor;
+  animation: tt-cursor 1s steps(1) infinite; }
+@keyframes tt-cursor { 50% { opacity: 0; } }
+.tt-valor__quitar { width: 36px; min-height: 40px; display: inline-grid; place-items: center; border: 0; border-left: 1px solid var(--tv-separador); background: transparent;
+  cursor: pointer; padding: 0; color: var(--tv-tenue); border-radius: 0 12px 12px 0; }
+.tt-valor__quitar .tv-icono { width: 16px; height: 16px; }
+.tt-iman { position: relative; width: 40px; height: 40px; display: inline-grid; place-items: center; border: 0; border-radius: 12px; background: var(--tv-fondo); cursor: pointer; padding: 0; flex: none; color: var(--tt-snap-texto); }
+.tt-iman .tv-icono { width: 20px; height: 20px; }
+.tt-iman[data-apagado="1"] { color: var(--tv-tenue); }
+.tt-iman[data-apagado="1"]::after { content: ""; position: absolute; width: 26px; height: 2px; background: currentColor; transform: rotate(-45deg); }
 .tt-et { color: var(--tv-tenue); font-family: var(--tv-fuente); font-weight: 600; }
-.tt-lectura__snap { font: 600 12px/1 var(--tv-fuente); color: #fff; background: #c4006a; padding: 4px 8px; border-radius: 999px; }
+.tt-lectura__snap { font: 600 12px/1 var(--tv-fuente); color: #fff; background: #c4006a; padding: 0 10px; min-height: 32px; border-radius: 999px; border: 0; white-space: nowrap; }
+.tt-lectura__snap:not(:disabled) { cursor: pointer; }
 .tt-guia { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 7px 14px; border-radius: 18px;
   background: color-mix(in srgb, var(--tv-superficie) 94%, transparent); box-shadow: var(--tt-sombra); font-size: 13.5px; text-align: center; }
 .tt-aviso { position: absolute; left: 12px; right: 12px; top: 54px; margin: 0 auto; max-width: 480px; padding: 10px 14px; border-radius: 12px;
@@ -164,6 +192,12 @@ html.cad-tactil .tt-hoja[hidden], html.cad-tactil .tt-velo[hidden] { display: no
 .tt-segmentado button[aria-pressed="true"] { background: var(--tv-primario); color: var(--tv-sobre-primario); border-color: transparent; }
 .tt-interruptor { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 4px 6px; }
 .tt-nota-hoja { color: var(--tv-tenue); font-size: 13.5px; margin: 6px 0; }
+.tt-interruptor--general { font-weight: 600; border-bottom: 1px solid var(--tv-separador); margin-bottom: 8px; }
+.tt-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0 12px; margin-top: 6px; }
+.tt-refs[data-apagada="1"] { opacity: .45; }
+.tt-refs .tt-interruptor > span { flex: 1; }
+.tt-ref-marca { width: 22px; height: 22px; flex: none; background: var(--tt-lienzo); border-radius: 6px; padding: 2px; }
+.tt-ref-marca path { fill: none; stroke: var(--tt-snap); stroke-width: 2.5; }
 .tt-barra-uso { height: 8px; border-radius: 4px; background: var(--tv-fondo); overflow: hidden; margin: 6px 0; }
 .tt-barra-uso > span { display: block; height: 100%; width: 0; background: var(--tv-primario); transition: width .2s; }
 html.cad-tactil .tt-velo { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(10, 14, 22, .28); }
@@ -190,6 +224,18 @@ html.cad-tactil .tt-velo { display: block; position: fixed; inset: 0; z-index: 3
 .tt-teclado__listo { background: var(--tv-primario) !important; color: var(--tv-sobre-primario); font-size: 16px !important; font-weight: 700 !important; border: 0 !important; }
 .tt-num--texto .tt-teclado { display: none; }
 
+/* Teclado de la entrada dinámica: en lugar de la barra de la herramienta, así el plano y la punta siguen a la vista encima. */
+.tt-din { padding: 6px 8px 8px; }
+.tt-din__cabeza { display: flex; align-items: center; gap: 4px; }
+.tt-din__campos { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.tt-din__campos button { min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--tv-separador); background: var(--tv-fondo); font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.tt-din__campos button[aria-pressed="true"] { background: var(--tv-primario); color: var(--tv-sobre-primario); border-color: transparent; }
+.tt-din__et { margin: 4px 2px 6px; font-size: 12.5px; color: var(--tv-tenue); }
+.tt-din__et:empty { display: none; }
+.tt-teclado--din { gap: 6px; }
+.tt-teclado--din button { min-height: 46px; font-size: 21px; }
+.tt-teclado__poner { grid-column: span 2; }
+
 /* Teléfono horizontal: herramientas en una columna a la derecha; las hojas salen como panel lateral; campos y teclado lado a lado. */
 @media (orientation: landscape) and (max-height: 500px) {
   html.cad-tactil .tt { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); }
@@ -211,7 +257,10 @@ html.cad-tactil .tt-velo { display: block; position: fixed; inset: 0; z-index: 3
   .tt-teclado button { min-height: 44px; }
   .tt-teclado__sig { font-size: 13px !important; }
   .tt-campo { min-height: 46px; }
-  .tt-lectura { font-size: 13px; padding: 5px 12px; }
+  .tt-lectura { font-size: 13px; padding: 4px 5px; }
+  .tt-valor__b { min-height: 34px; }
+  .tt-teclado--din button { min-height: 38px; font-size: 18px; }
+  .tt-din__campos button { min-height: 34px; padding: 0 8px; }
 }
 /* Tableta: pestañas centradas con más aire; las hojas salen como panel flotante. */
 @media (min-width: 700px) and (min-height: 501px) {
@@ -224,7 +273,7 @@ html.cad-tactil .tt-velo { display: block; position: fixed; inset: 0; z-index: 3
   .tt-seleccion__fila { justify-content: center; }
   .tt-lectura { font-size: 16px; }
 }
-@media (prefers-reduced-motion: reduce) { .tt-barra-uso > span { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .tt-barra-uso > span { transition: none; } .tt-valor[data-editando="1"] .tt-valor__v::after { animation: none; } }
 
 /* Interruptor «Modo táctil» en la cabecera del plano (solo con el ajuste encendido) */
 .cad-tactil-entrar[hidden] { display: none; }

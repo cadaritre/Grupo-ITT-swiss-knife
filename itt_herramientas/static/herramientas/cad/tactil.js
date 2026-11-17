@@ -6,11 +6,15 @@
  *
  *  - Navegar «transformar ahora, fijar al soltar»: durante el gesto el marco del editor se mueve y escala en el compositor del navegador
  *    (sin esperar al editor); al soltar, un `ZOOM W` exacto (f64) lleva el editor a la vista que se ve y la transformación se quita
- *    cuando el editor ya pintó. Un dedo mueve, dos dedos acercan alrededor de los dedos, doble toque = ver todo.
+ *    cuando el editor ya pintó. Un dedo mueve, dos dedos acercan alrededor de los dedos. Toques (una sola máquina, «racha»): un toque
+ *    elige al momento; toque y tocar otra vez en el mismo lugar y arrastrar = recuadro de selección; tres toques = ver todo (lo que
+ *    cambiaron los primeros toques se deshace antes).
  *  - Puntero con desfase: la punta queda 88 px arriba del asa, el dedo nunca tapa el punto. Referencias a objetos con `snap` del editor
- *    (el punto exacto en f64), lectura X/Y en vivo y «Poner punto» para confirmar.
- *  - Herramientas: cada figura o edición es UN paso de deshacer (`batch`, `entities_*`). Las mediciones no tocan el dibujo.
- *  - Hoja numérica propia para coordenadas, distancias, radios y ángulos.
+ *    (el punto exacto en f64; el juego de referencias de la persona va en `modes`), lectura X/Y en vivo y «Poner punto» para confirmar.
+ *  - Entrada dinámica: tocar un valor de la lectura (X, Y, distancia, azimut, radio, ancho…) lo escribe con el teclado propio; la punta
+ *    va ahí mientras se escribe y el valor queda fijo hasta poner el punto.
+ *  - Herramientas: cada figura o edición es UN paso de deshacer (`batch`, `entities_*`, `explode`, `trim`, `extend`). Las mediciones no
+ *    tocan el dibujo.
  *
  * Contrato con la página (el mismo en plano.html y en la página sin conexión): #cad-config (JSON, con `tactil`), #cad-lienzo con
  * #cad-editor, #cad-estado[data-estado] y #cad-estado-texto, #cad-guardar, #cad-volver, y los eventos `tvcad:*` de control.js.
@@ -34,16 +38,29 @@
   };
 
   // ---------------------------------------------------------------------------------------------------------------- preferencias
-  const OSMODE = { Endpoint: 1, Midpoint: 2, Center: 4, Node: 8, Quadrant: 16, Intersection: 32, Insertion: 64, Perpendicular: 128, Tangent: 256, Nearest: 512 };
-  const REFS = [["Endpoint", "Extremo"], ["Midpoint", "Punto medio"], ["Intersection", "Intersección"], ["Center", "Centro"], ["Perpendicular", "Perpendicular"],
-    ["Node", "Punto"], ["Quadrant", "Cuadrante"], ["Tangent", "Tangente"], ["Insertion", "Inserción"], ["Nearest", "Cercano"]];
+  // Las referencias que el editor puede dar (los nombres de su respuesta `snap`), en el orden de la hoja.
+  const REFS = [["Endpoint", "Extremo"], ["Midpoint", "Punto medio"], ["Intersection", "Intersección"], ["ApparentIntersection", "Intersección aparente"],
+    ["Center", "Centro"], ["GeometricCenter", "Centro geométrico"], ["Quadrant", "Cuadrante"], ["Perpendicular", "Perpendicular"], ["Tangent", "Tangente"], ["Node", "Nodo"],
+    ["Insertion", "Inserción"], ["Nearest", "Cercano"]];
+  const TIPOS_SNAP = REFS.map(([k]) => k);
+  const REFS_OMISION = ["Endpoint", "Midpoint", "Intersection", "ApparentIntersection", "Center", "Perpendicular", "Node", "Quadrant", "Insertion"];
+  function refsGuardadas() {
+    const v2 = guardado.leer("referencias.v2", null);
+    if (Array.isArray(v2)) return v2.filter((k) => TIPOS_SNAP.includes(k));
+    // La lista de la primera versión juntaba la intersección aparente con la intersección.
+    const v1 = guardado.leer("referencias", null);
+    if (!Array.isArray(v1)) return REFS_OMISION.slice();
+    const r = v1.filter((k) => TIPOS_SNAP.includes(k));
+    if (r.includes("Intersection")) r.push("ApparentIntersection");
+    return r;
+  }
   const pref = {
     decimales: guardado.leer("decimales", 3),
     zurdo: guardado.leer("zurdo", false),
-    refs: guardado.leer("referencias", ["Endpoint", "Midpoint", "Intersection", "Center", "Perpendicular", "Node", "Quadrant", "Insertion"]),
+    refs: refsGuardadas(),
+    refsOn: guardado.leer("referencias.encendidas", true),
   };
   const NOMBRES_SNAP = Object.fromEntries(REFS);
-  NOMBRES_SNAP.ApparentIntersection = "Intersección";
 
   // ---------------------------------------------------------------------------------------------------------------- canal del editor
   const ed = () => iframe.contentWindow;
@@ -80,8 +97,11 @@
     const tx = (vista.ox + vista.w / 2) * (1 - a) + (vistaEd.cx - vista.cx) / vista.k;
     const ty = (vista.oy + vista.h / 2) * (1 - a) - (vistaEd.cy - vista.cy) / vista.k;
     iframe.style.transform = Math.abs(a - 1) < 1e-9 && Math.abs(tx) < 0.01 && Math.abs(ty) < 0.01 ? "" : `translate(${tx}px, ${ty}px) scale(${a})`;
+    // Si el marco se va lejos (un arrastre largo, el recuadro que corre el plano), se fija la vista sin esperar a soltar: WebKit deja
+    // de pintar un marco que quedó fuera de la pantalla y el editor dejaba de responder hasta que volvía.
+    if (gesto && !fijando && (Math.abs(tx) > vista.w * 0.4 || Math.abs(ty) > vista.h * 0.4 || a > 2.5 || a < 0.4)) fijarVista();
   }
-  const navegando = () => gesto && (gesto.tipo === "mover" || gesto.tipo === "pellizco");
+  const navegando = () => gesto && (gesto.tipo === "mover" || gesto.tipo === "pellizco" || ((gesto.tipo === "ventana" || gesto.tipo === "cerca") && !!auto));
   let fijando = null;
   // Lleva el editor a la vista que se ve con una sola petición; si el gesto siguió mientras tanto, vuelve a fijar al terminar.
   function fijarVista() {
@@ -142,7 +162,9 @@
   // Lleva a la vista un punto (o caja) que quedó fuera, sin cambiar la escala salvo que no quepa.
   async function enfocar(x1, y1, x2 = x1, y2 = y1) {
     const [a, b] = aPantalla(x1, y2), [c, d] = aPantalla(x2, y1);
-    const dentro = a > vista.ox + 20 && b > vista.oy + 20 && c < vista.ox + vista.w - 20 && d < vista.oy + vista.h - 20;
+    // Abajo, además, la lectura (la punta no debe quedar debajo de ella).
+    const abajo = $("tt-lectura").hidden ? 20 : $("tt-lectura").offsetHeight + 28;
+    const dentro = a > vista.ox + 20 && b > vista.oy + 20 && c < vista.ox + vista.w - 20 && d < vista.oy + vista.h - abajo;
     if (dentro) return;
     const ancho = Math.max(vista.w * vista.k, (x2 - x1) * 1.4), alto = Math.max(vista.h * vista.k, (y2 - y1) * 1.4);
     const esc = Math.max(ancho / vista.w, alto / vista.h);
@@ -198,18 +220,29 @@
   new ResizeObserver(alCambiarTamano).observe(zona);
 
   // ---------------------------------------------------------------------------------------------------------------- gestos
+  // Una sola máquina para los toques de un dedo. Cada toque de una «racha» (toques seguidos en el mismo lugar, ≤ RACHA_MS entre uno y
+  // otro y ≤ RACHA_PX del primero):
+  //   1.º toque           → actúa al momento (elegir un objeto, llevar la punta, recortar…). Antes se guarda cómo estaba todo.
+  //   2.º toque y arrastre → recuadro de selección desde ahí (antes se deshace lo que cambió el 1.º toque); suma a la selección.
+  //   2.º toque y soltar  → actúa otra vez (como un toque).
+  //   3.er toque          → ver todo; se deshace lo que cambiaron los dos primeros (nunca edita).
+  // Un toque tarde o lejos empieza otra racha. Arrastrar sin la racha mueve el plano; dos dedos acercan; mantener pulsado = el puntero.
+  // En «Recortar» y «Alargar» un dedo que arrastra traza una línea que cruza lo que se corta (dos dedos mueven el plano).
   const dedos = new Map();
-  let gesto = null;          // {tipo: "pendiente"|"mover"|"pellizco"|"asa"|"ventana"}
-  let ultimoToque = { t: 0, x: 0, y: 0 };
-  const TOQUE_MS = 280, TOQUE_PX = 9, LARGO_MS = 450, DOBLE_MS = 320;
+  let gesto = null;          // {tipo: "pendiente"|"mover"|"pellizco"|"asa"|"ventana"|"cerca"}
+  let racha = null;          // {n, t, x, y, antes, deshacer}
+  const TOQUE_MS = 280, TOQUE_PX = 9, LARGO_MS = 450, RACHA_MS = 320, RACHA_PX = 40, BORDE_PX = 32;
   let modoVentana = false;
+  let cola = Promise.resolve();
+  const encolar = (fn) => (cola = cola.then(fn).catch((e) => console.warn(e)));
 
   function punto(ev) { const r = zona.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; }
   capa.addEventListener("pointerdown", (ev) => {
     if (!listo) return;
     try { capa.setPointerCapture(ev.pointerId); } catch (_) { /* puntero sintético */ }
     const [x, y] = punto(ev);
-    dedos.set(ev.pointerId, { x, y, x0: x, y0: y, t0: performance.now() });
+    const ahora = performance.now();
+    dedos.set(ev.pointerId, { x, y, x0: x, y0: y, t0: ahora });
     cerrarTarjetaSiMueve = true;
     if (dedos.size === 1) {
       if (puntero.visible) {
@@ -218,13 +251,16 @@
         const [ax, ay] = posAsa(), [px, py] = posPunta();
         const L2 = (px - ax) ** 2 + (py - ay) ** 2, t = L2 ? Math.max(0, Math.min(1, ((x - ax) * (px - ax) + (y - ay) * (py - ay)) / L2)) : 0;
         const enAstil = Math.hypot(x - (ax + t * (px - ax)), y - (ay + t * (py - ay))) < 22 && t < 0.8;
-        if (Math.hypot(x - ax, y - ay) < 46 || enAstil) { gesto = { tipo: "asa", dx: ax - x, dy: ay - y }; return; }
+        if (Math.hypot(x - ax, y - ay) < 46 || enAstil) { racha = null; gesto = { tipo: "asa", dx: ax - x, dy: ay - y }; return; }
       }
-      if (modoVentana) { gesto = { tipo: "ventana", x0: x, y0: y, x, y }; pintarVentana(); return; }
-      gesto = { tipo: "pendiente", largo: setTimeout(() => pulsacionLarga(ev.pointerId), LARGO_MS) };
+      if (modoVentana) { racha = null; empezarVentana(x, y); return; }
+      const sigue = racha && ahora - racha.t <= RACHA_MS && Math.hypot(x - racha.x, y - racha.y) <= RACHA_PX;
+      if (!sigue) racha = null;
+      gesto = { tipo: "pendiente", n: sigue ? racha.n + 1 : 1, largo: setTimeout(() => pulsacionLarga(ev.pointerId), LARGO_MS) };
     } else if (dedos.size === 2) {
+      racha = null;
       if (gesto && gesto.largo) clearTimeout(gesto.largo);
-      if (gesto && gesto.tipo === "ventana") { ocultarVentana(); }
+      if (gesto && (gesto.tipo === "ventana" || gesto.tipo === "cerca")) { pararAuto(); ocultarVentana(); ocultarCerca(); }
       const [a, b] = [...dedos.values()];
       gesto = { tipo: "pellizco", cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, sep: Math.hypot(a.x - b.x, a.y - b.y) };
     }
@@ -235,9 +271,21 @@
     const [x, y] = punto(ev);
     f.x = x; f.y = y;
     if (gesto.tipo === "asa") { moverPunteroPorAsa(x + gesto.dx, y + gesto.dy); return; }
-    if (gesto.tipo === "ventana") { gesto.x = x; gesto.y = y; pintarVentana(); return; }
+    if (gesto.tipo === "ventana" || gesto.tipo === "cerca") { gesto.x = x; gesto.y = y; bordeAuto(x, y); pintarVentana(); pintarCerca(); return; }
     if (gesto.tipo === "pendiente" && Math.hypot(f.x - f.x0, f.y - f.y0) > TOQUE_PX) {
       clearTimeout(gesto.largo);
+      const n = gesto.n;
+      if (n === 2 && !herr && racha) {
+        // Toque, otra vez en el mismo lugar y arrastre: recuadro de selección. Lo que cambió el primer toque se deshace antes.
+        const r = racha; racha = null;
+        gesto = null;
+        encolar(() => restaurar(r));
+        empezarVentana(f.x0, f.y0);
+        gesto.x = x; gesto.y = y; pintarVentana();
+        return;
+      }
+      racha = null;
+      if (herr && herr.def.corte && n === 1) { gesto = { tipo: "cerca", m0: aMundo(f.x0, f.y0), x, y }; pintarCerca(); return; }
       gesto = { tipo: "mover", x: f.x0, y: f.y0 };
     }
     if (gesto.tipo === "mover") {
@@ -263,16 +311,20 @@
       clearTimeout(g.largo);
       gesto = null;
       const ahora = performance.now();
-      if (ev.type === "pointerup" && ahora - f.t0 < TOQUE_MS) {
-        if (ahora - ultimoToque.t < DOBLE_MS && Math.hypot(f.x - ultimoToque.x, f.y - ultimoToque.y) < 40) {
-          ultimoToque.t = 0; clearTimeout(toquePendiente); verTodo();
-        } else {
-          ultimoToque = { t: ahora, x: f.x, y: f.y };
-          // Se espera al doble toque antes de seleccionar (si no, el primer toque del doble seleccionaría).
-          const [tx, ty] = [f.x, f.y];
-          clearTimeout(toquePendiente);
-          toquePendiente = setTimeout(() => toque(tx, ty), herr ? 0 : DOBLE_MS);
-        }
+      if (ev.type !== "pointerup" || ahora - f.t0 >= TOQUE_MS) { racha = null; return; }
+      const [tx, ty] = [f.x0, f.y0];
+      if (g.n === 1) {
+        racha = { n: 1, t: ahora, x: tx, y: ty, antes: instantanea(), deshacer: 0 };
+        const r = racha;
+        encolar(() => toque(tx, ty, r));
+      } else if (g.n === 2 && racha) {
+        racha.n = 2; racha.t = ahora;
+        const r = racha;
+        // En «Recortar» y «Alargar» el segundo toque de una racha no edita: podría ser el comienzo de tres toques.
+        if (!(herr && herr.def.corte)) encolar(() => toque(tx, ty, r));
+      } else if (g.n >= 3 && racha) {
+        const r = racha; racha = null;
+        encolar(async () => { await restaurar(r); await verTodo(); });
       }
     } else if (g.tipo === "mover" || (g.tipo === "pellizco" && dedos.size === 0)) {
       gesto = null;
@@ -284,14 +336,32 @@
       gesto = null;
       consultarSnap();
     } else if (g.tipo === "ventana") {
-      gesto = null;
-      terminarVentana(g);
+      gesto = null; pararAuto();
+      encolar(() => terminarVentana(g));
+    } else if (g.tipo === "cerca") {
+      gesto = null; pararAuto(); ocultarCerca();
+      const [ax, ay] = aPantalla(g.m0[0], g.m0[1]);
+      if (Math.hypot(g.x - ax, g.y - ay) >= 12) { const b = aMundo(g.x, g.y); encolar(() => accionCorte({ fence: [g.m0.slice(), b] })); }
+      if (fijandoAuto) { fijandoAuto = false; fijarVista(); }
     }
   }
-  let toquePendiente = null;
   capa.addEventListener("pointerup", finDedo);
   capa.addEventListener("pointercancel", finDedo);
   capa.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  // Cómo estaba todo antes del primer toque de una racha, para deshacer lo que cambiaron sus toques.
+  function instantanea() {
+    return { sel: new Map(seleccion), punt: { visible: puntero.visible, mundo: puntero.mundo.slice() }, herr };
+  }
+  async function restaurar(r) {
+    if (!r || !r.antes) return;
+    for (let i = 0; i < r.deshacer; i++) await pedirSuave({ op: "undo" });
+    r.deshacer = 0;
+    const a = r.antes;
+    const igual = a.sel.size === seleccion.size && [...a.sel.keys()].every((k) => seleccion.has(k));
+    if (!igual) { seleccion.clear(); for (const [k, v] of a.sel) seleccion.set(k, v); await reflejarSeleccion(); }
+    if (herr && herr === a.herr) { puntero.mundo = a.punt.mundo.slice(); puntero.snap = null; pintar(); consultarSnap(); }
+    else if (!herr && a.punt.visible && !puntero.visible) { puntero.mundo = a.punt.mundo.slice(); mostrarPuntero(); }
+  }
   // Rueda y trackpad (tableta con teclado): acercar alrededor del cursor, mover con dos dedos del trackpad.
   let ruedaT = null;
   capa.addEventListener("wheel", (ev) => {
@@ -316,19 +386,41 @@
     aplicarTransformacion();
     pintar();
   }
-  function toque(x, y) {
+  // Recuadro o línea de corte con el dedo junto al borde: el plano se corre solo, así cabe algo más grande que la pantalla.
+  let auto = null, fijandoAuto = false;
+  function bordeAuto(x, y) {
+    const W = zona.clientWidth, H = zona.clientHeight;
+    const v = (d) => (d < BORDE_PX ? (BORDE_PX - Math.max(0, d)) / BORDE_PX : 0);
+    const vx = v(x) - v(W - x), vy = v(y) - v(H - y);
+    if (!vx && !vy) { pararAuto(); return; }
+    if (!auto) { auto = { vx, vy }; requestAnimationFrame(pasoAuto); } else { auto.vx = vx; auto.vy = vy; }
+  }
+  function pasoAuto() {
+    if (!auto || !gesto || (gesto.tipo !== "ventana" && gesto.tipo !== "cerca")) { auto = null; return; }
+    prever(auto.vx * 14, auto.vy * 14, 1, 0, 0);
+    fijandoAuto = true;
+    pintarVentana(); pintarCerca();
+    requestAnimationFrame(pasoAuto);
+  }
+  function pararAuto() { auto = null; }
+  async function toque(x, y, r) {
     if (herr) {
-      if (herr.def.elegir && !herr.def.puntos) { moverPuntaA(x, y); return; }
+      if (herr.def.corte) {
+        const cambio = await accionCorte({ point: aMundo(x, y) });
+        if (cambio && r) r.deshacer += 1;
+        return;
+      }
       moverPuntaA(x, y);
       return;
     }
     if (puntero.visible) { ocultarPuntero(); return; }
     if (cerrarTarjeta()) return;
-    seleccionarEn(x, y);
+    await seleccionarEn(x, y);
   }
   function pulsacionLarga(id) {
     const f = dedos.get(id);
     if (!f || !gesto || gesto.tipo !== "pendiente") return;
+    racha = null;
     if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) { /* sin vibración */ } }
     // El asa aparece bajo el dedo (ya en arrastre) y la punta arriba: «¿qué hay aquí?».
     const [dx, dy] = desfase();
@@ -339,7 +431,7 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------- puntero con desfase
-  const puntero = { visible: false, mundo: [0, 0], snap: null };
+  const puntero = { visible: false, mundo: [0, 0], snap: null, cands: [], indice: 0 };
   const desfase = () => {
     const d = vista.w >= 700 ? 96 : 88;
     return pref.zurdo ? [52, Math.round(d * 0.8)] : [0, d];                    // la punta queda arriba (a la izquierda para zurdos)
@@ -353,7 +445,8 @@
     pintar(); consultarSnap();
   }
   function ocultarPuntero() {
-    puntero.visible = false; puntero.snap = null;
+    puntero.visible = false; puntero.snap = null; puntero.cands = [];
+    cerrarDinamica();
     $("tt-puntero").setAttribute("visibility", "hidden");
     // La marca de la referencia es hija del puntero, pero en SVG un hijo con visibility="visible" se sigue viendo aunque el grupo esté
     // oculto: se apaga aparte (si no, quedaba en su lugar de la pantalla tras «Terminar» o al guardar).
@@ -378,7 +471,10 @@
     if (!puntero.visible) mostrarPuntero(); else { pintar(); consultarSnap(); }
   }
   // Una consulta a la vez; si el puntero se movió mientras tanto, se pregunta por la última posición.
+  // Con un editor que respeta `modes` (tv-v2026.45-9), el juego de la persona va en la petición y el editor elige la mejor referencia
+  // permitida (y con `limit`, las siguientes en `hits`). Con uno anterior (o una copia vieja guardada en el teléfono) se filtra aquí.
   let enVuelo = false, otraConsulta = false;
+  const refsActivas = () => (pref.refsOn ? pref.refs.filter((k) => TIPOS_SNAP.includes(k)) : []);
   async function consultarSnap() {
     if (!puntero.visible || navegando()) return;
     if (enVuelo) { otraConsulta = true; return; }
@@ -387,26 +483,43 @@
       do {
         otraConsulta = false;
         const m = puntero.mundo.slice();
-        if (!pref.refs.length) { puntero.snap = null; break; }
-        // Primero la referencia del punto (extremo, intersección, medio, centro…); la perpendicular desde el último punto solo si no hay
-        // una de esas (con `from`, el editor la prefiere aunque la punta esté justo en un extremo).
+        const modos = refsActivas();
+        if (!modos.length) { puntero.snap = null; puntero.cands = []; pintar(); break; }
         const ultimo = herr && herr.puntos.length ? herr.puntos[herr.puntos.length - 1] : null;
-        let r = await pedirSuave({ op: "snap", point: m }, 5000);
-        const fuerte = r && ["Endpoint", "Intersection", "ApparentIntersection", "Midpoint", "Center", "Node", "Insertion", "Quadrant"].includes(r.snap) && permitida(r.snap);
-        if (!fuerte && ultimo && pref.refs.includes("Perpendicular")) {
-          const p2 = await pedirSuave({ op: "snap", point: m, from: ultimo }, 5000);
-          if (p2 && p2.snap === "Perpendicular") r = p2;
+        let hits;
+        if (capac.modos) {
+          const r = await pedirSuave({ op: "snap", point: m, modes: modos, limit: 4, ...(ultimo ? { from: ultimo } : {}) }, 5000);
+          hits = r ? (Array.isArray(r.hits) ? r.hits : (r.snap ? [r] : [])) : [];
+        } else {
+          // Primero la referencia del punto (extremo, intersección, medio, centro…); la perpendicular desde el último punto solo si no
+          // hay una de esas (con `from`, ese editor la prefiere aunque la punta esté justo en un extremo).
+          let r = await pedirSuave({ op: "snap", point: m }, 5000);
+          const fuerte = r && ["Endpoint", "Intersection", "ApparentIntersection", "Midpoint", "Center", "Node", "Insertion", "Quadrant"].includes(r.snap) && permitida(r.snap);
+          if (!fuerte && ultimo && modos.includes("Perpendicular")) {
+            const p2 = await pedirSuave({ op: "snap", point: m, from: ultimo }, 5000);
+            if (p2 && p2.snap === "Perpendicular") r = p2;
+          }
+          hits = r && r.snap ? [r] : [];
         }
         if (otraConsulta || !puntero.visible) continue;
-        const tipo = r && (r.snap || r.kind);
-        const mundo = r && (r.world || r.point);
-        puntero.snap = tipo && mundo && permitida(tipo) ? { tipo, mundo: [mundo[0], mundo[1]] } : null;
+        puntero.cands = hits.map((h) => ({ tipo: h.snap || h.kind, mundo: h.world || h.point }))
+          .filter((h) => h.tipo && Array.isArray(h.mundo) && permitida(h.tipo)).map((h) => ({ tipo: h.tipo, mundo: [h.mundo[0], h.mundo[1]] }));
+        puntero.indice = 0;
+        puntero.snap = puntero.cands[0] || null;
         pintar();
       } while (otraConsulta);
     } finally { enVuelo = false; }
   }
-  const permitida = (tipo) => pref.refs.includes(tipo === "ApparentIntersection" ? "Intersection" : tipo);
-  function puntoActual() { return puntero.snap ? puntero.snap.mundo.slice() : puntero.mundo.slice(); }
+  const permitida = (tipo) => refsActivas().includes(tipo);
+  // La siguiente referencia que el editor ofreció en el mismo lugar (como Tab en CAD): se elige en la etiqueta de la lectura.
+  function siguienteReferencia() {
+    if (!puntero.cands || puntero.cands.length < 2) return;
+    puntero.indice = (puntero.indice + 1) % puntero.cands.length;
+    puntero.snap = puntero.cands[puntero.indice];
+    pintar();
+  }
+  // El punto que se pondría: la referencia (o la punta) con los valores escritos aplicados.
+  function puntoActual() { return restringir(puntero.snap ? puntero.snap.mundo.slice() : puntero.mundo.slice()); }
   function formaSnap(tipo) {
     const s = 8;
     switch (tipo) {
@@ -416,6 +529,7 @@
       case "Center": return `M${s},0A${s},${s} 0 1 1 ${-s},0A${s},${s} 0 1 1 ${s},0`;
       case "Perpendicular": return `M${-s},${s}H${s}M${-s},${s}V${-s}M${-s},0H0V${s}`;
       case "Nearest": return `M${-s},${-s}H${s}L${-s},${s}H${s}z`;
+      case "GeometricCenter": return `M0,${-s}L${s},${-s / 3}L${s * 0.62},${s}H${-s * 0.62}L${-s},${-s / 3}zM-1.5,0h3`;
       case "Quadrant": return `M0,${-s}L${s},0L0,${s}L${-s},0z`;
       case "Tangent": return `M${s},2A${s - 2},${s - 2} 0 1 1 ${-s + 4},2M${-s},${-s + 1}H${s}`;
       case "Node": return `M${-s},${-s}L${s},${s}M${s},${-s}L${-s},${s}M${s},0A${s},${s} 0 1 1 ${-s},0A${s},${s} 0 1 1 ${s},0`;
@@ -468,7 +582,7 @@
       for (const p of herr.puntos) { const [x, y] = P(p); el("circle", { class: "tt-vertice", r: 5, cx: x, cy: y }, vert); }
       if (herr.def.previa) { try { herr.def.previa(previa, herr.puntos, cursor, herr); } catch (_) { /* previa incompleta */ } }
     }
-    if (!puntero.visible) { $("tt-marca").setAttribute("visibility", "hidden"); return; }
+    if (!puntero.visible) { $("tt-marca").setAttribute("visibility", "hidden"); $("tt-fijo").setAttribute("visibility", "hidden"); return; }
     const [px, py] = posPunta(), [ax, ay] = posAsa();
     const ang = Math.atan2(py - ay, px - ax);
     $("tt-astil").setAttribute("x1", ax + Math.cos(ang) * 26); $("tt-astil").setAttribute("y1", ay + Math.sin(ang) * 26);
@@ -477,22 +591,25 @@
     $("tt-asa").setAttribute("cx", ax); $("tt-asa").setAttribute("cy", ay);
     $("tt-asa-flecha").setAttribute("d", `M0,-12l-7,9h14z`);
     $("tt-asa-flecha").setAttribute("transform", `translate(${ax},${ay}) rotate(${grados(ang) + 90})`);
-    const marca = $("tt-marca"), chip = $("tt-lectura-snap");
-    if (puntero.snap) {
+    const marca = $("tt-marca"), chip = $("tt-lectura-snap"), fijo = $("tt-fijo");
+    const conValores = hayFijos();
+    if (puntero.snap && !conValores) {
       const [sx, sy] = P(puntero.snap.mundo);
       marca.setAttribute("transform", `translate(${sx},${sy})`);
       $("tt-marca-forma").setAttribute("d", formaSnap(puntero.snap.tipo));
       marca.setAttribute("visibility", "visible");
-      chip.hidden = false; chip.textContent = NOMBRES_SNAP[puntero.snap.tipo] || "Referencia";
+      const n = puntero.cands.length;
+      chip.hidden = false;
+      chip.textContent = (NOMBRES_SNAP[puntero.snap.tipo] || "Referencia") + (n > 1 ? ` · ${puntero.indice + 1} de ${n}` : "");
+      chip.disabled = n < 2;
+      chip.setAttribute("aria-label", n > 1 ? `${NOMBRES_SNAP[puntero.snap.tipo]}. Tocar para la siguiente referencia` : (NOMBRES_SNAP[puntero.snap.tipo] || "Referencia"));
     } else { marca.setAttribute("visibility", "hidden"); chip.hidden = true; }
     const m = puntoActual();
-    $("tt-x").textContent = fmt(m[0]); $("tt-y").textContent = fmt(m[1]);
-    const delta = $("tt-delta");
-    const ult = herr && herr.puntos.length ? herr.puntos[herr.puntos.length - 1] : null;
-    if (ult && herr.def.delta !== false) {
-      delta.hidden = false;
-      delta.textContent = `Δ ${fmt(Math.hypot(m[0] - ult[0], m[1] - ult[1]))} m · ${fmt(azimut(ult, m), 2)}°`;
-    } else delta.hidden = true;
+    // Con valores escritos, el punto que se pondrá (fijo) se marca aparte de la punta.
+    if (conValores) { const [fx, fy] = P(m); fijo.setAttribute("transform", `translate(${fx},${fy})`); fijo.setAttribute("visibility", "visible"); }
+    else fijo.setAttribute("visibility", "hidden");
+    $("tt-imanes").dataset.apagado = refsActivas().length ? "0" : "1";
+    pintarLectura(m);
   }
   // Ayudas para las vistas previas de las herramientas.
   function linea(g, pts, cerrada) {
@@ -509,6 +626,203 @@
     el("path", { d: `M${x0},${y0}A${R},${R} 0 ${barrido > 180 ? 1 : 0} 0 ${x1},${y1}` }, g);
   }
   function texto(g, m, t) { const [x, y] = P(m); const e = el("text", { x: x + 8, y: y - 8, class: "tt-cota-texto" }, g); e.textContent = t; }
+
+  // ---------------------------------------------------------------------------------------------------------------- entrada dinámica
+  // La lectura encima de «Poner punto» muestra X, Y y, con la herramienta en marcha, los valores que importan (distancia y azimut desde
+  // el último punto, radio, ancho y alto, ángulo de giro, distancia del desfase). Tocar uno abre el teclado propio debajo (el plano y la
+  // punta siguen a la vista): lo escrito mueve la punta en vivo y queda fijo (candado) hasta poner el punto, como la entrada dinámica de
+  // CAD. X/Y y los demás no se mezclan: fijar uno de un grupo suelta los del otro.
+  const din = { fijos: {}, abierto: false, campo: null, texto: "", nuevo: true, firma: "" };
+  const XY = ["x", "y"];
+  const rad = (g) => (g * Math.PI) / 180;
+  const norm180 = (g) => { const v = norm360(g); return v > 180 ? v - 360 : v; };
+  function camposHerr() {
+    if (!herr) return [];
+    const { id, puntos } = herr, n = puntos.length, ult = puntos[n - 1];
+    if (["linea", "polilinea", "mover", "copiar"].includes(id) && n >= 1)
+      return [{ k: "d", et: "Distancia", v: (p) => dist(ult, p) }, { k: "az", et: "Azimut", ang: true, v: (p) => azimut(ult, p) }];
+    if (id === "circulo" && n === 1) return [{ k: "r", et: "Radio", v: (p) => dist(puntos[0], p) }, { k: "diam", et: "Diámetro", v: (p) => 2 * dist(puntos[0], p) }];
+    if (id === "rectangulo" && n === 1) return [{ k: "ancho", et: "Ancho", v: (p) => p[0] - puntos[0][0] }, { k: "alto", et: "Alto", v: (p) => p[1] - puntos[0][1] }];
+    if (id === "girar" && n >= 1) return [{ k: "ang", et: "Ángulo", ang: true, v: (p) => norm180(n === 1 ? grados(Math.atan2(p[1] - puntos[0][1], p[0] - puntos[0][0])) : anguloGiro([...puntos, p])) }];
+    if (id === "desfasar_lado") return [{ k: "dist", et: "Distancia", v: (p) => distanciaA(herr.extra.objeto.e, p) }];
+    return [];
+  }
+  const campoXY = [{ k: "x", et: "X", v: (p) => p[0] }, { k: "y", et: "Y", v: (p) => p[1] }];
+  const camposTodos = () => [...campoXY, ...camposHerr()];
+  const hayFijos = () => Object.keys(din.fijos).length > 0;
+  // El punto con los valores escritos aplicados (b: la referencia o la punta).
+  function restringir(b) {
+    const f = din.fijos;
+    if (!hayFijos()) return b;
+    const p = [f.x !== undefined ? f.x : b[0], f.y !== undefined ? f.y : b[1]];
+    if (!herr) return p;
+    const { id, puntos } = herr, n = puntos.length, ult = puntos[n - 1];
+    const unidad = (a, c) => { const L = dist(a, c); return L > 0 ? [(c[0] - a[0]) / L, (c[1] - a[1]) / L] : [1, 0]; };
+    if ((f.d !== undefined || f.az !== undefined) && ult) {
+      const u = f.az !== undefined ? [Math.sin(rad(f.az)), Math.cos(rad(f.az))] : unidad(ult, b);
+      const L = f.d !== undefined ? f.d : Math.max(0, (b[0] - ult[0]) * u[0] + (b[1] - ult[1]) * u[1]);
+      return [ult[0] + L * u[0], ult[1] + L * u[1]];
+    }
+    if (id === "circulo" && n === 1 && (f.r !== undefined || f.diam !== undefined)) {
+      const R = f.r !== undefined ? f.r : f.diam / 2, u = unidad(puntos[0], b);
+      return [puntos[0][0] + R * u[0], puntos[0][1] + R * u[1]];
+    }
+    if (id === "rectangulo" && n === 1 && (f.ancho !== undefined || f.alto !== undefined)) {
+      const a = puntos[0];
+      return [f.ancho !== undefined ? a[0] + f.ancho : b[0], f.alto !== undefined ? a[1] + f.alto : b[1]];
+    }
+    if (id === "girar" && n >= 1 && f.ang !== undefined) {
+      const c = puntos[0], base = n === 1 ? 0 : Math.atan2(puntos[1][1] - c[1], puntos[1][0] - c[0]);
+      const L = Math.max(dist(c, b), (n === 2 ? dist(c, puntos[1]) : 0), vista.k * 60), a = base + rad(f.ang);
+      return [c[0] + L * Math.cos(a), c[1] + L * Math.sin(a)];
+    }
+    return p;
+  }
+  function fijar(k, v) {
+    const xy = XY.includes(k);
+    for (const otro of Object.keys(din.fijos)) if (XY.includes(otro) !== xy) delete din.fijos[otro];
+    if (k === "r") delete din.fijos.diam;
+    if (k === "diam") delete din.fijos.r;
+    din.fijos[k] = v;
+  }
+  function soltarValor(k) {
+    delete din.fijos[k];
+    if (din.campo === k) { din.texto = ""; din.nuevo = true; }
+    pintar(); consultarSnap();
+  }
+  function soltarTodo() { din.fijos = {}; din.texto = ""; din.nuevo = true; }
+  function abrirDinamica(k) {
+    if (!puntero.visible) return;
+    if (!camposTodos().some((c) => c.k === k)) return;
+    cerrarTarjeta();
+    din.abierto = true; din.campo = k; din.texto = ""; din.nuevo = true;
+    $("tt-din").hidden = false; $("tt-accion").hidden = true; $("tt-pestanas").hidden = true; $("tt-seleccion").hidden = true;
+    $("tt-din-poner").textContent = herr ? $("tt-confirmar-texto").textContent : "Listo";
+    pintarSelectorDin();
+    pintar();
+    // El teclado ocupa el lugar de la barra y el área de dibujo se achica: la punta debe quedar a la vista.
+    setTimeout(() => { if (din.abierto) { const m = puntoActual(); enfocar(m[0], m[1]); } }, 450);
+  }
+  function cerrarDinamica() {
+    if (!din.abierto) return;
+    din.abierto = false; din.campo = null;
+    $("tt-din").hidden = true;
+    if (herr) $("tt-accion").hidden = false;
+    else if (seleccion.size) $("tt-seleccion").hidden = false;
+    else $("tt-pestanas").hidden = false;
+    pintar();
+  }
+  function teclaDinamica(t) {
+    if (!din.abierto) return;
+    if (t === "poner") { if (herr) confirmarPunto(); else cerrarDinamica(); return; }
+    if (t === "cerrar") { cerrarDinamica(); return; }
+    if (t === "soltar") { soltarValor(din.campo); return; }
+    if (t === "siguiente") {
+      const ks = camposTodos().map((c) => c.k), i = ks.indexOf(din.campo);
+      din.campo = ks[(i + 1) % ks.length]; din.texto = ""; din.nuevo = true; pintar(); return;
+    }
+    let v = din.nuevo ? "" : din.texto;
+    din.nuevo = false;
+    if (/^\d$/.test(t)) v += t;
+    else if (t === ".") { if (!v.includes(".")) v = (v.replace("-", "") ? v : v + "0") + "."; }
+    else if (t === "borrar") v = v.slice(0, -1);
+    else if (t === "signo") v = v.startsWith("-") ? v.slice(1) : "-" + v;
+    else return;
+    din.texto = v.slice(0, 18);
+    const num = Number(din.texto);
+    if (/\d/.test(din.texto) && Number.isFinite(num)) fijar(din.campo, num); else delete din.fijos[din.campo];
+    // La punta va al punto escrito (y la vista lo sigue si sale de la pantalla).
+    const m = puntoActual();
+    puntero.mundo = m.slice();
+    pintar();
+    enfocar(m[0], m[1]).then(() => consultarSnap());
+  }
+  // Tras poner un punto: los valores fijos se sueltan; el teclado sigue abierto en el primer valor de la herramienta.
+  function despuesDePoner() {
+    soltarTodo();
+    if (!din.abierto) return;
+    if (!herr) { cerrarDinamica(); return; }
+    const ks = camposTodos().map((c) => c.k);
+    if (!ks.includes(din.campo) || camposHerr().length) din.campo = (camposHerr()[0] || campoXY[0]).k;
+  }
+  // Las fichas de la lectura: se rehacen solo si cambia cuáles hay; los números se cambian en cada cuadro.
+  function pintarLectura(m) {
+    const cs = camposTodos();
+    const firma = cs.map((c) => c.k).join(",");
+    const fila = $("tt-valores");
+    if (firma !== din.firma) {
+      din.firma = firma;
+      pintarSelectorDin();
+      $("tt-valores-xy").replaceChildren(...cs.filter((c) => XY.includes(c.k)).map(ficha));
+      fila.replaceChildren(...cs.filter((c) => !XY.includes(c.k)).map(ficha));
+    }
+    fila.hidden = !fila.childElementCount;
+    for (const c of cs) {
+      const f = document.querySelector(`.tt-valor[data-campo="${c.k}"]`);
+      if (!f) continue;
+      const fijo = din.fijos[c.k] !== undefined, editando = din.abierto && din.campo === c.k;
+      f.dataset.fijo = fijo ? "1" : "0"; f.dataset.editando = editando ? "1" : "0";
+      const texto = editando && !din.nuevo ? (din.texto || " ") : (c.ang ? `${fmt(fijo ? din.fijos[c.k] : c.v(m), 4)}°` : fmt(fijo ? din.fijos[c.k] : c.v(m)));
+      f.querySelector(".tt-valor__v").textContent = texto;
+      f.querySelector(".tt-valor__quitar").hidden = !fijo;
+    }
+    if (din.abierto) {
+      const c = cs.find((x) => x.k === din.campo);
+      $("tt-din-et").textContent = c ? c.et : "";
+      $("tt-din-soltar").disabled = din.fijos[din.campo] === undefined;
+      for (const b of $("tt-din-campos").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.campo === din.campo));
+    }
+    const delta = $("tt-delta");
+    const ult = herr && herr.puntos.length ? herr.puntos[herr.puntos.length - 1] : null;
+    if (ult && herr.def.delta !== false && !camposHerr().length) {
+      delta.hidden = false;
+      delta.textContent = `Δ ${fmt(Math.hypot(m[0] - ult[0], m[1] - ult[1]))} m · ${fmt(azimut(ult, m), 2)}°`;
+    } else delta.hidden = true;
+  }
+  function ficha(c) {
+    const f = nodo("span", "tt-valor"); f.dataset.campo = c.k;
+    const b = nodo("button", "tt-valor__b"); b.type = "button";
+    b.setAttribute("aria-label", `Escribir ${c.et}`);
+    const v = nodo("span", "tt-valor__v");
+    if (c.k === "x") v.id = "tt-x"; if (c.k === "y") v.id = "tt-y";
+    b.append(nodo("span", "tt-et", c.et), v, icono("lock"));
+    b.addEventListener("click", () => abrirDinamica(c.k));
+    const q = nodo("button", "tt-valor__quitar"); q.type = "button"; q.hidden = true;
+    q.setAttribute("aria-label", `Soltar ${c.et}`); q.append(icono("x"));
+    q.addEventListener("click", () => soltarValor(c.k));
+    f.append(b, q);
+    return f;
+  }
+  // En el teclado, el selector de qué valor se escribe.
+  function pintarSelectorDin() {
+    const cont = $("tt-din-campos");
+    cont.replaceChildren(...camposTodos().map((c) => {
+      const b = nodo("button", "", c.et); b.type = "button"; b.dataset.campo = c.k;
+      b.addEventListener("click", () => { din.campo = c.k; din.texto = ""; din.nuevo = true; pintar(); });
+      return b;
+    }));
+  }
+  $("tt-din").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-d]"); if (!b) return;
+    teclaDinamica(b.dataset.d);
+  });
+  $("tt-lectura-snap").addEventListener("click", siguienteReferencia);
+  $("tt-imanes").addEventListener("click", hojaReferencias);
+  document.addEventListener("keydown", (ev) => {
+    if (!din.abierto || num) return;
+    const mapa = { Backspace: "borrar", Enter: "poner", Tab: "siguiente", "-": "signo", ".": ".", ",": ".", Escape: "cerrar" };
+    const t = /^\d$/.test(ev.key) ? ev.key : mapa[ev.key];
+    if (!t) return;
+    ev.preventDefault(); ev.stopPropagation();
+    teclaDinamica(t);
+  }, true);
+  // Distancia de un punto a un objeto (para el desfase en vivo).
+  function distanciaA(e, p) {
+    const t = tipoDe(e), g = e.geometry || e;
+    if (t === "Circle" || t === "Arc") return Math.abs(dist(p, g.center) - g.radius);
+    const seg = segmentoCercano(e, p);
+    return seg ? dist(p, pie(p, seg[0], seg[1])) : NaN;
+  }
 
   // ---------------------------------------------------------------------------------------------------------------- avisos y tarjetas
   let avisoT = null;
@@ -601,10 +915,31 @@
   async function restaurarEditor() {
     await pedirSuave({ op: "canvas_only", on: false });
   }
-  // Las referencias se eligen aquí (pref.refs) y se filtran al recibirlas: `snap` del editor no usa OSMODE, y cambiar esa variable del
-  // dibujo lo marcaría «Sin guardar» sin que la persona haya cambiado nada.
-  async function aplicarReferencias() { /* nada que mandar al editor */ }
-  void OSMODE;
+  // Lo que sabe hacer el editor en uso. Las referencias nunca tocan OSMODE (cambiar esa variable marcaría el plano «Sin guardar»): van
+  // en cada petición `snap` (`modes`) o, con un editor que no las entiende, se filtran aquí. Explotar, recortar, alargar y las cotas a la
+  // escala de la vista solo se ofrecen si el editor tiene sus ops (el de una copia vieja guardada en el teléfono puede no tenerlas).
+  const capac = { modos: false, explotar: false, recortar: false, alargar: false, cotas: false };
+  const tieneOp = async (peticion) => {
+    try { await pedir(peticion, 8000); return true; }
+    catch (err) { return !(err && err.codigo === "rechazada" && err.respuesta && err.respuesta.code === "unknown_operation") && !!(err && err.codigo === "rechazada"); }
+  };
+  async function leerCapacidades() {
+    const st = await pedirSuave({ op: "state" }, 5000);
+    const lista = new Set((st && st.capabilities) || []);
+    // `modes`: el editor que lo entiende responde `hits` cuando se pide `limit` (también sin referencia cerca).
+    if (lista.has("snap_modes")) capac.modos = true;
+    else {
+      const v = st ? deEstado({}, st) : vista;
+      const r = await pedirSuave({ op: "snap", point: [v.cx, v.cy], modes: ["Endpoint"], limit: 2 }, 5000);
+      capac.modos = !!(r && Array.isArray(r.hits));
+    }
+    // Las demás: una petición que un editor con la op rechaza por sus datos (nunca cambia el dibujo) y uno sin ella, por desconocida.
+    capac.explotar = lista.has("explode") || await tieneOp({ op: "explode", handles: "?" });
+    capac.recortar = lista.has("trim") || await tieneOp({ op: "trim", point: "?" });
+    capac.alargar = lista.has("extend") || await tieneOp({ op: "extend", point: "?" });
+    capac.cotas = lista.has("dim_create") || await tieneOp({ op: "dim_style", name: "\u0000" }) && await tieneOp({ op: "dim_create", kind: "?" });
+    for (const b of document.querySelectorAll("[data-requiere]")) b.hidden = !capac[b.dataset.requiere];
+  }
   async function entrar(recordar) {
     if (recordar) guardado.poner("tactil", true);
     if (activo) return;
@@ -619,6 +954,7 @@
       const st = window.TVCad.estado();
       est.editable = !!st.editable;
       await prepararEditor();
+      await leerCapacidades();
       await verTodo();
       await fijarVista();                // primer cuadro: el editor vuelve a pintar a su tamaño final (en vertical quedaba en blanco)
       listo = true;
@@ -643,7 +979,7 @@
   document.addEventListener("tvcad:cargado", async () => {
     // Al reabrir el plano (tomar el control, restaurar, recuperar) el editor es otro: se vuelve a preparar.
     if (!activo) return;
-    listo = false; delete tt.dataset.listo;
+    listo = false; delete tt.dataset.listo; estiloCota = null;
     cancelarHerramienta(); quitarSeleccion(); ocultarPuntero();
     await espera(50);
     activo = false; await entrar(false);
@@ -713,7 +1049,7 @@
   function lecturaTexto() { const t = $("cad-aviso-lectura-texto"); return t && t.textContent.trim(); }
   function abrirGrupo(g) {
     if (g === "capas") return hojaCapas();
-    const lista = Object.entries(HERR).filter(([, d]) => d.grupo === g);
+    const lista = Object.entries(HERR).filter(([, d]) => d.grupo === g && (!d.requiere || capac[d.requiere]));
     const botones = lista.map(([id, d]) => {
       const falta = d.seleccion && !seleccion.size;
       return boton(d.et, d.ic, () => { cerrarHojas(); empezar(id); }, { deshabilitado: falta, nota: falta ? "Primero toca un objeto para elegirlo" : "" });
@@ -824,7 +1160,6 @@
     }
     cerrarNumerica(valores);
   }
-  const sugerencia = (v) => crudo(v);
 
   // ---------------------------------------------------------------------------------------------------------------- geometría
   const resta = (a, b) => [a[0] - b[0], a[1] - b[1]];
@@ -925,11 +1260,12 @@
   async function reflejarSeleccion() {
     await pedirSuave({ op: "select", handles: [...seleccion.keys()], clear: true });
     const n = seleccion.size;
-    $("tt-seleccion").hidden = !n || !!herr;
-    $("tt-pestanas").hidden = (!!n || !!herr);
+    $("tt-seleccion").hidden = !n || !!herr || din.abierto;
+    $("tt-pestanas").hidden = (!!n || !!herr || din.abierto);
     $("tt-seleccion-cuenta").textContent = n === 1 ? `1 objeto elegido · ${NOMBRE_TIPO[[...seleccion.values()][0].tipo] || "Objeto"}` : `${n} objetos elegidos`;
     for (const b of document.querySelectorAll("#tt-seleccion-fila [data-editar]")) {
       const unico = b.dataset.editar === "desfasar" || b.dataset.editar === "info";
+      if (b.dataset.requiere) b.hidden = !capac[b.dataset.requiere];
       b.disabled = !n || (unico && n !== 1) || (!est.editable && !["info"].includes(b.dataset.editar));
     }
     pintar();
@@ -948,37 +1284,54 @@
       if (a === "borrar") return borrarSeleccion();
       if (a === "propiedades") return hojaPropiedades();
       if (a === "info") return infoSeleccion();
+      if (a === "explotar") return explotar();
       empezar(a);
     });
   }
-  // Seleccionar por ventana: izquierda → derecha, solo lo que queda dentro; derecha → izquierda, lo que toca (como en CAD).
+  // Seleccionar por recuadro: izquierda → derecha, solo lo que queda dentro (azul, lleno); derecha → izquierda, lo que toca (verde,
+  // punteado), como en CAD. La esquina de inicio queda fija en el dibujo: si el plano se corre solo junto al borde, el recuadro crece.
+  function empezarVentana(x, y) { gesto = { tipo: "ventana", m0: aMundo(x, y), x, y }; pintarVentana(); }
   function pintarVentana() {
     const r = $("tt-ventana");
     if (!gesto || gesto.tipo !== "ventana") { r.setAttribute("visibility", "hidden"); return; }
-    const x = Math.min(gesto.x0, gesto.x), y = Math.min(gesto.y0, gesto.y);
-    r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", Math.abs(gesto.x - gesto.x0)); r.setAttribute("height", Math.abs(gesto.y - gesto.y0));
-    r.dataset.cruce = gesto.x < gesto.x0 ? "1" : "0";
+    const [x0, y0] = aPantalla(gesto.m0[0], gesto.m0[1]);
+    const x = Math.min(x0, gesto.x), y = Math.min(y0, gesto.y);
+    r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", Math.abs(gesto.x - x0)); r.setAttribute("height", Math.abs(gesto.y - y0));
+    r.dataset.cruce = gesto.x < x0 ? "1" : "0";
     r.setAttribute("visibility", "visible");
   }
   function ocultarVentana() { $("tt-ventana").setAttribute("visibility", "hidden"); }
+  // La línea que se traza en «Recortar» y «Alargar».
+  function pintarCerca() {
+    const l = $("tt-cerca");
+    if (!gesto || gesto.tipo !== "cerca") { l.setAttribute("visibility", "hidden"); return; }
+    const [x0, y0] = aPantalla(gesto.m0[0], gesto.m0[1]);
+    l.setAttribute("x1", x0); l.setAttribute("y1", y0); l.setAttribute("x2", gesto.x); l.setAttribute("y2", gesto.y);
+    l.setAttribute("visibility", "visible");
+  }
+  function ocultarCerca() { $("tt-cerca").setAttribute("visibility", "hidden"); }
   function modoArea(si) {
     modoVentana = si;
     guia(si ? "Arrastra un rectángulo. De izquierda a derecha: lo que queda dentro. De derecha a izquierda: lo que toca." : "");
   }
   async function terminarVentana(g) {
-    ocultarVentana(); modoArea(false);
-    if (Math.abs(g.x - g.x0) < 6 || Math.abs(g.y - g.y0) < 6) return;
-    const a = aMundo(Math.min(g.x0, g.x), Math.max(g.y0, g.y)), b = aMundo(Math.max(g.x0, g.x), Math.min(g.y0, g.y));
-    const cruce = g.x < g.x0;
+    ocultarVentana(); if (modoVentana) modoArea(false);
+    if (fijandoAuto) { fijandoAuto = false; await fijarVista(); }
+    const [x0, y0] = aPantalla(g.m0[0], g.m0[1]);
+    if (Math.abs(g.x - x0) < 6 || Math.abs(g.y - y0) < 6) return;
+    const fin = aMundo(g.x, g.y);
+    const a = [Math.min(g.m0[0], fin[0]), Math.min(g.m0[1], fin[1])], b = [Math.max(g.m0[0], fin[0]), Math.max(g.m0[1], fin[1])];
+    const cruce = g.x < x0;
     const r = await pedirSuave({ op: "query", bounds: [a[0], a[1], b[0], b[1]], detail: "full", limit: 5000 }, 60000);
     let n = 0;
     for (const e of lista(r)) {
       if (!delEspacio(e)) continue;
       const caja = cajaDe(e);
       if (!cruce && caja && !(caja[0] >= a[0] && caja[1] >= a[1] && caja[2] <= b[0] && caja[3] <= b[1])) continue;
-      seleccion.set(e.handle, { handle: e.handle, tipo: tipoDe(e), caja, capa: e.layer, e }); n += 1;
+      if (!seleccion.has(e.handle)) n += 1;
+      seleccion.set(e.handle, { handle: e.handle, tipo: tipoDe(e), caja, capa: e.layer, e });
     }
-    if (!n) aviso("No hay objetos en esa área.");
+    if (!n) aviso("No hay más objetos en esa área.");
     await reflejarSeleccion();
   }
   async function borrarSeleccion() {
@@ -1220,10 +1573,10 @@
     const filas = [];
     const fila = (et, ic, fn, extra) => { const b = boton(et, ic, () => { cerrarHojas(); fn(); }, { clase: "tt-fila tt-fila--boton", ...(extra || {}) }); filas.push(b); };
     if ($("cad-boton-versiones")) fila("Versiones", "history", () => $("cad-boton-versiones").click());
-    fila("Ver todo el plano", "maximize", verTodo);
-    fila("Seleccionar área", "scan", () => { quitarSeleccion(); modoArea(true); });
+    fila("Ver todo el plano · tres toques", "maximize", verTodo);
+    fila("Seleccionar área · dos toques y arrastra", "scan", () => { quitarSeleccion(); modoArea(true); });
     if (!est.sinPresentaciones) fila("Modelo y presentaciones", "layout-template", hojaPresentaciones);
-    fila("Referencias a objetos", "crosshair", hojaReferencias);
+    fila("Referencias a objetos", "magnet", hojaReferencias);
     if (window.TVCadCampo) fila("Sin conexión", "cloud-download", () => window.TVCadCampo.hoja({ abrirHoja, nodo, boton, interruptor, aviso, icono, cerrarHojas }));
     if ($("cad-descargar")) fila("Descargar el plano", "download", () => $("cad-descargar").click());
     if (window.TVCadPantalla) fila(window.TVCadPantalla.completa() ? "Salir de pantalla completa" : "Pantalla completa", "maximize", () => window.TVCadPantalla.alternar());
@@ -1233,16 +1586,34 @@
     cont.append(filaDecimales());
     abrirHoja("Más", cont);
   }
+  // Referencias a objetos: un interruptor general, «Todas» / «Ninguna» y cada tipo con su marca. Se recuerdan en este dispositivo.
   function hojaReferencias() {
     const cont = nodo("div");
-    cont.append(nodo("p", "tt-nota-hoja", "La punta del puntero salta a estos puntos cuando está cerca."));
-    for (const [k, et] of REFS) {
-      cont.append(interruptor(et, pref.refs.includes(k), async (si) => {
-        pref.refs = si ? [...new Set([...pref.refs, k])] : pref.refs.filter((x) => x !== k);
-        guardado.poner("referencias", pref.refs);
-        await aplicarReferencias(); consultarSnap();
+    const guardar = () => { guardado.poner("referencias.v2", pref.refs); guardado.poner("referencias.encendidas", pref.refsOn); pintar(); consultarSnap(); };
+    const general = interruptor("Referencias a objetos", pref.refsOn, (si) => { pref.refsOn = si; lista.dataset.apagada = si ? "0" : "1"; guardar(); });
+    general.classList.add("tt-interruptor--general");
+    cont.append(nodo("p", "tt-nota-hoja", "La punta salta a estos puntos cuando está cerca."), general);
+    const acciones = nodo("div", "tt-segmentado");
+    const lista = nodo("div", "tt-refs"); lista.dataset.apagada = pref.refsOn ? "0" : "1";
+    const pintarLista = () => {
+      lista.replaceChildren(...REFS.map(([k, et]) => {
+        const fila = interruptor(et, pref.refs.includes(k), (si) => {
+          pref.refs = si ? [...new Set([...pref.refs, k])] : pref.refs.filter((x) => x !== k);
+          if (si && !pref.refsOn) { pref.refsOn = true; general.querySelector("input").checked = true; lista.dataset.apagada = "0"; }
+          guardar();
+        });
+        fila.dataset.ref = k;
+        const m = document.createElementNS(NS, "svg"); m.setAttribute("class", "tt-ref-marca"); m.setAttribute("viewBox", "-12 -12 24 24"); m.setAttribute("aria-hidden", "true");
+        const p = document.createElementNS(NS, "path"); p.setAttribute("d", formaSnap(k)); m.append(p);
+        fila.prepend(m);
+        return fila;
       }));
-    }
+    };
+    acciones.append(
+      boton("Todas", "", () => { pref.refs = TIPOS_SNAP.slice(); pref.refsOn = true; general.querySelector("input").checked = true; lista.dataset.apagada = "0"; guardar(); pintarLista(); }, { clase: "" }),
+      boton("Ninguna", "", () => { pref.refs = []; guardar(); pintarLista(); }, { clase: "" }));
+    pintarLista();
+    cont.append(acciones, lista);
     abrirHoja("Referencias a objetos", cont);
   }
 
@@ -1275,12 +1646,11 @@
       previa: (g, p, c) => { if (p.length && c) linea(g, [p[0], [c[0], p[0][1]], c, [p[0][0], c[1]]], true); },
       valido: (p) => (Math.abs(p[1][0] - p[0][0]) > 0 && Math.abs(p[1][1] - p[0][1]) > 0 ? null : "Las esquinas no pueden estar en la misma línea."),
       fin: ([a, b]) => crear("Rectángulo", [{ type: "LwPolyline", vertices: [a, [b[0], a[1]], b, [a[0], b[1]]], closed: true }], "Rectángulo dibujado") },
-    circulo: { grupo: "dibujar", et: "Círculo", ic: "#tt-s-circulo", edita: true, n: 2, extra: ["Radio", "radius"],
-      guia: (n) => (n === 0 ? "Pon el centro" : "Lleva la punta al borde, o escribe el radio"),
+    circulo: { grupo: "dibujar", et: "Círculo", ic: "#tt-s-circulo", edita: true, n: 2,
+      guia: (n) => (n === 0 ? "Pon el centro (toca X o Y para escribirlo)" : "Lleva la punta al borde, o toca «Radio» para escribirlo"),
       previa: (g, p, c) => { if (p.length && c) { circulo(g, p[0], dist(p[0], c)); texto(g, c, `R ${fmt(dist(p[0], c))}`); } },
-      valido: (p) => (dist(p[0], p[1]) > 0 ? null : "El radio no puede ser cero."),
-      fin: ([c, b]) => crear("Círculo", [{ type: "Circle", center: c, radius: dist(c, b) }], `Círculo de radio ${fmt(dist(c, b))} m`) },
-    circuloxy: { grupo: "dibujar", et: "Círculo por coordenada", ic: "#tt-s-circuloxy", edita: true, hoja: circuloPorCoordenada },
+      valido: (p, h) => ((h.extra.radio !== undefined ? h.extra.radio : dist(p[0], p[1])) > 0 ? null : "El radio debe ser mayor que cero."),
+      fin: ([c, b], h) => { const r = h.extra.radio !== undefined ? h.extra.radio : dist(c, b); return crear("Círculo", [{ type: "Circle", center: c, radius: r }], `Círculo de radio ${fmt(r)} m`); } },
     arco: { grupo: "dibujar", et: "Arco por 3 puntos", ic: "#tt-s-arco", edita: true, n: 3,
       guia: (n) => ["Pon el inicio del arco", "Pon un punto del arco", "Pon el final del arco"][n],
       previa: (g, p, c) => {
@@ -1290,9 +1660,8 @@
       },
       valido: (p) => (arco3(...p) ? null : "Los tres puntos no pueden estar en línea recta."),
       fin: (p) => { const a = arco3(...p); return crear("Arco", [{ type: "Arc", center: a.c, radius: a.r, start_angle_deg: a.ini, end_angle_deg: a.fin }], `Arco de radio ${fmt(a.r)} m`); } },
-    puntoxy: { grupo: "dibujar", et: "Punto por coordenada", ic: "#tt-s-punto", edita: true, hoja: puntoPorCoordenada },
     punto: { grupo: "dibujar", et: "Punto", ic: "circle-dot", edita: true, n: 1, repite: true,
-      guia: () => "Lleva la punta y toca «Poner punto». Sigue poniendo puntos o toca «Cancelar»",
+      guia: () => "Lleva la punta (o toca X o Y para escribir la coordenada) y toca «Poner punto». Sigue o toca «Cancelar»",
       fin: ([p]) => crear("Punto", [{ type: "Point", location: [p[0], p[1], 0] }], `Punto en X ${fmt(p[0])}, Y ${fmt(p[1])}`) },
     perpendicular: { grupo: "dibujar", et: "Perpendicular", ic: "#tt-s-perpendicular", edita: true, n: 1, elegir: true,
       guia: (n, h) => (n === 0 ? "Pon el punto de partida" : "Lleva la punta sobre la línea y toca «Elegir»"),
@@ -1348,13 +1717,18 @@
       guia: (n) => (n === 0 ? "Pon el punto de referencia" : "Pon dónde va la copia (puedes seguir copiando)"),
       previa: (g, p, c) => previaDesplazar(g, p, c),
       fin: ([a, b]) => transformar("copy", { vector: [b[0] - a[0], b[1] - a[1], 0] }, "Copiar", "Copiado") },
-    girar: { grupo: "editar", et: "Girar", ic: "rotate-cw", seleccion: true, edita: true, n: 3, extra: ["Ángulo", "angulo"],
-      guia: (n) => ["Pon el centro del giro", "Pon un punto de referencia, o escribe el ángulo", "Pon hacia dónde gira"][n],
+    girar: { grupo: "editar", et: "Girar", ic: "rotate-cw", seleccion: true, edita: true, n: 3,
+      guia: (n) => ["Pon el centro del giro", "Pon un punto de referencia, o toca «Ángulo» para escribir el giro", "Pon hacia dónde gira, o toca «Ángulo»"][n],
       previa: (g, p, c) => { const q = c ? [...p, c] : p; if (q.length >= 2) linea(g, [q[1], q[0], ...(q[2] ? [q[2]] : [])], false); if (q.length === 3) texto(g, q[2], fmtAng(anguloGiro(q))); },
       fin: (p) => transformar("rotate", { center: [p[0][0], p[0][1], 0], angle_deg: anguloGiro(p) }, "Girar", `Girado ${fmtAng(anguloGiro(p))}`) },
     desfasar: { grupo: "editar", et: "Desfasar", ic: "#tt-s-desfasar", seleccion: true, edita: true, hoja: desfasar },
     propiedades: { grupo: "editar", et: "Capa y color", ic: "palette", seleccion: true, edita: true, hoja: hojaPropiedades },
     info: { grupo: "editar", et: "Info", ic: "info", seleccion: true, hoja: infoSeleccion },
+    explotar: { grupo: "editar", et: "Explotar", ic: "ungroup", seleccion: true, edita: true, requiere: "explotar", hoja: explotar },
+    recortar: { grupo: "editar", et: "Recortar", ic: "scissors", edita: true, requiere: "recortar", corte: "trim", n: 0, delta: false, confirmar: "Recortar aquí",
+      guia: () => "Toca la parte que quieres quitar, o arrastra una línea que cruce las partes. Dos dedos mueven el plano" },
+    alargar: { grupo: "editar", et: "Alargar", ic: "arrow-right-to-line", edita: true, requiere: "alargar", corte: "extend", n: 0, delta: false, confirmar: "Alargar aquí",
+      guia: () => "Toca cerca del extremo que quieres alargar, o arrastra una línea que cruce los extremos. Dos dedos mueven el plano" },
   };
   const longitud = (p) => p.slice(1).reduce((s, b, i) => s + dist(p[i], b), 0);
   function anguloGiro(p) { if (p.angulo !== undefined) return p.angulo; const [c, a, b] = p; return grados(Math.atan2(b[1] - c[1], b[0] - c[0]) - Math.atan2(a[1] - c[1], a[0] - c[0])); }
@@ -1373,25 +1747,62 @@
       return true;
     } catch (_) { aviso(`No se pudo ${etiqueta.toLowerCase()}.`, "error"); return false; }
   }
+  // Tamaño de cotas y textos según la vista (pedido del dueño 17-11): el texto se lee igual en la pantalla, sea lo medido chico o
+  // grande. Alto ≈ 3 % del ancho visible en un teléfono (2.5 % en una tableta), redondeado a 1, 2, 2.5 o 5 × 10ⁿ, así las cotas
+  // puestas con un zoom parecido quedan iguales. La cota lleva su propia escala (DIMSCALE = alto / DIMTXT del estilo, `dim_create`); el
+  // estilo del plano y las cotas que ya hay no cambian.
+  function altoSegunVista() {
+    const px = vista.w, frac = px <= 430 ? 0.03 : px >= 768 ? 0.025 : 0.03 - ((px - 430) / (768 - 430)) * 0.005;
+    const h = Math.max(vista.w * vista.k * frac, 1e-6);
+    const e = Math.floor(Math.log10(h)), base = 10 ** e;
+    let mejor = base, md = Infinity;
+    for (const m of [1, 2, 2.5, 5, 10]) { const d = Math.abs(Math.log(h / (m * base))); if (d < md) { md = d; mejor = m * base; } }
+    return Number(mejor.toPrecision(3));
+  }
+  let estiloCota = null;
+  async function dimtxt() {
+    if (estiloCota === null) {
+      const r = await pedirSuave({ op: "dim_style" }, 8000);
+      const v = r && (r.dimtxt ?? r.DIMTXT ?? (r.style && (r.style.dimtxt ?? r.style.DIMTXT)) ?? (r.values && (r.values.dimtxt ?? r.values.DIMTXT)));
+      estiloCota = Number.isFinite(v) && v > 0 ? v : 2.5;
+    }
+    return estiloCota;
+  }
+  function textoCota(g, m, t, alto) {
+    if (!capac.cotas) { texto(g, m, t); return; }
+    const [x, y] = P(m);
+    const e = el("text", { x, y: y - (alto / vista.k) * 0.4, class: "tt-cota-escala", "font-size": Math.max(4, alto / vista.k), "text-anchor": "middle" }, g);
+    e.textContent = t;
+  }
   function previaCota(g, q, alineada) {
     if (q.length < 2) { linea(g, q, false); return; }
-    const [a, b] = q, c = q[2] || null;
+    const [a, b] = q, c = q[2] || null, alto = altoSegunVista();
     if (!c) { linea(g, [a, b], false); texto(g, b, `${fmt(dist(a, b))} m`); return; }
     if (alineada) {
       const [ux, uy] = [b[0] - a[0], b[1] - a[1]]; const L = Math.hypot(ux, uy) || 1; const nx = -uy / L, ny = ux / L;
       const d = (c[0] - a[0]) * nx + (c[1] - a[1]) * ny;
       const a2 = [a[0] + nx * d, a[1] + ny * d], b2 = [b[0] + nx * d, b[1] + ny * d];
-      linea(g, [a, a2], false); linea(g, [b, b2], false); linea(g, [a2, b2], false); texto(g, [(a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2], `${fmt(L)} m`);
+      linea(g, [a, a2], false); linea(g, [b, b2], false); linea(g, [a2, b2], false); textoCota(g, [(a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2], fmt(L), alto);
     } else {
       const horizontal = Math.abs(c[1] - (a[1] + b[1]) / 2) >= Math.abs(c[0] - (a[0] + b[0]) / 2);
       const a2 = horizontal ? [a[0], c[1]] : [c[0], a[1]], b2 = horizontal ? [b[0], c[1]] : [c[0], b[1]];
       linea(g, [a, a2], false); linea(g, [b, b2], false); linea(g, [a2, b2], false);
-      texto(g, [(a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2], `${fmt(horizontal ? Math.abs(b[0] - a[0]) : Math.abs(b[1] - a[1]))} m`);
+      textoCota(g, [(a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2], fmt(horizontal ? Math.abs(b[0] - a[0]) : Math.abs(b[1] - a[1])), alto);
     }
   }
   async function cotaFin([a, b, c], alineada) {
     if (dist(a, b) <= 0) { aviso("Los dos puntos no pueden ser el mismo.", "error"); return false; }
     const pt = (p) => `${p[0]},${p[1]}`;
+    if (capac.cotas) {
+      try {
+        const escala = altoSegunVista() / await dimtxt();
+        await pedir({ op: "dim_create", kind: alineada ? "aligned" : "linear", p1: [a[0], a[1]], p2: [b[0], b[1]], at: [c[0], c[1]], dimscale: escala }, 60000);
+        aviso("Cota dibujada"); return true;
+      } catch (err) {
+        const r = err && err.respuesta;
+        aviso(r && /locked/i.test(String(r.code || r.error)) ? "La capa actual está bloqueada." : "No se pudo dibujar la cota.", "error"); return false;
+      }
+    }
     try {
       const r = await pedir({ op: "batch", label: "Cota", steps: [{ op: "run", cmd: `${alineada ? "DIMALIGNED" : "DIMLINEAR"} ${pt(a)} ${pt(b)} ${pt(c)}` }] }, 60000);
       void r; aviso("Cota dibujada"); return true;
@@ -1399,10 +1810,9 @@
   }
   async function textoFin(p) {
     const v = await pedirValores({ titulo: "Texto", listo: "Poner texto",
-      campos: [{ k: "texto", et: "Texto", tipo: "texto", valor: "" }, { k: "altura", et: "Altura", sugerido: crudo(guardado.leer("altura_texto", 1), 2) }, { k: "giro", et: "Giro (grados)", sugerido: "0" }],
+      campos: [{ k: "texto", et: "Texto", tipo: "texto", valor: "" }, { k: "altura", et: "Altura", sugerido: crudo(altoSegunVista(), 3).replace(/\.?0+$/, "") }, { k: "giro", et: "Giro (grados)", sugerido: "0" }],
       validar: (x) => (!x.texto ? "Escribe el texto." : !(x.altura > 0) ? ["altura", "La altura debe ser mayor que cero."] : !Number.isFinite(x.giro) ? ["giro", "Revisa el giro."] : null) });
     if (!v) return false;
-    guardado.poner("altura_texto", v.altura);
     return crear("Texto", [{ type: "Text", value: v.texto, position: [p[0], p[1], 0], height: v.altura, rotation_deg: v.giro }], "Texto puesto");
   }
   async function perpendicularFin(p, h) {
@@ -1435,48 +1845,31 @@
     }
     return mejor;
   }
-  async function puntoPorCoordenada() {
-    const base = puntero.visible ? puntoActual() : [vista.cx, vista.cy];
-    const v = await pedirValores({ titulo: "Punto por coordenada", listo: "Poner punto",
-      campos: [{ k: "x", et: "Este (X)", sugerido: sugerencia(base[0]) }, { k: "y", et: "Norte (Y)", sugerido: sugerencia(base[1]) }],
-      validar: (x) => (!Number.isFinite(x.x) ? ["x", "Revisa el Este (X)."] : !Number.isFinite(x.y) ? ["y", "Revisa el Norte (Y)."] : null) });
-    if (!v) return;
-    if (await crear("Punto", [{ type: "Point", location: [v.x, v.y, 0] }], `Punto en X ${fmt(v.x)}, Y ${fmt(v.y)}`)) {
-      puntero.mundo = [v.x, v.y]; await enfocar(v.x, v.y); mostrarPuntero();
-    }
-  }
-  async function circuloPorCoordenada() {
-    const base = puntero.visible ? puntoActual() : [vista.cx, vista.cy];
-    const v = await pedirValores({ titulo: "Círculo por coordenada", listo: "Dibujar",
-      campos: [{ k: "x", et: "Este (X)", sugerido: sugerencia(base[0]) }, { k: "y", et: "Norte (Y)", sugerido: sugerencia(base[1]) }, { k: "r", et: "Radio", sugerido: "metros" }],
-      validar: (x) => (!Number.isFinite(x.x) ? ["x", "Revisa el Este (X)."] : !Number.isFinite(x.y) ? ["y", "Revisa el Norte (Y)."] : !(x.r > 0) ? ["r", "Escribe un radio mayor que cero."] : null) });
-    if (!v) return;
-    if (await crear("Círculo por coordenada", [{ type: "Circle", center: [v.x, v.y], radius: v.r }], `Círculo en X ${fmt(v.x)}, Y ${fmt(v.y)}`)) {
-      await enfocar(v.x - v.r, v.y - v.r, v.x + v.r, v.y + v.r);
-    }
-  }
   async function desfasar() {
     if (seleccion.size !== 1) { aviso("Elige un solo objeto para desfasarlo."); return; }
     const [s] = seleccion.values();
     if (!["Line", "Circle", "Arc", "LwPolyline"].includes(s.tipo)) { aviso("Se puede desfasar una línea, polilínea, círculo o arco.", "error"); return; }
-    const v = await pedirValores({ titulo: "Desfasar", listo: "Siguiente", campos: [{ k: "d", et: "Distancia", sugerido: crudo(guardado.leer("desfase", 1), 2) }],
-      validar: (x) => (!(x.d > 0) ? "Escribe una distancia mayor que cero." : null) });
-    if (!v) return;
-    guardado.poner("desfase", v.d);
     // La consulta no dice si una polilínea es cerrada; lo dice la medida del editor.
     const med = s.tipo === "LwPolyline" ? await medida(s.handle) : null;
     const [geo] = await detalleDe([s.handle], "geometry");
     const objeto = { ...s, e: { ...(geo || s.e), closed: med ? med.closed : false } };
-    empezar("desfasar_lado", { distancia: v.d, objeto });
+    empezar("desfasar_lado", { objeto });
+    // Como en CAD, la última distancia queda puesta (con su candado); se suelta para desfasar hasta la punta.
+    const ultima = guardado.leer("desfase", null);
+    if (Number.isFinite(ultima) && ultima > 0) { fijar("dist", ultima); pintar(); }
   }
-  HERR.desfasar_lado = { grupo: "-", et: "Desfasar", edita: true, n: 1,
-    guia: () => "Lleva la punta al lado hacia donde va la copia y toca «Poner punto»",
-    previa: (g, p, c, h) => { if (c) { const e = desfaseDe(h.extra.objeto.e, h.extra.distancia, c); if (e) previaEntidad(g, e); } },
+  const distanciaDesfase = (h, p) => (h.extra.distancia !== undefined ? h.extra.distancia : din.fijos.dist !== undefined ? din.fijos.dist : distanciaA(h.extra.objeto.e, p));
+  HERR.desfasar_lado = { grupo: "-", et: "Desfasar", edita: true, n: 1, delta: false,
+    guia: () => "Lleva la punta al lado hacia donde va la copia (a esa distancia, o toca «Distancia» para escribirla) y toca «Poner punto»",
+    previa: (g, p, c, h) => { if (c) { const d = distanciaDesfase(h, c); const e = d > 0 && desfaseDe(h.extra.objeto.e, d, c); if (e) previaEntidad(g, e); } },
+    valido: (p, h) => (distanciaDesfase(h, p[0]) > 0 ? null : "La distancia debe ser mayor que cero."),
     fin: async ([p], h) => {
-      const e = desfaseDe(h.extra.objeto.e, h.extra.distancia, p);
+      const d = distanciaDesfase(h, p);
+      const e = desfaseDe(h.extra.objeto.e, d, p);
       if (!e) { aviso("No se pudo desfasar ese objeto.", "error"); return false; }
+      guardado.poner("desfase", d);
       const capaObj = h.extra.objeto.capa;
-      return crear("Desfasar", [{ ...e, ...(capaObj ? { layer: capaObj } : {}) }], `Desfasado ${fmt(h.extra.distancia)} m`);
+      return crear("Desfasar", [{ ...e, ...(capaObj ? { layer: capaObj } : {}) }], `Desfasado ${fmt(d)} m`);
     } };
   function previaEntidad(g, e) {
     if (e.type === "Circle") circulo(g, e.center, e.radius);
@@ -1527,7 +1920,8 @@
     if (def.edita && !est.editable) { aviso(lecturaTexto() || "Este plano está en solo lectura."); return; }
     if (def.seleccion && !seleccion.size) { aviso("Primero toca un objeto para elegirlo."); return; }
     if (def.hoja) { def.hoja(); return; }
-    cerrarTarjeta();
+    cerrarTarjeta(); soltarTodo();
+    if (def.corte && seleccion.size) quitarSeleccion();
     herr = { id, def, puntos: [], extra: extra || {} };
     $("tt-pestanas").hidden = true; $("tt-seleccion").hidden = true; $("tt-accion").hidden = false;
     if (!puntero.visible) {
@@ -1545,16 +1939,19 @@
     $("tt-terminar").hidden = !def.multi;
     $("tt-terminar").disabled = n < (def.min || 2);
     $("tt-cerrar-figura").hidden = !def.cerrar || n < 3;
-    const extra = def.extra && (def.extra[1] !== "angulo" || n === 1) && (def.extra[1] !== "radius" || n === 1) && (def.extra[1] !== "objeto" || n === 0);
-    $("tt-coord-texto").textContent = extra ? def.extra[0] : "Coordenada";
-    $("tt-coord").dataset.modo = extra ? def.extra[1] : "coordenada";
-    $("tt-coord").hidden = !!def.elegir && n >= (def.n || 0);
+    // Coordenadas, distancias, radios y ángulos se escriben en la lectura; aquí solo queda «Tocar un objeto» del área.
+    $("tt-coord").hidden = !(def.extra && def.extra[1] === "objeto" && n === 0);
+    if (!$("tt-coord").hidden) $("tt-coord-texto").textContent = def.extra[0];
+    // «Recortar» y «Alargar» no dejan nada a medias: se terminan con «Listo».
+    $("tt-cancelar-texto").textContent = def.corte ? "Listo" : "Cancelar";
+    $("tt-cancelar").replaceChildren(icono(def.corte ? "check" : "x"), $("tt-cancelar-texto"));
     $("tt-confirmar-texto").textContent = def.elegir && n >= (def.n || 0) ? "Elegir" : (def.confirmar || "Poner punto");
+    if (din.abierto) $("tt-din-poner").textContent = $("tt-confirmar-texto").textContent;
     pintar(); consultarSnap();
   }
   function cancelarHerramienta() {
     if (!herr) return;
-    herr = null; guia("");
+    herr = null; guia(""); soltarTodo(); cerrarDinamica();
     $("tt-accion").hidden = true;
     if (seleccion.size) { $("tt-seleccion").hidden = false; $("tt-pestanas").hidden = true; } else { $("tt-pestanas").hidden = false; }
     ocultarPuntero(); pintar();
@@ -1564,20 +1961,33 @@
   $("tt-terminar").addEventListener("click", () => terminar());
   $("tt-cerrar-figura").addEventListener("click", () => { if (herr) { herr.cerrada = true; terminar(); } });
   $("tt-confirmar").addEventListener("click", () => confirmarPunto());
-  $("tt-coord").addEventListener("click", () => botonCoordenada());
+  $("tt-coord").addEventListener("click", () => botonObjeto());
   let ocupado = false;
   async function confirmarPunto() {
     if (!herr || ocupado) return;
     const { def } = herr;
     if (def.elegir && herr.puntos.length >= (def.n || 0)) return elegirObjeto();
+    if (def.corte) { const m = puntoActual(); return accionCorte({ point: m }); }
     colocar(puntoActual());
   }
   async function colocar(p) {
     if (!herr || ocupado) return;
     const { def } = herr;
     const ult = herr.puntos[herr.puntos.length - 1];
-    if (ult && dist(ult, p) === 0 && def.id !== "punto") { aviso("Ese punto ya está puesto."); return; }
+    if (ult && dist(ult, p) === 0 && herr.id !== "punto") { aviso("Ese punto ya está puesto."); return; }
+    // Girar con el ángulo escrito: gira ya (desde el este si aún no hay referencia, o desde la referencia).
+    if (herr.id === "girar" && din.fijos.ang !== undefined && herr.puntos.length >= 1) {
+      const c = herr.puntos[0], a = din.fijos.ang;
+      ocupado = true; window.TVCad.ocupar();
+      try { await transformar("rotate", { center: [c[0], c[1], 0], angle_deg: a }, "Girar", `Girado ${fmtAng(a)}`); } finally { ocupado = false; window.TVCad.soltar(); }
+      cancelarHerramienta(); return;
+    }
+    if (herr.id === "circulo" && herr.puntos.length === 1 && (din.fijos.r !== undefined || din.fijos.diam !== undefined)) {
+      herr.extra.radio = din.fijos.r !== undefined ? din.fijos.r : din.fijos.diam / 2;
+    } else if (herr.id === "circulo") delete herr.extra.radio;
+    if (herr.id === "desfasar_lado") herr.extra.distancia = din.fijos.dist !== undefined ? din.fijos.dist : undefined;
     herr.puntos.push([p[0], p[1]]);
+    despuesDePoner();
     if (navigator.vibrate) { try { navigator.vibrate(8); } catch (_) { /* nada */ } }
     if (def.n !== undefined && def.n > 0 && herr.puntos.length >= def.n && !def.elegir) return terminar();
     actualizarHerramienta();
@@ -1586,7 +1996,7 @@
     if (!herr || ocupado) return;
     const h = herr, def = h.def;
     if (def.multi && h.puntos.length < (def.min || 2)) return;
-    const err = def.valido && def.valido(h.puntos);
+    const err = def.valido && def.valido(h.puntos, h);
     if (err) { aviso(err, "error"); h.puntos.pop(); actualizarHerramienta(); return; }
     ocupado = true;
     window.TVCad.ocupar && def.edita && window.TVCad.ocupar();
@@ -1610,50 +2020,57 @@
       tarjeta(`Longitud · ${NOMBRE_TIPO[tipoDe(e)] || "objeto"}`, [["Longitud", `${fmt(med.length)} m`]]);
     }
   }
-  async function botonCoordenada() {
+  async function botonObjeto() {
     if (!herr) return;
-    const modo = $("tt-coord").dataset.modo;
-    const h = herr;
-    if (modo === "radius") {
-      const v = await pedirValores({ titulo: "Radio", listo: "Dibujar", campos: [{ k: "r", et: "Radio", sugerido: "metros" }], validar: (x) => (!(x.r > 0) ? "Escribe un radio mayor que cero." : null) });
-      if (!v || herr !== h) return;
-      const c = h.puntos[0]; h.puntos.push([c[0] + v.r, c[1]]); return terminar();
+    const e = await objetoEn(puntoActual(), 16, "summary");
+    if (!e) { aviso("Lleva la punta sobre un objeto cerrado y vuelve a tocar «Tocar un objeto»."); return; }
+    const med = await medida(e.handle);
+    if (!med || !(med.area > 0)) { aviso("Ese objeto no encierra un área.", "error"); return; }
+    tarjeta(`Área · ${NOMBRE_TIPO[tipoDe(e)] || "objeto"}`, [["Área", `${fmt(med.area)} m²`], ["Hectáreas", fmt(med.area / 10000, 4)], ...(Number.isFinite(med.length) ? [["Perímetro", `${fmt(med.length)} m`]] : [])]);
+  }
+
+  // -- Explotar, recortar y alargar (ops del editor desde tv-v2026.45-9; sin ellas, las herramientas no se muestran) ----------------
+  const RAZONES = { locked_layer: "está en una capa bloqueada" };
+  async function explotar() {
+    if (!est.editable || !capac.explotar) return;
+    const handles = [...seleccion.keys()];
+    if (!handles.length) return;
+    let r;
+    window.TVCad.ocupar();
+    try { r = await pedir({ op: "explode", handles }, 60000); }
+    catch (err) { aviso("No se pudo explotar.", "error"); return; }
+    finally { window.TVCad.soltar(); }
+    const creados = r.created || [], saltados = r.skipped || [];
+    seleccion.clear();
+    if (creados.length) for (const e of await detalleDe(creados)) if (e.handle) seleccion.set(e.handle, { handle: e.handle, tipo: tipoDe(e), caja: cajaDe(e), capa: e.layer, e });
+    await reflejarSeleccion();
+    const nada = saltados.length === 1 ? "1 no se pudo explotar" : `${saltados.length} no se pudieron explotar`;
+    if (!creados.length) {
+      const motivo = saltados.length === 1 && RAZONES[saltados[0].reason];
+      aviso(`No se pudo explotar: ${motivo || (saltados.length > 1 ? "ninguno de estos objetos se puede explotar" : saltados.length ? "ese objeto no se puede explotar" : "no había nada que explotar")}.`, "error", 4000);
+    } else aviso(`Explotado: ${creados.length === 1 ? "1 objeto nuevo" : `${creados.length} objetos nuevos`}${saltados.length ? ` · ${nada}` : ""}`, "", saltados.length ? 4500 : 2800);
+  }
+  // Un toque, «Recortar aquí» o una línea que cruza: cada vez es un paso de deshacer. Devuelve si cambió algo.
+  async function accionCorte(param) {
+    if (!herr || !herr.def.corte || ocupado) return false;
+    const op = herr.def.corte, h = herr;
+    let r;
+    ocupado = true; window.TVCad.ocupar();
+    try { r = await pedir({ op, ...param }, 60000); }
+    catch (err) {
+      const c = err && err.respuesta && String(err.respuesta.code || "");
+      aviso(/locked/i.test(c) ? "Ese objeto está en una capa bloqueada." : (op === "trim" ? "No se pudo recortar ahí." : "No se pudo alargar ahí."), "error");
+      return false;
+    } finally { ocupado = false; window.TVCad.soltar(); }
+    if (herr !== h) return !!(r && r.changed);
+    if (!r || !r.changed) {
+      aviso(op === "trim" ? "Ahí no hay nada que recortar. Toca justo sobre la parte que sobra." : "No hay hacia dónde alargar: no hay otro objeto en esa dirección.");
+      return false;
     }
-    if (modo === "angulo") {
-      const v = await pedirValores({ titulo: "Ángulo de giro", listo: "Girar", campos: [{ k: "a", et: "Grados (antihorario)", sugerido: "90" }], validar: (x) => (!Number.isFinite(x.a) ? "Revisa el ángulo." : null) });
-      if (!v || herr !== h) return;
-      const p = h.puntos.slice(0, 1); p.angulo = v.a;
-      ocupado = true; window.TVCad.ocupar();
-      try { await transformar("rotate", { center: [p[0][0], p[0][1], 0], angle_deg: v.a }, "Girar", `Girado ${fmtAng(v.a)}`); } finally { ocupado = false; window.TVCad.soltar(); }
-      cancelarHerramienta(); return;
-    }
-    if (modo === "objeto") {
-      const e = await objetoEn(puntoActual(), 16, "summary");
-      if (!e) { aviso("Lleva la punta sobre un objeto cerrado y vuelve a tocar «Tocar un objeto»."); return; }
-      const med = await medida(e.handle);
-      if (!med || !(med.area > 0)) { aviso("Ese objeto no encierra un área.", "error"); return; }
-      tarjeta(`Área · ${NOMBRE_TIPO[tipoDe(e)] || "objeto"}`, [["Área", `${fmt(med.area)} m²`], ["Hectáreas", fmt(med.area / 10000, 4)], ...(Number.isFinite(med.length) ? [["Perímetro", `${fmt(med.length)} m`]] : [])]);
-      return;
-    }
-    // Coordenada escrita, o distancia y azimut desde el último punto.
-    const ult = h.puntos[h.puntos.length - 1];
-    const base = puntoActual();
-    const campos = [{ k: "x", et: "Este (X)", sugerido: sugerencia(base[0]) }, { k: "y", et: "Norte (Y)", sugerido: sugerencia(base[1]) }];
-    if (ult) campos.push({ k: "d", et: "o Distancia", sugerido: "" }, { k: "az", et: "y Azimut (°)", sugerido: "" });
-    const v = await pedirValores({ titulo: ult ? "Punto por coordenada o distancia" : "Punto por coordenada", listo: "Poner punto", campos,
-      validar: (x) => {
-        if (ult && num && (num.campos.d !== "" || num.campos.az !== "")) return !(x.d > 0) ? ["d", "Escribe una distancia mayor que cero."] : !Number.isFinite(x.az) ? ["az", "Escribe el azimut en grados."] : null;
-        return !Number.isFinite(x.x) ? ["x", "Revisa el Este (X)."] : !Number.isFinite(x.y) ? ["y", "Revisa el Norte (Y)."] : null;
-      } });
-    if (!v || herr !== h) return;
-    let p = [v.x, v.y];
-    if (ult && Number.isFinite(v.d) && Number.isFinite(v.az) && v.d > 0) {
-      const a = ((90 - v.az) * Math.PI) / 180; p = [ult[0] + v.d * Math.cos(a), ult[1] + v.d * Math.sin(a)];
-    }
-    puntero.mundo = p.slice(); puntero.snap = null;
-    await enfocar(p[0], p[1]);
-    if (!puntero.visible) mostrarPuntero();
-    colocar(p);
+    if (navigator.vibrate) { try { navigator.vibrate(8); } catch (_) { /* nada */ } }
+    const n = (r.removed || []).length + (r.modified || []).length + (r.created || []).length;
+    aviso(op === "trim" ? (param.fence && n > 1 ? `Recortado (${n} partes)` : "Recortado") : (param.fence && n > 1 ? `Alargado (${n} objetos)` : "Alargado"), "", 1600);
+    return true;
   }
 
   // ---------------------------------------------------------------------------------------------------------------- interruptor de la cabecera
@@ -1666,7 +2083,8 @@
     // Para las pruebas y para depurar en el teléfono: la vista calculada aquí y la conversión pantalla ↔ mundo.
     vista: () => ({ ...vista }), aMundo: (x, y) => aMundo(x, y), aPantalla: (x, y) => aPantalla(x, y), herramienta: () => herr && herr.id,
     puntos: () => (herr ? herr.puntos.map((p) => p.slice()) : []), puntero: () => ({ visible: puntero.visible, mundo: puntoActual(), snap: puntero.snap && puntero.snap.tipo }),
-    seleccion: () => [...seleccion.keys()], objetoEn: (x, y) => objetoEn(aMundo(x, y), 14, "summary"),
+    seleccion: () => [...seleccion.keys()], capacidades: () => ({ ...capac }), releer: () => leerVista(), fijos: () => ({ ...din.fijos }),
+    referencias: () => ({ encendidas: pref.refsOn, tipos: pref.refs.slice(), candidatos: (puntero.cands || []).length }), objetoEn: (x, y) => objetoEn(aMundo(x, y), 14, "summary"),
     cercanos: (x, y) => { const m = aMundo(x, y), t = 14 * vista.k; return pedir({ op: "query", near: m, bounds: [m[0] - t, m[1] - t, m[0] + t, m[1] + t], limit: 12, detail: "summary" }); } });
 
   // ---------------------------------------------------------------------------------------------------------------- arranque
