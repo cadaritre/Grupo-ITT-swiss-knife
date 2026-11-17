@@ -1,6 +1,6 @@
 {
   "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile. «base»: la versión oficial sobre la que está hecha la compilación; «version» nombra la ruta servida (/cad/editor/<version>/), así un cambio de compilación nunca reusa la caché del navegador.",
-  "version": "tv-v2026.45-9",
+  "version": "tv-v2026.45-10",
   "base": "v2026.45",
   "publicada": "2026-11-17",
   "puente": false,
@@ -10,15 +10,15 @@
     "tag": "v2026.45"
   },
   "web": {
-    "archivo": "OpenCADStudio-tv-v2026.45-9-web.zip",
-    "sha256": "b9174d4f4b857bd125f8e9db272d77f20ede492165d50df7d48b7b1329403f6e",
-    "bytes": 63321038,
+    "archivo": "OpenCADStudio-tv-v2026.45-10-web.zip",
+    "sha256": "855076733c45c51c36abc40d80d43fc54a3b51d870dcfc1c03befda390f73149",
+    "bytes": 63088135,
     "fuente": {
       "tipo": "gh",
       "repo": "cadaritre/OpenCADStudio-TresVizo",
-      "tag": "tv-v2026.45-9"
+      "tag": "tv-v2026.45-10"
     },
-    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico, registro de fuentes SHX (`font_register`), `open`/`save` completos en WebKit, respuestas de control al momento, `view_set`, `?canvas=1` con `?embed=1`, sin copias locales del plano en el navegador, sin avisos de arranque en solo lienzo y la lista de presentaciones (`layouts`, `layout_set`); precisión relativa al ojo exacta en WebKit (vista de 1 mm en UTM), máscaras de MTEXT/MultiLeader y wipeouts por orden de dibujo en Estructura alámbrica 2D, `state.viewport_rect` y `screen_scale` (dónde está el área de dibujo en la página), proxies que se conservan al guardar y arreglos del códec (MTEXT con columnas, R12); referencias del modo táctil elegidas por la persona (`snap` con `modes` y `limit`), Cercano exacto sobre la curva también dentro de bloques y a través de ventanas, `explode`, `trim` y `extend` (rápidos y con valla) que toman la geometría de todos los niveles de bloques, y cotas con su propia escala (`dim_create`, `dim_style`)."
+    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico, registro de fuentes SHX (`font_register`), `open`/`save` completos en WebKit, respuestas de control al momento, `view_set`, `?canvas=1` con `?embed=1`, sin copias locales del plano en el navegador, sin avisos de arranque en solo lienzo y la lista de presentaciones (`layouts`, `layout_set`); precisión relativa al ojo exacta en WebKit (vista de 1 mm en UTM), máscaras de MTEXT/MultiLeader y wipeouts por orden de dibujo en Estructura alámbrica 2D, `state.viewport_rect` y `screen_scale` (dónde está el área de dibujo en la página), proxies que se conservan al guardar y arreglos del códec (MTEXT con columnas, R12); referencias del modo táctil elegidas por la persona (`snap` con `modes` y `limit`), Cercano exacto sobre la curva también dentro de bloques y a través de ventanas, `explode`, `trim` y `extend` (rápidos y con valla) que toman la geometría de todos los niveles de bloques, y cotas con su propia escala (`dim_create`, `dim_style`); la rejilla de un píxel físico en su píxel (completa a escala 1–1.5, como Chrome en Windows) y curvas teseladas según el zoom (error de cuerda ≤ 0.25 px, sin marcar el plano como modificado)."
   },
   "nativo": {
     "x86_64": {
