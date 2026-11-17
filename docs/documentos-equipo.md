@@ -4,6 +4,31 @@ Decisión del propietario (16-11-2026): **«Compartidas con el equipo»**. Las c
 empresa, no de cada cuenta. El código común vive en `itt_herramientas/comun/documentos.py` (bloqueo, historial, recuperación, papelera,
 avisos), `comun/sincronizacion.py` (fusión y copia en conflicto) y, en el navegador, `static/herramientas/offline/compartido.js`.
 
+## Cada perfil corporativo es un espacio aparte
+
+Decisión del propietario (17-11-2026): estando en el perfil **TresVizo** no aparecen los documentos de **Grupo ITT**, y al revés.
+
+- Un documento es del **perfil activo de quien lo creó** (`perfil`, fijo: no cambia al editarlo, al sincronizarlo ni al restaurar una
+  versión). Las **listas, la búsqueda, Supervisión, la papelera, los avisos, la lista incremental de los teléfonos** (cursor, `eliminados`,
+  `vigentes`), las sugerencias de clientes y los ZIP solo incluyen los del perfil activo de la cuenta (`documentos.del_perfil`).
+- Una cuenta **sin el permiso «Cambiar perfil corporativo»** trabaja siempre en Grupo ITT: nunca ve los de TresVizo.
+- Abrir un documento **por su dirección**: si es de un perfil que la cuenta puede usar pero no es el activo, la pantalla dice de qué perfil es
+  y ofrece **«Cambiar a …»**; si no puede usar ese perfil, **404** (no existe para ella). Las API de un documento (detalle, bloqueo, historial,
+  restaurar, PDF, fotos, eliminar) valen para los perfiles que la cuenta puede usar (`documentos.alcanzables`); el detalle trae
+  `otro_perfil` cuando no es el activo.
+- Las listas muestran **«Perfil: X»** y, a quien puede usar los dos, **«Cambiar a Y»** (en las herramientas de campo y en Supervisión y la
+  papelera). Cambiar vuelve a abrir la página en el otro espacio.
+- **«Copiar a Y»** (en «Más acciones», solo con el permiso): crea un documento **nuevo** en el otro perfil, de quien lo pide, con su historial
+  desde cero («Copiada de «COT-…» (Grupo ITT)»). Una cotización recibe el folio siguiente de la serie del otro perfil, y los datos bancarios y
+  el firmante del otro perfil si traía los de fábrica del suyo (lo escrito a mano se respeta). El original no cambia.
+- **Teléfono** (`offline/documentos.js`): cada registro guarda su `perfil`; la lista muestra solo los del perfil activo (que da el servidor en
+  el contexto y en cada lista) y **cada perfil tiene su propio cursor**, así los dos espacios nunca se mezclan y al volver a un perfil se
+  sigue desde donde iba. **Lo pendiente sube siempre**, sea del perfil que sea: el borrador nuevo lleva su perfil y el servidor lo crea ahí
+  (si la cuenta ya no puede usar ese perfil, en el activo); uno que ya existe se queda en el suyo, y sus copias en conflicto también. Si la
+  cuenta ya no puede usar el perfil de algo que subió (`ajeno`), quedó guardado en el servidor y el teléfono lo deja de mostrar. Si el perfil
+  activo cambia en otro dispositivo, la página se vuelve a abrir en el nuevo espacio (al volver a la lista, si se estaba editando).
+- Machotes, diccionarios y preferencias siguen siendo compartidos (no son de un perfil).
+
 ## Quién ve y edita qué
 
 | Rol | Cotizaciones | Reportes | Croquis | Machotes |
@@ -87,9 +112,9 @@ ni en una copia en conflicto (la copia lleva todas las fotos).
 
 ## Folios de cotización
 
-- **COT-AAAA-NNNN**, asignado por el servidor con el contador del año bloqueado (`ContadorFolio`, `select_for_update`): dos cotizaciones creadas
-  a la vez nunca reciben el mismo. Es **uno para toda la empresa** (los dos perfiles, Grupo ITT y TresVizo, comparten la numeración) y la base de
-  datos no admite repetidos (`herramientas_cotizacion_folio_unico`).
+- **COT-AAAA-NNNN**, asignado por el servidor con el contador del perfil y el año bloqueado (`ContadorFolio`, `select_for_update`): dos
+  cotizaciones creadas a la vez nunca reciben el mismo. **Cada perfil tiene su serie** (desde 17-11-2026; formato igual, compatible con el
+  escritorio) y la base de datos no admite repetidos dentro de un perfil (`herramientas_cotizacion_folio_perfil`, único por perfil y folio).
 - El campo «Folio» del editor es de solo lectura. Una cotización nueva sin conexión dice **«Folio al sincronizar»**; el PDF final se genera
   después de sincronizar (la vista previa sin folio dice «BORRADOR»).
 - Un editable importado conserva su folio si está libre (se revisa con el contador de su año bloqueado); si ya existe, o otra cotización
@@ -97,6 +122,11 @@ ni en una copia en conflicto (la copia lleva todas las fotos).
 - **Migración** (`0016_documentos_equipo`): ningún folio cambia solo. Si dos cotizaciones tenían el mismo (antes se contaba por cuenta), la más
   antigua lo conserva y las demás quedan marcadas. En **Supervisión → Folios repetidos** el propietario (o quien administra) pulsa
   **«Asignar folio nuevo»** (también quien administra las herramientas). El contador de cada año sigue desde el mayor folio existente.
+- **Migración** (`0017_perfiles_separados`): tampoco renumera nada. Los repetidos se cuentan dentro de cada perfil (uno marcado solo porque el
+  otro perfil tenía ese folio deja de estarlo) y cada perfil sigue desde su mayor folio del año: con Grupo ITT en 0001–0004 y TresVizo en
+  0005, la siguiente de Grupo ITT es 0005 y la siguiente de TresVizo 0006. Es reversible (al revertir, los folios vuelven a ser únicos en la
+  empresa: el más antiguo conserva el suyo y los demás quedan marcados; un contador por año, el mayor). No convive con la versión anterior en
+  marcha: se despliega con parada.
 
 ## Machotes
 
@@ -106,5 +136,5 @@ migración, si dos cuentas tenían uno con el mismo nombre, el más antiguo lo c
 ## Registro
 
 Como CAD, en el registro `itt_herramientas.documentos` (con números de cuenta, nunca nombres): tomar el control, restaurar una versión, mandar a
-la papelera, recuperar, eliminar para siempre, eliminar un machote y asignar un folio nuevo.
+la papelera, recuperar, eliminar para siempre, eliminar un machote, asignar un folio nuevo y copiar a otro perfil.
 
