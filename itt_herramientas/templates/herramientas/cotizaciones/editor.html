@@ -16,6 +16,7 @@
         <button type="button" id="cot-nueva" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nueva cotización</span></button>
       </div>
     </header>
+    <div id="cot-espacio" class="itt-espacio" data-itt="espacio-perfil" hidden></div>
     <ul id="cot-avisos" class="itt-avisos-doc" hidden></ul>
     <div id="cot-herramientas-lista" hidden>{% include "herramientas/pwa/_lista_herramientas.html" with p="cot" marcador="Buscar por folio, cliente, proyecto o autor" titulo="Proyecto" %}</div>
     <div id="cot-lista-vacia" class="itt-vacio" hidden>{% icono "file-text" %}<p>Aún no hay cotizaciones del equipo</p><button type="button" class="tv-boton" id="cot-nueva-vacia">{% icono "plus" %}<span>Nueva cotización</span></button></div>
@@ -45,7 +46,7 @@
             <div class="cot-rejilla">
               <div class="tv-campo"><label for="f-idioma">Idioma</label>
                 <select id="f-idioma"><option value="es">Español</option><option value="en">English</option></select></div>
-              <div class="tv-campo" data-campo="quote_number"><label for="f-quote_number">Folio</label><input id="f-quote_number" data-dato="quote_number" type="text" maxlength="60" autocomplete="off" readonly placeholder="Folio al sincronizar" aria-describedby="f-folio-ayuda"><p class="tv-campo__ayuda" id="f-folio-ayuda">Lo asigna el servidor; es único en la empresa.</p></div>
+              <div class="tv-campo" data-campo="quote_number"><label for="f-quote_number">Folio</label><input id="f-quote_number" data-dato="quote_number" type="text" maxlength="60" autocomplete="off" readonly placeholder="Folio al sincronizar" aria-describedby="f-folio-ayuda"><p class="tv-campo__ayuda" id="f-folio-ayuda">Lo asigna el servidor, de la serie del perfil.</p></div>
               <div class="tv-campo"><label for="f-quote_date">Fecha</label><input id="f-quote_date" data-dato="quote_date" type="date"></div>
             </div>
             <div class="tv-campo" data-campo="client_name"><label for="f-client_name">Nombre / Empresa</label><input id="f-client_name" data-dato="client_name" type="text" maxlength="400" autocomplete="organization"></div>
@@ -251,6 +252,7 @@
     <div class="cot-menu-acciones">
       <button type="button" id="mas-vista-previa" class="cot-menu-accion">{% icono "refresh-cw" %}<span>Actualizar vista previa</span></button>
       <button type="button" id="mas-historial" class="cot-menu-accion">{% icono "history" %}<span>Historial de versiones</span></button>
+      <div id="cot-mas-copiar" class="itt-mas-copiar" hidden></div>
       <button type="button" id="mas-duplicar" class="cot-menu-accion">{% icono "copy" %}<span>Duplicar cotización</span></button>
       <a id="mas-editable" class="cot-menu-accion" href="#/">{% icono "download" %}<span>Descargar editable (.json)</span></a>
       <a href="#/machotes" class="cot-menu-accion" id="mas-machotes">{% icono "library-big" %}<span>Administrar machotes</span></a>

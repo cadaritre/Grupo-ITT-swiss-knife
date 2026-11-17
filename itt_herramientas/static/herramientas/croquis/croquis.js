@@ -27,6 +27,7 @@
   });
 
   let ctx = null, reg = null, temporizador = null;
+  let perfilCambiado = false;              // el perfil activo cambió mientras se editaba: al volver a la lista se abre el otro espacio
   let mapa = null, dibujo = null, mapaListo = null, marcaUbicacion = null;
   let estado = { vectores: "ninguno", resumen: {}, datos: null };          // lo que dice el servidor (GET detalle)
   let enDibujo = false;                                                    // evita bucles entre la tabla de vértices y Terra Draw
@@ -83,6 +84,7 @@
     try {
       const c = await docs.pedir(urls.contexto);
       await ITT.cola.guardarAjuste("cq_contexto", c);
+      await ITT.perfiles.fijar(c.perfil);                         // el espacio de documentos que se lista y se sincroniza
       return c;
     } catch (e) {
       const guardado = await ITT.cola.ajuste("cq_contexto", null);
@@ -96,6 +98,7 @@
     const ul = $("cq-lista");
     const todos = await docs.listar();
     comp.avisos();
+    comp.espacio(ctx);
     limpiar(ul);
     $("cq-lista-vacia").hidden = todos.length > 0;
     for (const b of todos) {
@@ -569,6 +572,7 @@
 
   // -- Enrutador ----------------------------------------------------------------------------------------------------------------------------
   function mostrar(vista) {
+    if (vista === "lista" && perfilCambiado) { location.reload(); return; }
     $("cq-vista-lista").hidden = vista !== "lista";
     $("cq-vista-editor").hidden = vista !== "editor";
     raiz.dataset.vista = vista;
@@ -577,7 +581,12 @@
     mensaje("");
     if (reg && temporizador) await guardarYa();
     const s = /^#\/s\/([0-9a-f-]{36})$/.exec(location.hash || "");          // desde la búsqueda: id del servidor
-    if (s) { const local = await docs.localDe(s[1]); history.replaceState(null, "", local ? `#/q/${local}` : "#/"); return ruta(); }
+    if (s) {
+      const local = await docs.localDe(s[1]);
+      if (!local && await comp.deOtroPerfil(s[1])) return;             // es del otro perfil: la página se abre allí
+      history.replaceState(null, "", local ? `#/q/${local}` : "#/");
+      return ruta();
+    }
     if (location.hash === "#/nuevo") { history.replaceState(null, "", "#/"); if (ctx) return nuevo(); }            // acción «Nuevo …» de la paleta
     const m = /^#\/q\/([0-9a-f-]{36})$/.exec(location.hash || "");
     if (m) {
@@ -657,6 +666,9 @@
       estadoGuardado();
     };
     addEventListener("online", red); addEventListener("offline", red); red();
+    document.addEventListener("itt:perfil", () => {                 // el perfil activo cambió (en otro dispositivo): se abre el otro espacio
+      if (raiz.dataset.vista === "lista") location.reload(); else perfilCambiado = true;
+    });
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "croquis") return;
@@ -690,7 +702,7 @@
     enlazar();
     await asegurarCuenta();
     try { ctx = await contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Tu sesión terminó. Vuelve a iniciar sesión." : "Sin conexión. Abre Croquis una vez con señal para poder trabajar sin ella.", "error"); }
-    if (ctx) await ruta(); else { mostrar("lista"); await pintarLista(); }
+    if (ctx) { comp.botonesCopiar(ctx, () => reg, guardarYa); await ruta(); } else { mostrar("lista"); await pintarLista(); }
     docs.sincronizar();
     document.documentElement.dataset.cqLista = "1";
   });

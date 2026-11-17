@@ -24,6 +24,7 @@
   let ultimaLista = "#/";                // la lista con sus filtros, para volver a ella desde un reporte
   let ordenando = false;                 // vista «Ordenar»: miniaturas agrupadas por página del PDF
   let moviendo = -1;                     // índice de la foto de la hoja «Mover»
+  let perfilCambiado = false;            // el perfil activo cambió mientras se editaba: al volver a la lista se abre el otro espacio
   const POR_PAGINA = [1, 2, 4, 6];
   const MAX_FOTOS = () => (ctx && ctx.max_fotos) || 150;
   const dos = (n) => String(n).padStart(2, "0");
@@ -86,6 +87,7 @@
     try {
       const c = await docs.pedir(urls.contexto);
       await ITT.cola.guardarAjuste("rep_contexto", c);
+      await ITT.perfiles.fijar(c.perfil);                         // el espacio de documentos que se lista y se sincroniza
       return c;
     } catch (e) {
       const guardado = await ITT.cola.ajuste("rep_contexto", null);
@@ -120,6 +122,7 @@
     const ul = $("rep-lista");
     lista.desdeUrl();
     comp.avisos();
+    comp.espacio(ctx);
     const todos = await docs.listar();
     sugerencias = await clientesConocidos(todos);
     const pendientes = new Map();
@@ -562,6 +565,7 @@
 
   // -- Enrutador ------------------------------------------------------------------------------------------------------------------------
   function mostrar(vista) {
+    if (vista === "lista" && perfilCambiado) { location.reload(); return; }
     $("rep-vista-lista").hidden = vista !== "lista";
     $("rep-vista-editor").hidden = vista !== "editor";
     raiz.dataset.vista = vista;
@@ -570,7 +574,12 @@
     mensaje("");
     if (reg && temporizador) await guardarYa();
     const s = /^#\/s\/([0-9a-f-]{36})$/.exec(location.hash || "");          // desde la búsqueda: id del servidor
-    if (s) { const local = await docs.localDe(s[1]); history.replaceState(null, "", local ? `#/r/${local}` : "#/"); return ruta(); }
+    if (s) {
+      const local = await docs.localDe(s[1]);
+      if (!local && await comp.deOtroPerfil(s[1])) return;             // es del otro perfil: la página se abre allí
+      history.replaceState(null, "", local ? `#/r/${local}` : "#/");
+      return ruta();
+    }
     if (location.hash === "#/nuevo") { history.replaceState(null, "", "#/"); if (ctx) return nuevo(); }            // acción «Nuevo …» de la paleta
     const m = /^#\/r\/([0-9a-f-]{36})$/.exec(location.hash || "");
     if (m) {
@@ -648,6 +657,9 @@
     };
     addEventListener("online", red); addEventListener("offline", red); red();
     document.addEventListener("itt:cola", () => { if (raiz.dataset.vista === "editor" && reg) pintarContador(); else if (raiz.dataset.vista === "lista") pintarLista(); });
+    document.addEventListener("itt:perfil", () => {                 // el perfil activo cambió (en otro dispositivo): se abre el otro espacio
+      if (raiz.dataset.vista === "lista") location.reload(); else perfilCambiado = true;
+    });
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "reporte") return;
@@ -684,6 +696,7 @@
     enlazar();
     await asegurarCuenta();
     try { ctx = await contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Tu sesión terminó. Vuelve a iniciar sesión." : "Sin conexión. Abre Reportes una vez con señal para poder trabajar sin ella.", "error"); }
+    if (ctx) comp.botonesCopiar(ctx, () => reg, guardarYa);
     await ruta();
     docs.sincronizar();
     document.documentElement.dataset.repLista = "1";

@@ -2,7 +2,7 @@
  *
  * Los borradores y su sincronización (idempotente, con copia ante un conflicto) son los de offline/documentos.js; aquí queda lo
  * propio de una cotización: el contexto en caché (machotes, valores del perfil), cotización nueva o duplicada y las fotos.
- * El folio lo asigna el servidor al sincronizar (es único en la empresa): una cotización nueva muestra «Folio al sincronizar».
+ * El folio lo asigna el servidor al sincronizar (es único en su perfil): una cotización nueva muestra «Folio al sincronizar».
  */
 (function (global) {
   "use strict";
@@ -23,6 +23,7 @@
     try {
       const c = await pedir(docs.urls.contexto);
       await cola().guardarAjuste("cot_contexto", c);
+      await ITT.perfiles.fijar(c.perfil);                         // el espacio de documentos que se lista y se sincroniza
       return c;
     } catch (e) {
       const guardado = await cola().ajuste("cot_contexto", null);

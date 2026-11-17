@@ -158,7 +158,7 @@ def test_sincronizar_otra_vez_sin_cambios_es_una_sola_peticion_y_lo_de_la_papele
       peticiones.length = 0;
       await docs.sincronizar();
       console.log(JSON.stringify({ primera, segunda, tercera: peticiones.map((p) => p.ruta), ids: [...almacen.keys()].sort(),
-        s1: almacen.get("S1"), cursor: await ITT.cola.ajuste("cursor:cotizacion:1", null) }));
+        s1: almacen.get("S1"), cursor: await ITT.cola.ajuste("cursor:cotizacion:1:?", null) }));       // un cursor por perfil (aquí aún no se sabe cuál)
     """)
     assert r["primera"] == ["/l/?desde=0"]                                   # ni un solo detalle de toda la empresa
     assert r["segunda"] == ["/l/?desde=5"]                                   # sin cambios: una sola petición

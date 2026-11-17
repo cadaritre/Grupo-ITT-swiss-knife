@@ -339,3 +339,14 @@ a[data-itt-nav][aria-disabled="true"] { opacity: .7; }
 .itt-papelera-enlace { margin: var(--tv-espacio-4, 16px) 0 0; font-size: var(--tv-texto-sm, .875rem); }
 .itt-papelera-enlace a { display: inline-flex; align-items: center; gap: var(--tv-espacio-2, 8px); min-height: var(--tv-tactil-min, 44px); color: var(--tv-tenue); }
 .itt-papelera-enlace .tv-icono { width: 1rem; height: 1rem; }
+
+/* Espacio del perfil corporativo (17-11-2026): las listas dicen de qué perfil son los documentos y, con el permiso, cambian al otro. */
+.itt-espacio { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2, 8px); align-items: center; margin: 0 0 var(--tv-espacio-3, 12px); }
+.itt-espacio[hidden] { display: none; }
+.itt-espacio__activo { font-size: .875rem; padding: 2px var(--tv-espacio-3, 12px); }
+.itt-espacio__cambio { margin: 0; }
+.itt-espacio__cambio .tv-boton { min-height: var(--tv-tactil-min, 44px); }
+.itt-otro-perfil { max-width: 60ch; }
+.itt-otro-perfil .tv-acciones { margin-top: var(--tv-espacio-4, 16px); }
+.itt-mas-copiar { display: contents; }
+.itt-mas-copiar[hidden] { display: none; }

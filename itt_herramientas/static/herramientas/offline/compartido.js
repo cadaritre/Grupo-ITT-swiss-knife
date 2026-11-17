@@ -310,8 +310,81 @@
       }
     }
 
+    // -- Perfil corporativo: cada perfil es un espacio de documentos aparte -----------------------------------------------------------
+    const otros = (ctx) => ((ctx && ctx.perfiles) || []).filter((o) => !o.activo);
+    const activo = (ctx) => ((ctx && ctx.perfiles) || []).find((o) => o.activo) || null;
+
+    /** Cambia el perfil activo y vuelve a abrir la página (`destino`: el hash con que se abre). Necesita señal; lo pendiente sube igual.
+     * true si la página se está volviendo a abrir. */
+    async function cambiarPerfil(clave, destino) {
+      if (!enLinea()) { config.alMensaje && config.alMensaje("Sin conexión: para cambiar de perfil necesitas señal.", "error"); return false; }
+      try { await ITT.perfiles.cambiar(docs.urls["perfil-activo"], clave); }
+      catch (e) { config.alMensaje && config.alMensaje(e.mensaje || "No se pudo cambiar de perfil.", "error"); return false; }
+      if (destino != null) history.replaceState(null, "", destino);
+      location.reload();
+      return true;
+    }
+
+    /** En la lista: «Perfil: X» y, a quien puede usar los dos, «Cambiar a Y». Así nadie se pregunta por qué no ve un documento del otro. */
+    function espacio(ctx) {
+      const e = $(`${p}-espacio`);
+      if (!e) return;
+      limpiar(e);
+      const a = activo(ctx);
+      e.hidden = !a || !otros(ctx).length;
+      if (e.hidden) return;
+      e.append(h("span", { class: "tv-insignia itt-espacio__activo" }, icono("building-2"), h("span", {}, `Perfil: ${a.nombre}`)));
+      for (const o of otros(ctx)) {
+        e.append(h("span", { class: "itt-espacio__cambio" }, boton({ class: "tv-boton tv-boton--secundario itt-boton-plano", onclick: () => cambiarPerfil(o.clave, "#/") },
+          "arrow-left-right", `Cambiar a ${o.nombre}`)));
+      }
+    }
+
+    /** En «Más acciones»: «Copiar a Y» (un documento nuevo en el espacio del otro perfil; una cotización recibe el folio de esa serie). */
+    function botonesCopiar(ctx, obtenerRegistro, antes) {
+      const e = $(`${p}-mas-copiar`);
+      if (!e) return;
+      limpiar(e);
+      e.hidden = !otros(ctx).length;
+      for (const o of otros(ctx)) {
+        e.append(boton({ class: "cot-menu-accion", "data-perfil": o.clave, onclick: async () => {
+          const d = $("dlg-mas");
+          if (d && d.open) d.close();
+          const reg = obtenerRegistro();
+          if (!reg) return;
+          if (!enLinea()) { config.alMensaje && config.alMensaje(`Sin conexión: para copiar a ${o.nombre} necesitas señal.`, "error"); return; }
+          if (antes) await antes();
+          try {
+            // Se copia lo que tiene el servidor: primero sube lo de aquí (unas vueltas, por si se guardó algo mientras subía).
+            let actual = await ITT.cola.borrador(reg.id);
+            for (let vuelta = 0; vuelta < 5 && actual && (actual.sucio || !actual.servidor_id); vuelta++) {
+              await docs.sincronizar();
+              actual = await ITT.cola.borrador(reg.id);
+            }
+            if (!actual || !actual.servidor_id || actual.sucio) throw { mensaje: "Primero tiene que subir este documento. Inténtalo en un momento." };
+            const r = await docs.copiarAPerfil(actual.id, o.clave);
+            const que = r.folio ? `como ${r.folio}` : "como documento nuevo";
+            if (await confirmar(`Se copió a ${o.nombre} ${que}. Lo encuentras al cambiar al perfil ${o.nombre}.`, { aceptar: `Cambiar a ${o.nombre}`, cancelar: "Seguir aquí" })) {
+              await cambiarPerfil(o.clave, `#/s/${r.id}`);
+            }
+          } catch (e) { config.alMensaje && config.alMensaje(e.mensaje || `No se pudo copiar a ${o.nombre}.`, "error"); }
+        } }, "files", `Copiar a ${o.nombre}`));
+      }
+    }
+
+    /** Un enlace a un documento que no está en el perfil activo: si es de otro perfil que la cuenta puede usar, lo dice y ofrece cambiar.
+     * true si la página se está volviendo a abrir en el otro perfil (quien llama no debe hacer nada más). */
+    async function deOtroPerfil(servidorId) {
+      const otro = await docs.otroPerfilDe(servidorId);
+      if (!otro) return false;
+      if (await confirmar(`Este documento es del perfil ${otro.nombre}. Cada perfil tiene sus propios documentos.`, { aceptar: `Cambiar a ${otro.nombre}`, cancelar: "Seguir aquí" })) {
+        return cambiarPerfil(otro.clave, `#/s/${servidorId}`);
+      }
+      return false;
+    }
+
     return {
-      abrir, cerrar, historial, avisos, tomarControl,
+      abrir, cerrar, historial, avisos, tomarControl, espacio, botonesCopiar, deOtroPerfil,
       // Mientras esta página tenga o haya tenido el bloqueo de este documento, lo que se escriba sale con su sesión: si otra persona tomó
       // el control, el servidor lo guarda en el borrador de recuperación de esta página (nunca como copia en conflicto).
       get sesion() { return mio || tuvo ? sesion : ""; },

@@ -19,6 +19,7 @@
   let conceptoSinEditar = false;                     // concepto recién agregado y todavía sin tocar: «Cancelar» lo descarta
   let pdfActual = null;           // {blob, nombre}
   let vistaPrevia = null;
+  let perfilCambiado = false;     // el perfil activo cambió mientras se editaba: al volver a la lista la página se abre en el otro espacio
 
   // -- Utilidades -----------------------------------------------------------------------------------------------------------
   const { h, limpiar, confirmar, icono, boton } = ITT.ui;
@@ -153,6 +154,7 @@
     const lista = $("cot-lista");
     controlLista.desdeUrl();
     comp.avisos();
+    comp.espacio(ctx);
     const todos = await ITT.cot.listar();
     controlLista.ponerClientes(todos.slice().sort((a, b) => b.actualizada - a.actualizada).map((b) => b.datos.client_name));
     const visibles = controlLista.aplicar(todos);
@@ -723,6 +725,7 @@
 
   // -- Enrutador -----------------------------------------------------------------------------------------------------------------------------
   function mostrar(vista) {
+    if (vista === "lista" && perfilCambiado) { location.reload(); return; }
     for (const v of ["lista", "editor", "machotes"]) $(`cot-vista-${v}`).hidden = v !== vista;
     raiz.dataset.vista = vista;
     document.documentElement.dataset.ittVista = vista;
@@ -735,6 +738,7 @@
     let m;
     if ((m = /^#\/s\/([0-9a-f-]{36})$/.exec(hash))) {                  // desde la búsqueda: id del servidor
       const local = await ITT.cot.localDe(m[1]);
+      if (!local && await comp.deOtroPerfil(m[1])) return;             // es del otro perfil: la página se abre allí
       history.replaceState(null, "", local ? `#/c/${local}` : "#/");
       return ruta();
     }
@@ -822,6 +826,9 @@
       estadoGuardado();
     };
     addEventListener("online", red); addEventListener("offline", red); red();
+    document.addEventListener("itt:perfil", () => {                 // el perfil activo cambió (en otro dispositivo): se abre el otro espacio
+      if (raiz.dataset.vista === "lista") location.reload(); else perfilCambiado = true;
+    });
     document.addEventListener("itt:doc", async (e) => {
       const d = e.detail || {};
       if (d.tipo !== "cotizacion") return;
@@ -868,6 +875,7 @@
     await asegurarCuenta();
     try { ctx = await ITT.cot.contexto(); } catch (e) { ctx = null; mensaje(e.clase === "sesion" ? "Tu sesión terminó. Vuelve a iniciar sesión." : "Sin conexión. Abre Cotizaciones una vez con señal para poder trabajar sin ella.", "error"); }
     if (ctx) {
+      comp.botonesCopiar(ctx, () => reg, guardarYa);
       const dl = $("unidades");
       for (const u of (ctx.unidades || {})[ctx.base && ctx.base.language === "en" ? "en" : "es"] || []) dl.append(h("option", { value: u }));
     }

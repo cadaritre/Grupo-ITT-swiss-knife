@@ -13,6 +13,7 @@
       <div class="tv-acciones"><button type="button" id="cq-nuevo" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nuevo croquis</span></button></div>
     </header>
     <div id="cq-lista-vacia" class="itt-vacio" hidden>{% icono "map" %}<p>Aún no hay croquis del equipo</p><button type="button" class="tv-boton" id="cq-nuevo-vacio">{% icono "plus" %}<span>Nuevo croquis</span></button></div>
+    <div id="cq-espacio" class="itt-espacio" data-itt="espacio-perfil" hidden></div>
     <ul id="cq-avisos" class="itt-avisos-doc" hidden></ul>
     <ul id="cq-lista" class="cot-lista"></ul>
     <p class="itt-papelera-enlace"><a href="{{ urls.papelera }}" id="cq-papelera">{% icono "trash-2" %}<span>Papelera</span></a></p>
@@ -123,6 +124,7 @@
       <button type="button" id="mas-vectorizar" class="cot-menu-accion">{% icono "refresh-cw" %}<span>Vectorizar de nuevo</span></button>
       <button type="button" id="mas-modulo" class="cot-menu-accion">{% icono "download" %}<span>Exportar proyecto (.json) para el módulo local</span></button>
       <button type="button" id="mas-historial" class="cot-menu-accion">{% icono "history" %}<span>Historial de versiones</span></button>
+      <div id="cq-mas-copiar" class="itt-mas-copiar" hidden></div>
       <button type="button" id="mas-borrar" class="cot-menu-accion cot-menu-accion--peligro">{% icono "trash-2" %}<span>Eliminar croquis</span></button>
     </div>
   </div>

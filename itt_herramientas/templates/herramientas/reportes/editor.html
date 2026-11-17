@@ -12,6 +12,7 @@
       <div class="tv-encabezado__titulos"><h1 id="rep-titulo-lista">Reportes fotográficos</h1></div>
       <div class="tv-acciones"><button type="button" id="rep-nuevo" class="tv-boton itt-accion-principal">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
     </header>
+    <div id="rep-espacio" class="itt-espacio" data-itt="espacio-perfil" hidden></div>
     <ul id="rep-avisos" class="itt-avisos-doc" hidden></ul>
     <div id="rep-herramientas-lista" hidden>{% include "herramientas/pwa/_lista_herramientas.html" with p="rep" marcador="Buscar por nombre, cliente o autor" con_estado=True titulo="Nombre" %}</div>
     <div id="rep-lista-vacia" class="itt-vacio" hidden>{% icono "camera" %}<p>Aún no hay reportes del equipo</p><span>Funciona sin señal: las fotos se suben solas.</span><button type="button" class="tv-boton" id="rep-nuevo-vacio">{% icono "plus" %}<span>Nuevo reporte</span></button></div>
@@ -136,6 +137,7 @@
     <div class="tv-hoja__cabecera"><h2 id="dlg-mas-titulo">Más acciones</h2><button type="button" class="tv-boton tv-boton--secundario" data-cerrar>Cerrar</button></div>
     <div class="cot-menu-acciones">
       <button type="button" id="mas-historial" class="cot-menu-accion">{% icono "history" %}<span>Historial de versiones</span></button>
+      <div id="rep-mas-copiar" class="itt-mas-copiar" hidden></div>
       <button type="button" id="mas-borrar" class="cot-menu-accion cot-menu-accion--peligro">{% icono "trash-2" %}<span>Eliminar reporte</span></button>
     </div>
   </div>
