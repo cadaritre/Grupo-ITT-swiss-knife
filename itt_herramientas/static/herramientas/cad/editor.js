@@ -397,6 +397,8 @@
     t.e.cargado = true; t.e.sucio = false;
     cargaDe(t, "");
     refrescarEstado(t);
+    // Cada pestaña, también las de atrás (la carpeta del proyecto de su plano, local/local.js); luego la activa como siempre.
+    anunciar("pestana", { accion: "abierta", plano: { id: t.cfg.id, nombre: t.e.nombre }, documento: t.documento });
     if (t === activa) { pintarError(t); anunciar("cargado", datosCargado(t)); }
   }
 
@@ -1473,6 +1475,7 @@
     if (editor && t.documento) await enCola(() => canalLibre({ op: "close", document_id: t.documento, discard: true }, 30000)).catch(() => {});
     pestanas.splice(i, 1);
     if (t._vista) t._vista.remove();
+    anunciar("pestana", { accion: "cerrada", plano: { id: t.cfg.id, nombre: t.e.nombre }, documento: t.documento });
     if (!pestanas.length) { guardarPestanas(); ir(C.urls.lista); return; }
     if (activa === t) await activar(pestanas[Math.min(i, pestanas.length - 1)]);
     else pintarPestanas();

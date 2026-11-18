@@ -190,6 +190,10 @@ pestañas de archivo de AutoCAD; también en pantalla completa.
   Un plano normal toma ~0.11 GB; el más grande que acepta la biblioteca (50 MB), más de 2 GB. Con 8 y 64 MB cabe uno grande con siete
   normales, y nunca dos grandes. Al llegar: «Ya tienes 8 planos abiertos, el máximo en una ventana. Cierra uno para abrir otro.» o «Los
   planos abiertos ya ocupan casi toda la memoria del editor en el navegador. Cierra uno para abrir «Plano».»
+  **Las imágenes de la carpeta del proyecto no cuentan en ese tope, a propósito:** no son parte del plano y su memoria tiene su propio
+  límite, que no crece con las pestañas. El editor tiene los píxeles de la pestaña a la vista (lo que su pantalla necesita, ver «Ortofotos
+  enormes») y, de las de atrás, solo sus vistas reducidas, hasta 256 MB entre todas (sin detalles; sale primero la de la pestaña vista
+  hace más tiempo). Ver «Con varias pestañas» en «Carpeta del proyecto».
 
 **Servidor:** `GET /cad/<id>/pestana/` (lo de un plano para abrirlo en una pestaña), `GET /cad/elegir/` (la hoja), `POST /cad/desde/editor/`,
 y Duplicar, Eliminar y Renombrar responden JSON con `Accept: application/json`. **Editor:** el canal ya abría, activaba, cerraba y guardaba un
@@ -450,6 +454,30 @@ quedan en la computadora. El servidor guarda solo el DWG, con las rutas tal como
   lista las que faltan y las ambiguas, y cuenta las encontradas en una línea. El marco de todas (IMAGEFRAME) se cambia en el editor.
 - **Guardar**: las rutas quedan como la persona las tenía (compatibles con AutoCAD); nada se reescribe a rutas del navegador.
 
+### Con varias pestañas
+
+Cada pestaña es un plano con **su** carpeta (la clave del navegador es `<cuenta>:<plano>`), su índice y su panel «Referencias externas»;
+el panel, el aviso y «Insertar imagen georreferenciada» son siempre de la pestaña a la vista.
+
+- **Dos proyectos con los mismos nombres.** El editor guarda los píxeles por la ruta tal como la escribe el plano, para todas sus
+  pestañas, y dos proyectos suelen repetir nombres (`C:\Obra\Fotos\f001.png`, `base.dwg`). Al cambiar de pestaña, la página quita del
+  editor toda ruta que el plano nuevo no resuelve **al mismo archivo** (mismo nombre, tamaño y fecha); una pestaña sin carpeta muestra el
+  marco con el nombre, nunca la imagen de otro proyecto. Si dos planos usan el mismo archivo (hojas del mismo proyecto), sus píxeles se
+  comparten y no se vuelven a leer. El editor ya no busca una imagen «por el nombre» (parche 58).
+- **Dibujos de referencia**: se dan al documento de su plano (`ocs_xref_supply(ruta, bytes, document_id)`): la xref de otra pestaña con el
+  mismo nombre no se vuelve a cargar con el archivo de este proyecto (parche 58).
+- **Atrás**: una pestaña que pasa atrás suelta sus detalles; sus vistas reducidas se quedan, hasta 256 MB entre todas, para volver sin
+  esperar. **Cerrar** una pestaña suelta todo lo suyo (sus píxeles, sus pirámides en curso); la carpeta sigue recordada para ese plano.
+- **Permiso tras reiniciar**: al recargar vuelven las pestañas, cada una con su carpeta recordada; la de la vista dice «El navegador pide
+  permiso para leerla» y **un solo toque** pide el permiso de las carpetas de todas las pestañas que lo esperan (una carpeta que comparten
+  varios planos, una vez). Si el navegador no concede alguna en ese toque, esa pestaña lo vuelve a pedir al mostrarse.
+- **Guardar todo** guarda en cada versión los IMAGE e IMAGEDEF de su plano, con la ruta relativa a su carpeta; nunca el nombre de la
+  carpeta de la computadora.
+- **Esc** con «Referencias externas», «Insertar imagen georreferenciada», «Transparencia» o la confirmación abiertos: el primero cierra la
+  hoja (la orden sigue), el siguiente es del editor.
+- **Nada viaja** al cambiar, abrir o cerrar pestañas: lo prueba `test_cad_pestanas_local_navegador.py` con el registro de cada petición
+  (ningún cuerpo lleva bytes de las carpetas ni sus nombres) y el contador de bytes en el cable (`contador_bytes.py`).
+
 ### Insertar imagen georreferenciada
 
 «Más acciones» → «Insertar imagen georreferenciada» (o el botón del panel). La persona elige la imagen (y, sin acceso a carpetas, también
@@ -539,8 +567,8 @@ SwiftShader de las pruebas marca 30–60 cuadros por segundo. Los archivos de pr
 | Insertar | op `image_attach` (`path`, `size`, y `world_file` o `geotiff` o `insert` + `width` + `rotation`; `layer`, `send_to_back`) |
 | Ajustes de una imagen | op `image_set` (`handle`; `fade`, `transparency`, `shown`, `clip_rect` o `null`, `draw_order`, `detach`) |
 | Dar píxeles | `wasmBindings.ocs_image_supply(ruta, anchoArchivo, altoArchivo, x0, y0, x1, y1, ancho, alto, rgba)`; `ocs_image_drop_detail`, `ocs_image_release` |
-| Dar un dibujo referido | `wasmBindings.ocs_xref_supply(ruta, bytes)` |
-| Desvincular | `wasmBindings.ocs_local_reset()` |
+| Dar un dibujo referido | `wasmBindings.ocs_xref_supply(ruta, bytes, document_id)` (solo ese documento vuelve a resolver sus xrefs) |
+| Desvincular | `ocs_image_release` de cada ruta de ese plano (las demás pestañas conservan lo suyo); `ocs_local_reset()` suelta todo |
 
 Dar píxeles o dibujos no es una edición: no deja paso de deshacer ni marca «Sin guardar».
 

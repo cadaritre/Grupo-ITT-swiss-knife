@@ -11,7 +11,8 @@
  *   TVCad.listo                        Promise<estado>: se cumple cuando el editor abrió el plano y su canal de control respondió.
  *                                      Nunca se rechaza; si el editor no carga, simplemente no se cumple (usa `estaListo()` o `pedir`).
  *   TVCad.estaListo()                  true/false
- *   TVCad.estado()                     { listo, editable, plano: { id, nombre, formato, revision } }
+ *   TVCad.estado()                     { listo, editable, plano: { id, nombre, formato, revision }, documento } (`documento`: su
+ *                                      document_id en el editor)
  *                                      `editable` = esta página tiene el bloqueo de edición (si es false, el plano se ve en solo lectura:
  *                                      se puede dibujar en pantalla, pero no se guarda).
  *   await TVCad.pedir(peticion, { tiempoMs = 30000, sondeoMs })
@@ -42,7 +43,9 @@
  *   TVCad.registro()                   las últimas peticiones que cambian algo (op, orden, si se aceptó y la revisión que dejó) y los
  *                                      pasos a «Sin guardar»; para diagnosticar en el teléfono (también sale en la consola).
  *   TVCad.on(evento, fn) / off(...)    eventos: "listo" (estado), "cambio" ({ sucio }), "guardado" ({ revision, formato }),
- *                                      "cargado" (estado; también al reabrir el plano, p. ej. tras tomar el control o restaurar).
+ *                                      "cargado" (estado; también al reabrir el plano, p. ej. tras tomar el control o restaurar),
+ *                                      "pestana" ({ accion: "abierta" | "cerrada", plano: { id, nombre }, documento }: cualquier pestaña,
+ *                                      también las de atrás; "abierta" llega cuando su plano terminó de abrir en el editor).
  *
  * Con varios planos en la ventana (pestañas, editor.js), todo esto es del plano de la pestaña activa: `estado().plano`, el `document_id`
  * que completa `pedir` y los eventos; al cambiar de pestaña llega otra vez "cargado" con el plano nuevo.
@@ -80,7 +83,7 @@
     const m = marco();
     try { return m && m.contentWindow && m.contentWindow.ocsControl; } catch (_) { return null; }
   }
-  const copia = () => ({ listo: estado.listo, editable: estado.editable, plano: estado.plano && { ...estado.plano } });
+  const copia = () => ({ listo: estado.listo, editable: estado.editable, plano: estado.plano && { ...estado.plano }, documento: estado.documento });
 
   // La página del editor (editor.js) avisa con eventos del documento.
   document.addEventListener("tvcad:cargado", async (ev) => {
@@ -96,6 +99,7 @@
     if (primera) { cumplir(copia()); emitir("listo", copia()); }
     emitir("cargado", copia());
   });
+  document.addEventListener("tvcad:pestana", (ev) => emitir("pestana", { ...(ev.detail || {}) }));
   document.addEventListener("tvcad:cambio", (ev) => emitir("cambio", { sucio: !!(ev.detail && ev.detail.sucio) }));
   document.addEventListener("tvcad:guardado", (ev) => {
     const d = ev.detail || {};

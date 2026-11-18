@@ -9,6 +9,12 @@
  * NADA de la carpeta se sube: ni píxeles, ni nombres (fuera de lo que el plano ya trae), ni miniaturas, ni métricas. El servidor guarda
  * solo el DWG, con las rutas tal como la persona las tenía.
  *
+ * Varios planos en la ventana (pestañas, editor.js): cada plano tiene su carpeta (por cuenta y plano), su índice y sus referencias; lo
+ * que se ve es siempre el de la pestaña activa. El editor guarda los píxeles por la ruta tal como la escribe el plano, para todas sus
+ * pestañas: al cambiar de pestaña se quitan las rutas que el plano nuevo no resuelve al mismo archivo (dos proyectos con «f001.png»),
+ * los detalles de los planos de atrás se sueltan y sus vistas reducidas se quedan hasta INACTIVAS_MAX bytes, para volver rápido.
+ * Cerrar una pestaña suelta lo suyo. Los dibujos de referencia se dan al documento de su plano (ocs_xref_supply con document_id).
+ *
  * Partes: carpeta.js (vincular, índice, reglas para resolver), tiff.js y trabajador.js (leer y decodificar), este archivo (la página).
  */
 (function () {
@@ -19,23 +25,38 @@
   try { config = JSON.parse($("cad-config").textContent); } catch (_) { return; }
   const cfg = config.local;
   if (!cfg || !$("cad-editor")) return;
-  const CLAVE = `${cfg.cuenta}:${config.id}`;
   const C = window.TVCarpeta;
 
-  const e = {
-    raices: [],           // [{handle?, archivos?, nombre, sesion?}] con permiso
-    guardadas: [],        // las de IndexedDB (con o sin permiso)
-    indice: null,
-    refs: { images: [], xrefs: [] },
-    res: new Map(),       // ruta del plano → {estado, entrada, coincide, candidatos, archivo, info, error}
-    sum: new Map(),       // ruta → {base: [w, h], detalle: {rect, w, h}|null, pidiendo}
-    piramides: new Map(), // ruta → {progreso, id, detenida}
-    xrefsDadas: new Set(),
-    revCamara: -1,
-    listo: false,
-    avisoCrs: false,
-    errores: [],
-  };
+  // Un estado por plano abierto (pestaña); `e` es el de la pestaña activa.
+  const planos = new Map();
+  function nuevoEstado(id) {
+    const st = {
+      plano: id,
+      clave: `${cfg.cuenta}:${id}`,
+      documento: null,         // document_id del editor
+      raices: [],              // [{handle?, archivos?, nombre, sesion?}] con permiso
+      guardadas: [],           // las de IndexedDB (con o sin permiso)
+      permisoPendiente: false, // carpeta guardada que espera el permiso del navegador
+      usarAlVolver: false,     // el permiso llegó con la pestaña detrás: se indexa al mostrarla
+      indice: null,
+      refs: { images: [], xrefs: [] },
+      res: new Map(),          // ruta del plano → {estado, entrada, coincide, candidatos, archivo, info, error}
+      piramides: new Map(),    // ruta → {progreso, id, detenida}
+      xrefsDadas: new Set(),
+      vueltasXref: 0,
+      avisoCrs: false,
+    };
+    planos.set(id, st);
+    st.cargadas = cargarGuardadas(st).catch((err) => console.warn("CAD: carpeta del proyecto", err));
+    return st;
+  }
+  const estadoDe = (id) => planos.get(id) || nuevoEstado(id);
+  let e = null;
+
+  // Lo que el editor tiene de cada ruta, para todas sus pestañas: ruta → {st, ident, base: [w, h], detalle: {rect, w, h}|null,
+  // pidiendo, pidiendoDetalle, esperarHasta, visto}. `st`: el plano para el que se dio; `ident`: el archivo exacto.
+  const sum = new Map();
+  const INACTIVAS_MAX = 256 * 1048576;
 
   // ── Editor ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   function editor() { try { return $("cad-editor").contentWindow.wasmBindings || null; } catch (_) { return null; } }
@@ -82,110 +103,193 @@
   })();
 
   // ── Carpeta ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  async function cargarGuardadas() {
+  async function cargarGuardadas(st) {
     if (!C.soportaRecordar()) return;
-    e.guardadas = await C.guardadas(CLAVE);
-    if (!e.guardadas.length) return;
-    const p = await C.permisos(e.guardadas);
-    if (p.every((x) => x === "granted")) await usar(e.guardadas);
-    else pintarCarpeta();
+    st.guardadas = await C.guardadas(st.clave);
+    if (!st.guardadas.length) return;
+    const p = await C.permisos(st.guardadas);
+    if (p.every((x) => x === "granted")) {
+      st.permisoPendiente = false;
+      if (st === e) await usar(st, st.guardadas); else st.usarAlVolver = true;
+    } else {
+      st.permisoPendiente = true;
+      if (st === e) pintarCarpeta();
+    }
   }
 
-  async function usar(raices) {
-    e.raices = raices;
-    pintarCarpeta("indexando");
-    const { indice } = await C.indexar(raices, (n) => pintarCarpeta("indexando", n));
-    e.indice = indice;
-    e.res.clear();
-    pintarCarpeta();
-    await refrescar();
+  async function usar(st, raices) {
+    st.raices = raices;
+    st.usarAlVolver = false; st.permisoPendiente = false;
+    if (st === e) pintarCarpeta("indexando");
+    const { indice } = await C.indexar(raices, (n) => { if (st === e) pintarCarpeta("indexando", n); });
+    st.indice = indice;
+    st.res.clear();
+    for (const [, p] of st.piramides) if (p.id && p.corriendo) pool.cancelar(p.id);
+    st.piramides.clear();
+    // Lo que el editor tenía de este plano venía de la carpeta anterior: se vuelve a leer de esta.
+    for (const [ruta, s] of sum) if (s.st === st) soltar(ruta);
+    if (st === e) pintarCarpeta();
+    await refrescar(st);
   }
 
   async function vincular({ agregar = false } = {}) {
+    const st = e;
     if (C.soportaRecordar()) {
-      try { e.guardadas = await C.vincular(CLAVE, { agregar }); } catch (err) { if (err && err.name === "AbortError") return; throw err; }
-      await usar(e.guardadas);
+      try { st.guardadas = await C.vincular(st.clave, { agregar }); } catch (err) { if (err && err.name === "AbortError") return; throw err; }
+      await usar(st, st.guardadas);
     } else {
       $("cad-local-entrada").click();
     }
   }
 
+  // Un solo toque: el permiso de la carpeta de este plano y, de paso, el de las demás pestañas que lo esperan (tras reiniciar el
+  // navegador todas vuelven a «preguntar»). Una carpeta que comparten varios planos se pide una vez.
   async function permitir() {
-    if (await C.permitir(e.guardadas)) await usar(e.guardadas);
+    const st = e;
+    const otros = [...planos.values()].filter((x) => x !== st && x.permisoPendiente && x.guardadas.length);
+    const lista = [...st.guardadas];
+    for (const x of otros) for (const c of x.guardadas) {
+      let ya = false;
+      for (const y of lista) { try { if (await y.handle.isSameEntry(c.handle)) { ya = true; break; } } catch (_) { /* otra */ } }
+      if (!ya) lista.push(c);
+    }
+    await C.permitir(lista);
+    for (const x of otros) {
+      const p = await C.permisos(x.guardadas);
+      if (p.every((v) => v === "granted")) { x.permisoPendiente = false; x.usarAlVolver = true; }
+    }
+    const p = await C.permisos(st.guardadas);
+    if (st.guardadas.length && p.every((v) => v === "granted")) await usar(st, st.guardadas);
     else pintarCarpeta();
   }
 
   async function desvincular() {
-    if (C.soportaRecordar()) await C.desvincular(CLAVE);
-    e.guardadas = []; e.raices = []; e.indice = null; e.res.clear(); e.sum.clear(); e.xrefsDadas.clear();
-    for (const [, p] of e.piramides) if (p.id) pool.cancelar(p.id);
-    e.piramides.clear();
-    const w = editor();
-    if (w && w.ocs_local_reset) w.ocs_local_reset();
+    const st = e;
+    if (C.soportaRecordar()) await C.desvincular(st.clave);
+    st.guardadas = []; st.raices = []; st.indice = null; st.res.clear(); st.xrefsDadas.clear(); st.permisoPendiente = false; st.usarAlVolver = false;
+    for (const [, p] of st.piramides) if (p.id) pool.cancelar(p.id);
+    st.piramides.clear();
+    // Solo lo de este plano: las demás pestañas conservan su carpeta y sus imágenes.
+    for (const [ruta, s] of sum) if (s.st === st) soltar(ruta);
     pintarCarpeta();
     pintarPanel();
   }
 
+  // ── Lo que el editor tiene, con varias pestañas ──────────────────────────────────────────────────────────────────────────────
+  function soltar(ruta) {
+    sum.delete(ruta);
+    const w = editor();
+    if (w && w.ocs_image_release) w.ocs_image_release(ruta);
+  }
+  const identDe = (r, archivo) => `${(r && r.entrada && r.entrada.ruta) || ""}|${archivo.name}|${archivo.size}|${archivo.lastModified}`;
+
+  // La pestaña `st` pasa al frente. Lo que el editor tiene por una ruta de otro plano se queda solo si este plano la resuelve al mismo
+  // archivo; si no, se quita (el editor la mostraría con los píxeles del otro proyecto). Los detalles de los de atrás se sueltan, y sus
+  // vistas reducidas se quedan hasta INACTIVAS_MAX bytes (sale primero la de la pestaña vista hace más tiempo).
+  async function alFrente(st) {
+    const usadas = new Set(st.refs.images.map((x) => x.path));
+    const dudas = [];
+    for (const [ruta, s] of [...sum]) {
+      if (s.st === st) { s.visto = performance.now(); continue; }
+      const r = st.res.get(ruta);
+      if (usadas.has(ruta) || r) {
+        if (!r || !r.entrada) soltar(ruta);
+        else dudas.push([ruta, s, r]);
+      } else if (s.detalle && !s.pidiendoDetalle) {
+        s.detalle = null;
+        const w = editor(); if (w && w.ocs_image_drop_detail) w.ocs_image_drop_detail(ruta);
+      }
+    }
+    await Promise.all(dudas.map(async ([ruta, s, r]) => {
+      let a = null;
+      try { a = await archivoDe(st, ruta); } catch (_) { /* no se pudo leer */ }
+      if (sum.get(ruta) !== s || s.st === st) return;
+      if (a && s.ident && identDe(r, a) === s.ident) { s.st = st; s.visto = performance.now(); } else soltar(ruta);
+    }));
+    const atras = [...sum.entries()].filter(([, s]) => s.st !== st && s.base).sort((a, b) => (a[1].visto || 0) - (b[1].visto || 0));
+    let bytes = atras.reduce((n, [, s]) => n + s.base[0] * s.base[1] * 4, 0);
+    for (const [ruta, s] of atras) {
+      if (bytes <= INACTIVAS_MAX) break;
+      bytes -= s.base[0] * s.base[1] * 4;
+      soltar(ruta);
+    }
+  }
+
+  // Se cerró una pestaña: lo suyo sale del editor y de esta página (la carpeta sigue recordada en el navegador para ese plano).
+  function alCerrar(id) {
+    const st = planos.get(id);
+    if (!st) return;
+    planos.delete(id);
+    for (const [, p] of st.piramides) if (p.id && p.corriendo) pool.cancelar(p.id);
+    for (const [ruta, s] of [...sum]) if (s.st === st) soltar(ruta);
+  }
+
   // ── Referencias del plano ─────────────────────────────────────────────────────────────────────────────────────────────────────
-  async function refrescar() {
-    if (!window.TVCad.estaListo()) return;
+  async function refrescar(st = e) {
+    if (!st || !window.TVCad.estaListo() || !planos.has(st.plano)) return;
     let r;
-    try { r = await pedir({ op: "references" }); } catch (_) { return; }
-    e.refs = r;
+    // Las referencias de ESTE plano, aunque su pestaña pase atrás mientras tanto (el editor responde por su documento).
+    try { r = await pedir(st.documento ? { op: "references", document_id: st.documento } : { op: "references" }); } catch (_) { return; }
+    if (st.documento && r.document_id && r.document_id !== st.documento) return;
+    st.refs = r;
     const rutas = new Set();
     for (const im of r.images) rutas.add(im.path);
     for (const x of r.xrefs) rutas.add(x.path);
-    if (e.indice) {
+    if (st.indice) {
       for (const ruta of rutas) {
-        if (!ruta || e.res.has(ruta)) continue;
-        e.res.set(ruta, C.resolver(e.indice, ruta));
+        if (!ruta || st.res.has(ruta)) continue;
+        st.res.set(ruta, C.resolver(st.indice, ruta));
       }
     }
+    if (st !== e) return;
+    await alFrente(st);
+    if (st !== e) return;
     pintarPanel();
     pintarAviso();
-    await darXrefs();
+    await darXrefs(st);
     planear(true);
   }
 
-  async function archivoDe(ruta) {
-    const r = e.res.get(ruta);
+  async function archivoDe(st, ruta) {
+    const r = st.res.get(ruta);
     if (!r || !r.entrada) return null;
     if (!r.archivo) r.archivo = await C.archivoDe(r.entrada);
     return r.archivo;
   }
 
-  async function infoDe(ruta) {
-    const r = e.res.get(ruta);
+  async function infoDe(st, ruta) {
+    const r = st.res.get(ruta);
     if (!r || !r.entrada) return null;
     if (r.info || r.error) return r.info;
     if (!r.pidiendoInfo) {
       r.pidiendoInfo = (async () => {
         try {
-          const archivo = await archivoDe(ruta);
+          const archivo = await archivoDe(st, ruta);
           r.info = await pool.pedir({ tipo: "info", archivo }).promesa;
           if (r.info.motivo) r.error = r.info.motivo;
         } catch (err) { r.error = String(err.message || err); }
-        pintarPanel();
+        if (st === e) pintarPanel();
         return r.info;
       })();
     }
     return r.pidiendoInfo;
   }
 
-  async function darXrefs() {
+  // Los dibujos de referencia van al documento de su plano: otra pestaña que nombre el mismo «base.dwg» (de otro proyecto) no se toca.
+  async function darXrefs(st) {
     const w = editor();
-    if (!w || !w.ocs_xref_supply) return;
+    if (!w || !w.ocs_xref_supply || !st.documento) return;
     let dio = false;
-    for (const x of e.refs.xrefs) {
-      if (["loaded", "recovered"].includes(x.status) || e.xrefsDadas.has(x.path)) continue;
-      const archivo = await archivoDe(x.path);
-      if (!archivo) continue;
-      e.xrefsDadas.add(x.path);
-      w.ocs_xref_supply(x.path, new Uint8Array(await archivo.arrayBuffer()));
+    for (const x of st.refs.xrefs) {
+      if (["loaded", "recovered"].includes(x.status) || st.xrefsDadas.has(x.path)) continue;
+      const archivo = await archivoDe(st, x.path);
+      if (!archivo || !planos.has(st.plano)) continue;
+      st.xrefsDadas.add(x.path);
+      w.ocs_xref_supply(x.path, new Uint8Array(await archivo.arrayBuffer()), st.documento);
       dio = true;
     }
     // Las anidadas aparecen al cargar su padre: otra vuelta (hasta 4 niveles).
-    if (dio && (e.vueltasXref = (e.vueltasXref || 0) + 1) <= 4) setTimeout(refrescar, 400);
+    if (dio && (st.vueltasXref = (st.vueltasXref || 0) + 1) <= 4) setTimeout(() => refrescar(st), 400);
   }
 
   // ── Imágenes: qué pide la vista y qué se le da al editor ─────────────────────────────────────────────────────────────────────
@@ -207,22 +311,26 @@
   }
 
   async function paso() {
+    const st = e;
     // Sin nada resuelto (sin carpeta y sin imágenes insertadas desde esta computadora) no hay nada que pedir.
-    const algo = e.indice || [...e.res.values()].some((x) => x.entrada);
+    const algo = st && (st.indice || [...st.res.values()].some((x) => x.entrada));
     if (!window.TVCad.estaListo() || !algo || document.hidden) { if (algo) setTimeout(() => planear(), 500); return; }
     let v;
     try { v = await pedir({ op: "image_views" }, { tiempoMs: 5000 }); } catch (_) { setTimeout(() => planear(), 500); return; }
+    // La pestaña cambió mientras tanto, o la vista es de otro documento: otra vuelta con la de ahora.
+    if (st !== e || (st.documento && v.document_id && v.document_id !== st.documento)) { setTimeout(() => planear(true), 0); return; }
     const escala = (v.screen_scale || 1) * (window.devicePixelRatio || 1);
     const [vw, vh] = v.viewport_size || [1, 1];
     const pedidos = [];
     for (const f of v.views) {
-      const r = e.res.get(f.path);
+      const r = st.res.get(f.path);
       if (!r || !r.entrada || r.error) continue;
       const info = r.info;
-      if (!info) { infoDe(f.path).then(() => planear(true)); continue; }
+      if (!info) { infoDe(st, f.path).then(() => planear(true)); continue; }
       if (info.motivo) continue;
-      const s = e.sum.get(f.path) || { base: null, detalle: null };
-      e.sum.set(f.path, s);
+      let s = sum.get(f.path);
+      if (s && s.st !== st) continue;                               // de otro plano: alFrente() decide si se queda o sale
+      if (!s) { s = { st, ident: null, base: null, detalle: null, visto: performance.now() }; sum.set(f.path, s); }
       const [ew, eh] = f.size;
       const kx = info.ancho / ew, ky = info.alto / eh;            // píxeles del archivo por píxel de la entidad
       const d = (f.density * escala) / Math.max(kx, ky);           // px del dispositivo por px del archivo
@@ -230,10 +338,10 @@
       // Vista completa: el tamaño con que se ve la imagen entera, en potencias de 2, entre 64 y 1024.
       const quiere = Math.min(lado, Math.max(BASE_MIN, Math.min(BASE_MAX, potencia(lado * d))));
       const tiene = s.base ? Math.max(s.base[0], s.base[1]) : 0;
-      if (!s.pidiendo && quiere > tiene && !(e.piramides.get(f.path) || {}).corriendo) {
-        pedidos.push({ prioridad: f.screen_area + 1e9, hacer: () => base(f.path, info, quiere) });
+      if (!s.pidiendo && quiere > tiene && !(st.piramides.get(f.path) || {}).corriendo) {
+        pedidos.push({ prioridad: f.screen_area + 1e9, hacer: () => base(st, f.path, info, quiere) });
       }
-      if (info.piramide === "falta" && !e.piramides.has(f.path)) piramide(f.path);
+      if (info.piramide === "falta" && !st.piramides.has(f.path)) piramide(st, f.path);
       // Detalle: la parte visible a la resolución de la pantalla, cuando la vista completa no alcanza.
       if (lado * d > Math.max(tiene, quiere) * 1.25 && lado > Math.max(tiene, quiere)) {
         const [x0, y0, x1, y1] = f.rect;
@@ -247,7 +355,7 @@
         const dt = s.detalle;
         const cubre = dt && dt.rect[0] <= x0 * kx && dt.rect[1] <= y0 * ky && dt.rect[2] >= x1 * kx && dt.rect[3] >= y1 * ky
           && (dt.w / (dt.rect[2] - dt.rect[0])) >= 0.8 * (w / (rect[2] - rect[0]));
-        if (!cubre && !s.pidiendoDetalle && !(s.esperarHasta > performance.now())) pedidos.push({ prioridad: f.screen_area, hacer: () => detalle(f.path, info, rect, w, h) });
+        if (!cubre && !s.pidiendoDetalle && !(s.esperarHasta > performance.now())) pedidos.push({ prioridad: f.screen_area, hacer: () => detalle(st, f.path, info, rect, w, h) });
       } else if (s.detalle && !s.pidiendoDetalle) {
         s.detalle = null;
         const w8 = editor(); if (w8 && w8.ocs_image_drop_detail) w8.ocs_image_drop_detail(f.path);
@@ -258,65 +366,72 @@
       if (pool.libres() <= 0 || enVuelo > 6) break;
       p.hacer();
     }
-    e.revCamara = v.camera_revision;
     setTimeout(() => planear(), 140);
   }
 
-  function dar(ruta, info, rect, r) {
+  // Al editor, solo si `st` sigue al frente y la ruta sigue siendo suya: lo que llega tarde de una pestaña que pasó atrás se descarta.
+  // `esperado`: la entrada de `sum` con que se pidió; si se soltó mientras tanto (otra carpeta, otra pestaña), lo que llegó ya no sirve.
+  function dar(st, ruta, info, rect, r, archivo, esperado) {
     const w = editor();
-    if (!w || !w.ocs_image_supply) return false;
+    const s = sum.get(ruta);
+    if (!w || !w.ocs_image_supply || st !== e || !planos.has(st.plano) || (s && s.st !== st)) return false;
+    if (esperado !== undefined && s !== esperado) return false;
     const motivo = w.ocs_image_supply(ruta, info.ancho, info.alto, rect[0], rect[1], rect[2], rect[3], r.ancho, r.alto, r.rgba);
     if (motivo) { console.warn("CAD: el editor no tomó la imagen", ruta, motivo); return false; }
+    const x = s || { st, ident: null, base: null, detalle: null };
+    x.visto = performance.now();
+    if (archivo) x.ident = identDe(st.res.get(ruta), archivo);
+    sum.set(ruta, x);
     return true;
   }
 
-  async function base(ruta, info, lado) {
-    const s = e.sum.get(ruta);
+  async function base(st, ruta, info, lado) {
+    const s = sum.get(ruta);
     s.pidiendo = true; enVuelo++;
     try {
       const k = lado / Math.max(info.ancho, info.alto);
       const ancho = Math.max(1, Math.round(info.ancho * k)), alto = Math.max(1, Math.round(info.alto * k));
-      const archivo = await archivoDe(ruta);
+      const archivo = await archivoDe(st, ruta);
       const r = await pool.pedir({ tipo: "region", archivo, rect: [0, 0, info.ancho, info.alto], ancho, alto }).promesa;
       if (r.pendiente) return;
-      if (dar(ruta, info, [0, 0, info.ancho, info.alto], r)) { s.base = r.parcial ? [Math.min(r.ancho, 64), Math.min(r.alto, 64)] : [r.ancho, r.alto]; s.detalle = null; }
+      if (dar(st, ruta, info, [0, 0, info.ancho, info.alto], r, archivo, s)) { s.base = r.parcial ? [Math.min(r.ancho, 64), Math.min(r.alto, 64)] : [r.ancho, r.alto]; s.detalle = null; }
     } catch (err) {
-      const x = e.res.get(ruta); if (x) x.error = String(err.message || err);
-      pintarPanel();
+      const x = st.res.get(ruta); if (x) x.error = String(err.message || err);
+      if (st === e) pintarPanel();
     } finally { s.pidiendo = false; enVuelo--; planear(true); }
   }
 
-  async function detalle(ruta, info, rect, ancho, alto) {
-    const s = e.sum.get(ruta);
+  async function detalle(st, ruta, info, rect, ancho, alto) {
+    const s = sum.get(ruta);
     s.pidiendoDetalle = true; enVuelo++;
     try {
-      const archivo = await archivoDe(ruta);
+      const archivo = await archivoDe(st, ruta);
       const r = await pool.pedir({ tipo: "region", archivo, rect, ancho, alto }).promesa;
       // Sin la pirámide todavía: lo más fino que hay, y otra vez en un momento (no en cada paso).
       if (r.pendiente || r.parcial) s.esperarHasta = performance.now() + 1500;
       if (r.pendiente || !s.base) return;
-      if (dar(ruta, info, rect, r)) s.detalle = r.parcial ? { rect, w: 1, h: 1 } : { rect, w: r.ancho, h: r.alto };
+      if (dar(st, ruta, info, rect, r, archivo, s)) s.detalle = r.parcial ? { rect, w: 1, h: 1 } : { rect, w: r.ancho, h: r.alto };
     } catch (err) {
       console.warn("CAD: detalle", ruta, err);
     } finally { s.pidiendoDetalle = false; enVuelo--; planear(true); }
   }
 
-  async function piramide(ruta) {
-    const archivo = await archivoDe(ruta);
-    const info = e.res.get(ruta).info;
+  async function piramide(st, ruta) {
+    const archivo = await archivoDe(st, ruta);
+    const info = st.res.get(ruta).info;
     const p = { progreso: 0, corriendo: true };
-    e.piramides.set(ruta, p);
-    pintarPanel();
+    st.piramides.set(ruta, p);
+    if (st === e) pintarPanel();
     const { id, promesa } = pool.pedir({ tipo: "piramide", archivo }, {
       progreso: (m) => {
         p.progreso = m.progreso;
         if (m.base) {
           const r = { rgba: new Uint8Array(m.base.rgba.buffer || m.base.rgba), ancho: m.base.ancho, alto: m.base.alto };
-          if (dar(ruta, info, [0, 0, info.ancho, info.alto], r)) {
-            const s = e.sum.get(ruta) || {}; s.base = [r.ancho, r.alto]; s.detalle = null; e.sum.set(ruta, s);
+          if (dar(st, ruta, info, [0, 0, info.ancho, info.alto], r, archivo)) {
+            const s = sum.get(ruta); s.base = [r.ancho, r.alto]; s.detalle = null;
           }
         }
-        pintarProgreso(ruta);
+        if (st === e) pintarProgreso(ruta);
       },
     });
     p.id = id;
@@ -328,7 +443,7 @@
     } catch (err) {
       p.corriendo = false; p.error = String(err.message || err);
     }
-    pintarPanel();
+    if (st === e) pintarPanel();
     planear(true);
   }
 
@@ -350,6 +465,7 @@
   let insercion = null;
 
   async function elegirParaInsertar() {
+    const st = e;
     let archivo, mundo = null, ruta = null, enCarpeta = null;
     if (window.showOpenFilePicker) {
       let hs;
@@ -362,7 +478,7 @@
       archivo = await img.getFile();
       const m = hs.find((h) => h !== img && MUNDO(img.name).some((n) => n.toLowerCase() === h.name.toLowerCase()));
       if (m) mundo = await (await m.getFile()).text();
-      for (const r of e.raices) {
+      for (const r of st.raices) {
         if (!r.handle) continue;
         const camino = await r.handle.resolve(img);
         if (camino) { enCarpeta = r; ruta = camino.join("\\"); break; }
@@ -376,7 +492,7 @@
           if (x.entrada && x.coincide === (dir ? dir.split("/").length + 1 : 1)) { mundo = await (await C.archivoDe(x.entrada)).text(); break; }
         }
       }
-      insercion = { archivo, mundo, ruta: ruta || img.name, handle: img, enCarpeta };
+      insercion = { st, archivo, mundo, ruta: ruta || img.name, handle: img, enCarpeta };
     } else {
       $("cad-local-imagen").click();
       return;
@@ -390,12 +506,13 @@
     if (!archivo) return aviso("Elige una imagen (TIFF, JPEG, PNG…).");
     const m = fs.find((f) => f !== archivo && MUNDO(archivo.name).some((n) => n.toLowerCase() === f.name.toLowerCase()));
     // Sin acceso a carpetas: si está indexada en la carpeta de la sesión, su ruta relativa; si no, su nombre.
+    const st = e;
     let ruta = archivo.name;
-    if (e.indice) {
-      const x = C.resolver(e.indice, archivo.name);
+    if (st.indice) {
+      const x = C.resolver(st.indice, archivo.name);
       if (x.estado === "nombre") ruta = x.entrada.ruta.replace(/\//g, "\\");
     }
-    insercion = { archivo, mundo: m ? await m.text() : null, ruta, enCarpeta: null };
+    insercion = { st, archivo, mundo: m ? await m.text() : null, ruta, enCarpeta: null };
     await prepararInsercion();
   }
 
@@ -445,6 +562,9 @@
   async function insertar() {
     const x = insercion;
     if (!x || !x.info) return;
+    const st = x.st;
+    // La imagen va al plano para el que se eligió (la hoja es modal: no se cambia de pestaña con ella abierta).
+    if (st !== e) { $("cad-local-insertar").close(); return; }
     const peticion = { op: "image_attach", path: x.ruta, size: [x.info.ancho, x.info.alto], send_to_back: $("cad-local-ins-atras").checked };
     const capa = $("cad-local-ins-capa").value.trim();
     if (capa) peticion.layer = capa;
@@ -476,15 +596,17 @@
       }
     } catch (_) { /* la vista se queda donde estaba */ }
     // Sus píxeles, desde este archivo.
-    e.res.set(x.ruta, { estado: x.enCarpeta ? "ruta" : "nombre", entrada: { ruta: x.ruta.replace(/\\/g, "/"), nombre: x.archivo.name, archivo: x.archivo }, archivo: x.archivo, coincide: 1, candidatos: [], info: x.info });
+    st.res.set(x.ruta, { estado: x.enCarpeta ? "ruta" : "nombre", entrada: { ruta: x.ruta.replace(/\\/g, "/"), nombre: x.archivo.name, archivo: x.archivo }, archivo: x.archivo, coincide: 1, candidatos: [], info: x.info });
+    // Lo que el editor tuviera de esa ruta era de otro plano (u otro archivo): se vuelve a dar desde este.
+    if (sum.has(x.ruta)) soltar(x.ruta);
     const w = r.result && r.result.crs_warning;
-    if (w && !e.avisoCrs) {
-      e.avisoCrs = true;
+    if (w && !st.avisoCrs) {
+      st.avisoCrs = true;
       aviso(`La imagen está en EPSG:${w.image_epsg} y el plano en EPSG:${w.drawing_epsg.join(", ")}. Revisa que sean el mismo sistema.`, "aviso");
     }
-    await refrescar();
+    await refrescar(st);
     if (!x.enCarpeta && C.soportaRecordar() && $("cad-local-ins-vincular").checked && x.handle) {
-      try { e.guardadas = await C.vincular(CLAVE, { agregar: true, inicio: x.handle }); await usar(e.guardadas); } catch (_) { /* la persona canceló */ }
+      try { st.guardadas = await C.vincular(st.clave, { agregar: true, inicio: x.handle }); await usar(st, st.guardadas); } catch (_) { /* la persona canceló */ }
     }
   }
 
@@ -550,7 +672,7 @@
     acc.className = "cad-local__acciones";
     const boton = (texto, fn, titulo2) => { const x = document.createElement("button"); x.type = "button"; x.className = "tv-boton tv-boton--secundario cad-local__chico"; x.textContent = texto; if (titulo2) x.title = titulo2; x.addEventListener("click", fn); acc.append(x); };
     if (p && p.corriendo) boton("Detener", () => detenerPiramide(ruta));
-    else if (p && p.detenida) boton("Continuar", () => { e.piramides.delete(ruta); piramide(ruta); });
+    else if (p && p.detenida) boton("Continuar", () => { e.piramides.delete(ruta); piramide(e, ruta); });
     if (tipo === "imagen" && extra !== undefined) {
       const im = e.refs.images.find((x) => x.path === ruta);
       if (im) {
@@ -669,7 +791,7 @@
     clic("cad-local-permitir", permitir);
     clic("cad-aviso-local-permitir", permitir);
     clic("cad-local-desvincular", desvincular);
-    clic("cad-local-buscar", async () => { if (e.raices.length) await usar(e.raices); });
+    clic("cad-local-buscar", async () => { if (e.raices.length) await usar(e, e.raices); });
     clic("cad-local-insertar-boton", elegirParaInsertar);
     clic("cad-menu-insertar-imagen", elegirParaInsertar);
     clic("cad-local-ins-ir", insertar);
@@ -677,7 +799,7 @@
       "Son copias reducidas de las ortofotos, guardadas solo en esta computadora para abrirlas rápido. Se vuelven a preparar al abrir cada una.",
       "Borrar", async () => { await pool.pedir({ tipo: "borrar_piramides" }).promesa; e.piramides.clear(); aviso("Se borraron las vistas generales de este navegador.", "info"); }));
     const entrada = $("cad-local-entrada");
-    if (entrada) entrada.addEventListener("change", () => { if (entrada.files.length) usar([C.desdeEntrada(entrada.files)]); entrada.value = ""; });
+    if (entrada) entrada.addEventListener("change", () => { if (entrada.files.length) usar(e, [C.desdeEntrada(entrada.files)]); entrada.value = ""; });
     const img = $("cad-local-imagen");
     if (img) img.addEventListener("change", () => { if (img.files.length) desdeEntradaImagen(img.files); img.value = ""; });
     const zona = $("cad-referencias");
@@ -686,34 +808,67 @@
       zona.addEventListener("dragleave", () => zona.classList.remove("cad-local--soltar"));
       zona.addEventListener("drop", async (ev) => {
         ev.preventDefault(); zona.classList.remove("cad-local--soltar");
+        const st = e;
         const raiz = await C.desdeSoltar(ev.dataTransfer);
         if (!raiz) return aviso("Suelta una carpeta, no archivos sueltos.");
         if (raiz.handle && C.soportaRecordar()) {
-          e.guardadas = await C.agregar(CLAVE, raiz.handle);
-          if (!(await C.permitir(e.guardadas))) return pintarCarpeta();
+          st.guardadas = await C.agregar(st.clave, raiz.handle);
+          if (!(await C.permitir(st.guardadas))) return pintarCarpeta();
         }
-        await usar(raiz.handle ? e.guardadas.filter((x) => x.handle) : [...e.raices, raiz]);
+        await usar(st, raiz.handle ? st.guardadas.filter((x) => x.handle) : [...st.raices, raiz]);
       });
     }
     document.addEventListener("visibilitychange", () => { if (!document.hidden) planear(true); });
-    window.TVCad.on("cargado", () => { e.res.clear(); e.sum.clear(); e.xrefsDadas.clear(); e.vueltasXref = 0; refrescar(); });
-    window.TVCad.on("cambio", () => setTimeout(refrescar, 300));
-    $("cad-boton-referencias") && $("cad-boton-referencias").addEventListener("click", () => refrescar());
+    // La pestaña activa (al abrir el plano, al cambiar de pestaña, al reabrirlo tras tomar el control o restaurar una versión).
+    window.TVCad.on("cargado", (d) => {
+      const id = d && d.plano && d.plano.id;
+      if (!id) return;
+      const st = estadoDe(id);
+      documentoDe(st, d.documento);
+      e = st;
+      const msj = $("cad-local-mensaje"); if (msj) msj.hidden = true;
+      pintarCarpeta();
+      pintarPanel();
+      if (st.usarAlVolver) usar(st, st.guardadas).catch((err) => console.warn("CAD: carpeta del proyecto", err));
+      else refrescar(st);
+    });
+    // Las demás pestañas: su carpeta se mira al abrirlas (sin pedir nada) y lo suyo se suelta al cerrarlas.
+    window.TVCad.on("pestana", (d) => {
+      const id = d && d.plano && d.plano.id;
+      if (!id) return;
+      if (d.accion === "cerrada") { alCerrar(id); return; }
+      documentoDe(estadoDe(id), d.documento);
+      if (e) pintarAviso();
+    });
+    window.TVCad.on("cambio", () => setTimeout(() => refrescar(e), 300));
+    $("cad-boton-referencias") && $("cad-boton-referencias").addEventListener("click", () => refrescar(e));
+  }
+  // Un documento nuevo del editor para ese plano (se reabrió): sus dibujos de referencia se le vuelven a dar.
+  function documentoDe(st, documento) {
+    if (!documento || st.documento === documento) return;
+    st.documento = documento;
+    st.xrefsDadas.clear(); st.vueltasXref = 0;
   }
 
+  e = estadoDe(config.id);
   enganchar();
   pintarCarpeta();
-  cargarGuardadas().catch((err) => console.warn("CAD: carpeta del proyecto", err));
-  window.TVCad.listo.then(() => refrescar());
 
   // Para las pruebas y el diagnóstico (nada de esto sale de la computadora).
   window.TVCadLocal = Object.freeze({
+    // De la pestaña activa; `suministradas` son las de este plano y `editor`, todo lo que el editor tiene (de todas las pestañas).
     estado: () => ({
+      plano: e.plano,
+      documento: e.documento,
       raices: e.raices.map((r) => r.nombre || (r.handle && r.handle.name)),
+      permisoPendiente: e.permisoPendiente,
       resueltas: [...e.res.entries()].map(([ruta, r]) => ({ ruta, estado: r.estado, archivo: r.entrada && r.entrada.ruta, error: r.error || null })),
-      suministradas: [...e.sum.entries()].map(([ruta, s]) => ({ ruta, base: s.base, detalle: s.detalle && { rect: s.detalle.rect, w: s.detalle.w, h: s.detalle.h } })),
+      suministradas: [...sum.entries()].filter(([, s]) => s.st === e).map(([ruta, s]) => ({ ruta, base: s.base, detalle: s.detalle && { rect: s.detalle.rect, w: s.detalle.w, h: s.detalle.h } })),
       piramides: [...e.piramides.entries()].map(([ruta, p]) => ({ ruta, progreso: p.progreso, corriendo: !!p.corriendo, segundos: p.segundos || null, error: p.error || null })),
+      editor: [...sum.entries()].filter(([, s]) => s.base).map(([ruta, s]) => ({ ruta, plano: s.st.plano, base: s.base, detalle: !!s.detalle })),
+      planos: [...planos.values()].map((st) => ({ plano: st.plano, documento: st.documento, raices: st.raices.length, guardadas: st.guardadas.length,
+        permisoPendiente: st.permisoPendiente, resueltas: st.res.size })),
     }),
-    usar, refrescar, vincular,
+    usar: (raices) => usar(e, raices), refrescar: () => refrescar(e), vincular,
   });
 })();
