@@ -740,6 +740,19 @@ def test_preparar_editor_comprueba_el_sha256_y_pone_nuestra_pagina(tmp_path):
         prep.obtener({"archivo": "web.zip", "sha256": "0" * 64, "bytes": falso["web"]["bytes"]}, tmp_path / "cache2", zip_ruta)
 
 
+def test_preparar_acepta_huellas_de_trunk_de_15_cifras():
+    """Trunk escribe la huella sin ceros a la izquierda: una de cada 16 compilaciones sale con 15 cifras (pasó el 18-11-2026)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("preparar", Path(editor.__file__).parent / "preparar.py")
+    prep = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prep)
+    index = ("import init, * as b from '/app/OpenCADStudio-e31267fac2266620.js';"
+             "await init({ module_or_path: '/app/OpenCADStudio-b22ed88556f2bb2_bg.wasm' });")
+    assert prep._nombres_de_arranque(index) == ("OpenCADStudio-e31267fac2266620.js", "OpenCADStudio-b22ed88556f2bb2_bg.wasm")
+    assert editor.CON_HASH.search("OpenCADStudio-b22ed88556f2bb2_bg.wasm") and not editor.CON_HASH.search("arranque.js")
+
+
 def test_preparar_baja_del_repositorio_privado_con_gh_y_comprueba_el_hash(tmp_path, monkeypatch):
     """La versión corregida del editor vive en un repositorio privado: se baja con la sesión de gh de la Mac y se comprueba igual."""
     import hashlib

@@ -107,8 +107,8 @@ def obtener(pieza: dict, cache: Path, local: Path | None = None) -> Path:
 
 
 def _nombres_de_arranque(index_oficial: str) -> tuple[str, str]:
-    js = re.search(r"from\s+'/app/(OpenCADStudio-[0-9a-f]{16}\.js)'", index_oficial)
-    wasm = re.search(r"module_or_path:\s*'/app/(OpenCADStudio-[0-9a-f]{16}_bg\.wasm)'", index_oficial)
+    js = re.search(r"from\s+'/app/(OpenCADStudio-[0-9a-f]{12,16}\.js)'", index_oficial)
+    wasm = re.search(r"module_or_path:\s*'/app/(OpenCADStudio-[0-9a-f]{12,16}_bg\.wasm)'", index_oficial)
     if not js or not wasm:
         sys.exit("FALLA: la página oficial ya no tiene la forma conocida (cargador de Trunk). Revisa arranque.js con la versión nueva.")
     return js.group(1), wasm.group(1)
