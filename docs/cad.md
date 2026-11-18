@@ -54,7 +54,11 @@ La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` d
   `openCadStudioSaveFile` o `ocs:save`. Todo termina en `POST /cad/<id>/guardar/` con el bloqueo de esta página y la versión de base: si el
   plano cambió o se perdió el bloqueo, responde 409 y se ofrece «Guardar como copia». Nada se pisa.
 - «Sin guardar» sale de la revisión del dibujo en el editor (`op: state`, cada segundo) contra la del último guardado.
-- Bloqueo con latido (30 s; caduca a los 90), borrador de recuperación cada 2 minutos con cambios, sin el aviso «¿Abandonar el sitio?».
+- Bloqueo con latido (60 s; caduca a los 150: un navegador deja latir una pestaña en segundo plano una vez por minuto). Borrador de
+  recuperación solo si algo cambió desde el anterior: a lo más uno cada 2 minutos mientras hay cambios y al pasar la app a segundo plano;
+  mirar el plano nunca manda borradores. Sin el aviso «¿Abandonar el sitio?».
+- **Lo que se sube** (guardar, copia, borrador) va con gzip si así pesa al menos un 10 % menos (`Content-Encoding: gzip`, `cad/sesion.js`):
+  el servidor lo descomprime de a 1 MB con el límite sobre lo descomprimido y guarda el plano tal cual.
 - En el teléfono (pantalla ≤ 767 px y puntero táctil) los planos se abren para ver, salvo con el «Modo táctil» encendido (abajo).
 - **Si no se puede guardar** (biblioteca llena, plano demasiado grande, servidor caído, sin red) el aviso ofrece «Descargar mis cambios»
   (también en la hoja de conflicto): los bytes del editor bajan a este equipo con el nombre del plano. Nada se da por guardado.
@@ -203,13 +207,110 @@ la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` 
   Al cambiar la versión fijada se baja solo lo que cambió (lo de igual SHA-256 se copia de la versión anterior) y la anterior se borra. La
   versión instalada se lee de la propia caché: también sin conexión. Las páginas de campo que no usan CAD nunca bajan el editor.
 - **El service worker** (`offline/sw_cad.js`, agregado por `sw.py` solo con el ajuste) sirve el editor descargado, abre la página sin
-  conexión al navegar a `/cad/…` sin señal y sus estilos y scripts desde `itt-cad-pagina`. Nunca guarda planos ni páginas con datos.
+  conexión al navegar a `/cad/…` sin señal, sus estilos y scripts desde `itt-cad-pagina` y el panel de Civil desde `itt-cad-pagina-civil`.
+  Nunca guarda planos ni páginas con datos; esas cachés las llena la página.
+- **Con conexión, desde el teléfono**: abrir un plano «Disponible sin conexión» no lo baja (ver «Datos móviles»). La cabecera dice
+  «Desde el teléfono»; si había una versión nueva, se baja una vez, reemplaza la copia y se dice: «Había una versión nueva (la N): se
+  descargó y quedó en el teléfono.» Con cambios, una copia de ellos queda en el teléfono a los 2 s (a lo más cada 10 s): si la app se
+  cierra, al volver se ofrecen como «Tienes cambios sin guardar del …» y recuperarlos no baja nada; la página sin conexión también los abre.
 - **«Disponible sin conexión» por plano** (base `tv-cad-campo` de IndexedDB, de la cuenta): llevarlo **no** toma el bloqueo. Sin conexión
   se ve, se mide y se dibuja en `/cad/sin-conexion/`; lo cambiado queda como «cambios en el teléfono», nunca una versión. Con conexión:
   versión nueva solo si la del servidor sigue siendo la base y nadie tiene el bloqueo; si no, una copia. El servidor lo exige igual.
+- **Perfiles corporativos**: los planos son una sola biblioteca de la empresa para los dos perfiles (desde 1.2.17 solo las cotizaciones, los
+  reportes y los croquis son de un perfil). Las copias del teléfono son de la cuenta (cada registro lleva `cuenta` y solo se leen los de
+  la cuenta con sesión), igual en cualquier perfil.
 - **Cerrar sesión**: las copias de planos se borran; los cambios sin subir no se pierden sin avisar (se ofrece descargarlos; si se sale
   igual, quedan ocultos en el teléfono hasta que vuelva a entrar la misma cuenta). Con la sesión cerrada la página sin conexión no muestra
   nada. Al quitar el CAD del teléfono se borra el editor; un plano con cambios sin subir no se puede quitar.
+
+## Datos móviles (17-11-2026)
+
+Pedido del dueño: con la app instalada, el CAD descargado y un plano «Disponible sin conexión», usar ese plano con conexión (datos móviles)
+no debe gastar datos. **Objetivo: ≤ 30 KB por apertura (abrir y cerrar) y ≤ 2 KB por minuto abierto**, sin importar el tamaño del plano
+ni del editor. Sin conexión, 0 bytes.
+
+**Cómo se mide** (`pruebas_navegador/test_cad_datos_moviles_navegador.py`, permanente): la app instalada en un teléfono (perfil que se
+guarda, 375 × 812, toque) habla con el servidor de pruebas solo a través de `contador_bytes.ContadorBytes`, un proxy que cuenta los bytes
+en el cable en los dos sentidos por petición (método, ruta, estado, bytes pedidos y recibidos). Hace lo que Caddy en producción: gzip de lo
+comprimible, el `.gz` del editor, `immutable` para los estáticos con huella. Cuenta HTTP/1.1 con todas sus cabeceras (~1.3–1.7 KB por
+petición, la cookie incluida): en producción va HTTP/2 o HTTP/3, que comprime las cabeceras repetidas, así que lo de allá es menos.
+Playwright (`request.sizes()`, `response.from_service_worker`) lo cruza. Chromium y WebKit; plano DXF sintético de 1.2 MB con dos
+presentaciones con ventanas. La prueba falla si (b), (c), el reabrir de (e) y de (f) pasan del objetivo, o si (g) manda algo.
+`ITT_DATOS_CAD=<carpeta>` deja la tabla medida (JSON y Markdown, con el detalle por petición).
+
+| Escenario | Antes · Chromium | Antes · WebKit | Después · Chromium | Después · WebKit |
+| --- | ---: | ---: | ---: | ---: |
+| (a) Primera vez: bajar el CAD y llevar el plano | 78.6 MB | 110.1 MB | 45.9 MB | 108.8 MB |
+| (b) Abrir con conexión + cerrar | 1.2 MB | 1.2 MB | 23.4 KB | 25.9 KB |
+| (b) Por minuto abierto (2 min mirando) | 3.3 KB | 3.0 KB | 1.6 KB | 1.5 KB |
+| (c) Reabrir + cerrar | 1.2 MB | 1.2 MB | 23.4 KB | 25.9 KB |
+| (c) Por minuto abierto | 3.3 KB | 3.0 KB | 1.6 KB | 1.5 KB |
+| (d) Abrir | 1.2 MB | 1.2 MB | 20.7 KB | 24.4 KB |
+| (d) 5 objetos en 3 min (borradores y latidos) | 2.0 MB | 2.0 MB | 113.9 KB | 122.7 KB |
+| (d) Guardar la versión | 4.1 MB | 4.1 MB | 107.8 KB | 118.1 KB |
+| (e) Primera apertura con el editor nuevo | 33.6 MB | 33.6 MB | 38.2 KB | 40.2 KB |
+| (e) Reabrir + cerrar | 2.1 MB | 2.1 MB | 22.4 KB | 26.0 KB |
+| (f) Abrir con la versión de otra cuenta + cerrar | 4.1 MB | 4.1 MB | 2.1 MB | 2.1 MB |
+| (f) Reabrir + cerrar | 2.1 MB | 2.1 MB | 22.4 KB | 26.1 KB |
+| (g) Modo avión: abrir, mover, acercar, presentación | 10.4 KB | 0 B | 0 B | 0 B |
+| (h) Plano NO llevado: abrir + cerrar | 1.2 MB | 1.2 MB | 1.2 MB | 1.2 MB |
+| (h) Por minuto abierto | 3.3 KB | 3.0 KB | 1.6 KB | 1.5 KB |
+
+Medido el 17-11-2026 (antes: `origin/web` 52b0bcc; después: esta rama), HTTP/1.1, KB = 1024 bytes. «Abrir + cerrar» incluye la búsqueda
+de versión del service worker que el navegador hace por su cuenta después de abrir la página (una por página). El plano pesa 1.2 MB (2.1 MB
+desde que el editor lo guarda en (d)). Notas:
+- **(a)** es una sola vez y el editor es casi todo: Chromium 46 MB; WebKit 109 MB porque su primera carga del editor pide el `.wasm`
+  principal dos veces (el cargador del editor) y la descarga no reusa lo que su navegador ya tenía (tres veces 33 MB). Queda para el
+  editor; la hoja dice «Mejor con wifi».
+- **(d)** el borrador y el guardado son el plano con gzip: 2 MB → ~110 KB (DXF). Un DWG casi no se comprime.
+- **(e)** de 33.6 MB a ~40 KB: solo el archivo que cambió (1 KB), la lista del paquete y la página sin conexión otra vez.
+- **(f)** la versión nueva se baja una vez (2.1 MB, antes dos veces) y luego vuelve a ~25 KB.
+- **(g)** antes, en Chromium, salía la búsqueda de versión del service worker (Playwright no la corta con `set_offline`); ahora la red se
+  corta también en el proxy y no llega nada en ninguno de los dos.
+
+**Qué gastaba y por qué** (antes):
+- **El plano se bajaba entero en cada apertura** (1.2 MB del de prueba): la página del plano siempre pedía `/cad/<id>/archivo/`; la copia
+  del teléfono solo la usaba la página sin conexión.
+- **Y otra vez después**: al abrir, `campo.js` pedía `estado` (con la lista de versiones) para poner al día la copia, y tras cada guardado o
+  versión nueva la bajaba de nuevo entera ((d) y (f): el doble del plano).
+- **La página sin conexión se volvía a guardar en cada apertura** (su HTML, el manifiesto y `perfil.css`, ~12 KB).
+- **La página del plano pesaba ~30 KB comprimida**, más de la mitad el panel de Civil, que es igual para todos los planos.
+- **El service worker en cada página** (~17 KB en WebKit, ~5 KB en Chromium): al abrir cada página de la app el navegador vuelve a pedir
+  `sw.js` para ver si hay versión nueva. `sw.js` no tenía ETag (nunca era un 304) y WebKit, además, pide entero, sin preguntar si cambió,
+  `sw.js` y los tres scripts que importa (la cola, tus y el subidor).
+- **Latido cada 30 s** (~1.7 KB cada uno en HTTP/1.1): 3.3 KB por minuto solo por tener el plano abierto.
+- **Borradores**: cada 2 minutos mientras había cambios, aunque no hubiera nada nuevo desde el anterior, y sin comprimir (un DXF de 2 MB).
+- **Editor nuevo**: el marco abría la versión nueva entera de la red (33 MB) mientras, aparte, se bajaba solo lo que cambió.
+- **Primera vez**: el editor llegaba dos veces (el marco y la descarga, que pedía todo sin usar lo que el navegador ya tenía) y el plano
+  también (al abrirlo y al llevarlo).
+- **Sin conexión** no salía nada de la página; lo único que se veía en el cable era la búsqueda de versión del service worker, que hace el
+  navegador por su cuenta (Playwright no la corta con `set_offline`; en modo avión de verdad falla sin costo). La prueba ahora corta
+  también la red en el proxy.
+
+**Qué hace ahora** (con conexión, plano en el teléfono):
+- **El plano no se baja.** `editor.js` pregunta `GET /cad/<id>/archivo/` con `If-None-Match: "<SHA-256 de la copia>"` (el teléfono lo
+  calcula de su copia; `ETag` de la versión es su SHA-256): 304 sin cuerpo y se abre la copia del teléfono, con «Desde el teléfono» en la
+  cabecera. Si hay otra versión, llega una vez (200), reemplaza la copia y se dice «Había una versión nueva (la N): se descargó y quedó
+  en el teléfono.» La respuesta del servidor manda: nunca se abre una versión vieja sin decirlo. La pregunta pide la misma sesión y el
+  mismo rol que bajar el plano. Una versión restaurada con el mismo archivo es 304 con su número nuevo.
+- **Guardar** una versión deja esos mismos bytes como la copia del teléfono (no se baja nada después) y sube el plano una vez, con gzip
+  si conviene. **Llevar** un plano al teléfono desde su página usa los bytes recién abiertos.
+- **Borradores**: la copia de los cambios queda en el teléfono a los 2 s (sin red); el borrador del servidor sale solo si algo cambió desde
+  el anterior, a lo más cada 2 minutos y al pasar la app a segundo plano, con gzip si conviene (un DXF baja a una décima parte; un DWG ya
+  viene comprimido). Al cerrar la app, lo último está en el teléfono y se ofrece al volver sin bajar nada. Delta no: un DWG cambia por
+  secciones comprimidas y el editor reescribe el archivo entero al guardar, así que un parche no sería más chico que el gzip y sería frágil.
+- **Latido** cada 60 s (antes 30) y bloqueo de 150 s (antes 90), como un navegador deja latir una pestaña en segundo plano; quien solo mira
+  y quien vigila un plano ajeno usan `estado?ligero=1` (sin la lista de versiones).
+- **La página**: el panel de Civil (~16 KB comprimidas, igual para todos) llega aparte una vez por versión (docs/civil.md); la página sin
+  conexión se vuelve a guardar solo cuando cambia su huella (`tactil.pagina`, en la configuración de la página del plano); el editor nuevo
+  se baja **antes** de abrir el marco y solo lo que cambió, y la primera descarga usa lo que el navegador ya trajo al abrir el plano
+  (Chromium; WebKit no lo reusa).
+- **El service worker** (docs/pwa.md): `sw.js` lleva `ETag` (Chromium recibe un 304), se sirve sin sus líneas de comentario y solo importa
+  la cola, tus y el subidor donde hay Background Sync (Android): WebKit, que no lo tiene, los bajaba enteros en cada página.
+
+Lo que sigue viajando en cada apertura (lo que debe ir al servidor): la página del plano (sus datos: versión vigente, bloqueo, borrador),
+la pregunta de versión (304), tomar y soltar el bloqueo, `perfil.css` (los colores del perfil, red primero) y, si el navegador la busca, la
+versión del service worker (304; WebKit pide `sw.js` entero, ~6 KB, y también el manifiesto). Por minuto: un latido.
 
 ## Espacio, archivos que faltan y autoría
 
@@ -284,4 +385,7 @@ Python. Un proceso por trabajo: la memoria se libera completa. El AppImage se ex
 uv run pytest itt_herramientas/pruebas/test_cad.py                    # unitarias, con un motor de prueba que habla el mismo protocolo
 TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
   uv run pytest itt_herramientas/pruebas_navegador/test_cad_navegador.py -k "not webkit"   # luego -k webkit; un navegador a la vez
+uv run pytest itt_herramientas/pruebas/test_cad_datos_moviles.py                         # ETag/304, gzip, latido, panel de Civil, sw.js
+TV_CAD_TACTIL=1 ITT_DATOS_CAD=/tmp/datos uv run pytest \
+  itt_herramientas/pruebas_navegador/test_cad_datos_moviles_navegador.py -k chromium      # «Datos móviles», ~10 min por motor (tiempo real)
 ```
