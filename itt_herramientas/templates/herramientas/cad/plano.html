@@ -17,12 +17,14 @@
 <details class="cad-menu" id="cad-menu">
   <summary class="tv-boton tv-boton--secundario tv-boton--icono" data-tv-tooltip="Más acciones">{% icono "ellipsis" etiqueta="Más acciones" %}</summary>
   <div class="cad-menu__lista" role="group" aria-label="Más acciones">
+    {% if config.pestanas and editor_listo %}<button type="button" id="cad-menu-abrir-otro">{% icono "folder-open" %}<span>Abrir otro plano</span></button>
+    {% if puede_editar %}<button type="button" id="cad-guardar-todo-boton" disabled>{% icono "save-all" %}<span id="cad-guardar-todo-texto">Guardar todo</span><kbd class="tv-tecla cad-tecla" data-tv-tecla-cmd>Ctrl Mayús S</kbd></button>{% endif %}{% endif %}
     <a href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1{% if v %}&version={{ v.numero }}{% endif %}" id="cad-descargar">{% icono "download" %}<span>Descargar {% if v %}{{ v.formato|upper }}{% else %}{{ p.formato|upper }}{% endif %}</span></a>
     {% if nativo %}<button type="button" id="cad-convertir" data-formato="{% if v %}{% if v.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% else %}{% if p.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% endif %}">{% icono "file-output" %}<span>Descargar como {% if v %}{% if v.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% else %}{% if p.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% endif %}</span></button>{% endif %}
     {% if drive %}<button type="button" id="cad-drive">{% icono "hard-drive-upload" %}<span>Enviar a Google Drive</span></button>{% endif %}
     {% if puede_editar %}
     <button type="button" data-tv-abrir="cad-renombrar">{% icono "pencil" %}<span>Renombrar</span></button>
-    <form method="post" action="{% url 'herramientas:cad_duplicar' p.pk %}">{% csrf_token %}<button type="submit">{% icono "copy" %}<span>Duplicar</span></button></form>
+    <form method="post" action="{% url 'herramientas:cad_duplicar' p.pk %}" id="cad-form-duplicar">{% csrf_token %}<button type="submit">{% icono "copy" %}<span>Duplicar</span></button></form>
     {% endif %}
     {% if puede_eliminar %}<button type="button" class="cad-menu__peligro" data-tv-abrir="cad-eliminar">{% icono "trash-2" %}<span>Eliminar</span></button>{% endif %}
   </div>
@@ -48,6 +50,11 @@
     <div class="cad-aviso__acciones" id="cad-aviso-error-acciones" hidden><button type="button" class="tv-boton tv-boton--secundario" data-cad-descargar-cambios>{% icono "download" %}<span>Descargar mis cambios</span></button></div></div>
 </div>
 {% if editor_listo %}
+{% if config.pestanas %}{# Varios planos en la misma ventana del editor (docs/cad.md, «Varios planos en una ventana»): una pestaña por plano. #}
+<div class="cad-pestanas" id="cad-pestanas" hidden>
+  <div class="cad-pestanas__lista" id="cad-pestanas-lista" role="tablist" aria-label="Planos abiertos"></div>
+  <button type="button" class="tv-boton tv-boton--fantasma tv-boton--icono cad-pestanas__abrir" id="cad-abrir-otro" data-tv-tooltip="Abrir otro plano">{% icono "plus" etiqueta="Abrir otro plano" %}</button>
+</div>{% endif %}
 {# Lugar para las extensiones de la página (p. ej. «Civil»): lo llenan con window.TVCad.barra() (static/herramientas/cad/control.js). #}
 <div class="cad-extensiones" id="cad-extensiones" role="toolbar" aria-label="Herramientas adicionales" hidden></div>
 <div class="cad-lienzo" id="cad-lienzo">
@@ -105,7 +112,7 @@
 {% endif %}
 {% if puede_eliminar %}
 <dialog id="cad-eliminar" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-eliminar-titulo">
-  <form method="post" action="{% url 'herramientas:cad_eliminar' p.pk %}" class="tv-hoja__cuerpo">{% csrf_token %}
+  <form method="post" action="{% url 'herramientas:cad_eliminar' p.pk %}" class="tv-hoja__cuerpo" id="cad-form-eliminar">{% csrf_token %}
     <div class="tv-hoja__asa" aria-hidden="true"></div>
     <h2 id="cad-eliminar-titulo">¿Eliminar «{{ p.nombre }}»?</h2>
     <p>Se mueve a la papelera con todas sus versiones. Se puede restaurar durante 30 días.</p>
@@ -135,7 +142,8 @@
 <dialog id="cad-salir" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-salir-titulo">
   <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
     <h2 id="cad-salir-titulo">Tienes cambios sin guardar</h2>
-    <p>Guárdalos como versión nueva antes de salir.</p>
+    <p id="cad-salir-texto">Guárdalos como versión nueva antes de salir.</p>
+    <ul class="cad-salir__lista" id="cad-salir-lista" hidden></ul>
     <div class="tv-hoja__acciones cad-salir__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Seguir editando</button>
       <button type="button" class="tv-boton tv-boton--fantasma" id="cad-salir-sin">Salir sin guardar</button>
       <button type="button" class="tv-boton" id="cad-salir-guardar">{% icono "save" %}<span>Guardar y salir</span></button></div>
@@ -149,8 +157,36 @@
     <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton" id="cad-perdida-seguir">{% icono "file-output" %}<span>Descargar de todos modos</span></button></div>
   </div>
 </dialog>
+{% if config.pestanas and editor_listo %}
+<dialog id="cad-cerrar" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-cerrar-titulo">
+  <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="cad-cerrar-titulo">¿Guardar los cambios?</h2>
+    <p id="cad-cerrar-texto">Si cierras sin guardar, los cambios no quedan en la biblioteca.</p>
+    <div class="tv-hoja__acciones cad-salir__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button>
+      <button type="button" class="tv-boton tv-boton--fantasma" id="cad-cerrar-sin">Cerrar sin guardar</button>
+      <button type="button" class="tv-boton" id="cad-cerrar-guardar">{% icono "save" %}<span>Guardar y cerrar</span></button></div>
+  </div>
+</dialog>
+<dialog id="cad-guardar-todo" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-guardar-todo-titulo">
+  <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="cad-guardar-todo-titulo">Guardar todo</h2>
+    <ul class="cad-guardar-todo" id="cad-guardar-todo-lista"></ul>
+    <div class="tv-hoja__acciones"><button type="button" class="tv-boton" data-tv-cerrar>Listo</button></div>
+  </div>
+</dialog>
+{% hoja_inferior "cad-elegir" titulo="Abrir otro plano" %}
+<form class="cad-elegir__buscar" id="cad-elegir-form" role="search" aria-label="Buscar planos">
+  <div class="cad-buscador">{% icono "search" %}<label for="cad-elegir-q" class="tv-solo-lectores">Buscar</label><input id="cad-elegir-q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar por nombre, proyecto o persona"></div>
+</form>
+<div class="cad-elegir__carpetas" id="cad-elegir-carpetas" role="group" aria-label="Proyecto o cliente" hidden></div>
+<ul class="cad-elegir__lista" id="cad-elegir-lista" aria-live="polite"></ul>
+<p class="tv-tenue cad-elegir__estado" id="cad-elegir-estado" role="status"></p>
+<div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" id="cad-elegir-mas" hidden>Ver más</button><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cerrar</button></div>
+<p class="tv-tenue cad-hoja-nota">Cada plano se abre en su pestaña, con su propio Guardar y sus versiones. Hasta {{ config.pestanas.max }} a la vez.</p>
+{% endhoja_inferior %}
+{% endif %}
 {% if tactil and editor_listo %}{% include "herramientas/cad/tactil.html" %}{% endif %}
-<div id="cad-iconos" hidden><span data-cad-icono="eye">{% icono "eye" %}</span><span data-cad-icono="download">{% icono "download" %}</span><span data-cad-icono="rotate-ccw">{% icono "rotate-ccw" %}</span></div>
+<div id="cad-iconos" hidden><span data-cad-icono="x">{% icono "x" %}</span><span data-cad-icono="lock">{% icono "lock" %}</span><span data-cad-icono="circle-check">{% icono "circle-check" %}</span><span data-cad-icono="triangle-alert">{% icono "triangle-alert" %}</span><span data-cad-icono="eye">{% icono "eye" %}</span><span data-cad-icono="download">{% icono "download" %}</span><span data-cad-icono="rotate-ccw">{% icono "rotate-ccw" %}</span></div>
 {% csrf_token %}
 {% endblock %}
 {% block pie %}{% endblock %}

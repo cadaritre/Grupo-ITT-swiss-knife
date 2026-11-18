@@ -218,6 +218,31 @@ def _urls(p: Plano) -> dict:
     return urls
 
 
+#: Planos abiertos a la vez en la ventana del editor (pestañas). Medido el 18-11-2026 (docs/cad.md, «Varios planos en una ventana»): el
+#: editor web vive en una memoria de 4 GB como máximo y no la devuelve al cerrar una pestaña. Un levantamiento de 4 MB toma ~0.11 GB; uno
+#: de 59 MB (50 000 puntos) subió la memoria a 2.6 GB. Ocho pestañas, y entre todas a lo más 64 MB de planos: cabe el plano más grande que
+#: acepta la biblioteca (50 MB) con siete normales, y nunca dos de los grandes.
+PESTANAS_MAX = 8
+PESTANAS_BYTES = 64 * 1024 * 1024
+
+
+def _datos_plano(request, p: Plano, v: VersionPlano | None = None) -> dict:
+    """Lo de un plano que la página del editor necesita para abrirlo (en su pestaña): permisos, borrador, direcciones, la cabecera."""
+    usuario = request.user
+    puede = servicio.puede_editar(usuario)
+    borrador = servicio.borrador_de(p, usuario.pk) if puede and v is None else None
+    return {
+        "id": str(p.pk), "nombre": p.nombre, "formato": p.formato, "revision": p.revision, "proyecto": p.proyecto,
+        "version": v.numero if v else None, "version_formato": v.formato if v else p.formato,
+        "puede_editar": puede and v is None, "puede_eliminar": servicio.puede_eliminar(usuario, p), "rol_lectura": not puede,
+        "borrador": {"actualizado": borrador.actualizado.isoformat(), "revision_base": borrador.revision_base, "bytes": borrador.bytes,
+                     "formato": borrador.formato} if borrador else None,
+        "urls": _urls(p),
+        "modificado_por": p.modificado_por_nombre, "actualizado": p.actualizado.isoformat(), "autor": p.autor_nombre,
+        "creado": p.creado.isoformat(), "bytes": p.bytes,
+    }
+
+
 @ver
 @require_GET
 def plano(request, pk):
@@ -228,14 +253,10 @@ def plano(request, pk):
     puede = servicio.puede_editar(usuario)
     # Sin respaldo de planos: si el archivo que se pide no está, la página lo dice en lugar de abrir un editor vacío.
     sin_archivo = not servicio.archivo_disponible(v or servicio.version_vigente(p))
-    borrador = servicio.borrador_de(p, usuario.pk) if puede and v is None else None
     config = {
-        "id": str(p.pk), "nombre": p.nombre, "formato": p.formato, "revision": p.revision, "proyecto": p.proyecto,
-        "version": v.numero if v else None, "version_formato": v.formato if v else p.formato,
-        "puede_editar": puede and v is None, "es_admin": servicio.es_admin(usuario), "rol_lectura": not puede,
-        "borrador": {"actualizado": borrador.actualizado.isoformat(), "revision_base": borrador.revision_base, "bytes": borrador.bytes,
-                     "formato": borrador.formato} if borrador else None,
-        "urls": _urls(p), "limite_bytes": servicio.limites()["bytes"],
+        **_datos_plano(request, p, v),
+        "es_admin": servicio.es_admin(usuario),
+        "limite_bytes": servicio.limites()["bytes"],
         # Borrador de recuperación cada 2 minutos con cambios; latido del bloqueo cada 60 s (caduca a los 150: un navegador deja latir una
         # pestaña en segundo plano una vez por minuto). Las pruebas los acortan. Ver docs/cad.md, «Datos móviles».
         "autoguardado_s": int(getattr(settings, "HERRAMIENTAS_CAD_AUTOGUARDADO_S", 120)), "latido_s": int(getattr(settings, "HERRAMIENTAS_CAD_LATIDO_S", 60)),
@@ -243,7 +264,13 @@ def plano(request, pk):
         "fuentes": fuentes.para_editor(),
         # Modo táctil (teléfono y tableta): solo con el ajuste TV_CAD_TACTIL encendido; si no, `None` y la página es la de siempre.
         "tactil": tactil.config_de_pagina(request),
+        # Varios planos en la misma ventana (pestañas): en la computadora, con la versión vigente (docs/cad.md, «Varios planos»).
+        "pestanas": {"max": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_MAX", PESTANAS_MAX)),
+                     "bytes": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_BYTES", PESTANAS_BYTES)), "pestana": reverse("herramientas:cad_pestana", args=[MARCA]),
+                     "elegir": reverse("herramientas:cad_elegir"), "desde_editor": reverse("herramientas:cad_desde_editor")} if v is None else None,
     }
+    if config["pestanas"]:
+        config["versiones"] = _versiones(p)
     return _privado(render(request, "herramientas/cad/plano.html", {
         "p": p, "v": v, "config": config, "versiones": _versiones(p), "puede_editar": puede, "es_admin": servicio.es_admin(usuario),
         "puede_eliminar": servicio.puede_eliminar(usuario, p), "papeles": nativo.PAPELES, "papel": nativo.PAPEL_POR_OMISION,
@@ -254,6 +281,50 @@ def plano(request, pk):
         # Civil (topografía) solo dibuja: aparece para quien puede editar, en la versión vigente y con el editor disponible.
         "civil": civil_pagina.contexto(p) if puede and v is None and editor.disponible() and not sin_archivo else None,
         "tactil": bool(config["tactil"])}))
+
+
+@ver
+@require_GET
+def pestana(request, pk):
+    """Un plano más en la ventana del editor (otra pestaña): lo mismo que la página trae del plano que abrió, y sus versiones."""
+    p = _plano(pk)
+    if not servicio.archivo_disponible(servicio.version_vigente(p)):
+        return _error("El archivo de este plano no está en el servidor.", 404)
+    return _json({"plano": _datos_plano(request, p), "versiones": _versiones(p)})
+
+
+@ver
+@require_GET
+def elegir(request):
+    """«Abrir otro plano»: la misma biblioteca que la lista (búsqueda, proyecto o cliente, orden), en JSON, para la hoja del editor."""
+    filtros = Filtros(request.GET)
+    pagina = Paginator(filtros.aplicar(Plano.objects.filter(eliminado__isnull=True)), POR_PAGINA).get_page(request.GET.get("pagina"))
+    filas = list(pagina.object_list)
+    _marcar_edicion(filas)
+    usuario = request.user
+    return _json({
+        "total": pagina.paginator.count, "pagina": pagina.number, "paginas": pagina.paginator.num_pages,
+        "planos": [{"id": str(p.pk), "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "bytes": p.bytes,
+                    "actualizado": p.actualizado.isoformat(), "modificado_por": p.modificado_por_nombre, "en_edicion_por": p.en_edicion_por,
+                    "disponible": p.disponible} for p in filas],
+        "proyectos": servicio.sugerencias_proyecto(usuario.pk, perfiles.clave_activa(usuario)) if request.GET.get("pagina") in (None, "", "1") else None,
+    })
+
+
+@editar
+@require_POST
+def desde_editor(request):
+    """Un dibujo que se hizo en el editor y no es de la biblioteca (NEW, o un archivo de este equipo abierto ahí) queda como plano nuevo.
+    Cabecera X-TV-Nombre: el nombre (URL-encoded); el formato sale de los bytes."""
+    from urllib.parse import unquote
+
+    nombre = unquote(request.headers.get("X-TV-Nombre", ""))[:150]
+    proyecto = unquote(request.headers.get("X-TV-Proyecto", ""))[:160]
+
+    def trabajo(temporal):
+        nuevo = servicio.crear(request.user, temporal, nombre, proyecto, origen={"tipo": "editor"})
+        return _json({"id": str(nuevo.pk), "nombre": nuevo.nombre, "url": reverse("herramientas:cad_plano", args=[nuevo.pk])}, status=201)
+    return _con_cuerpo(request, trabajo)
 
 
 def etiqueta_version(v: VersionPlano) -> str:
@@ -428,11 +499,16 @@ def renombrar(request, pk):
 @editar
 @require_POST
 def duplicar(request, pk):
+    json_ = request.headers.get("Accept", "").startswith("application/json")
     try:
         nuevo = servicio.duplicar(_plano(pk), request.user)
     except ErrorUsuario as exc:
+        if json_:
+            return _error(str(exc))
         messages.error(request, str(exc))
         return redirect("herramientas:cad")
+    if json_:                       # la ventana del editor con varios planos lo abre en otra pestaña, sin salir de la página
+        return _json({"id": str(nuevo.pk), "nombre": nuevo.nombre, "url": reverse("herramientas:cad_plano", args=[nuevo.pk])}, status=201)
     messages.success(request, f"Se creó «{nuevo.nombre}».")
     return redirect("herramientas:cad_plano", pk=nuevo.pk)
 
@@ -441,14 +517,16 @@ def duplicar(request, pk):
 @require_POST
 def eliminar(request, pk):
     p = _plano(pk)
+    json_ = request.headers.get("Accept", "").startswith("application/json")
     try:
         servicio.eliminar(p, request.user)
-    except servicio.SinPermiso as exc:
+    except (servicio.SinPermiso, ErrorUsuario) as exc:
+        if json_:
+            return _error(str(exc), 403 if isinstance(exc, servicio.SinPermiso) else 422)
         messages.error(request, str(exc))
         return redirect("herramientas:cad_plano", pk=pk)
-    except ErrorUsuario as exc:
-        messages.error(request, str(exc))
-        return redirect("herramientas:cad_plano", pk=pk)
+    if json_:                       # la ventana del editor con varios planos cierra solo esa pestaña
+        return _json({"nombre": p.nombre, "mensaje": f"«{p.nombre}» se movió a la papelera. Se borra para siempre en {servicio.PAPELERA_DIAS} días."})
     messages.success(request, f"«{p.nombre}» se movió a la papelera. Se borra para siempre en {servicio.PAPELERA_DIAS} días.")
     return redirect("herramientas:cad")
 

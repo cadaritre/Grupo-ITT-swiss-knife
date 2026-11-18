@@ -220,3 +220,61 @@ html.cad-completa:not(.cad-tactil) .cad-lienzo { border-radius: 0; border-left: 
 .cad-campo-tarjeta { text-decoration: none; color: inherit; margin: 0 0 var(--tv-espacio-4); min-height: 44px; }
 .cad-campo-tarjeta[hidden] { display: none; }
 .cad-campo-tarjeta:hover p { text-decoration: underline; }
+
+/* -- Varios planos en una ventana (editor.js): una pestaña por plano, encima del editor, también en pantalla completa. El punto es
+   «Sin guardar», el candado «Solo lectura»; la × cierra solo esa pestaña (o el botón central del ratón). -- */
+.cad-pestanas { display: flex; align-items: flex-end; gap: 2px; margin: 0 0 -1px; min-height: 36px; position: relative; z-index: 1; }
+.cad-pestanas[hidden], html.cad-tactil .cad-pestanas { display: none; }
+.cad-pestanas__lista { display: flex; align-items: flex-end; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.cad-pestana { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 7rem; max-width: 15rem; height: 34px; padding: 0 4px 0 10px;
+  border: 1px solid var(--tv-separador); border-bottom: 0; border-radius: var(--tv-radio) var(--tv-radio) 0 0; background: color-mix(in srgb, var(--tv-superficie) 70%, var(--tv-fondo));
+  color: var(--tv-tenue); font-size: var(--tv-texto-sm); font-weight: 500; cursor: pointer; user-select: none; transition: background-color var(--tv-transicion), color var(--tv-transicion); }
+.cad-pestana:hover { color: var(--tv-texto); background: var(--tv-superficie); }
+.cad-pestana[aria-selected="true"] { background: #1e1e1e; color: #f2f2f2; border-color: #1e1e1e; }
+.cad-pestana:focus-visible { outline: 2px solid var(--tv-foco); outline-offset: -2px; }
+.cad-pestana__nombre { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-pestana__marca { display: inline-flex; flex: none; width: 14px; justify-content: center; }
+.cad-pestana__marca .tv-icono, .cad-pestana__marca svg { width: 13px; height: 13px; }
+.cad-pestana:not([data-estado="sucio"]):not([data-estado="lectura"]) .cad-pestana__marca { width: 0; margin-left: -6px; }
+.cad-pestana[data-estado="sucio"] .cad-pestana__marca::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--tv-estado-aviso-texto); }
+.cad-pestana[aria-selected="true"][data-estado="sucio"] .cad-pestana__marca::before { background: #f5b748; }
+.cad-pestana[data-estado="cargando"] .cad-pestana__nombre, .cad-pestana[data-estado="guardando"] .cad-pestana__nombre { opacity: .7; }
+.cad-pestana__cerrar { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: none;
+  color: inherit; cursor: pointer; opacity: .7; }
+.cad-pestana__cerrar:hover, .cad-pestana__cerrar:focus-visible { opacity: 1; background: color-mix(in srgb, currentColor 16%, transparent); }
+.cad-pestana__cerrar svg { width: 14px; height: 14px; }
+.cad-pestanas__abrir { flex: none; min-height: 32px; height: 32px; width: 32px; margin: 0 0 1px 2px; }
+.cad-pestanas + .cad-extensiones, .cad-pestanas + .cad-lienzo { border-top-left-radius: 0; }
+html.cad-completa:not(.cad-tactil) .cad-pestanas { margin: 0 0 0; }
+@media (max-width: 599px) { .cad-pestana { min-width: 5.5rem; } }
+
+/* Guardar todo: qué se guardó y qué no */
+.cad-guardar-todo { list-style: none; margin: 0 0 var(--tv-espacio-3); padding: 0; display: grid; gap: var(--tv-espacio-2); }
+.cad-guardar-todo li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--tv-espacio-3); padding: var(--tv-espacio-2) var(--tv-espacio-3);
+  border: 1px solid var(--tv-separador); border-radius: var(--tv-radio); }
+.cad-guardar-todo li[data-estado="guardado"] > svg { color: var(--tv-estado-exito-texto); }
+.cad-guardar-todo li[data-estado="no"] > svg { color: var(--tv-estado-error-texto); }
+.cad-guardar-todo__texto { display: grid; gap: 2px; min-width: 0; }
+.cad-guardar-todo__texto strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-salir__lista { margin: 0 0 var(--tv-espacio-3); padding-left: 1.2rem; }
+
+/* «Abrir otro plano» */
+.cad-elegir__buscar { margin: 0 0 var(--tv-espacio-2); }
+.cad-elegir__carpetas { display: flex; gap: var(--tv-espacio-1); overflow-x: auto; padding-bottom: 4px; margin: 0 0 var(--tv-espacio-2); }
+.cad-elegir__carpeta { flex: none; padding: 4px 12px; border: 1px solid var(--tv-separador); border-radius: 999px; background: var(--tv-superficie); color: var(--tv-texto);
+  font-size: var(--tv-texto-sm); cursor: pointer; white-space: nowrap; }
+.cad-elegir__carpeta[aria-pressed="true"] { background: var(--tv-seleccion); color: var(--tv-sobre-seleccion); border-color: transparent; }
+.cad-elegir__lista { list-style: none; margin: 0 0 var(--tv-espacio-2); padding: 0; max-height: min(55vh, 30rem); overflow: auto; border: 1px solid var(--tv-separador);
+  border-radius: var(--tv-radio-grande); }
+.cad-elegir__lista:empty { display: none; }
+.cad-elegir__lista li + li { border-top: 1px solid var(--tv-separador); }
+.cad-elegir__plano { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--tv-espacio-3); width: 100%; min-height: 56px;
+  padding: var(--tv-espacio-2) var(--tv-espacio-3); border: 0; background: none; color: var(--tv-texto); text-align: left; font: inherit; cursor: pointer; }
+.cad-elegir__plano:hover:not(:disabled), .cad-elegir__plano:focus-visible { background: color-mix(in srgb, var(--tv-primario) 8%, transparent); }
+.cad-elegir__plano:disabled { cursor: default; opacity: .6; }
+.cad-elegir__texto { display: grid; gap: 2px; min-width: 0; }
+.cad-elegir__texto > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-elegir__texto .tv-tenue { font-size: var(--tv-texto-sm); }
+.cad-elegir__formato[data-formato="dwg"] { background: var(--tv-seleccion); color: var(--tv-sobre-seleccion); }
+.cad-elegir__formato[data-formato="dxf"] { background: var(--tv-estado-exito-fondo); color: var(--tv-estado-exito-texto); }
+.cad-elegir__estado { margin: 0 0 var(--tv-espacio-2); font-size: var(--tv-texto-sm); }

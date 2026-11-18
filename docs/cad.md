@@ -108,6 +108,94 @@ El canal (`?automation=1`) solo se alcanza desde el mismo origen: el editor vive
   (`localStorage tv.cad.completa-aviso-esc`). Solo el botón, Ctrl/⌘+Mayús+F o F11 la quitan. Se recuerda en el dispositivo (`localStorage tv.cad.completa`): al
   volver se abre maximizado en la página, porque el navegador solo deja entrar a su pantalla completa con un toque o una tecla.
 
+## Esc (18-11-2026)
+
+Pedido del dueño (Chrome en Windows y en la Mac, «Modo completo»): «el Esc sigue siendo un problema». **Un Esc hace lo que en AutoCAD**,
+esté donde esté el foco en la página del plano, y **nunca** sale de la pantalla completa ni de la página maximizada, ni cierra, ni navega,
+ni pierde trabajo.
+
+**Las causas** (todas arregladas):
+
+1. **El foco en nuestra página.** El editor solo oye el teclado con el foco en su lienzo. Después de un clic en la cabecera, en Guardar, en
+   «Pantalla completa» (el foco quedaba en el botón), en la barra de Civil o al cerrar una hoja nuestra, Esc llegaba a nuestra página y nadie
+   lo atendía: la orden seguía y la selección también. Ahora la página lo reenvía al editor (`editor.js`, «Esc es del editor») y devuelve el
+   foco al dibujo.
+2. **El canal rechazaba el Esc a media orden.** Con una orden de la persona en curso, el editor rechaza las peticiones de la página
+   (`command_busy`) salvo `cancel`: la página usa `cancel` con orden y `command_escape` sin ella.
+3. **Dos Esc con texto escrito.** Con coordenadas escritas en la línea de órdenes (LINE, «10,1»), el primer Esc solo vaciaba la línea y hacía
+   falta otro para la orden; PLINE pedía dos desde sus subopciones (Grosor, Longitud…). En el editor (tv-v2026.45-12, parche 53): un Esc
+   termina la orden, como AutoCAD.
+4. **Atajos que el editor se quedaba.** Con el foco en el editor, F11 era la pantalla completa del navegador (sin la página maximizada ni
+   Esc bloqueado) y Ctrl/⌘+Mayús+S el «Guardar como» del editor (una descarga). `cad/editor/arranque.js` los manda a la página, con
+   Ctrl/⌘+S y Ctrl/⌘+Mayús+F.
+
+**Lo que hace Esc, camino por camino** (pruebas: `test_cad_pestanas_navegador.py`, `test_un_esc_cancela_y_deselecciona_en_cada_camino`,
+Chromium con el agente de Windows y WebKit):
+
+| Dónde está el foco | Qué pasa |
+| --- | --- |
+| Lienzo del editor, con una orden (con o sin texto escrito) | un Esc la cancela |
+| Lienzo, sin orden, con selección o pinzamientos | un Esc los quita |
+| Un diálogo o paleta del editor | lo cierra el editor (uno por Esc, como en AutoCAD) |
+| Nuestra cabecera, un botón, la barra de Civil | se reenvía al editor: cancela la orden o deselecciona, y el foco vuelve al dibujo |
+| Una hoja nuestra abierta (Versiones, Guardar todo, Abrir otro plano…) | la cierra; el siguiente Esc es del editor |
+| El menú «Más acciones» abierto | lo cierra |
+| Un campo de texto de la página (renombrar, buscar, Civil) | es del campo |
+| «Pantalla completa» (con el botón, el atajo o F11) | igual que arriba; en Chromium Esc está bloqueado para el navegador, que solo sale con Esc sostenida |
+| La hoja «¿Qué hacemos con tus cambios de la última vez?» | no se cierra con Esc: pide una respuesta |
+
+En Safari y Firefox el navegador quita su propia pantalla completa con Esc (no hay forma de impedirlo): la página sigue maximizada, lo dice
+una vez, y el siguiente Esc es del editor.
+
+## Varios planos en una ventana (18-11-2026)
+
+Pedido del dueño: «una manera elegante de manejar múltiples archivos abiertos en la misma ventana». En la computadora (no en el modo
+táctil, que sigue con un plano por ventana, ni en una versión anterior), **cada plano abierto es una pestaña** encima del editor, como las
+pestañas de archivo de AutoCAD; también en pantalla completa.
+
+- **Abrir.** El botón **+** de la tira y «Abrir otro plano» en «Más acciones» abren una hoja con la biblioteca: búsqueda (nombre, proyecto o
+  persona), los proyectos o clientes como carpetas, quién edita cada plano y cuáles ya están abiertos (uno abierto no se abre dos veces: se
+  va a su pestaña). Duplicar abre la copia en otra pestaña.
+- **Cada pestaña es un plano completo del servidor**: su bloqueo (tomado y con latido por pestaña: cada una es una página del editor para el
+  servidor), sus versiones, su borrador de recuperación, «Sin guardar», solo lectura y permisos, la recuperación al abrir y el ETag/304.
+  Cambiar de pestaña cambia la cabecera: nombre, formato, estado, Guardar, Versiones, el menú y los avisos.
+- **La tira** muestra el nombre de cada plano, un punto si tiene cambios sin guardar y un candado si está en solo lectura. La × (o el botón
+  central del ratón) cierra esa pestaña: si tiene cambios, pregunta solo por ella («¿Guardar los cambios de «Plano»?»: Cancelar, Cerrar sin
+  guardar, Guardar y cerrar). Cerrar la última vuelve a «Planos».
+- **Guardar** (Ctrl/⌘+S) guarda la pestaña activa. **Guardar todo** (Ctrl/⌘+Mayús+S y en «Más acciones», con cuántos) guarda cada pestaña
+  con cambios como su propia versión. Si todas se guardan, un aviso («Se guardaron 3 planos.»); si alguna no, la hoja «Se guardaron 1 de 2
+  planos» dice cuáles sí (con su versión) y cuáles no y por qué («No se guardó: Beto Ruiz tomó el control de este plano…»), con «Ver» para
+  ir a esa pestaña. Nada se guarda como copia sin pedirlo.
+- **Salir** con cambios en varias pestañas pregunta una vez y las lista.
+- **Copiar y pegar entre pestañas** funciona: todas viven en el mismo editor (COPYCLIP en una, PASTECLIP en otra).
+- **Recargar** vuelve a abrir las mismas pestañas, en su orden y con la misma activa, cada una con su recuperación de borrador de siempre.
+  Se recuerdan en este dispositivo, por ventana del navegador (`localStorage tv.cad.pestanas`, la ventana en `sessionStorage`): una ventana
+  no pisa las pestañas de otra.
+- **Un dibujo que no es de la biblioteca** (NUEVO dentro del editor, o un archivo de este equipo con ABRIR) sale como pestaña «Fuera de la
+  biblioteca»: «Guardar en la biblioteca» lo deja como plano nuevo (`POST /cad/desde/editor/`) y la pestaña pasa a ser ese plano.
+- **Guardar como copia** (conflicto, bloqueo perdido) deja la copia en la misma pestaña, sin salir de la página.
+- **Máximo**: 8 pestañas (`HERRAMIENTAS_CAD_PESTANAS_MAX`) y, entre todas, 64 MB de planos (`HERRAMIENTAS_CAD_PESTANAS_BYTES`). El editor
+  web vive en una memoria de 4 GB como máximo y no la devuelve al cerrar una pestaña. Medido el 18-11-2026 (Chromium, la compilación de
+  esta rama, `test_memoria_con_varios_planos` con los planos de `tresvizo/pruebas/generar.py --grande` del fork):
+
+  | Pestañas | El que se abrió | Memoria del editor |
+  | --- | --- | --- |
+  | 1 | levantamiento UTM de 3.9 MB | 226 MB |
+  | 2 | 3.9 MB | 335 MB |
+  | 3 | 3.9 MB | 456 MB |
+  | 4 | 50 000 puntos, 58.6 MB | 2 642 MB |
+  | 5–6 | 3.9 MB | 2 642 MB (reusa lo que soltó el grande) |
+  | 8 | 3.9 MB | 2 818 MB |
+
+  Un plano normal toma ~0.11 GB; el más grande que acepta la biblioteca (50 MB), más de 2 GB. Con 8 y 64 MB cabe uno grande con siete
+  normales, y nunca dos grandes. Al llegar: «Ya tienes 8 planos abiertos, el máximo en una ventana. Cierra uno para abrir otro.» o «Los
+  planos abiertos ya ocupan casi toda la memoria del editor en el navegador. Cierra uno para abrir «Plano».»
+
+**Servidor:** `GET /cad/<id>/pestana/` (lo de un plano para abrirlo en una pestaña), `GET /cad/elegir/` (la hoja), `POST /cad/desde/editor/`,
+y Duplicar, Eliminar y Renombrar responden JSON con `Accept: application/json`. **Editor:** el canal ya abría, activaba, cerraba y guardaba un
+documento dado; tv-v2026.45-12 agrega `documents`, `file_tabs` y el documento en `openCadStudioSaveFile` (contrato en
+`docs/tresvizo-documentos.md` del fork). `window.TVCadPestanas` (lista, abrir, activar, guardarTodo) es para las pruebas.
+
 ## Modo táctil (teléfono y tableta) — detrás de `TV_CAD_TACTIL`
 
 Apagado por omisión (`settings.TV_CAD_TACTIL` o la variable de entorno del mismo nombre: «1»). Apagado, nada cambia: la página del plano es
@@ -386,6 +474,9 @@ uv run pytest itt_herramientas/pruebas/test_cad.py                    # unitaria
 TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
   uv run pytest itt_herramientas/pruebas_navegador/test_cad_navegador.py -k "not webkit"   # luego -k webkit; un navegador a la vez
 uv run pytest itt_herramientas/pruebas/test_cad_datos_moviles.py                         # ETag/304, gzip, latido, panel de Civil, sw.js
+uv run pytest itt_herramientas/pruebas/test_cad_pestanas.py                              # pestañas: bloqueo por pestaña, la hoja, permisos
+TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
+  uv run pytest itt_herramientas/pruebas_navegador/test_cad_pestanas_navegador.py -k chromium   # Esc en cada camino y las pestañas; luego webkit
 TV_CAD_TACTIL=1 ITT_DATOS_CAD=/tmp/datos uv run pytest \
   itt_herramientas/pruebas_navegador/test_cad_datos_moviles_navegador.py -k chromium      # «Datos móviles», ~10 min por motor (tiempo real)
 ```

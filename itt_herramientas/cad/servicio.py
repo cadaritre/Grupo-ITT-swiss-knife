@@ -464,7 +464,7 @@ def crear(usuario, temporal: Path, nombre: str, proyecto: str = "", origen: dict
 
 def _nota_origen(origen: dict) -> str:
     return {"subida": "Subido", "nuevo": "Plano nuevo", "copia": "Copia", "convertidor": "Desde el convertidor",
-            "triangulacion": "Desde triangulación", "croquis": "Desde el croquis de ubicación"}.get((origen or {}).get("tipo", ""), "")
+            "triangulacion": "Desde triangulación", "croquis": "Desde el croquis de ubicación", "editor": "Hecho en el editor"}.get((origen or {}).get("tipo", ""), "")
 
 
 def crear_desde_ruta(usuario, origen_ruta: Path, nombre: str, proyecto: str = "", origen: dict | None = None) -> Plano:

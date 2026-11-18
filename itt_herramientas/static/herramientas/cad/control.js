@@ -44,6 +44,9 @@
  *   TVCad.on(evento, fn) / off(...)    eventos: "listo" (estado), "cambio" ({ sucio }), "guardado" ({ revision, formato }),
  *                                      "cargado" (estado; también al reabrir el plano, p. ej. tras tomar el control o restaurar).
  *
+ * Con varios planos en la ventana (pestañas, editor.js), todo esto es del plano de la pestaña activa: `estado().plano`, el `document_id`
+ * que completa `pedir` y los eventos; al cambiar de pestaña llega otra vez "cargado" con el plano nuevo.
+ *
  * Guardar sigue siendo del editor y de la página (botón «Guardar», Ctrl/⌘+S): un cambio hecho por el canal marca el plano «Sin guardar»
  * como cualquier otro, y se guarda como versión nueva de la biblioteca. Las extensiones no escriben en la biblioteca por su cuenta.
  */
