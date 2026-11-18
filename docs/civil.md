@@ -11,13 +11,13 @@ Código: `itt_herramientas/civil/` (servidor y motor fijado), `templates/herrami
 
 | Menú | Acciones |
 | --- | --- |
-| Puntos | Importar (PNEZD, PENZD, NEZ… con orden y separador reconocidos, vista previa, renglones descartados con su motivo; terreno o proyecto) · Exportar · Dibujar punto (señalado o por coordenadas, con el siguiente número libre) · Editar punto (número, elevación, descripción, posición) · Etiquetas de puntos (mostrar u ocultar número, elevación y descripción —capa por rótulo— y reescribir los decimales de la elevación) · Convertir puntos (terreno ↔ proyecto, conservando sus datos) · Renumerar (desde N, de cuánto en cuánto, prefijo; por número actual, de oeste a este o de norte a sur) · Localizar punto (por número: la vista va a él y queda seleccionado) · Reporte de puntos (PDF o Word, con latitud y longitud si se pide) |
+| Puntos | Importar (cualquier delimitador y cualquier orden de columnas, con vista previa en tabla y formatos guardados; terreno o proyecto) · Exportar (los mismos formatos) · Dibujar punto (señalado o por coordenadas, con el siguiente número libre) · Editar punto (número, elevación, descripción, posición) · Etiquetas de puntos (mostrar u ocultar número, elevación y descripción —capa por rótulo— y reescribir los decimales de la elevación) · Convertir puntos (terreno ↔ proyecto, conservando sus datos) · Renumerar (desde N, de cuánto en cuánto, prefijo; por número actual, de oeste a este o de norte a sur) · Localizar punto (por número: la vista va a él y queda seleccionado) · Reporte de puntos (PDF o Word, con latitud y longitud si se pide) |
 | Triangulación | Triangular (todos los puntos de la superficie, los que se seleccionan en el plano —clic, ventana o captura— o los que caen dentro de un polígono, con la cuenta antes de correr; líneas de quiebre, límite, islas, arista máxima, sin los puntos de ciertas descripciones —ARBOL, POSTE, BAR*—; reemplaza la anterior) · Invertir triángulos · Borrar triángulos (los que elija, fuera de un límite, dentro de un polígono, lados largos) · Agregar triángulo · Insertar puntos (seleccionados en el plano o dentro de un polígono; parten su triángulo o lado y los vecinos se ajustan a Delaunay) · Revisar triangulación (repetidos, encimados, sin superficie, lados con más de dos triángulos, muy delgados: marcados en rojo y seleccionados) |
 | Curvas | Curvas de nivel (intervalo, maestras, suavizado sin cruces, etiquetas) · Actualizar curvas (desde los triángulos que hay en el dibujo) · Etiquetar curvas (donde se señala o a lo largo; la curva nunca se corta: la etiqueta lleva fondo) · Suavizar curvas (las elegidas, sin tocar a las demás) · Unir curvas cortadas (las que partieron las versiones anteriores bajo sus etiquetas) |
 | Cuadros | Cuadro de construcción (rumbos N 45°30'15" E, lados curvos, ha-a-ca; formatos normal, RAN —coordenadas UTM y geográficas— y UTM-GPS —además factor de escala y convergencia por vértice y la superficie sobre el terreno—; también «Descargar DXF», el antiguo IT-10) · Cuadro de curvas · Rumbo y distancia de lados · Numerar vértices · Memoria descriptiva (PDF o Word, con colindancias lado por lado) |
-| Plano | Cuadrícula UTM (todo el plano o dos esquinas; líneas o cruces; marco; coordenadas al margen y latitud y longitud en las esquinas; reemplaza la anterior) · Lotificar manzana (lotes iguales, de una superficie o de un frente, con cortes perpendiculares al lado de la calle; número y superficie en cada lote y cuadro de áreas) |
-| Perfiles y secciones | Perfil del eje (cadenamiento, rasante con curvas verticales) · Secciones transversales (plantilla sencilla o de carretera: carriles y acotamientos con su pendiente, cuneta en corte, pavimento —terracerías a la subrasante— y despalme; sobreelevación y ampliación en las curvas del eje según la SCT; taludes; áreas) |
-| Volúmenes | Por secciones (áreas medias) · Entre superficies (exacto, línea de ceros opcional, resultado en la hoja o también en el plano) · Curva masa (línea compensadora la mejor —menor momento de acarreo— o en una ordenada; puntos de compensación, volumen y distancia media de cada tramo, sobreacarreo en m³·hm sobre el acarreo libre, préstamo y desperdicio) |
+| Plano | Cuadrícula UTM (todo el plano o dos esquinas; líneas o cruces; marco; coordenadas al margen y latitud y longitud en las esquinas; reemplaza la anterior) · Lotificar manzana (lotes iguales, de una superficie o de un frente, con cortes perpendiculares al lado de la calle; número y superficie en cada lote y cuadro de áreas) · Importar KML o KMZ (polígonos con huecos, líneas y puntos, en carpetas; vista previa con cuentas; una capa por carpeta o por estilo; un solo deshacer) · Exportar KML o KMZ (polilíneas elegidas o todas las cerradas, con nombre, superficie en m² y ha-a-ca, colores y opacidad, y los puntos si se piden) |
+| Perfiles y secciones | Perfil del eje (cadenamiento, rasante con curvas verticales o la superficie de proyecto) · Secciones transversales (plantilla sencilla o de carretera: carriles y acotamientos con su pendiente, cuneta en corte, pavimento —terracerías a la subrasante— y despalme; sobreelevación y ampliación en las curvas del eje según la SCT; taludes; áreas) |
+| Volúmenes | Por secciones (áreas medias) · Entre superficies (exacto, línea de ceros opcional, resultado en la hoja o también en el plano) · Curva masa (con la rasante o con la superficie de proyecto; línea compensadora la mejor —menor momento de acarreo— o en una ordenada; puntos de compensación, volumen y distancia media de cada tramo, sobreacarreo en m³·hm sobre el acarreo libre, préstamo y desperdicio) |
 | 1:1000 (botón) | Escala del plano, zona UTM y altura de los textos en mm de papel |
 
 Civil aparece para quien puede editar planos (`cad`, `admin`) en la versión vigente; para dibujar hace falta tener el control del plano
@@ -111,6 +111,55 @@ la lee de sus puntos. Las alturas propias (mm por tipo de texto) se guardan en e
 puntos ya dibujados» vuelve a dibujar los puntos a la nueva escala (orden `redibujar_puntos`): los rótulos quedan tal como estaban, también
 los apagados y los decimales de la elevación. «Renumerar puntos» usa la misma orden.
 
+## Archivos de puntos: delimitador, columnas y formatos guardados
+
+La hoja de **Importar puntos** lee cualquier archivo de texto de puntos sin que la persona tenga que adivinar nada:
+
+- **Cómo está escrito:** delimitador (reconocer, coma, punto y coma, tabulador, espacios, barra u «Otro…» con uno o varios caracteres que se
+  escriben), «tratar delimitadores seguidos como uno», texto entre comillas dobles, simples o nada, decimales con punto o con coma, y cuántos
+  renglones del principio no se leen (títulos).
+- **Qué es cada columna:** la vista previa es una tabla con los primeros renglones y, sobre cada columna, una lista (Número, Norte (Y),
+  Este (X), Elevación, Descripción, Latitud, Longitud o Ignorar). Todo se reconoce primero y se puede cambiar; también hay órdenes comunes
+  (PNEZD, PENZD…). Un archivo que no se reconoce no bloquea: la tabla sale igual, con el motivo, para elegir las columnas.
+- **Latitud y longitud** se convierten a la zona UTM del plano (se avisa si caen en otra zona o si parece faltar el signo del oeste). Un
+  punto sin número toma el siguiente libre del plano. Los renglones que no se leyeron se listan con su línea y su motivo.
+- **Exportar** tiene las mismas decisiones (delimitador, texto entre, decimal, decimales de coordenadas y de elevación, columnas en el orden
+  que se quiera con agregar y quitar, primer renglón con nombres) y un ejemplo en vivo de cómo quedará el archivo.
+- **Formatos guardados:** «Guardar formato…» le da nombre a lo que hay en la hoja («Mi estación», «Colector X») y queda en la cuenta, aparte
+  para importar y para exportar. Al elegirlo se llena toda la hoja. Se guardan en el servidor, por cuenta (`FormatoPuntos`: cuenta, uso,
+  nombre sin importar mayúsculas, un JSON de unas decenas de claves), hasta 30 por cuenta y uso; el motor valida lo que se guarda
+  (`normalizar_formato`) y no entra nada más. Los ve y los toca solo su cuenta y solo quien edita planos (`cad`, `admin`); se borran con la
+  cuenta (`civil.servicio.al_eliminar_cuenta`). `GET/POST/DELETE /cad/civil/formatos/?uso=importar|exportar`. Borrar pide un segundo toque.
+
+## Google Earth: KML y KMZ
+
+- **Importar:** el archivo (KMZ se abre en el servidor con la biblioteca estándar, con topes de tamaño; no se aceptan DOCTYPE ni ENTITY)
+  se previsualiza con lo que trae (polígonos, líneas, puntos, huecos, carpetas, avisos) antes de tocar el plano. Polígonos y líneas se
+  vuelven polilíneas (una cerrada por cada anillo; 3D si la altitud varía), los puntos son puntos de terreno, de proyecto o simples.
+  WGS84 pasa a la zona UTM del plano (se avisa si los datos caen en otra). Una capa por carpeta o por estilo, el nombre de cada marca como
+  texto (capa `KML_NOMBRES`, opcional), XDATA con su tipo, nombre y carpeta, y la altitud como elevación si se pide. Un solo paso de
+  deshacer.
+- **Exportar:** las polilíneas que se eligen en el dibujo (o todas las cerradas); las cerradas son polígonos con su superficie en m² y en
+  ha-a-ca en la descripción, las abiertas son líneas. El nombre sale del texto que está dentro del polígono, de su capa o de un prefijo
+  con número; color, opacidad y grosor se editan; con los puntos de terreno o de proyecto si se piden. UTM de la zona del plano a WGS84,
+  arcos en varios segmentos y anillo antihorario; KML o KMZ, con el nombre del plano. Google Earth lo abre en el lugar.
+- Cada polilínea cerrada sale como un polígono aparte: un hueco dibujado dentro de otra polilínea sale como otro polígono, no como un
+  hueco del primero (en un plano no hay forma de saber si el interior de una manzana es hueco o lote).
+
+## Superficie de proyecto: perfil, secciones, curva masa y volumen
+
+Todo el flujo de proyecto existe: puntos de proyecto (Importar → «Proyecto»), **Triangular** el proyecto, **Curvas** del proyecto,
+**Volumen entre superficies**, y el perfil, las secciones y la curva masa **leen la superficie de proyecto**. Cada una de esas hojas trae
+arriba la línea «Terreno · N triángulos / Proyecto · N triángulos» (o «Sin triangular») y una frase que dice cuál superficie usa, y
+perfil, secciones y curva masa tienen el interruptor «Con la superficie de proyecto (triangulación de proyecto)»:
+
+- **Perfil:** dibuja el terreno y la superficie de proyecto (capa `PERFIL_PROYECTO`) y llena en la tabla ELEV. PROYECTO y ESPESOR; con
+  rasante a la vez, la superficie va en un renglón aparte.
+- **Secciones y curva masa:** la sección de proyecto es el corte de esa superficie en la misma línea; el corte y el terraplén salen de la
+  diferencia con el terreno. La rasante y la superficie de proyecto son una cosa o la otra (el interruptor apaga la rasante y al revés).
+- **Volumen entre superficies** compara Terreno contra Proyecto, como siempre.
+- Sin triangulación de proyecto, la hoja lo dice y a dónde ir (importar los puntos de proyecto y triangular como «Proyecto»).
+
 ## El motor fijado
 
 `itt_herramientas/civil/motor/` es una copia del paquete `tvcivil` (puro Python: numpy, Shapely, ezdxf) de un commit exacto del repositorio
@@ -131,7 +180,9 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor uv run pytest itt_herramienta
 ## Pruebas
 
 - `pruebas/test_civil.py`: huella del motor, órdenes ligeras y pesadas (con gzip y por la cola), resultado solo de la cuenta, errores con su
-  mensaje, permisos, tope de tamaño y que la página traiga Civil solo a quien edita.
+  mensaje, permisos, tope de tamaño y que la página traiga Civil solo a quien edita; formatos de puntos con delimitador propio; KML de ida y
+  vuelta; perfil, secciones y curva masa con la superficie de proyecto; formatos guardados (por cuenta, permisos, validación, tope y borrado
+  con la cuenta).
 - `pruebas_navegador/test_civil_navegador.py`, con el editor real y coordenadas UTM: importar 5 000 puntos PNEZD, deshacer y rehacer,
   triangular, invertir dos triángulos elegidos con el ratón, curvas, cuadro de un lote con lado curvo, perfil y secciones con rasante,
   volumen contra una plataforma, guardar en DWG y volver a abrir; 360 px; y el camino sin `user_select` (selección + «Listo»). La prueba
@@ -139,6 +190,10 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor uv run pytest itt_herramienta
   curvas con una polilínea por curva y etiquetas con fondo, unir las curvas cortadas de un plano viejo al etiquetar, y colocar el cuadro
   donde se señala (la vista previa sigue al puntero; Esc no dibuja nada; un paso de deshacer).
   `ITT_CAPTURAS=carpeta` deja capturas de cada hoja y de lo dibujado.
+- `pruebas_navegador/test_civil_puntos_kml_navegador.py` (Chromium y WebKit): delimitador propio, columnas elegidas, formato guardado y
+  vuelto a usar en otra sesión, exportar con otro formato y volver a importarlo; KMZ con carpetas, huecos, líneas y puntos, deshacer en un
+  paso, exportar KML y KMZ y volver a importar al milímetro; y la triangulación de proyecto de punta a punta (puntos, triangulación,
+  curvas, perfil, secciones y volumen con cifras conocidas).
 - El motor tiene sus propias pruebas con resultados conocidos (128) en su repositorio.
 
 ## Geodesia y documentos (v1.1)

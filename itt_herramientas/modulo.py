@@ -15,9 +15,11 @@ MODULO = Modulo(
                "itt_herramientas.comun.zips.limpiar", "itt_herramientas.cad.servicio.limpiar", "itt_herramientas.comun.documentos.limpiar"),
     # Al eliminar una cuenta (contrato 1.8) se quita su conexión con Google Drive y se cancela su cola; sus documentos se quedan.
     # CAD: se sueltan los planos que tenía abiertos para editar y se borran sus borradores de recuperación (los planos se quedan).
+    # Civil: se borran los formatos de puntos que la cuenta guardó (son suyos).
     # Cotizaciones, reportes y croquis son de la empresa: se quedan con el nombre de su autor; se sueltan los que tenía abiertos y se borran
     # sus borradores de recuperación.
     al_eliminar_cuenta=("itt_herramientas.drive.servicio.al_eliminar_cuenta", "itt_herramientas.cad.servicio.al_eliminar_cuenta",
+                        "itt_herramientas.civil.servicio.al_eliminar_cuenta",
                         "itt_herramientas.comun.documentos.al_eliminar_cuenta"),
     rutas_publicas=("sw.js", "manifest.webmanifest", "capturar/", "instalar/", "cotizaciones/", "reportes/", "croquis/"),
     # Navegación como datos (contrato 1.5, §12): el armazón pinta con esto el lateral, el cajón del teléfono y la paleta, por rol.

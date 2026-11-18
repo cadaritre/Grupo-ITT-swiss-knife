@@ -145,3 +145,46 @@
 .civil-colindancias[hidden] { display: none; }
 .civil-colindancias__lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); gap: var(--tv-espacio-2) var(--tv-espacio-3); }
 .civil-colindancias__lista .tv-campo { margin: 0; }
+
+/* Archivos de puntos: delimitador, columnas y formatos guardados */
+.civil-formato { display: grid; gap: var(--tv-espacio-3); margin: 0; padding: var(--tv-espacio-3); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); min-width: 0; }
+.civil-formato > legend { padding: 0 var(--tv-espacio-2); font-weight: 600; font-size: var(--tv-texto-sm); }
+.civil-formato .tv-campo { margin: 0; }
+.civil-etiqueta { display: block; font-weight: 600; font-size: var(--tv-texto-sm); margin-bottom: var(--tv-espacio-1); }
+.civil-guardados .civil-unidad > select { flex: 1 1 auto; }
+.civil-guardar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--tv-espacio-2); padding: var(--tv-espacio-3); border-radius: var(--tv-radio-grande); background: var(--tv-seleccion); }
+.civil-guardar[hidden] { display: none; }
+.civil-guardar .tv-campo { flex: 1 1 14rem; margin: 0; }
+.civil-acciones__guardar { margin-right: auto; }
+[data-civil-formato-borrar][data-confirmar] { color: var(--tv-estado-error-texto); background: var(--tv-estado-error-fondo); }
+/* la tabla de vista previa: sobre cada columna, la lista de qué es */
+.civil-mapa__cabeza { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tv-espacio-2); }
+.civil-mapa__cabeza .civil-etiqueta { margin: 0; }
+.civil-mapa__cabeza select { max-width: 100%; }
+.civil-mapa th { vertical-align: bottom; }
+.civil-mapa thead select { width: 100%; min-width: 8.5rem; }
+.civil-mapa .civil-mapa__linea { color: var(--tv-tenue); text-align: right; font-variant-numeric: tabular-nums; position: sticky; left: 0; background: var(--tv-superficie); }
+.civil-mapa td { font-variant-numeric: tabular-nums; }
+.civil-col--ignorada { opacity: .45; }
+.civil-columnas { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); gap: var(--tv-espacio-2); }
+.civil-columna { display: flex; align-items: center; gap: var(--tv-espacio-2); }
+.civil-columna__n { flex: none; width: 1.5rem; text-align: center; color: var(--tv-tenue); font-variant-numeric: tabular-nums; font-size: var(--tv-texto-sm); }
+.civil-columna select { flex: 1 1 auto; min-width: 0; }
+.civil-texto { margin: 0; padding: var(--tv-espacio-3); border-radius: var(--tv-radio); background: var(--tv-fondo-sutil, var(--tv-seleccion)); font: 0.8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-x: auto; white-space: pre; max-height: 8rem; }
+.civil-texto--error { color: var(--tv-estado-error-texto); white-space: pre-wrap; }
+/* KML: las cuentas de lo que trae el archivo */
+.civil-fichas { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2); }
+.civil-ficha { display: inline-flex; align-items: baseline; gap: var(--tv-espacio-2); padding: var(--tv-espacio-1) var(--tv-espacio-3); border-radius: 999px; background: var(--tv-seleccion); font-size: var(--tv-texto-sm); }
+.civil-ficha b { font-size: 1.0625rem; font-variant-numeric: tabular-nums; }
+.civil-form input[type="color"] { width: 100%; min-height: 44px; padding: 2px; border: 1px solid var(--tv-separador); border-radius: var(--tv-radio); background: var(--tv-superficie); cursor: pointer; }
+/* Qué superficie usa una hoja: Terreno y Proyecto, con sus triángulos */
+.civil-superficies { display: grid; gap: var(--tv-espacio-2); padding: var(--tv-espacio-3); border-radius: var(--tv-radio-grande); border: 1px solid var(--tv-separador); }
+.civil-superficies .tv-campo { margin: 0; }
+.civil-superficies__fila { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2); }
+.civil-superficie { display: inline-flex; align-items: baseline; gap: var(--tv-espacio-2); padding: var(--tv-espacio-1) var(--tv-espacio-3); border-radius: 999px; font-size: var(--tv-texto-sm);
+  background: var(--tv-estado-exito-fondo); color: var(--tv-estado-exito-texto); }
+.civil-superficie b { font-weight: 700; }
+.civil-superficie i { font-style: normal; font-variant-numeric: tabular-nums; }
+.civil-superficie--vacia { background: var(--tv-estado-aviso-fondo); color: var(--tv-estado-aviso-texto); }
+.civil-superficies .civil-nota:empty { display: none; }

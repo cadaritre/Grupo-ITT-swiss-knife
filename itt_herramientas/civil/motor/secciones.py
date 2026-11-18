@@ -316,8 +316,13 @@ def areas_entre(terreno: Sequence[tuple[float, float]], proyecto: Sequence[tuple
 
 
 def secciones(tin, eje: Eje, estaciones: Sequence[float], izq: float, der: float, rasante: Rasante | None = None,
-              plantilla: Plantilla | PlantillaCarretera | None = None) -> list[Seccion]:
+              plantilla: Plantilla | PlantillaCarretera | None = None, tin_proyecto=None) -> list[Seccion]:
+    """Secciones del terreno en las estaciones. El proyecto sale de la rasante con su plantilla o, con `tin_proyecto`, de la superficie
+    de proyecto (su triangulación): la sección de proyecto es esa superficie cortada en la misma línea, y las áreas, entre las dos."""
+    if rasante is not None and tin_proyecto is not None:
+        raise ValueError("El proyecto sale de la rasante o de la triangulación de proyecto, no de las dos.")
     m = Muestreador(tin)
+    mp = Muestreador(tin_proyecto) if tin_proyecto is not None else None
     salida = []
     peraltes = None
     if isinstance(plantilla, PlantillaCarretera) and plantilla.sct is not None:
@@ -329,7 +334,13 @@ def secciones(tin, eje: Eje, estaciones: Sequence[float], izq: float, der: float
         estaciones = sorted({round(x, 6) for x in list(estaciones) + extra if eje.inicio - 1e-9 <= x <= eje.fin + 1e-9})
     for e in estaciones:
         s = seccion_terreno(m, eje, e, izq, der)
-        if rasante is not None:
+        if mp is not None:
+            s.proyecto = seccion_terreno(mp, eje, e, izq, der).terreno
+            if len(s.proyecto) < 2:
+                s.proyecto = []
+                s.avisos.append(f"{formato_estacion(s.estacion)}: fuera de la triangulación de proyecto.")
+            s.corte, s.terraplen = areas_entre(s.terreno, s.proyecto)
+        elif rasante is not None:
             if isinstance(plantilla, PlantillaCarretera):
                 aplicar_plantilla_carretera(s, rasante.elevacion(e), plantilla, peraltes.en(e) if peraltes else None)
             else:

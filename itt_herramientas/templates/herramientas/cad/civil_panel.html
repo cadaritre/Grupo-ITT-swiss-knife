@@ -46,13 +46,27 @@
 <form class="tv-formulario civil-form" data-civil-form="importar">
   <label class="civil-archivo" for="civil-imp-archivo">
     {% icono "file-up" clase="tv-icono--lg" %}<span id="civil-imp-nombre"><strong>Elige el archivo de puntos</strong><span class="tv-tenue">o suéltalo aquí · TXT, CSV, PRN</span></span>
-    <input id="civil-imp-archivo" name="archivo" type="file" accept=".txt,.csv,.prn,.xyz,.pts,.dat,text/plain,text/csv" required>
+    <input id="civil-imp-archivo" name="archivo" type="file" accept=".txt,.csv,.tsv,.prn,.xyz,.pts,.dat,.asc,text/plain,text/csv" required>
   </label>
   <fieldset class="tv-campo"><legend>Son puntos de</legend><div class="tv-segmentado"><label><input type="radio" name="tipo" value="terreno" checked><span>Terreno</span></label><label><input type="radio" name="tipo" value="proyecto"><span>Proyecto</span></label></div></fieldset>
-  <div class="civil-fila">
-    <div class="tv-campo"><label for="civil-imp-orden">Orden de columnas</label><select id="civil-imp-orden" name="orden"><option value="">Reconocer</option>{% for k, e in civil.ordenes.items %}<option value="{{ k }}">{{ k }} · {{ e }}</option>{% endfor %}</select></div>
-    <div class="tv-campo"><label for="civil-imp-sep">Separador</label><select id="civil-imp-sep" name="separador"><option value="">Reconocer</option><option value=",">Coma</option><option value="&#9;">Tabulador</option><option value=";">Punto y coma</option><option value=" ">Espacios</option><option value="|">Barra</option></select></div>
+  <div class="tv-campo civil-guardados" data-civil-guardados>
+    <label for="civil-imp-guardado">Formato guardado</label>
+    <div class="civil-unidad">
+      <select id="civil-imp-guardado" data-civil-formato-lista><option value="">Reconocer el formato solo</option></select>
+      <button type="button" class="tv-boton tv-boton--fantasma tv-boton--icono" data-civil-formato-borrar hidden data-tv-tooltip="Borrar este formato guardado">{% icono "trash-2" etiqueta="Borrar este formato guardado" %}</button>
+    </div>
   </div>
+  <fieldset class="civil-formato"><legend>Cómo está escrito el archivo</legend>
+    <div class="civil-fila">
+      <div class="tv-campo"><label for="civil-imp-delim">Delimitador</label><select id="civil-imp-delim" name="delimitador_tipo"><option value="">Reconocer</option><option value=",">Coma ( , )</option><option value=";">Punto y coma ( ; )</option><option value="&#9;">Tabulador</option><option value=" ">Espacios</option><option value="|">Barra ( | )</option><option value="otro">Otro…</option></select></div>
+      <div class="tv-campo" data-civil-si="delimitador_tipo=otro" hidden><label for="civil-imp-delim-otro">Escribe el delimitador</label><input id="civil-imp-delim-otro" name="delimitador_otro" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Por ejemplo  /  o  ::"></div>
+      <div class="tv-campo"><label for="civil-imp-calif">Texto entre</label><select id="civil-imp-calif" name="calificador"><option value="&quot;">Comillas dobles ( " )</option><option value="'">Comillas simples ( ' )</option><option value="">Nada</option></select></div>
+      <div class="tv-campo"><label for="civil-imp-dec">Decimales con</label><select id="civil-imp-dec" name="decimal"><option value="">Reconocer</option><option value=".">Punto ( 12.5 )</option><option value=",">Coma ( 12,5 )</option></select></div>
+      <div class="tv-campo"><label for="civil-imp-saltar">No leer los primeros</label><div class="civil-unidad"><input id="civil-imp-saltar" name="saltar" type="number" min="0" max="1000" step="1" value="0" inputmode="numeric"><span>renglones</span></div></div>
+    </div>
+    <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-imp-juntar" name="juntar" value="1"><label for="civil-imp-juntar">Tratar delimitadores seguidos como uno</label></div>
+  </fieldset>
+  <div class="civil-vista" id="civil-imp-vista" hidden></div>
   <details class="civil-mas"><summary>Más opciones</summary>
     <div class="civil-fila">
       <div class="tv-campo"><label for="civil-imp-prefijo">Anteponer al número</label><input id="civil-imp-prefijo" name="prefijo" maxlength="8" autocomplete="off" placeholder="Ninguno"></div>
@@ -61,9 +75,13 @@
     <fieldset class="tv-campo"><legend>Rotular</legend><div class="civil-casillas">
       <label><input type="checkbox" name="et_numero" checked> Número</label><label><input type="checkbox" name="et_elevacion" checked> Elevación</label><label><input type="checkbox" name="et_descripcion" checked> Descripción</label></div></fieldset>
   </details>
-  <div class="civil-vista" id="civil-imp-vista" hidden></div>
+  <div class="civil-guardar" data-civil-formato-guardar hidden>
+    <div class="tv-campo"><label for="civil-imp-nombre-formato">Nombre del formato</label><input id="civil-imp-nombre-formato" name="nombre_formato" maxlength="60" autocomplete="off" placeholder="Mi estación, Colector X…"></div>
+    <button type="button" class="tv-boton" data-civil-formato-confirmar>{% icono "save" %}<span>Guardar</span></button>
+    <button type="button" class="tv-boton tv-boton--fantasma" data-civil-formato-cancelar>Cancelar</button>
+  </div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
-  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton" data-civil-enviar disabled>{% icono "file-down" %}<span>Importar</span></button></div>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--fantasma civil-acciones__guardar" data-civil-formato-nuevo>{% icono "bookmark-plus" %}<span>Guardar formato…</span></button><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton" data-civil-enviar disabled>{% icono "file-down" %}<span>Importar</span></button></div>
 </form>
 {% endhoja_inferior %}
 
@@ -71,14 +89,93 @@
 {% hoja_inferior "civil-hoja-exportar" titulo="Exportar puntos" %}
 <form class="tv-formulario civil-form" data-civil-form="exportar">
   <fieldset class="tv-campo"><legend>Qué puntos</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="cuales" value="terreno" checked><span>Terreno</span></label><label><input type="radio" name="cuales" value="proyecto"><span>Proyecto</span></label><label><input type="radio" name="cuales" value="seleccion"><span>Los que elija</span></label></div></fieldset>
-  <div class="civil-fila">
-    <div class="tv-campo"><label for="civil-exp-orden">Orden de columnas</label><select id="civil-exp-orden" name="orden">{% for k, e in civil.ordenes.items %}<option value="{{ k }}"{% if k == "PNEZD" %} selected{% endif %}>{{ k }} · {{ e }}</option>{% endfor %}</select></div>
-    <div class="tv-campo"><label for="civil-exp-sep">Separador</label><select id="civil-exp-sep" name="separador"><option value="coma">Coma</option><option value="tabulador">Tabulador</option><option value="punto y coma">Punto y coma</option><option value="espacios">Espacios</option></select></div>
+  <div class="tv-campo civil-guardados" data-civil-guardados>
+    <label for="civil-exp-guardado">Formato guardado</label>
+    <div class="civil-unidad">
+      <select id="civil-exp-guardado" data-civil-formato-lista><option value="">Formato estándar (P, E, N, Z, D con comas)</option></select>
+      <button type="button" class="tv-boton tv-boton--fantasma tv-boton--icono" data-civil-formato-borrar hidden data-tv-tooltip="Borrar este formato guardado">{% icono "trash-2" etiqueta="Borrar este formato guardado" %}</button>
+    </div>
   </div>
-  <div class="civil-fila">
-    <div class="tv-campo"><label for="civil-exp-dec">Decimales</label><select id="civil-exp-dec" name="decimales">{% for n in civil.decimales %}<option value="{{ n }}"{% if n == 3 %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
-    <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-exp-enc" name="encabezado" value="1"><label for="civil-exp-enc">Primer renglón con nombres</label></div>
+  <fieldset class="civil-formato"><legend>Cómo se escribe el archivo</legend>
+    <div class="civil-fila">
+      <div class="tv-campo"><label for="civil-exp-delim">Delimitador</label><select id="civil-exp-delim" name="delimitador_tipo"><option value=",">Coma ( , )</option><option value=";">Punto y coma ( ; )</option><option value="&#9;">Tabulador</option><option value=" ">Espacios</option><option value="|">Barra ( | )</option><option value="otro">Otro…</option></select></div>
+      <div class="tv-campo" data-civil-si="delimitador_tipo=otro" hidden><label for="civil-exp-delim-otro">Escribe el delimitador</label><input id="civil-exp-delim-otro" name="delimitador_otro" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Por ejemplo  /  o  ::"></div>
+      <div class="tv-campo"><label for="civil-exp-calif">Texto entre</label><select id="civil-exp-calif" name="calificador"><option value="&quot;">Comillas dobles ( " )</option><option value="'">Comillas simples ( ' )</option><option value="">Nada</option></select></div>
+      <div class="tv-campo"><label for="civil-exp-decimal">Decimales con</label><select id="civil-exp-decimal" name="decimal"><option value=".">Punto ( 12.5 )</option><option value=",">Coma ( 12,5 )</option></select></div>
+    </div>
+    <div class="civil-fila">
+      <div class="tv-campo"><label for="civil-exp-dec">Decimales de coordenadas</label><select id="civil-exp-dec" name="decimales">{% for n in civil.decimales %}<option value="{{ n }}"{% if n == 3 %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+      <div class="tv-campo"><label for="civil-exp-decz">Decimales de elevación</label><select id="civil-exp-decz" name="decimales_z">{% for n in civil.decimales %}<option value="{{ n }}"{% if n == 3 %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+      <div class="tv-campo" data-civil-geo hidden><label for="civil-exp-decgeo">Decimales de latitud y longitud</label><select id="civil-exp-decgeo" name="decimales_geo">{% for n in civil.decimales_geo %}<option value="{{ n }}"{% if n == 8 %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-exp-enc" name="encabezado" value="1"><label for="civil-exp-enc">Primer renglón con los nombres de las columnas</label></div>
+  </fieldset>
+  <fieldset class="civil-formato"><legend>Columnas, de izquierda a derecha</legend>
+    <div class="civil-columnas" data-civil-columnas></div>
+    <div class="civil-fila">
+      <button type="button" class="tv-boton tv-boton--fantasma civil-agregar" data-civil-columna-agregar>{% icono "plus" %}<span>Agregar columna</span></button>
+      <div class="tv-campo"><label for="civil-exp-orden">Poner un orden común</label><select id="civil-exp-orden" name="orden"><option value="">Elige…</option>{% for k, e in civil.ordenes.items %}<option value="{{ k }}">{{ k }} · {{ e }}</option>{% endfor %}</select></div>
+    </div>
+  </fieldset>
+  <div class="tv-campo"><span class="civil-etiqueta">Así quedará</span><pre class="civil-texto" data-civil-ejemplo aria-live="polite">—</pre></div>
+  <div class="civil-guardar" data-civil-formato-guardar hidden>
+    <div class="tv-campo"><label for="civil-exp-nombre-formato">Nombre del formato</label><input id="civil-exp-nombre-formato" name="nombre_formato" maxlength="60" autocomplete="off" placeholder="Mi estación, Colector X…"></div>
+    <button type="button" class="tv-boton" data-civil-formato-confirmar>{% icono "save" %}<span>Guardar</span></button>
+    <button type="button" class="tv-boton tv-boton--fantasma" data-civil-formato-cancelar>Cancelar</button>
   </div>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--fantasma civil-acciones__guardar" data-civil-formato-nuevo>{% icono "bookmark-plus" %}<span>Guardar formato…</span></button><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "download" %}<span>Descargar archivo</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Importar KML o KMZ ------------------------------------------------------------------------------------------------------ #}
+{% hoja_inferior "civil-hoja-importar-kml" titulo="Importar KML o KMZ" %}
+<form class="tv-formulario civil-form" data-civil-form="importar_kml">
+  <label class="civil-archivo" for="civil-kml-archivo">
+    {% icono "earth" clase="tv-icono--lg" %}<span id="civil-kml-nombre"><strong>Elige el archivo de Google Earth</strong><span class="tv-tenue">o suéltalo aquí · KML, KMZ</span></span>
+    <input id="civil-kml-archivo" name="archivo" type="file" accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" required>
+  </label>
+  <div class="civil-vista" id="civil-kml-vista" hidden></div>
+  <div class="civil-fila">
+    <fieldset class="tv-campo"><legend>Una capa por</legend><div class="tv-segmentado"><label><input type="radio" name="capas_por" value="carpeta" checked><span>Carpeta</span></label><label><input type="radio" name="capas_por" value="estilo"><span>Estilo</span></label></div></fieldset>
+    <div class="tv-campo"><label for="civil-kml-puntos">Los puntos serán</label><select id="civil-kml-puntos" name="puntos_como"><option value="terreno">Puntos de terreno</option><option value="proyecto">Puntos de proyecto</option><option value="simples">Puntos simples</option></select></div>
+  </div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-kml-nombres" name="nombres" value="1" checked><label for="civil-kml-nombres">Escribir el nombre de cada marca como texto</label></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-kml-alt" name="altitudes" value="1" checked><label for="civil-kml-alt">Usar la altitud como elevación (si no, 0)</label></div>
+  <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "map-pin" %}<span>Las coordenadas se convierten a la zona UTM del plano (<span data-civil-zona-texto>zona 14 norte</span>). Se inserta todo de una vez: un solo Deshacer lo quita.</span></p>
+  <p class="itt-estado civil-estado" role="status" hidden></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton" data-civil-enviar disabled>{% icono "file-down" %}<span>Importar</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Exportar KML o KMZ ------------------------------------------------------------------------------------------------------ #}
+{% hoja_inferior "civil-hoja-exportar-kml" titulo="Exportar KML o KMZ" %}
+<form class="tv-formulario civil-form" data-civil-form="exportar_kml">
+  <fieldset class="tv-campo"><legend>Qué se exporta</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="origen" value="elegir" checked><span>Los que elija</span></label><label><input type="radio" name="origen" value="cerradas"><span>Todas las cerradas</span></label></div></fieldset>
+  <div class="civil-elecciones" data-civil-si="origen=elegir">
+    <div class="civil-eleccion"><div><strong>Polilíneas</strong><span class="tv-tenue" data-civil-cuenta="lineas">Ninguna elegida</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="lineas">{% icono "mouse-pointer-click" %}<span>Elegir</span></button></div>
+  </div>
+  <p class="tv-tenue civil-nota">Las cerradas salen como polígonos con su superficie; las abiertas, como líneas.</p>
+  <div class="tv-campo"><label for="civil-kx-puntos">También los puntos</label><select id="civil-kx-puntos" name="puntos"><option value="">Ninguno</option><option value="terreno">Los de terreno</option><option value="proyecto">Los de proyecto</option><option value="ambos">Terreno y proyecto</option></select></div>
+  <fieldset class="tv-campo"><legend>Nombre de cada polígono</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="nombres" value="etiqueta" checked><span>El texto de adentro</span></label><label><input type="radio" name="nombres" value="capa"><span>Su capa</span></label><label><input type="radio" name="nombres" value="prefijo"><span>Prefijo y número</span></label></div></fieldset>
+  <div class="civil-fila" data-civil-si="nombres=prefijo" hidden>
+    <div class="tv-campo"><label for="civil-kx-prefijo">Prefijo</label><input id="civil-kx-prefijo" name="prefijo" maxlength="40" autocomplete="off" value="Lote "></div>
+    <div class="tv-campo"><label for="civil-kx-inicio">Empezar en</label><input id="civil-kx-inicio" name="inicio" type="number" min="0" step="1" value="1" inputmode="numeric"></div>
+  </div>
+  <details class="civil-mas"><summary>Colores</summary>
+    <div class="civil-fila">
+      <div class="tv-campo"><label for="civil-kx-lc">Color de la línea</label><input id="civil-kx-lc" name="linea_color" type="color" value="#ffd400"></div>
+      <div class="tv-campo"><label for="civil-kx-lo">Opacidad de la línea</label><div class="civil-unidad"><input id="civil-kx-lo" name="linea_opacidad" type="number" min="0" max="100" step="5" value="100" inputmode="numeric"><span>%</span></div></div>
+      <div class="tv-campo"><label for="civil-kx-la">Grosor de la línea</label><div class="civil-unidad"><input id="civil-kx-la" name="linea_ancho" type="number" min="0.5" max="10" step="0.5" value="2" inputmode="decimal"><span>px</span></div></div>
+    </div>
+    <div class="civil-fila">
+      <div class="tv-campo"><label for="civil-kx-rc">Color del relleno</label><input id="civil-kx-rc" name="relleno_color" type="color" value="#ffd400"></div>
+      <div class="tv-campo"><label for="civil-kx-ro">Opacidad del relleno</label><div class="civil-unidad"><input id="civil-kx-ro" name="relleno_opacidad" type="number" min="0" max="100" step="5" value="25" inputmode="numeric"><span>%</span></div></div>
+    </div>
+  </details>
+  <fieldset class="tv-campo"><legend>Archivo</legend><div class="tv-segmentado"><label><input type="radio" name="formato" value="kmz" checked><span>KMZ (más chico)</span></label><label><input type="radio" name="formato" value="kml"><span>KML</span></label></div></fieldset>
+  <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "earth" %}<span>Se convierte de la zona UTM del plano (<span data-civil-zona-texto>zona 14 norte</span>) a latitud y longitud. Google Earth lo abre justo en el lugar. El archivo lleva el nombre del plano.</span></p>
+  <div class="civil-resultado" data-civil-resultado hidden></div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "download" %}<span>Descargar archivo</span></button></div>
 </form>
@@ -502,6 +599,7 @@
   {% include "herramientas/cad/civil_eje.html" with pre="per" %}
   <div class="tv-campo"><label for="civil-per-exag">Exageración vertical</label><select id="civil-per-exag" name="exageracion"><option value="1">1 ×</option><option value="2">2 ×</option><option value="5">5 ×</option><option value="10" selected>10 ×</option><option value="20">20 ×</option></select></div>
   {% include "herramientas/cad/civil_rasante.html" with pre="per" %}
+  {% include "herramientas/cad/civil_superficie.html" with pre="per" interruptor=True %}
   <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "mouse-pointer-click" %}<span>Al terminar señalas en el plano dónde va el perfil; Esc cancela sin dibujar.</span></p>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "chart-line" %}<span>Dibujar perfil</span></button></div>
@@ -517,6 +615,7 @@
     <div class="tv-campo"><label for="civil-sec-der">A la derecha</label><div class="civil-unidad"><input id="civil-sec-der" name="derecha" type="number" min="1" step="any" value="20" inputmode="decimal"><span>m</span></div></div>
   </div>
   {% include "herramientas/cad/civil_rasante.html" with pre="sec" %}
+  {% include "herramientas/cad/civil_superficie.html" with pre="sec" interruptor=True %}
   <details class="civil-mas" data-civil-si="con_rasante=1" hidden><summary>Sección de proyecto</summary>
     {% include "herramientas/cad/civil_plantilla.html" with pre="sec" %}
     <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-sec-tabla" name="tabla" value="1" checked><label for="civil-sec-tabla">Tabla de volúmenes</label></div>
@@ -537,7 +636,8 @@
     <div class="tv-campo"><label for="civil-mas-der">A la derecha</label><div class="civil-unidad"><input id="civil-mas-der" name="derecha" type="number" min="1" step="any" value="30" inputmode="decimal"><span>m</span></div></div>
   </div>
   {% include "herramientas/cad/civil_rasante.html" with pre="mas" %}
-  <details class="civil-mas" open><summary>Sección de proyecto</summary>
+  {% include "herramientas/cad/civil_superficie.html" with pre="mas" interruptor=True %}
+  <details class="civil-mas" open data-civil-si="con_rasante=1"><summary>Sección de proyecto</summary>
     {% include "herramientas/cad/civil_plantilla.html" with pre="mas" %}
   </details>
   <div class="civil-fila">
@@ -582,6 +682,7 @@
 {% hoja_inferior "civil-hoja-volumen" titulo="Volumen entre superficies" %}
 <form class="tv-formulario civil-form" data-civil-form="volumen">
   <p class="tv-tenue civil-nota">Compara la triangulación del terreno con la de proyecto en la zona donde se encuentran. Corte es lo que se quita; terraplén, lo que se pone.</p>
+  {% include "herramientas/cad/civil_superficie.html" with pre="vol" %}
   <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-vol-cero" name="linea_cero" value="1" checked><label for="civil-vol-cero">Dibujar la línea de ceros</label></div>
   <fieldset class="tv-campo"><legend>Resultado en el plano</legend><div class="tv-segmentado cad-segmentado-ancho"><label><input type="radio" name="ubicacion" value="ninguna" checked><span>Solo aquí</span></label><label><input type="radio" name="ubicacion" value="senalar"><span>También en el plano</span></label></div></fieldset>
   <div class="civil-resultado" data-civil-resultado hidden></div>

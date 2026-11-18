@@ -37,7 +37,7 @@ from .entidades import Capa, Dibujo, EstiloTexto, Insercion, Linea, Polilinea, P
 from .escala import ALTURAS_MM, Escala
 from .memoria import memoria_descriptiva, reporte_puntos
 from .perfiles import PIV, Rasante, dibujar_perfil, perfil_terreno
-from .puntos import PROYECTO, TERRENO, Punto, escribir_puntos, leer_puntos, numeros_repetidos
+from .puntos import PROYECTO, TERRENO, Punto, escribir_puntos, leer_puntos, normalizar_formato, normalizar_orden, numeros_repetidos
 from .lotificacion import dibujar_lotes, lotificar
 from .masa import compensar, dibujar_curva_masa
 from .secciones import Plantilla, PlantillaCarretera, dibujar_secciones, secciones
@@ -117,6 +117,55 @@ def _polilinea(p: dict | None, nombre: str):
 
 # --- puntos ---------------------------------------------------------------------------------------
 
+_NOMBRES_SEP = {",": "coma", "\t": "tabulador", ";": "punto y coma", " ": "espacios", "|": "barra"}
+_SEP_DE_NOMBRE = {v: k for k, v in _NOMBRES_SEP.items()}
+
+
+def _formato(d: dict, uso: str) -> dict:
+    """El formato de la orden: `formato` (el de la hoja o uno guardado) o los campos sueltos de antes (orden, separador, decimal)."""
+    f = d.get("formato")
+    if f is None:
+        sep = d.get("separador") or ""
+        f = {"delimitador": _SEP_DE_NOMBRE.get(sep, sep), "decimal": d.get("decimal") or ("," if d.get("coma_decimal") else ("" if uso == "importar" else ".")),
+             "columnas": list(normalizar_orden(d["orden"])) if d.get("orden") else [], "encabezado": d.get("encabezado", False),
+             "decimales": d.get("decimales", 3), "decimales_z": d.get("decimales_z", d.get("decimales", 3))}
+        if uso == "exportar" and not f["delimitador"]:
+            f["delimitador"] = ","
+        if uso == "exportar" and not f["columnas"]:
+            f["columnas"] = list("PENZD")
+    try:
+        return normalizar_formato(f, uso)
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+
+
+def _zona_plano(d: dict) -> tuple[int | None, str]:
+    e = d.get("escala") or {}
+    z = e.get("zona")
+    try:
+        z = int(z) if z not in (None, "") else None
+    except (TypeError, ValueError):
+        z = None
+    return (z if z and 1 <= z <= 60 else None), ("S" if e.get("hemisferio") == "S" else "N")
+
+
+def _tabla_cruda(datos: bytes, f: dict) -> dict:
+    """Los primeros renglones de un archivo partidos con el formato (sin interpretar), cuando la lectura falla."""
+    from .puntos import _lineas_utiles, decodificar, detectar_separador, partir
+
+    try:
+        texto, _ = decodificar(datos)
+        lineas = _lineas_utiles(texto, f["saltar"])
+        calif = f["calificador"]
+        sep = f["delimitador"] or detectar_separador([t for _, t in lineas[:200]], calif)
+        juntar = f["juntar"] or sep == " "
+        filas = [(n, partir(t, sep, juntar, calif)) for n, t in lineas[:12]]
+    except Exception:  # noqa: BLE001 - un archivo que ni se puede partir: la hoja solo muestra el error
+        return {"tabla": [], "campos": 0, "formato": f, "encabezado": None}
+    return {"tabla": [{"linea": n, "campos": [c[:60] for c in campos[:40]]} for n, campos in filas], "campos": max((len(c) for _, c in filas), default=0),
+            "formato": {**f, "delimitador": sep, "juntar": juntar}, "encabezado": None}
+
+
 def importar_puntos(d: dict) -> dict:
     datos = base64.b64decode(d.get("archivo") or b"")
     if not datos:
@@ -124,25 +173,45 @@ def importar_puntos(d: dict) -> dict:
     tipo = d.get("tipo", TERRENO)
     if tipo not in (TERRENO, PROYECTO):
         raise ErrorOrden("Elige terreno o proyecto.")
+    f = _formato(d, "importar")
+    zona, hemisferio = _zona_plano(d)
     try:
-        lec = leer_puntos(datos, d.get("orden") or None, d.get("separador") or None, d.get("decimal") or None, tipo, d.get("prefijo", ""))
+        libre = int(d.get("numero_libre") or 1)
+    except (TypeError, ValueError):
+        libre = 1
+    try:
+        lec = leer_puntos(datos, None, f["delimitador"] or None, f["decimal"] or None, tipo, str(d.get("prefijo", ""))[:8], columnas=f["columnas"] or None,
+                          juntar=f["juntar"], calificador=f["calificador"], saltar=f["saltar"], numero_libre=libre, zona=zona,
+                          hemisferio=hemisferio, muestra=12)
     except ValueError as exc:
+        if d.get("solo_vista"):
+            # la vista previa sigue mostrando los renglones sin interpretar, para que la persona elija qué es cada columna
+            return {"error": str(exc), **_tabla_cruda(datos, f)}
         raise ErrorOrden(str(exc)) from None
     pts = lec.puntos
     xs, ys = [p.x for p in pts], [p.y for p in pts]
-    sep = {",": "coma", "\t": "tabulador", ";": "punto y coma", " ": "espacios", "|": "barra"}.get(lec.separador, lec.separador)
+    sep = _NOMBRES_SEP.get(lec.separador, f"«{lec.separador}»")
     resumen = {
         "puntos": len(pts), "orden": lec.orden, "separador": sep, "coma_decimal": lec.decimal == ",", "codificacion": lec.codificacion,
-        "orden_de": {"encabezado": "el encabezado", "utm": "las coordenadas"}.get(lec.orden_confianza, "tu elección"),
+        "orden_de": {"encabezado": "el encabezado", "utm": "las coordenadas", "geograficas": "las coordenadas geográficas"}.get(lec.orden_confianza, "tu elección"),
         "repetidos": numeros_repetidos(pts), "extension": [min(xs), min(ys), max(xs), max(ys)],
-        "sin_elevacion": sum(1 for p in pts if p.z is None),
+        "sin_elevacion": sum(1 for p in pts if p.z is None), "sin_numero": lec.sin_numero, "geograficas": lec.geograficas,
+        "zonas": {str(k): v for k, v in lec.zonas.items()},
     }
     salida: dict[str, Any] = {
         "resumen": resumen,
+        # el formato con el que se leyó (lo reconocido llena la hoja; lo elegido se respeta)
+        "formato": {"delimitador": lec.separador, "juntar": lec.juntar, "calificador": lec.calificador, "decimal": lec.decimal, "columnas": lec.columnas,
+                    "saltar": lec.saltar},
+        "campos": lec.campos,
+        "encabezado": lec.encabezado,
+        "tabla": [{"linea": n, "campos": [c[:60] for c in campos[:40]]} for n, campos in lec.muestra],
         "muestra": [[p.numero, p.x, p.y, p.z, p.descripcion] for p in pts[:20]],
         "descartados": [{"linea": n, "texto": t[:120], "motivo": m} for n, t, m in lec.descartados[:200]],
         "avisos": ([f"{len(lec.descartados)} renglones no se leyeron."] if lec.descartados else [])
-        + ([f"{len(resumen['repetidos'])} números de punto se repiten."] if resumen["repetidos"] else []),
+        + ([f"{len(resumen['repetidos'])} números de punto se repiten."] if resumen["repetidos"] else [])
+        + ([f"{lec.sin_numero} puntos sin número toman los siguientes números libres."] if lec.sin_numero else [])
+        + lec.avisos,
     }
     if not d.get("solo_vista"):
         e = d.get("etiquetas") or {}
@@ -154,13 +223,169 @@ def exportar_puntos(d: dict) -> dict:
     pts = _puntos(d.get("puntos"))
     if not pts:
         raise ErrorOrden("No hay puntos para exportar.")
-    sep = {"coma": ",", "tabulador": "\t", "punto y coma": ";", "espacios": " ", "barra": "|"}.get(d.get("separador", "coma"), ",")
+    f = _formato(d, "exportar")
+    zona, hemisferio = _zona_plano(d)
     try:
-        datos = escribir_puntos(pts, d.get("orden", "PENZD"), sep, int(d.get("decimales", 3)), int(d.get("decimales_z", d.get("decimales", 3))),
-                                "," if d.get("coma_decimal") else ".", bool(d.get("encabezado")), "\r\n")
+        datos = escribir_puntos(pts, separador=f["delimitador"], decimales=f["decimales"], decimales_z=f["decimales_z"], decimal=f["decimal"],
+                                encabezado=f["encabezado"], fin_de_linea="\r\n", columnas=f["columnas"], calificador=f["calificador"], zona=zona,
+                                hemisferio=hemisferio, decimales_geo=f["decimales_geo"])
     except ValueError as exc:
         raise ErrorOrden(str(exc)) from None
-    return {"archivo": base64.b64encode(datos).decode("ascii"), "resumen": {"puntos": len(pts)}, "avisos": []}
+    return {"archivo": base64.b64encode(datos).decode("ascii"), "resumen": {"puntos": len(pts), "columnas": f["columnas"]}, "avisos": []}
+
+
+# --- KML / KMZ -------------------------------------------------------------------------------------
+
+def _reservadas() -> set[str]:
+    from .curvas import CAPAS_CURVAS
+    from .dibujos import CAPAS_TIN
+
+    return {c.nombre for c in CAPAS_PUNTOS.values()} | {c.nombre for c in CAPAS_TIN.values()} | {c.nombre for c in CAPAS_CURVAS.values()}
+
+
+def importar_kml(d: dict) -> dict:
+    """KML o KMZ al plano. Con `solo_vista`, solo las cuentas (la vista previa antes de insertar)."""
+    from .kml import dibujar_kml, leer_kml
+
+    datos = base64.b64decode(d.get("archivo") or b"")
+    if not datos:
+        raise ErrorOrden("Elige un archivo KML o KMZ.")
+    zona, hemisferio = _zona_plano(d)
+    if zona is None:
+        raise ErrorOrden("Elige la zona UTM del plano (botón de la escala).")
+    try:
+        lec = leer_kml(datos)
+        if not lec.marcas:
+            raise ValueError("El archivo no trae polígonos, líneas ni puntos.")
+        r = dibujar_kml(lec, zona, hemisferio, _escala(d), d.get("capas_por", "carpeta"), d.get("puntos_como", "terreno"), bool(d.get("nombres", True)),
+                        bool(d.get("altitudes", True)), int(_num(d, "numero_libre", 1, minimo=1)), _reservadas())
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+    carpetas = sorted({" / ".join(m.carpeta) for m in lec.marcas if m.carpeta})
+    con_altitud = sum(1 for m in lec.marcas for g in m.geometrias for a in g.anillos for p in a if p[2] not in (None, 0.0))
+    resumen = {**r.cuentas, "capas": r.capas, "carpetas": carpetas[:100], "estilos": len({m.estilo for m in lec.marcas if m.estilo}), "nombre": lec.nombre,
+               "zonas": {str(k): v for k, v in r.zonas.items()}, "con_altitud": con_altitud > 0, "kmz": datos[:4] == b"PK\x03\x04"}
+    salida: dict[str, Any] = {"resumen": resumen, "avisos": r.avisos}
+    if not d.get("solo_vista"):
+        dib = r.dibujo
+        if r.puntos_civil:
+            e = d.get("etiquetas") or {}
+            dib.unir(dibujar_puntos(r.puntos_civil, _escala(d), int(d.get("decimales_z", 3)), e.get("numero", True), e.get("elevacion", True), e.get("descripcion", True)))
+        salida["dxf"] = _dxf(dib)
+    return salida
+
+
+def _limpiar_texto(t: str) -> str:
+    """El texto de un TEXT o MTEXT sin los códigos de formato del MTEXT."""
+    import re
+
+    t = str(t or "").replace("\\P", " ").replace("\\~", " ")
+    t = re.sub(r"\\[A-Za-z][^;\\{}]*;", "", t)
+    t = re.sub(r"\\[LlOoKk]", "", t).replace("{", "").replace("}", "")
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def exportar_kml(d: dict) -> dict:
+    """Polilíneas cerradas (polígonos), abiertas y puntos del plano a KML o KMZ en WGS84, con nombre y superficie."""
+    import shapely
+
+    from .kml import ElementoExportar, densificar, descripcion_superficie, escribir_kml, superficie
+
+    zona, hemisferio = _zona_plano(d)
+    if zona is None:
+        raise ErrorOrden("Elige la zona UTM del plano (botón de la escala).")
+    polis = [p for p in (d.get("polilineas") or []) if isinstance(p, dict) and len(p.get("vertices") or []) >= 2]
+    pts = _puntos(d.get("puntos"))
+    if not polis and not pts:
+        raise ErrorOrden("Elige polilíneas o puntos para exportar.")
+    if len(polis) > 20_000 or len(pts) > 100_000:
+        raise ErrorOrden("Son demasiados elementos para un KML.")
+    n = d.get("nombres") or {}
+    modo = n.get("modo", "etiqueta")
+    if modo not in ("etiqueta", "capa", "prefijo"):
+        raise ErrorOrden("Elige de dónde sale el nombre.")
+    prefijo = str(n.get("prefijo", "") or "")[:40]
+    inicio = int(_num(n, "inicio", 1, minimo=0, maximo=1_000_000))
+    elementos: list[ElementoExportar] = []
+    cerrados: list[tuple[int, Any]] = []
+    for k, p in enumerate(polis):
+        v, combas = _polilinea(p, "la polilínea")
+        cerrada = bool(p.get("cerrada")) or (len(v) > 3 and abs(v[0][0] - v[-1][0]) < 1e-9 and abs(v[0][1] - v[-1][1]) < 1e-9)
+        if cerrada and len(v) > 3 and abs(v[0][0] - v[-1][0]) < 1e-9 and abs(v[0][1] - v[-1][1]) < 1e-9:
+            v, combas = v[:-1], combas[:-1]
+        if cerrada and len(v) < 3:
+            cerrada = False
+        e = ElementoExportar("poligono" if cerrada else "linea", v, combas, capa=str(p.get("capa") or "")[:120])
+        if cerrada:
+            e.superficie = superficie(v, combas)
+            e.descripcion = descripcion_superficie(e.superficie) + (f"<br>Capa: {e.capa}" if e.capa else "")
+            try:
+                g = shapely.Polygon(densificar(v, combas, True))
+                if not g.is_valid:
+                    g = g.buffer(0)
+                cerrados.append((len(elementos), g))
+            except (ValueError, shapely.errors.GEOSException):
+                pass
+        elementos.append(e)
+    # nombres: el texto más grande dentro de cada polígono (de lo que quede dentro de varios, el polígono más chico se lo queda)
+    nombrados = 0
+    if modo == "etiqueta" and cerrados:
+        textos = []
+        for t in d.get("textos") or []:
+            try:
+                valor = _limpiar_texto(t.get("valor"))
+                if valor:
+                    textos.append((valor, float(t["posicion"][0]), float(t["posicion"][1]), float(t.get("altura") or 0)))
+            except (KeyError, TypeError, ValueError, IndexError, AttributeError):
+                continue
+        if textos:
+            arbol = shapely.STRtree([g for _, g in cerrados])
+            puntos_t = shapely.points([(x, y) for _, x, y, _ in textos])
+            ti, gi = arbol.query(puntos_t, predicate="within")
+            dueno: dict[int, int] = {}
+            for a, b in zip(ti.tolist(), gi.tolist()):
+                if a not in dueno or cerrados[b][1].area < cerrados[dueno[a]][1].area:
+                    dueno[a] = b
+            por_poligono: dict[int, list] = {}
+            for a, b in dueno.items():
+                por_poligono.setdefault(b, []).append(textos[a])
+            for b, lista in por_poligono.items():
+                idx, g = cerrados[b]
+                c = g.representative_point()
+                mejor = min(lista, key=lambda t: (-round(t[3], 6), t[0].replace(".", "").replace(",", "").isdigit(), (t[1] - c.x) ** 2 + (t[2] - c.y) ** 2))
+                elementos[idx].nombre = mejor[0][:120]
+                nombrados += 1
+    cuenta = {"poligono": 0, "linea": 0}
+    por_capa: dict[str, int] = {}
+    total_capa: dict[tuple[str, str], int] = {}
+    for e in elementos:
+        total_capa[(e.tipo, e.capa)] = total_capa.get((e.tipo, e.capa), 0) + 1
+    for e in elementos:
+        cuenta[e.tipo] += 1
+        if e.nombre:
+            continue
+        if modo == "capa" and e.capa:
+            por_capa[(e.tipo, e.capa)] = por_capa.get((e.tipo, e.capa), 0) + 1
+            e.nombre = e.capa if total_capa[(e.tipo, e.capa)] == 1 else f"{e.capa} {por_capa[(e.tipo, e.capa)]}"
+        else:
+            base = prefijo if modo == "prefijo" and prefijo else ("Polígono " if e.tipo == "poligono" else "Línea ")
+            e.nombre = f"{base}{inicio + cuenta[e.tipo] - 1}"
+    for p in pts:
+        desc = "<br>".join(t for t in (p.descripcion, f"Elevación: {p.z:.3f} m" if p.z is not None else "") if t)
+        elementos.append(ElementoExportar("punto", [(p.x, p.y, p.z or 0.0)], nombre=p.numero or "Punto", descripcion=desc))
+    e = d.get("estilo") or {}
+    kmz = d.get("formato", "kmz") == "kmz"
+    try:
+        datos = escribir_kml(elementos, zona, hemisferio, str(d.get("nombre") or "Plano")[:120], str(e.get("linea_color", "#ffff00")), _num(e, "linea_ancho", 2.0),
+                             _num(e, "linea_opacidad", 100, minimo=0, maximo=100) / 100.0, str(e.get("relleno_color", "#ffff00")),
+                             _num(e, "relleno_opacidad", 25, minimo=0, maximo=100) / 100.0, kmz)
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+    sup = sum(x.superficie or 0.0 for x in elementos)
+    return {"archivo": base64.b64encode(datos).decode("ascii"), "extension": "kmz" if kmz else "kml",
+            "tipo": "application/vnd.google-earth.kmz" if kmz else "application/vnd.google-earth.kml+xml",
+            "resumen": {"poligonos": cuenta["poligono"], "lineas": cuenta["linea"], "puntos": len(pts), "superficie": sup,
+                        "con_etiqueta": nombrados}, "avisos": []}
 
 
 def _orden_natural(texto: str):
@@ -668,6 +893,17 @@ def _rasante(d: dict) -> Rasante | None:
         raise ErrorOrden(f"Revisa la rasante: {exc}") from None
 
 
+def _tin_proyecto(d: dict):
+    """La superficie de proyecto (su triangulación), si la orden la trae (`caras_proyecto`)."""
+    caras = d.get("caras_proyecto")
+    if not caras:
+        return None
+    try:
+        return _tin_de_caras([normalizar_cara(c["vertices"] if isinstance(c, dict) else c) for c in caras])
+    except (ErrorEdicion, KeyError, TypeError, IndexError) as exc:
+        raise ErrorOrden(f"Una cara de la triangulación de proyecto no es válida: {exc}") from None
+
+
 def perfil(d: dict) -> dict:
     tin = _tin_de_caras(_caras(d.get("caras")))
     eje = _eje(d)
@@ -675,13 +911,17 @@ def perfil(d: dict) -> dict:
     pf = perfil_terreno(tin, eje, intervalo)
     if not any(p.z is not None for p in pf.puntos):
         raise ErrorOrden("El eje no pasa por la triangulación.")
+    tp = _tin_proyecto(d)
+    pf_p = perfil_terreno(tp, eje, intervalo) if tp is not None else None
+    if pf_p is not None and not any(p.z is not None for p in pf_p.puntos):
+        raise ErrorOrden("El eje no pasa por la triangulación de proyecto.")
     origen = d.get("origen")
     if not origen:
         x, y, _ = eje.punto(eje.inicio)
         origen = (min(p.x for p in pf.puntos), min(p.y for p in pf.puntos) - 40 * _escala(d).altura("cuadro_dato"))
     ras = _rasante(d)
     dib = dibujar_perfil(pf, (float(origen[0]), float(origen[1])), _escala(d), _num(d, "exageracion", 10.0, minimo=0.1, maximo=100), ras,
-                         marcar_en_planta=False)
+                         marcar_en_planta=False, proyecto=pf_p)
     _colocar(dib, d.get("esquina_superior"))
     if d.get("marcar_en_planta", True):
         # las marcas de estación van sobre el eje en planta: se dibujan aparte para no moverlas con el perfil
@@ -692,8 +932,9 @@ def perfil(d: dict) -> dict:
     fuera = sum(1 for p in pf.redondas if p.z is None)
     return {"dxf": _dxf(dib), "resumen": {"longitud": eje.longitud, "desde": formato_estacion(eje.inicio), "hasta": formato_estacion(eje.fin),
                                          "estaciones": len(pf.redondas), "puntos": len(pf.puntos)},
-            "estaciones": [[p.estacion, p.z] for p in pf.redondas],
-            "avisos": [f"{fuera} estaciones quedan fuera de la triangulación."] if fuera else []}
+            "estaciones": [[p.estacion, p.z] + ([pf_p.elevacion(p.estacion)] if pf_p is not None else []) for p in pf.redondas],
+            "avisos": ([f"{fuera} estaciones quedan fuera de la triangulación."] if fuera else [])
+            + ([f"{fuera_p} estaciones quedan fuera de la triangulación de proyecto."] if (fuera_p := sum(1 for p in pf.redondas if pf_p is not None and pf_p.elevacion(p.estacion) is None)) else [])}
 
 
 def _colocar(dib: Dibujo, esquina) -> None:
@@ -753,10 +994,13 @@ def secciones_orden(d: dict) -> dict:
     intervalo = _num(d, "intervalo", 20.0, minimo=0.1)
     izq, der = _num(d, "izquierda", 20.0, minimo=0.1), _num(d, "derecha", 20.0, minimo=0.1)
     ras = _rasante(d)
+    tp = _tin_proyecto(d)
+    if ras is not None and tp is not None:
+        raise ErrorOrden("El proyecto sale de la rasante o de la triangulación de proyecto: elige una.")
     plantilla = _plantilla(d.get("plantilla") or {})
-    curvas_h, avisos_h = _curvas_sct(eje, plantilla)
+    curvas_h, avisos_h = _curvas_sct(eje, plantilla) if tp is None else ([], [])
     try:
-        lista = secciones(tin, eje, eje.estaciones(intervalo), izq, der, ras, plantilla)
+        lista = secciones(tin, eje, eje.estaciones(intervalo), izq, der, ras, plantilla, tin_proyecto=tp)
     except ValueError as exc:
         raise ErrorOrden(str(exc)) from None
     esc = _escala(d)
@@ -768,7 +1012,7 @@ def secciones_orden(d: dict) -> dict:
     dib = dibujar_secciones(lista, (float(origen[0]), float(origen[1])), esc, _num(d, "exageracion", 1.0, minimo=0.1, maximo=20), int(d.get("columnas", 4)))
     resumen: dict[str, Any] = {"secciones": len(lista)}
     avisos = avisos_h + [a for s in lista for a in s.avisos][:30]
-    if ras is not None:
+    if ras is not None or tp is not None:
         renglones = volumenes_por_secciones(lista, _num(d, "abundamiento", 1.0, minimo=0.01))
         resumen.update(corte=renglones[-1].acum_corte, terraplen=renglones[-1].acum_terraplen, ordenada_final=renglones[-1].ordenada,
                        despalme=renglones[-1].acum_despalme)
@@ -903,13 +1147,16 @@ def curva_masa(d: dict) -> dict:
     tin = _tin_de_caras(_caras(d.get("caras")))
     eje = _eje(d)
     ras = _rasante(d)
-    if ras is None:
-        raise ErrorOrden("La curva masa necesita la rasante de proyecto.")
+    tp = _tin_proyecto(d)
+    if ras is None and tp is None:
+        raise ErrorOrden("La curva masa necesita la rasante de proyecto o la triangulación de proyecto.")
+    if ras is not None and tp is not None:
+        raise ErrorOrden("El proyecto sale de la rasante o de la triangulación de proyecto: elige una.")
     plantilla = _plantilla(d.get("plantilla") or {})
-    curvas_h, avisos_h = _curvas_sct(eje, plantilla)
+    curvas_h, avisos_h = _curvas_sct(eje, plantilla) if tp is None else ([], [])
     try:
         lista = secciones(tin, eje, eje.estaciones(_num(d, "intervalo", 20.0, minimo=0.1)), _num(d, "izquierda", 30.0, minimo=0.1),
-                          _num(d, "derecha", 30.0, minimo=0.1), ras, plantilla)
+                          _num(d, "derecha", 30.0, minimo=0.1), ras, plantilla, tin_proyecto=tp)
     except ValueError as exc:
         raise ErrorOrden(str(exc)) from None
     ren = volumenes_por_secciones(lista, _num(d, "abundamiento", 1.0, minimo=0.01))
@@ -1078,6 +1325,8 @@ def _tabla_eje(filas: list[dict], esquina, esc: Escala) -> Dibujo:
 ORDENES: dict[str, Callable[[dict], dict]] = {
     "importar_puntos": importar_puntos,
     "exportar_puntos": exportar_puntos,
+    "importar_kml": importar_kml,
+    "exportar_kml": exportar_kml,
     "redibujar_puntos": redibujar_puntos,
     "triangular": triangular,
     "invertir": invertir_triangulos,

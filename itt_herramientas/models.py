@@ -211,6 +211,24 @@ class Preferencias(models.Model):
     actualizado = models.DateTimeField(default=timezone.now)
 
 
+class FormatoPuntos(models.Model):
+    """Formato de archivo de puntos que una cuenta guardó con nombre en Civil (delimitador, columnas, decimal…), para importar o exportar.
+
+    Chico (un JSON de unas decenas de claves) y de la cuenta: nadie más lo ve. `datos` ya pasó por el validador del motor
+    (`normalizar_formato`), así que la página solo guarda lo que el motor entiende. Único por (cuenta, uso, nombre sin importar mayúsculas).
+    """
+
+    cuenta_id = models.BigIntegerField(db_index=True)
+    uso = models.CharField(max_length=10)  # «importar» o «exportar»
+    nombre = models.CharField(max_length=60)
+    datos = models.JSONField(default=dict)
+    actualizado = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["nombre"]
+        constraints = [models.UniqueConstraint(Lower("nombre"), "cuenta_id", "uso", name="herramientas_formatopuntos_nombre")]
+
+
 class DiccionarioPersonal(models.Model):
     """Palabras que la cuenta agregó al corrector, por idioma: `{"es": [...], "en": [...]}`."""
 
