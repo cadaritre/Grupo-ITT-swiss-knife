@@ -23,6 +23,10 @@ MUTED = HexColor("#657887")
 LINE = HexColor("#B8C8D3")
 
 
+#: A concept with up to this many points keeps its values merged and centred; a longer one may cross a page.
+_MERGED_POINTS = 8
+
+
 def money(value: float, currency="MXN") -> str:
     return f"$ {value:,.2f}"
 
@@ -123,45 +127,46 @@ def _concept_table(q: QuoteData, s, palette: QuotePalette, t):
     rows = [[Paragraph(t["concept"], s["bar_label"]), Paragraph(t["unit"], s["bar_label"]), Paragraph(t["quantity"], s["bar_label"]), Paragraph(t["unit_price"], s["bar_label"]), Paragraph(t["amount"], s["bar_label"])]]
     title_rows = []
     title_content_pairs = []
-    value_spans = []
+    value_spans = []        # short concepts: the four value columns merged and centred down the whole concept
+    open_values = []        # long concepts: values on the description row, no lines below them inside the concept
     for number, item in enumerate(q.items, 1):
         clean_subitems = [child.strip() for child in item.subitems if child.strip()]
-        # Row spans cannot cross a PDF page. Very long concepts are divided into
-        # manageable continuation blocks so every visible block keeps its four
-        # value columns merged and vertically centered.
-        chunks = [clean_subitems[:8]]
-        remaining = clean_subitems[8:]
-        while remaining:
-            chunks.append(remaining[:10])
-            remaining = remaining[10:]
-        for chunk_index, chunk in enumerate(chunks):
-            title_rows.append(len(rows))
-            suffix = "" if chunk_index == 0 else f" ({t['continued']})"
-            rows.append([Paragraph(f"{number}. {item.title}{suffix}", s["concept"]), "", "", "", ""])
-            value_start = len(rows)
-            title_content_pairs.append((title_rows[-1], value_start))
-            if chunk_index == 0:
-                concept_text = item.description or t["no_description"]
-                children = chunk
-            else:
-                concept_text = f"• {chunk[0]}"
-                children = chunk[1:]
-            rows.append([
-                Paragraph(concept_text, s["bullet"] if chunk_index else s["normal"]),
-                Paragraph(item.unit, s["center"]), Paragraph(f"{item.quantity:g}", s["center"]),
-                Paragraph(money(item.unit_price), s["center"]), Paragraph(money(item.amount), s["center"]),
-            ])
-            for child in children:
-                rows.append([Paragraph(f"• {child}", s["bullet"]), "", "", "", ""])
-            value_spans.append((value_start, len(rows) - 1))
+        # One block per concept: its title once, its description with the values, then its points. A merged cell cannot
+        # cross a page, so a long concept does not merge its values: they stay on its first row, the value columns carry
+        # no lines inside the concept, and when it crosses a page the next page just continues its points, with nothing
+        # repeated (no title, no «continuación», no amounts).
+        title_rows.append(len(rows))
+        rows.append([Paragraph(f"{number}. {item.title}", s["concept"]), "", "", "", ""])
+        value_start = len(rows)
+        title_content_pairs.append((title_rows[-1], value_start))
+        rows.append([
+            Paragraph(item.description or t["no_description"], s["normal"]),
+            Paragraph(item.unit, s["center"]), Paragraph(f"{item.quantity:g}", s["center"]),
+            Paragraph(money(item.unit_price), s["center"]), Paragraph(money(item.amount), s["center"]),
+        ])
+        for child in clean_subitems:
+            rows.append([Paragraph(f"• {child}", s["bullet"]), "", "", "", ""])
+        (value_spans if len(clean_subitems) <= _MERGED_POINTS else open_values).append((value_start, len(rows) - 1))
     table = Table(rows, colWidths=widths, repeatRows=1, splitByRow=1)
+    # Lines: the outer box, the column dividers, and a line under every row, except under the rows of a long concept
+    # in the value columns (they read as one tall cell, on every page the concept reaches).
+    no_value_line = {row for start, end in open_values for row in range(start, end)}
     commands = [
         ("BACKGROUND", (0, 0), (-1, 0), palette.primary), ("TEXTCOLOR", (0, 0), (-1, 0), palette.bar_text),
-        ("ALIGN", (1, 0), (-1, 0), "CENTER"), ("GRID", (0, 0), (-1, -1), .35, LINE),
+        ("ALIGN", (1, 0), (-1, 0), "CENTER"), ("BOX", (0, 0), (-1, -1), .35, LINE),
+        ("LINEAFTER", (0, 0), (3, -1), .35, LINE), ("LINEBELOW", (0, 0), (0, -1), .35, LINE),
         ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 5),
         ("RIGHTPADDING", (0, 0), (-1, -1), 5), ("TOPPADDING", (0, 1), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
     ]
+    run_start = None
+    for row in range(len(rows) + 1):
+        drawn = row < len(rows) and row not in no_value_line
+        if drawn and run_start is None:
+            run_start = row
+        elif not drawn and run_start is not None:
+            commands.append(("LINEBELOW", (1, run_start), (4, row - 1), .35, LINE))
+            run_start = None
     for row in title_rows:
         commands += [("SPAN", (0, row), (-1, row)), ("BACKGROUND", (0, row), (-1, row), palette.pale), ("TOPPADDING", (0, row), (-1, row), 6), ("BOTTOMPADDING", (0, row), (-1, row), 6)]
     for title_row, first_content_row in title_content_pairs:
@@ -173,6 +178,8 @@ def _concept_table(q: QuoteData, s, palette: QuotePalette, t):
             ("VALIGN", (1, start), (4, end), "MIDDLE"),
             ("ALIGN", (1, start), (4, end), "CENTER"),
         ]
+    for start, _end in open_values:
+        commands += [("VALIGN", (1, start), (4, start), "MIDDLE"), ("ALIGN", (1, start), (4, start), "CENTER")]
     table.setStyle(TableStyle(commands))
     return table
 
