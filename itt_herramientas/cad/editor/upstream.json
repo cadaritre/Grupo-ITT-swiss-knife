@@ -1,8 +1,8 @@
 {
   "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile. «base»: la versión oficial sobre la que está hecha la compilación; «version» nombra la ruta servida (/cad/editor/<version>/), así un cambio de compilación nunca reusa la caché del navegador.",
-  "version": "tv-v2026.45-11",
+  "version": "tv-v2026.45-12",
   "base": "v2026.45",
-  "publicada": "2026-11-17",
+  "publicada": "2026-11-18",
   "puente": false,
   "fuente": {
     "tipo": "publica",
@@ -10,15 +10,15 @@
     "tag": "v2026.45"
   },
   "web": {
-    "archivo": "OpenCADStudio-tv-v2026.45-11-web.zip",
-    "sha256": "2c12f33109e74c865e881809da5590c0f5f1feffd567ffc7d40d6d8dc4b24b5f",
-    "bytes": 63094271,
+    "archivo": "OpenCADStudio-tv-v2026.45-12-web.zip",
+    "sha256": "8c25b00ee0aade4ab7e57a9eb49692336921a388b04f517c89e94d53f6b81592",
+    "bytes": 63123262,
     "fuente": {
       "tipo": "gh",
       "repo": "cadaritre/OpenCADStudio-TresVizo",
-      "tag": "tv-v2026.45-11"
+      "tag": "tv-v2026.45-12"
     },
-    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico, registro de fuentes SHX (`font_register`), `open`/`save` completos en WebKit, respuestas de control al momento, `view_set`, `?canvas=1` con `?embed=1`, sin copias locales del plano en el navegador, sin avisos de arranque en solo lienzo y la lista de presentaciones (`layouts`, `layout_set`); precisión relativa al ojo exacta en WebKit (vista de 1 mm en UTM), máscaras de MTEXT/MultiLeader y wipeouts por orden de dibujo en Estructura alámbrica 2D, `state.viewport_rect` y `screen_scale` (dónde está el área de dibujo en la página), proxies que se conservan al guardar y arreglos del códec (MTEXT con columnas, R12); referencias del modo táctil elegidas por la persona (`snap` con `modes` y `limit`), Cercano exacto sobre la curva también dentro de bloques y a través de ventanas, `explode`, `trim` y `extend` (rápidos y con valla) que toman la geometría de todos los niveles de bloques, y cotas con su propia escala (`dim_create`, `dim_style`); la rejilla de un píxel físico en su píxel (completa a escala 1–1.5, como Chrome en Windows) y curvas teseladas según el zoom (error de cuerda ≤ 0.25 px, sin marcar el plano como modificado); la extensión del dibujo con las reglas de CAD (`extents`: solo lo dibujado, sin centros de arcos casi rectos ni capas congeladas) y curvas refinadas por su error de cuerda a cualquier tamaño."
+    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico, registro de fuentes SHX (`font_register`), `open`/`save` completos en WebKit, respuestas de control al momento, `view_set`, `?canvas=1` con `?embed=1`, sin copias locales del plano en el navegador, sin avisos de arranque en solo lienzo y la lista de presentaciones (`layouts`, `layout_set`); precisión relativa al ojo exacta en WebKit (vista de 1 mm en UTM), máscaras de MTEXT/MultiLeader y wipeouts por orden de dibujo en Estructura alámbrica 2D, `state.viewport_rect` y `screen_scale` (dónde está el área de dibujo en la página), proxies que se conservan al guardar y arreglos del códec (MTEXT con columnas, R12); referencias del modo táctil elegidas por la persona (`snap` con `modes` y `limit`), Cercano exacto sobre la curva también dentro de bloques y a través de ventanas, `explode`, `trim` y `extend` (rápidos y con valla) que toman la geometría de todos los niveles de bloques, y cotas con su propia escala (`dim_create`, `dim_style`); la rejilla de un píxel físico en su píxel (completa a escala 1–1.5, como Chrome en Windows) y curvas teseladas según el zoom (error de cuerda ≤ 0.25 px, sin marcar el plano como modificado); la extensión del dibujo con las reglas de CAD (`extents`: solo lo dibujado, sin centros de arcos casi rectos ni capas congeladas) y curvas refinadas por su error de cuerda a cualquier tamaño; varios planos abiertos en una ventana (`documents`, `file_tabs`, guardar un documento dado) y Esc como en AutoCAD; imágenes y referencias externas leídas de la carpeta del proyecto en la computadora sin subir nada (`references`, `image_views`, `image_attach`, `image_set`, `ocs_image_supply`, `ocs_xref_supply` por documento), imágenes georreferenciadas con archivo de mundo o GeoTIFF y ortofotos enormes por mosaicos."
   },
   "nativo": {
     "x86_64": {
