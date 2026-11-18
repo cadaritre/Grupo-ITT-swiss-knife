@@ -16,8 +16,8 @@ from pathlib import Path
 from django.conf import settings
 
 AQUI = Path(__file__).resolve().parent
-#: Archivos cuyo nombre lleva el hash de Trunk (16 hex): se guardan un año; todo lo demás, 5 minutos.
-CON_HASH = re.compile(r"-[0-9a-f]{16}(_bg)?\.(js|wasm|svg)$")
+#: Archivos cuyo nombre lleva el hash de Trunk (hasta 16 hex: Trunk no rellena con ceros, una huella puede salir de 15): se guardan un año; todo lo demás, 5 minutos.
+CON_HASH = re.compile(r"-[0-9a-f]{12,16}(_bg)?\.(js|wasm|svg)$")
 #: CSP solo de la página del editor. 'wasm-unsafe-eval' compila el WebAssembly; el trabajador que lee y escribe DWG/DXF es un módulo
 #: del mismo origen. Sin red a terceros: connect-src, img-src y font-src son 'self' (la página de inicio del editor pedía videos y
 #: miniaturas a YouTube; quedan bloqueados, y `preparar.py` sirve esas listas vacías). frame-ancestors 'self': solo lo puede contener una página de Herramientas.

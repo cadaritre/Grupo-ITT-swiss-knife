@@ -17,6 +17,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import content_disposition_header
@@ -268,6 +269,10 @@ def plano(request, pk):
         "pestanas": {"max": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_MAX", PESTANAS_MAX)),
                      "bytes": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_BYTES", PESTANAS_BYTES)), "pestana": reverse("herramientas:cad_pestana", args=[MARCA]),
                      "elegir": reverse("herramientas:cad_elegir"), "desde_editor": reverse("herramientas:cad_desde_editor")} if v is None else None,
+        # Carpeta del proyecto en esta computadora (static/herramientas/cad/local/): la cuenta separa las carpetas guardadas en el
+        # navegador; las direcciones de los trabajadores van con su huella de estáticos. Nada de la carpeta llega al servidor.
+        "local": {"cuenta": usuario.pk, "trabajador": static("herramientas/cad/local/trabajador.js"),
+                  "tiff": static("herramientas/cad/local/tiff.js")},
     }
     if config["pestanas"]:
         config["versiones"] = _versiones(p)

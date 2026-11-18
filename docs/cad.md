@@ -421,6 +421,129 @@ versión del service worker (304; WebKit pide `sw.js` entero, ~6 KB, y también 
 - **Autoría:** la lista dice quién creó cada plano y quién lo guardó y cuándo; el plano, su línea de guardado y creación; cada versión,
   «Guardada por … · fecha».
 
+## Carpeta del proyecto en esta computadora (imágenes, ortofotos y referencias)
+
+Como en AutoCAD, Civil 3D y MicroStation, el plano guarda **referencias** (IMAGE con su IMAGEDEF, xrefs) y nunca los píxeles. Las
+ortofotos (de más de 3 GB), las fotos de fachadas y cortes (PointCab exporta un DWG con cientos de imágenes) y los dibujos referidos se
+quedan en la computadora. El servidor guarda solo el DWG, con las rutas tal como estaban.
+
+- **Vincular** (botón «Referencias» en la cabecera del plano, o el aviso «Vincular la carpeta del proyecto» cuando el plano usa archivos
+  que no están): en Chrome y Edge (Windows y Mac) la persona elige la carpeta (`showDirectoryPicker`, solo lectura); el navegador la
+  recuerda por cuenta y plano (IndexedDB `tv-cad-carpetas`, clave `<cuenta>:<plano>`) y, tras reiniciar, la página dice «El navegador
+  pide permiso para leerla» con un solo botón «Permitir el acceso». Se puede **agregar otra carpeta** (p. ej. las imágenes en otro disco
+  y las referencias en la red): se busca en todas. **Safari y Firefox** no tienen esa función: la carpeta se elige (o se suelta sobre el
+  panel) cada vez que se abre el plano y vale mientras la página esté abierta; el panel lo dice.
+- **Resolver**: cada ruta del plano (absoluta de Windows `C:\…`, de red `\\servidor\…`, de Mac o relativa `..\Fotos\…`) se busca
+  en la carpeta por la ruta relativa más larga que coincida, sin distinguir mayúsculas; si solo coincide el nombre y hay un único archivo
+  con ese nombre, por nombre. Si varios empatan, se usa el primero (orden alfabético) y el panel dice «Varias con ese nombre» con los
+  demás. Reglas y pruebas: `static/herramientas/cad/local/carpeta.js`, `pruebas/js/cad_local_carpeta.mjs`.
+- **Nada se sube**: ni píxeles, ni nombres de archivos (fuera de lo que el plano ya trae), ni miniaturas, ni métricas. La página lee los
+  archivos con `File.slice` y los decodifica en sus trabajadores; al editor le pasa los píxeles por su función `ocs_image_supply` (mismo
+  origen, dentro de la página). Lo prueban `test_cad_local_navegador.py` (registro de cada petición de la página, sus marcos y
+  trabajadores: ningún cuerpo lleva bytes de la carpeta ni sus nombres) y el contador de bytes.
+- **Sin la carpeta** (otra computadora, otra cuenta): cada imagen se ve como su marco con el nombre del archivo (parche 19 del editor) y
+  arriba del plano un aviso con una sola acción, «Vincular la carpeta del proyecto».
+- **Panel «Referencias externas»**: cada imagen y cada dibujo referido con «Encontrada», «Encontrada por nombre», «Varias con ese nombre»
+  o «No encontrada», el archivo que se usó, su tamaño y sus píxeles; «Volver a buscar», «Agregar otra carpeta», «Desvincular». Por
+  imagen: «Enviar atrás», «Ocultar»/«Mostrar», «Transparencia», «Recortar» (dos esquinas en el dibujo, IMAGECLIP del editor) y «Quitar
+  del plano» (quita las imágenes de ese archivo y su IMAGEDEF; el archivo sigue en la computadora). Con cientos de imágenes el panel
+  lista las que faltan y las ambiguas, y cuenta las encontradas en una línea. El marco de todas (IMAGEFRAME) se cambia en el editor.
+- **Guardar**: las rutas quedan como la persona las tenía (compatibles con AutoCAD); nada se reescribe a rutas del navegador.
+
+### Insertar imagen georreferenciada
+
+«Más acciones» → «Insertar imagen georreferenciada» (o el botón del panel). La persona elige la imagen (y, sin acceso a carpetas, también
+su archivo de mundo). Formatos: TIFF/GeoTIFF/BigTIFF, JPEG, PNG, BMP, GIF y WebP; archivos de mundo `.tfw`, `.tifw`, `.jgw`, `.jpgw`,
+`.pgw`, `.pngw`, `.wld` (y en mayúsculas), buscados junto a la imagen en la carpeta vinculada.
+
+- **Archivo de mundo**: las seis líneas A, D, B, E, C, F, con rotación; C y F son el **centro** del píxel superior izquierdo (convención
+  de ESRI, que siguen GDAL y AutoCAD Map 3D / Raster Design). El IMAGE de AutoCAD se coloca por la **esquina** inferior izquierda de la
+  imagen (DXF: código 10 = punto de inserción, esquina inferior izquierda; 11 y 12 = vectores U y V de un píxel). Por eso:
+  inserción = (C − A/2 + (alto − ½)·B, F − D/2 + (alto − ½)·E), U = (A, D), V = (−B, −E). Es el cálculo de `io/georef.rs` del editor
+  (con pruebas de cada esquina de una imagen girada).
+- **GeoTIFF**: ModelTransformation, o ModelPixelScale con ModelTiepoint, o tres o más tiepoints ajustados por mínimos cuadrados; con
+  RasterPixelIsArea (lo normal) el punto (0, 0) es la esquina del primer píxel, con RasterPixelIsPoint es su centro (GeoTIFF 1.0
+  §2.5.2.2; como GDAL por omisión).
+- **Unidades**: la georreferencia se toma en metros y se pasa a las unidades del plano (INSUNITS: mm ×1000, cm ×100, pies…; sin
+  unidades o en metros, tal cual).
+- **Sistema de coordenadas**: si el GeoTIFF trae su EPSG y el GEODATA del plano nombra otro, avisa una vez («La imagen está en
+  EPSG:32613 y el plano en EPSG:32614…»).
+- **Sin georreferencia**: punto de inserción (esquina inferior izquierda), ancho y rotación, como IMAGEATTACH (vienen prellenados con el
+  centro y la mitad del ancho de la vista).
+- Se crea un IMAGE estándar (RasterImage + IMAGEDEF en el diccionario de imágenes), en la capa «Imágenes» (se puede cambiar) y, por
+  omisión, **debajo del dibujo**. La ruta que se guarda es la relativa a la carpeta del proyecto (`Ortofotos\orto.tif`, con barras de
+  Windows: AutoCAD la resuelve si el DWG se guarda en esa carpeta); si la imagen no está en la carpeta, su nombre, y la página ofrece
+  vincular también la carpeta de la imagen. Op del editor: `image_attach`.
+
+### Ortofotos enormes (≥ 3 GB): solo lo que la vista necesita
+
+El editor web es wasm32 (4 GB de memoria) y la GPU tiene límites de textura: una ortofoto nunca se carga entera.
+
+- **Arquitectura**: el editor dibuja la imagen como un IMAGE normal (su lugar, su recorte, su orden, su desvanecido, rotación de la vista,
+  coordenadas UTM sin temblor: posiciones relativas al ojo, como la rejilla), pero sus píxeles los da la página: una **vista completa
+  reducida** (de 64 a 1024 px por lado, según lo grande que se vea) y, al acercarse, un **detalle** de la parte visible a la resolución
+  de la pantalla (hasta 2560 px por lado), dibujado encima. La página pregunta al editor qué se ve de cada imagen (`image_views`: la
+  ventana en píxeles de la imagen y cuántos píxeles de pantalla mide cada uno, con la vista girada también) y le da solo eso. Se eligió
+  así, y no un lienzo de la página bajo el editor, porque la imagen sigue siendo una entidad del editor (orden de dibujo con el resto,
+  recortes, bloques y xrefs, selección, impresión en el editor) y nunca se desfasa de la vista.
+- **Lectura por partes**: TIFF y BigTIFF en mosaicos o en tiras, leyendo solo los bloques de la ventana (`File.slice`), en el nivel
+  adecuado: las vistas generales internas del archivo (COG o TIFF piramidal) si las tiene. Compresión: ninguna, LZW, Deflate, PackBits y
+  JPEG en TIFF (YCbCr o RGB, con JPEGTables); predictor horizontal; 8 bits (16 se reducen a 8); gris, RGB, RGBA y paleta; un plano o
+  planos separados. **No soportado** (el panel lo dice): JPEG antiguo (compresión 6), fax (CCITT), muestras flotantes (modelos de
+  elevación), CMYK y Lab, y JPEG/PNG de más de 268 millones de píxeles (conviértelos a GeoTIFF en mosaicos).
+- **Sin vistas generales** (o JPEG/PNG de más de 16 millones de píxeles): la página arma una **pirámide local una sola vez**, en segundo
+  plano, en el almacenamiento privado del navegador (OPFS, carpeta `tv-cad-piramides`, por nombre + tamaño + fecha del archivo): mosaicos
+  de 256 px en JPEG (PNG si hay transparencia) a ½, ¼, ⅛… y una vista general de 2048 px que se va llenando mientras se lee el archivo
+  (la imagen aparece de arriba abajo). Avanza por bandas: se puede «Detener» y «Continuar» (y se retoma sola al volver a abrir), y
+  «Borrar vistas generales» en el panel las quita de este navegador. Nunca sale de la computadora.
+- **Memoria**: los trabajadores (2 o 3) decodifican; caché de bloques de 192 MB y de mosaicos de la pirámide de 400; el editor guarda
+  solo lo que se le dio (límite duro 1.5 GB; la página se queda muy por debajo, ver las medidas). Las texturas no cambiadas se conservan
+  entre cuadros (parche del editor).
+- **Imprimir**: la impresión a PDF corre en el servidor, que no tiene los píxeles: las imágenes salen como su marco y su nombre, y la hoja
+  de «Imprimir PDF» lo dice. (El editor web no imprime PDF.)
+
+**Medido** (18-11-2026, Mac M4, Chromium de Playwright con dibujo por software, compilación «tv-imagenes-locales»,
+`test_ortofoto_enorme_fluida` con `TV_CAD_ORTO_GRANDE`): BigTIFF RGB sin comprimir de 3.12 GB (32 256 × 32 256 px, 5 cm/px) **sin vistas
+generales**, el peor caso.
+
+| Archivo | Leer encabezado | Primera vista | Pirámide local completa | Cuadros al acercar, alejar y mover (60 pasos) | En el editor | Pico del navegador | Subido |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| en mosaicos de 512 | 0.04 s | 1.5 s | 23 s | mediana 16.7 ms, p95 33 ms, máx. 33 ms | 16 MB | 2.2 GB | 25 KB (latidos; ningún byte del archivo) |
+| en tiras de 16 filas | 0.04 s | 1.3 s | 23 s | mediana 16.7 ms, p95 33 ms, máx. 33 ms | 16 MB | 2.2 GB | 25 KB (ídem) |
+
+El pico del navegador es la memoria residente de todos sus procesos (renderizador, GPU por software, trabajadores) e incluye la caché de
+bloques y la pirámide mientras se arma; el editor guarda 16 MB de píxeles. En una computadora con GPU los cuadros son más cortos; la
+SwiftShader de las pruebas marca 30–60 cuadros por segundo. Los archivos de prueba se generan para medir y se borran al terminar.
+
+### Planos tipo PointCab (cientos de imágenes y referencias)
+
+- Con la carpeta: todas aparecen, cada una a la resolución con que se ve (de 64 px si es pequeña en pantalla a su detalle al acercarse),
+  así la memoria depende de la pantalla y no del número de imágenes; las más grandes en pantalla primero.
+- Sin la carpeta: marcos con nombres, al instante, y un solo aviso para vincular.
+- **Medido** (mismo equipo): 240 imágenes PNG/JPG en 8 carpetas con su referencia externa: todas visibles 0.8 s después de vincular,
+  1 imagen = la resolución con que se ve (al ver todo, 2.9 MB de píxeles en el editor para las 240), 0 bytes de la carpeta subidos.
+- La estructura exacta de las exportaciones de PointCab no está publicada en detalle; el juego de prueba sigue lo habitual (el DWG con
+  las imágenes en carpetas por vista y rutas absolutas de Windows). Comprobar con una exportación real del propietario (sin subirla).
+- **Referencias a dibujos** (xref adjunta o superpuesta): se leen de la carpeta y se muestran de solo lectura, como AutoCAD (sin «unir»).
+  Las anidadas se resuelven al cargar su padre, hasta 4 niveles.
+- Juego de prueba sintético (nunca datos de clientes): `pruebas_navegador/cad_local_rasters.py pointcab DIR --imagenes 320` crea un DXF
+  con IMAGE en fachadas y cortes (rutas absolutas de Windows como las exporta PointCab: `C:\PointCab\Proyecto_Demo\Imagenes\<vista>\…`),
+  PNG y JPG en una carpeta por vista y un DXF de marco y ejes como referencia externa.
+
+### Lo que hace el editor (compilación con «tv-imagenes-locales»)
+
+| Qué | Cómo |
+| --- | --- |
+| Imágenes y referencias del plano | consulta `references` → `images` (handle, path, size, shown, fade, clipped, block, supplied), `xrefs` (name, path, overlay, status), `supplied_bytes` |
+| Qué se ve de cada imagen | consulta `image_views` → `views` (path, size, rect en píxeles con y hacia abajo, density, screen_area), `camera_revision`, `viewport_size`, `screen_scale` |
+| Insertar | op `image_attach` (`path`, `size`, y `world_file` o `geotiff` o `insert` + `width` + `rotation`; `layer`, `send_to_back`) |
+| Ajustes de una imagen | op `image_set` (`handle`; `fade`, `transparency`, `shown`, `clip_rect` o `null`, `draw_order`, `detach`) |
+| Dar píxeles | `wasmBindings.ocs_image_supply(ruta, anchoArchivo, altoArchivo, x0, y0, x1, y1, ancho, alto, rgba)`; `ocs_image_drop_detail`, `ocs_image_release` |
+| Dar un dibujo referido | `wasmBindings.ocs_xref_supply(ruta, bytes)` |
+| Desvincular | `wasmBindings.ocs_local_reset()` |
+
+Dar píxeles o dibujos no es una edición: no deja paso de deshacer ni marca «Sin guardar».
+
 ## Fuentes SHX
 
 Los planos mexicanos usan txt, romans, simplex, isocp y bigfonts. El editor web no las trae; quien administra las sube desde su AutoCAD en
