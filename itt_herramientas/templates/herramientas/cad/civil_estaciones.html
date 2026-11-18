@@ -1,0 +1,12 @@
+{% load tv %}<details class="civil-mas" data-civil-estaciones>
+  <summary>{% if rango %}Estaciones y tramo{% else %}Estaciones de la guitarra{% endif %}</summary>
+  {% if rango %}<div class="civil-fila">
+    <div class="tv-campo"><label for="civil-{{ pre }}-desde">Desde</label><input id="civil-{{ pre }}-desde" name="desde" autocomplete="off" inputmode="decimal" placeholder="Inicio del eje" data-civil-estacion></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-hasta">Hasta</label><input id="civil-{{ pre }}-hasta" name="hasta" autocomplete="off" inputmode="decimal" placeholder="Fin del eje" data-civil-estacion></div>
+  </div>{% endif %}
+  <div class="tv-campo"><label for="civil-{{ pre }}-adic">Estaciones adicionales</label><input id="civil-{{ pre }}-adic" name="adicionales" autocomplete="off" placeholder="0+033.30, 0+075" data-civil-adicionales></div>
+  <div class="civil-eleccion"><div><strong>En el plano</strong><span class="tv-tenue" data-civil-cuenta="adicionales" data-vacio="Ninguna">Ninguna</span></div><button type="button" class="tv-boton tv-boton--secundario" data-civil-elegir="adicionales">{% icono "crosshair" %}<span>Señalar en el eje</span></button><button type="button" class="tv-boton tv-boton--fantasma" data-civil-quitar-adicionales hidden><span>Quitar</span></button></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-cc" name="criticas_curvas" value="1" checked><label for="civil-{{ pre }}-cc">En las curvas del eje (PC, PT, PI, espirales)</label></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-cr" name="criticas_rasante" value="1" checked><label for="civil-{{ pre }}-cr">En las curvas verticales (PCV, PIV, PTV)</label></div>
+  <p class="civil-conteo" data-civil-estaciones-cuenta role="status"></p>
+</details>

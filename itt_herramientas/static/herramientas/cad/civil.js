@@ -691,6 +691,15 @@
             cuenta.textContent = "Señalado"; cuenta.classList.add("civil-elegido");
             return;
           }
+          if (que === "adicionales") {                      // una estación adicional por clic, proyectada al eje al calcular
+            const p = await senalar("Señala un punto del eje: ahí va una estación adicional");
+            if (!p) return;
+            const lista = est.elegidos[clave].adicionales || (est.elegidos[clave].adicionales = []);
+            lista.push([p[0], p[1]]);
+            pintarAdicionales(form);
+            form.dispatchEvent(new Event("change", { bubbles: true }));
+            return;
+          }
           if (que === "vertice") {
             const p = await senalar("Señala el vértice inicial");
             if (!p) return;
@@ -702,7 +711,7 @@
           const e = await elegir({ mensaje: def.mensaje, tipos: def.tipos, maximo: def.maximo, sinResultados: true });
           if (!e) return;
           const datos = e.map(polilinea);
-          if (que === "eje") datos[0].definicion = await definicionEje(e[0].handle);
+          if (que === "eje") { datos[0].definicion = await definicionEje(e[0].handle); datos[0].handle = e[0].handle; est.elegidos[clave].adicionales = []; pintarAdicionales(form); }
           if (def.cerrada && datos.some((d) => !d.cerrada && !(d.vertices.length > 2 && d.vertices[0][0] === d.vertices[d.vertices.length - 1][0] && d.vertices[0][1] === d.vertices[d.vertices.length - 1][1])))
             throw new ErrorCivil("La polilínea debe estar cerrada.");
           est.elegidos[clave][que] = datos;
@@ -1105,20 +1114,180 @@
     const e = el.eje[0];
     // un eje que dibujó Civil con espirales viaja por su definición (PI y curvas); cualquier otra polilínea, por sus vértices y arcos
     const eje = e.definicion ? e.definicion : { vertices: e.vertices.map((v) => [v[0], v[1]]), combas: e.combas };
-    return { eje, inicio: e.definicion ? e.definicion.inicio : leerEstacion(valor(f, "inicio")), intervalo: numero(f, "intervalo", 20) };
+    const intervalo = numero(f, "intervalo", 20);
+    if (!(intervalo >= 0.1)) throw new ErrorCivil("La estación cada debe ser de al menos 0.1 m.");
+    return { eje, inicio: e.definicion ? e.definicion.inicio : leerEstacion(valor(f, "inicio")), intervalo, bloque: e.handle || null, ...opcionesEstaciones(f) };
   }
+
+  // -- Estaciones y hojas (perfil, secciones, curva masa) -----------------------------------------------------------------------
+  /** Lo que la hoja pide de las estaciones: tramo, adicionales (escritas y señaladas) y críticas. Las críticas y el tramo, solo si la hoja los tiene. */
+  function opcionesEstaciones(f) {
+    const o = {};
+    if (!f.querySelector("[data-civil-estaciones]")) return o;
+    o.criticas_curvas = !!valor(f, "criticas_curvas");
+    o.criticas_rasante = !!valor(f, "criticas_rasante");
+    for (const n of ["desde", "hasta"]) { const t = String(valor(f, n) || "").trim(); if (t) o[n] = leerEstacion(t); }
+    const escritas = String(valor(f, "adicionales") || "").split(/[,;\s]+/).filter(Boolean).map(leerEstacion);
+    if (escritas.length) o.adicionales = escritas;
+    const señaladas = (est.elegidos[f.dataset.civilForm] || {}).adicionales;
+    if (señaladas && señaladas.length) o.adicionales_puntos = señaladas;
+    return o;
+  }
+  function pintarAdicionales(f) {
+    const c = f.querySelector('[data-civil-cuenta="adicionales"]');
+    if (!c) return;
+    const n = ((est.elegidos[f.dataset.civilForm] || {}).adicionales || []).length;
+    c.textContent = n ? `${n} señalada${n === 1 ? "" : "s"}` : c.dataset.vacio;
+    c.classList.toggle("civil-elegido", n > 0);
+    const q = f.querySelector("[data-civil-quitar-adicionales]");
+    if (q) q.hidden = !n;
+  }
+  /** Número opcional de un campo: vacío es null; algo que no es número, un error que dice cuál campo. */
+  function opcional(f, n, etiqueta) {
+    const t = String(valor(f, n) ?? "").trim().replace(",", ".");
+    if (t === "") return null;
+    const v = Number(t);
+    if (!Number.isFinite(v)) throw new ErrorCivil(`Revisa «${etiqueta}».`);
+    return v;
+  }
+  const ETIQUETAS_HOJA = { escala_h: "Escala horizontal", escala_v: "Escala vertical", paso_estacion: "Líneas de estación", paso_cota: "Líneas de cota", datum: "Plano de comparación",
+    intervalo_guitarra: "Guitarra cada", paso_h: "Retícula horizontal", paso_v: "Retícula vertical" };
+  const RENGLONES_GUITARRA = ["terreno", "rasante", "corte", "terraplen"];
+  function opcionesHoja(f, tipo) {
+    const o = {};
+    const numeros = tipo === "perfil" ? ["escala_h", "escala_v", "paso_estacion", "paso_cota", "datum", "intervalo_guitarra"] : ["escala_h", "escala_v", "paso_h", "paso_v"];
+    for (const n of numeros) { const v = opcional(f, n, ETIQUETAS_HOJA[n]); if (v !== null) o[n] = v; }
+    if (tipo === "perfil") {
+      o.curvas_verticales = !!valor(f, "curvas_verticales");
+      o.pendientes = !!valor(f, "pendientes");
+      o.guitarra = RENGLONES_GUITARRA.filter((g) => valor(f, `g_${g}`));
+      o.guitarra_criticas = !!valor(f, "criticas_curvas") || !!valor(f, "criticas_rasante");
+    } else {
+      o.reticula = !!valor(f, "reticula");
+      o.columnas = Math.max(1, parseInt(valor(f, "columnas"), 10) || 3);
+      o.renglones = Math.max(1, parseInt(valor(f, "renglones"), 10) || 5);
+      o.separacion_mm = Math.max(0, numero(f, "separacion_mm", 10));
+      o.orden = valor(f, "orden");
+      for (const b of ["marco", "sombrear", "chaflanes"]) o[b] = !!valor(f, b);
+    }
+    return o;
+  }
+  /** Vuelve a poner en la hoja lo que guardó el título del bloque (estaciones, hoja y rasante) para rehacerlo con otras opciones. */
+  function llenarHoja(f, op) {
+    const poner = (n, v) => {
+      const c = f.elements[n];
+      if (!c || c instanceof RadioNodeList) return;
+      if (c.type === "checkbox") c.checked = !!v; else c.value = v === null || v === undefined ? "" : String(v);
+    };
+    for (const n of ["intervalo", "desde", "hasta", "escala_h", "escala_v", "paso_estacion", "paso_cota", "datum", "intervalo_guitarra", "paso_h", "paso_v", "columnas", "renglones", "separacion_mm", "orden", "izquierda", "derecha", "abundamiento"]) {
+      if (f.elements[n] && n in op) poner(n, op[n]);
+      else if (f.elements[n] && ["desde", "hasta", "escala_h", "escala_v", "paso_estacion", "paso_cota", "datum", "intervalo_guitarra", "paso_h", "paso_v"].includes(n)) poner(n, "");
+    }
+    for (const n of ["criticas_curvas", "criticas_rasante", "reticula", "marco", "sombrear", "chaflanes", "curvas_verticales", "pendientes", "tabla"]) if (n in op) poner(n, op[n]);
+    if (Array.isArray(op.guitarra)) for (const g of RENGLONES_GUITARRA) poner(`g_${g}`, op.guitarra.includes(g));
+    poner("adicionales", (op.adicionales || []).map(estacion).join(", "));
+    est.elegidos[f.dataset.civilForm].adicionales = Array.isArray(op.adicionales_puntos) ? op.adicionales_puntos : [];
+    pintarAdicionales(f);
+    if (Array.isArray(op.rasante) && op.rasante.length >= 2) {
+      const cuerpo = f.querySelector("[data-civil-pivs]");
+      if (cuerpo) {
+        const molde = cuerpo.firstElementChild.cloneNode(true);
+        while (cuerpo.children.length > 1) cuerpo.lastElementChild.remove();
+        op.rasante.forEach((fila, i) => {
+          const tr = i === 0 ? cuerpo.firstElementChild : molde.cloneNode(true);
+          if (i > 0) cuerpo.append(tr);
+          tr.querySelector("[name=piv_e]").value = estacion(fila[0]); tr.querySelector("[name=piv_z]").value = fila[1]; tr.querySelector("[name=piv_l]").value = fila[2] || 0;
+        });
+        poner("con_rasante", true);
+      }
+    }
+    f.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  /** Cuántas estaciones salen con las opciones de la hoja, dicho antes de dibujar («N secciones en M hojas»). */
+  function enlazarConteo(f, { secciones }) {
+    const salida = f.querySelector("[data-civil-estaciones-cuenta]");
+    if (!salida) return () => {};
+    let reloj = null, turno = 0;
+    const contar = async () => {
+      const mio = ++turno;
+      let texto = "", vacio = false;
+      try {
+        const datos = { ...datosEje(f), rasante: rasante(f) };
+        if (!secciones) { const ig = opcional(f, "intervalo_guitarra", ""); if (ig) datos.intervalo = ig; }
+        if (secciones) { datos.columnas = Math.max(1, parseInt(valor(f, "columnas"), 10) || 3); datos.renglones = Math.max(1, parseInt(valor(f, "renglones"), 10) || 5); }
+        const r = await calcular("estaciones", datos);
+        if (mio !== turno) return;
+        const s = r.resumen, n = s.estaciones;
+        texto = secciones && f.dataset.civilForm === "secciones"
+          ? `${n.toLocaleString("es-MX")} ${n === 1 ? "sección" : "secciones"} en ${s.hojas} hoja${s.hojas === 1 ? "" : "s"}`
+          : `${n.toLocaleString("es-MX")} estaci${n === 1 ? "ón" : "ones"}`;
+        if (s.criticas) texto += ` · ${s.criticas} crítica${s.criticas === 1 ? "" : "s"}`;
+        if ((r.avisos || [])[0]) texto += ` · ${r.avisos[0]}`;
+      } catch (err) { if (mio !== turno) return; texto = err instanceof ErrorCivil && !/Elige el eje/.test(err.message) ? err.message : ""; vacio = !!texto; if (!(err instanceof ErrorCivil)) console.error(err); }
+      salida.textContent = texto;
+      salida.classList.toggle("civil-conteo--vacio", vacio);
+    };
+    const pronto = () => { clearTimeout(reloj); reloj = setTimeout(contar, 350); };
+    f.addEventListener("input", pronto); f.addEventListener("change", pronto);
+    const quitar = f.querySelector("[data-civil-quitar-adicionales]");
+    if (quitar) quitar.addEventListener("click", () => { est.elegidos[f.dataset.civilForm].adicionales = []; pintarAdicionales(f); pronto(); });
+    return contar;
+  }
+
+  // -- Un bloque de Civil ya dibujado (perfil o secciones de un eje): para reemplazarlo y para reabrir su hoja ----------------
+  const CAPAS_BLOQUE = {
+    perfil: ["PERFIL_RETICULA", "PERFIL_TERRENO", "PERFIL_RASANTE", "PERFIL_TEXTOS", "PERFIL_CURVAS_VERTICALES", "EJE_ESTACIONES"],
+    secciones: ["SECCION_TERRENO", "SECCION_PROYECTO", "SECCION_RASANTE", "SECCION_RETICULA", "SECCION_TEXTOS", "SECCION_EJE", "SECCION_CORTE", "SECCION_TERRAPLEN", "SECCION_HOJA", "VOLUMEN_TABLA"],
+  };
+  /** Los objetos del bloque de este eje (los que llevan en su XDATA `bloque:<handle del eje>`), la caja de lo que va en papel y las opciones del título. */
+  async function leerBloque(tipo, handleEje) {
+    const salida = { handles: [], caja: null, opciones: null };
+    if (!handleEje) return salida;
+    const marca = `bloque:${handleEje}`, cajas = [];
+    for (const capa of CAPAS_BLOQUE[tipo]) {
+      let ents = [];
+      try { ents = await consultar({ layer: capa, detail: "full", fields: ["handle", "layer", "bounds", "space"] }); } catch (_) { continue; }
+      const caja = new Map(ents.map((e) => [e.handle, e]));
+      const hs = [...caja.keys()];
+      for (let i = 0; i < hs.length; i += 1500) {
+        const lote = hs.slice(i, i + 1500);
+        const r = await pedir({ op: "xdata_get", handles: lote, app: "TVCIVIL" }, 120000);
+        (r.items || (r.result && r.result.items) || []).forEach((it, k) => {
+          const h = it.handle || lote[k];
+          const v = ((it.xdata || {}).TVCIVIL || []).map((d) => (d && typeof d === "object" ? d.value : d));
+          if (v[1] !== marca) return;
+          salida.handles.push(h);
+          if (capa !== "EJE_ESTACIONES") cajas.push(cajaDe(caja.get(h)));
+          if (v[0] === `${tipo}_titulo`) { try { salida.opciones = JSON.parse(v.slice(2).join("")); } catch (_) { /* título sin opciones */ } }
+        });
+      }
+    }
+    salida.caja = unirCajas(cajas);
+    return salida;
+  }
+
   function prepararPerfil() {
     const f = document.querySelector('[data-civil-form="perfil"]');
-    prepararElecciones(f); enlazarDependientes(f); prepararRasante(f);
+    const contar = enlazarConteo(f, { secciones: false });
+    prepararElecciones(f, async (que, datos) => {
+      if (que !== "eje") return;
+      const b = await leerBloque("perfil", datos[0].handle).catch(() => null);
+      if (b && b.opciones) { llenarHoja(f, b.opciones); avisar("Se pusieron las opciones del perfil que ya está dibujado."); }
+      contar();
+    });
+    enlazarDependientes(f); prepararRasante(f);
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
-        const datos = { ...datosEje(f), exageracion: numero(f, "exageracion", 10), rasante: rasante(f) };
-        datos.esquina_superior = await lugarLibre("debajo");          // el lugar sugerido: la persona lo confirma o lo cambia al colocarlo
+        const datos = { ...datosEje(f), exageracion: numero(f, "exageracion", 10), rasante: rasante(f), ...opcionesHoja(f, "perfil") };
+        const anterior = valor(f, "reemplazar") ? await leerBloque("perfil", datos.bloque) : { handles: [], caja: null };
+        datos.esquina_superior = anterior.caja ? [anterior.caja[0], anterior.caja[3]] : await lugarLibre("debajo");   // el lugar sugerido: el del anterior, o a un lado
         datos.caras = await carasDe("terreno");
         decir("Calculando el perfil…");
         const r = await calcular("perfil", datos, decir);
-        if (!(await colocarDxf(r.dxf, "perfil.dxf", { titulo: "El perfil", ancla: "abajo_izquierda" }))) return cancelado();
+        if (!(await colocarDxf(r.dxf, "perfil.dxf", { titulo: "El perfil", ancla: "abajo_izquierda", mover: /^PERFIL_/ }))) return cancelado();
+        await borrar(anterior.handles);                            // lo nuevo ya está: se quita el anterior (dos pasos de deshacer)
         cerrarHoja();
         avisar(`Perfil de ${mil(r.resumen.longitud, 2)} m, ${r.resumen.estaciones} estaciones`);
         for (const a of r.avisos || []) avisar(a);
@@ -1157,7 +1326,8 @@
 
   function prepararMasa() {
     const f = document.querySelector('[data-civil-form="masa"]');
-    prepararElecciones(f); enlazarDependientes(f); prepararRasante(f);
+    const contar = enlazarConteo(f, { secciones: true });
+    prepararElecciones(f, (que) => { if (que === "eje") contar(); }); enlazarDependientes(f); prepararRasante(f);
     f.elements.con_rasante.checked = true; f.elements.con_rasante.dispatchEvent(new Event("change", { bubbles: true }));
     const res = f.querySelector("[data-civil-resultado]");
     f.addEventListener("submit", (ev) => {
@@ -1209,20 +1379,35 @@
 
   function prepararSecciones() {
     const f = document.querySelector('[data-civil-form="secciones"]');
-    prepararElecciones(f); enlazarDependientes(f); prepararRasante(f);
-    const res = f.querySelector("[data-civil-resultado]");
+    const contar = enlazarConteo(f, { secciones: true });
+    prepararElecciones(f, async (que, datos) => {
+      if (que !== "eje") return;
+      const b = await leerBloque("secciones", datos[0].handle).catch(() => null);
+      if (b && b.opciones) { llenarHoja(f, b.opciones); avisar("Se pusieron las opciones de las secciones que ya están dibujadas."); }
+      contar();
+    });
+    enlazarDependientes(f); prepararRasante(f);
+    const res = f.querySelector("[data-civil-resultado]"), botonCsv = f.querySelector("[data-civil-csv]");
+    let csv = null;
+    botonCsv.addEventListener("click", () => {
+      if (!csv) return;
+      descargar(btoa(unescape(encodeURIComponent(csv))), `volumenes ${window.TVCad.estado().plano.nombre}.csv`, "text/csv;charset=utf-8");
+    });
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
         const datos = { ...datosEje(f), izquierda: numero(f, "izquierda", 20), derecha: numero(f, "derecha", 20), rasante: rasante(f), tabla: valor(f, "tabla"),
-          abundamiento: numero(f, "abundamiento", 1), plantilla: plantillaDe(f) };
-        datos.esquina_superior = await lugarLibre("lado");
+          abundamiento: numero(f, "abundamiento", 1), plantilla: plantillaDe(f), ...opcionesHoja(f, "secciones") };
+        const anterior = valor(f, "reemplazar") ? await leerBloque("secciones", datos.bloque) : { handles: [], caja: null };
+        datos.esquina_superior = anterior.caja ? [anterior.caja[0], anterior.caja[3]] : await lugarLibre("lado");
         datos.caras = await carasDe("terreno");
         decir("Calculando las secciones…");
         const r = await calcular("secciones", datos, decir);
         if (!(await colocarDxf(r.dxf, "secciones.dxf", { titulo: "Las secciones" }))) return cancelado();
+        await borrar(anterior.handles);
+        csv = r.csv || null; botonCsv.hidden = !csv;
         if (r.resumen.corte !== undefined) { res.hidden = false; res.innerHTML = `<p>Corte <strong>${mil(r.resumen.corte)} m³</strong> · Terraplén <strong>${mil(r.resumen.terraplen)} m³</strong>${r.resumen.despalme ? ` · Despalme <strong>${mil(r.resumen.despalme)} m³</strong>` : ""}</p>${tablaCurvas(r.curvas)}`; }
-        avisar(`${r.resumen.secciones} secciones`);
+        avisar(`${r.resumen.secciones} secciones en ${r.resumen.hojas} hoja${r.resumen.hojas === 1 ? "" : "s"}`);
         for (const a of (r.avisos || []).slice(0, 3)) avisar(a);
         if (r.resumen.corte === undefined) cerrarHoja();
       });

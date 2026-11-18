@@ -501,7 +501,10 @@
 <form class="tv-formulario civil-form" data-civil-form="perfil">
   {% include "herramientas/cad/civil_eje.html" with pre="per" %}
   <div class="tv-campo"><label for="civil-per-exag">Exageración vertical</label><select id="civil-per-exag" name="exageracion"><option value="1">1 ×</option><option value="2">2 ×</option><option value="5">5 ×</option><option value="10" selected>10 ×</option><option value="20">20 ×</option></select></div>
+  {% include "herramientas/cad/civil_estaciones.html" with pre="per" %}
   {% include "herramientas/cad/civil_rasante.html" with pre="per" %}
+  {% include "herramientas/cad/civil_hoja_perfil.html" with pre="per" %}
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-per-reemp" name="reemplazar" value="1" checked><label for="civil-per-reemp">Reemplazar el anterior de este eje</label></div>
   <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "mouse-pointer-click" %}<span>Al terminar señalas en el plano dónde va el perfil; Esc cancela sin dibujar.</span></p>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "chart-line" %}<span>Dibujar perfil</span></button></div>
@@ -516,15 +519,18 @@
     <div class="tv-campo"><label for="civil-sec-izq">A la izquierda</label><div class="civil-unidad"><input id="civil-sec-izq" name="izquierda" type="number" min="1" step="any" value="20" inputmode="decimal"><span>m</span></div></div>
     <div class="tv-campo"><label for="civil-sec-der">A la derecha</label><div class="civil-unidad"><input id="civil-sec-der" name="derecha" type="number" min="1" step="any" value="20" inputmode="decimal"><span>m</span></div></div>
   </div>
+  {% include "herramientas/cad/civil_estaciones.html" with pre="sec" rango=True %}
   {% include "herramientas/cad/civil_rasante.html" with pre="sec" %}
+  {% include "herramientas/cad/civil_hoja_secciones.html" with pre="sec" %}
   <details class="civil-mas" data-civil-si="con_rasante=1" hidden><summary>Sección de proyecto</summary>
     {% include "herramientas/cad/civil_plantilla.html" with pre="sec" %}
     <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-sec-tabla" name="tabla" value="1" checked><label for="civil-sec-tabla">Tabla de volúmenes</label></div>
   </details>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-sec-reemp" name="reemplazar" value="1" checked><label for="civil-sec-reemp">Reemplazar el anterior de este eje</label></div>
   <p class="tv-tenue civil-nota civil-nota--colocar">{% icono "mouse-pointer-click" %}<span>Al terminar señalas en el plano dónde van las secciones; Esc cancela sin dibujar.</span></p>
   <div class="civil-resultado" data-civil-resultado hidden></div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
-  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "panels-top-left" %}<span>Dibujar secciones</span></button></div>
+  <div class="tv-hoja__acciones civil-acciones-3"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton tv-boton--secundario" data-civil-csv hidden>{% icono "download" %}<span>Descargar tabla (CSV)</span></button><button type="submit" class="tv-boton">{% icono "panels-top-left" %}<span>Dibujar secciones</span></button></div>
 </form>
 {% endhoja_inferior %}
 
@@ -536,6 +542,7 @@
     <div class="tv-campo"><label for="civil-mas-izq">Secciones a la izquierda</label><div class="civil-unidad"><input id="civil-mas-izq" name="izquierda" type="number" min="1" step="any" value="30" inputmode="decimal"><span>m</span></div></div>
     <div class="tv-campo"><label for="civil-mas-der">A la derecha</label><div class="civil-unidad"><input id="civil-mas-der" name="derecha" type="number" min="1" step="any" value="30" inputmode="decimal"><span>m</span></div></div>
   </div>
+  {% include "herramientas/cad/civil_estaciones.html" with pre="mas" rango=True %}
   {% include "herramientas/cad/civil_rasante.html" with pre="mas" %}
   <details class="civil-mas" open><summary>Sección de proyecto</summary>
     {% include "herramientas/cad/civil_plantilla.html" with pre="mas" %}

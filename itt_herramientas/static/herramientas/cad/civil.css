@@ -145,3 +145,5 @@
 .civil-colindancias[hidden] { display: none; }
 .civil-colindancias__lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); gap: var(--tv-espacio-2) var(--tv-espacio-3); }
 .civil-colindancias__lista .tv-campo { margin: 0; }
+.civil-opciones label[hidden] { display: none; }
+.civil-opciones--filas label { padding-block: var(--tv-espacio-1, 4px); }

@@ -57,6 +57,7 @@ página (civil.js) ──TVCad.pedir──▶ editor (lee entidades: records, qu
 | Acción | Pasos de deshacer (compilación propia, -4 en adelante) | En la compilación oficial |
 | --- | --- | --- |
 | Importar, triangular la primera vez, curvas la primera vez, cuadro, perfil, secciones, volumen | 1 | 1 |
+| Volver a dibujar el perfil o las secciones de un eje con otras opciones (lo nuevo se copia y se borra lo anterior) | 2 | 2 |
 | Invertir triángulos (dos `set_properties` en un `batch`) | 1 | 2 |
 | Borrar triángulos | 1 | 1 |
 | Volver a triangular, actualizar curvas (lo nuevo se copia y después se borra lo anterior) | 2 | 2 |
@@ -111,6 +112,31 @@ la lee de sus puntos. Las alturas propias (mm por tipo de texto) se guardan en e
 puntos ya dibujados» vuelve a dibujar los puntos a la nueva escala (orden `redibujar_puntos`): los rótulos quedan tal como estaban, también
 los apagados y los decimales de la elevación. «Renumerar puntos» usa la misma orden.
 
+## Perfil y secciones al nivel de CivilCAD (motor 0.9)
+
+Las brechas contra las rutinas oficiales de CivilCAD, con su responsable, están en el repositorio del motor (`docs/brechas-civilcad.md`).
+Lo de perfiles, secciones y volúmenes:
+
+- **Estaciones libres.** «Estación cada» es un número cualquiera (5, 7.5, 20, 33…); las cerradas son múltiplos desde 0+000. Un bloque
+  «Estaciones y tramo» da **desde / hasta**, **estaciones adicionales** (escritas como 0+033.30 o señaladas en el eje: se proyectan sobre
+  él) y las **críticas** de las curvas del eje (PC, PT, PI, TE, EC, CE, ET) y de las verticales (PCV, PIV, PTV), que se pueden apagar. Dos
+  estaciones a menos de 1 mm se juntan. Antes de dibujar, la hoja dice «N secciones en M hojas · C críticas». En el perfil las mismas
+  opciones fijan los renglones de la guitarra; la curva masa también las usa.
+- **Hoja de secciones.** Escalas H y V (por omisión, la del plano), retícula con su paso H y V (automático, o el que se escriba) que se
+  puede apagar, columnas × renglones, separación en mm y orden (por columnas de abajo arriba, de arriba abajo o por renglones), marco y
+  título «HOJA n DE m», sombreado de corte y terraplén y rótulo de chaflanes. Cada sección lleva su estación (y su tipo si es crítica),
+  desplazamientos IZQ./DER., cotas, plano de comparación y áreas.
+- **Hoja del perfil.** Escalas H y V, líneas de estación y de cota, plano de comparación, guitarra (cadenamiento, elevación del terreno y
+  de la rasante, espesores de corte y de terraplén) a la estación que se elija, curvas verticales rotuladas (PCV, PIV, PTV, longitud) y la
+  pendiente de cada tangente. Las marcas de estación en planta (`EJE_ESTACIONES`) se quedan sobre el eje aunque el perfil se ponga en
+  otro lugar: al colocar el perfil solo se mueven las capas `PERFIL_*`.
+- **Volúmenes.** La tabla por estación lleva el tipo de cada estación, el renglón TOTALES y su título; «Descargar tabla (CSV)» la baja
+  con la rasante (BOM y CRLF, para Excel).
+- **Editable después.** Cada objeto del bloque lleva en su XDATA `TVCIVIL` el tipo y `bloque:<handle del eje>`, y el título guarda las
+  opciones. «Reemplazar el anterior de este eje» (activado) busca el bloque por esa marca, dibuja el nuevo donde estaba el anterior y
+  lo borra: dos pasos de deshacer. Al elegir un eje que ya tiene su perfil o sus secciones, la hoja se llena con las opciones con que se
+  dibujaron (estaciones, hoja y rasante; la plantilla de la sección no se guarda y se vuelve a escribir).
+
 ## El motor fijado
 
 `itt_herramientas/civil/motor/` es una copia del paquete `tvcivil` (puro Python: numpy, Shapely, ezdxf) de un commit exacto del repositorio
@@ -133,8 +159,9 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor uv run pytest itt_herramienta
 - `pruebas/test_civil.py`: huella del motor, órdenes ligeras y pesadas (con gzip y por la cola), resultado solo de la cuenta, errores con su
   mensaje, permisos, tope de tamaño y que la página traiga Civil solo a quien edita.
 - `pruebas_navegador/test_civil_navegador.py`, con el editor real y coordenadas UTM: importar 5 000 puntos PNEZD, deshacer y rehacer,
-  triangular, invertir dos triángulos elegidos con el ratón, curvas, cuadro de un lote con lado curvo, perfil y secciones con rasante,
-  volumen contra una plataforma, guardar en DWG y volver a abrir; 360 px; y el camino sin `user_select` (selección + «Listo»). La prueba
+  triangular, invertir dos triángulos elegidos con el ratón, curvas, cuadro de un lote con lado curvo, perfil y secciones con rasante
+  (estación libre y adicional, hoja de 2 × 2, escalas H/V, retícula, reemplazo del bloque anterior, reapertura con las opciones guardadas
+  y marcas en planta fijas), volumen contra una plataforma, guardar en DWG y volver a abrir; 360 px; y el camino sin `user_select` (selección + «Listo»). La prueba
   de los pedidos del 16-11: triangular solo lo seleccionado con una ventana y lo que cae en un polígono (la cuenta antes de correr),
   curvas con una polilínea por curva y etiquetas con fondo, unir las curvas cortadas de un plano viejo al etiquetar, y colocar el cuadro
   donde se señala (la vista previa sigue al puntero; Esc no dibuja nada; un paso de deshacer).

@@ -1,0 +1,21 @@
+{% load tv %}<details class="civil-mas">
+  <summary>Hoja del perfil</summary>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-{{ pre }}-eh">Escala horizontal 1:</label><input id="civil-{{ pre }}-eh" name="escala_h" type="number" min="1" step="any" inputmode="decimal" placeholder="La del plano"></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-ev">Escala vertical 1:</label><input id="civil-{{ pre }}-ev" name="escala_v" type="number" min="1" step="any" inputmode="decimal" placeholder="Según la exageración"></div>
+  </div>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-{{ pre }}-pe">Líneas de estación cada</label><div class="civil-unidad"><input id="civil-{{ pre }}-pe" name="paso_estacion" type="number" min="0" step="any" inputmode="decimal" placeholder="Igual que la estación"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-pc">Líneas de cota cada</label><div class="civil-unidad"><input id="civil-{{ pre }}-pc" name="paso_cota" type="number" min="0" step="any" inputmode="decimal" placeholder="Automático"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-datum">Plano de comparación</label><div class="civil-unidad"><input id="civil-{{ pre }}-datum" name="datum" type="number" step="any" inputmode="decimal" placeholder="Automático"><span>m</span></div></div>
+  </div>
+  <fieldset class="tv-campo"><legend>Renglones de la guitarra</legend><div class="civil-opciones civil-opciones--filas">
+    <label><input type="checkbox" name="g_terreno" checked><span>Elevación del terreno</span></label>
+    <label data-civil-si="con_rasante=1" hidden><input type="checkbox" name="g_rasante" checked><span>Elevación de la rasante</span></label>
+    <label data-civil-si="con_rasante=1" hidden><input type="checkbox" name="g_corte" checked><span>Espesor de corte</span></label>
+    <label data-civil-si="con_rasante=1" hidden><input type="checkbox" name="g_terraplen" checked><span>Espesor de terraplén</span></label>
+  </div></fieldset>
+  <div class="tv-campo"><label for="civil-{{ pre }}-ig">Guitarra cada</label><div class="civil-unidad"><input id="civil-{{ pre }}-ig" name="intervalo_guitarra" type="number" min="0.1" step="any" inputmode="decimal" placeholder="Igual que la estación"><span>m</span></div></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-cv" name="curvas_verticales" value="1" checked><label for="civil-{{ pre }}-cv">Rotular las curvas verticales</label></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-pen" name="pendientes" value="1" checked><label for="civil-{{ pre }}-pen">Rotular la pendiente de cada tangente</label></div>
+</details>

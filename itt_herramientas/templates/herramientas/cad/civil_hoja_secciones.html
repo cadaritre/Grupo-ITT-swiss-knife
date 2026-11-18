@@ -1,0 +1,21 @@
+{% load tv %}<details class="civil-mas">
+  <summary>Hoja de secciones</summary>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-{{ pre }}-eh">Escala horizontal 1:</label><input id="civil-{{ pre }}-eh" name="escala_h" type="number" min="1" step="any" inputmode="decimal" placeholder="La del plano"></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-ev">Escala vertical 1:</label><input id="civil-{{ pre }}-ev" name="escala_v" type="number" min="1" step="any" inputmode="decimal" placeholder="Igual que la horizontal"></div>
+  </div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-ret" name="reticula" value="1" checked><label for="civil-{{ pre }}-ret">Retícula en cada sección</label></div>
+  <div class="civil-fila" data-civil-si="reticula=1">
+    <div class="tv-campo"><label for="civil-{{ pre }}-ph">Retícula horizontal cada</label><div class="civil-unidad"><input id="civil-{{ pre }}-ph" name="paso_h" type="number" min="0" step="any" inputmode="decimal" placeholder="Automático"><span>m</span></div></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-pv">Retícula vertical cada</label><div class="civil-unidad"><input id="civil-{{ pre }}-pv" name="paso_v" type="number" min="0" step="any" inputmode="decimal" placeholder="Automático"><span>m</span></div></div>
+  </div>
+  <div class="civil-fila civil-fila--4">
+    <div class="tv-campo"><label for="civil-{{ pre }}-col">Columnas</label><input id="civil-{{ pre }}-col" name="columnas" type="number" min="1" max="20" step="1" value="3" inputmode="numeric"></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-ren">Renglones</label><input id="civil-{{ pre }}-ren" name="renglones" type="number" min="1" max="50" step="1" value="5" inputmode="numeric"></div>
+    <div class="tv-campo"><label for="civil-{{ pre }}-sep">Separación</label><div class="civil-unidad"><input id="civil-{{ pre }}-sep" name="separacion_mm" type="number" min="0" max="200" step="any" value="10" inputmode="decimal"><span>mm</span></div></div>
+  </div>
+  <div class="tv-campo"><label for="civil-{{ pre }}-ord">Orden de las secciones</label><select id="civil-{{ pre }}-ord" name="orden"><option value="columnas_abajo_arriba" selected>Por columnas, de abajo arriba</option><option value="columnas_arriba_abajo">Por columnas, de arriba abajo</option><option value="renglones">Por renglones, de izquierda a derecha</option></select></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-marco" name="marco" value="1" checked><label for="civil-{{ pre }}-marco">Marco y título en cada hoja</label></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-somb" name="sombrear" value="1" checked><label for="civil-{{ pre }}-somb">Sombrear corte y terraplén</label></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-chaf" name="chaflanes" value="1" checked><label for="civil-{{ pre }}-chaf">Rotular los chaflanes</label></div>
+</details>

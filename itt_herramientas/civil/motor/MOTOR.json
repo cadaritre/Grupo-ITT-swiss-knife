@@ -1,10 +1,10 @@
 {
  "_nota": "Copia fijada de tvcivil. No se edita aquí: se cambia en el repositorio del motor y se vuelve a copiar con actualizar_motor.py.",
  "repo": "cadaritre/TresVizo-Civil",
- "commit": "983dc820cca2ec53de244e44314e36594c8bb9a3",
- "version": "0.8.0",
+ "commit": "6fe42788ee0432afcd58ac4ffc7c2dc3884a34c1",
+ "version": "0.9.0",
  "archivos": {
-  "__init__.py": "1141aab143b3a65f96f9d91d1814a6c78ebf4df4912727c92374fd005cfe8e02",
+  "__init__.py": "93bc7c4d73d68f350ed423bdc64a9e5b9b968f4e3981a08a1d9cb4255559a265",
   "angulos.py": "cab30267cd2b09bbb734d0e1af038158b3112ed1f3c25fc1c9ff352637aa2618",
   "anotacion.py": "4da0cdf09d8a02718446257146ecb062890c18069b1402ac3a332378c82ad255",
   "cuadro.py": "9e46fde1d15ca5aa2e68f011ec037e8dfbe4e18a59755f570154bcf58e60edbb",
@@ -16,17 +16,19 @@
   "eje.py": "a4fe47fc352cb411b57c61866a6ac19ec4a9d82cbbdad4a05770d249eefb4aca",
   "entidades.py": "b854428bd67292be7d9787fbcf4e7a30b0f383516e235d77311ec605253b06c5",
   "escala.py": "b5fc4651c8e28885fd9906cee251d94760fc65fbbc1ef277b575138325cca757",
+  "estaciones.py": "aff6525a96127bea1e9a4eb71a79e0d64d4968bbfcf9fc37f9c48ebf446eed3a",
   "geodesia.py": "f2946b1ef7e6f4f739cda7e780f2e5b18e1720d8d56d5af655fbee219ed96df0",
   "lotificacion.py": "f006e97e8ee1963af73fc45ad6365c1667186cbbe054d36a074c12aeacc0abad",
   "masa.py": "796e2c5b7add6155b806bef53cae01a000d28d1449b7287d7d482dca65db5f77",
   "memoria.py": "b7862bed86ad1b249e526c03b5575e28d882b66fb5d1015b3a0403e0405af854",
-  "ordenes.py": "a2ba7ba8cc388f71e58f5d21080ccfebf1343860505d094dda589b0a31eab825",
-  "perfiles.py": "114e9c6cbe573605cd5c1241bb9adc8a1d10cbf9f46876ce1ab2f8e7ff3e7b77",
+  "ordenes.py": "7bf78674d014676baa103aa981c0a84b8bdb72bc93cf66d4b5e7abe52ec971f4",
+  "perfiles.py": "7e6932b3feb21912f45e0a515722d832820f1a273ad4e860f937a753c278cf77",
   "puntos.py": "e5b9047bf0659e659ccc1f633e90766219b6a8bb452d07f5769963fb408e7491",
-  "secciones.py": "44bec5543d80f481c291ed00162962c5107f3f75c36d75e5fa8b0ad2041c895e",
+  "reticula.py": "d2076b09a92c90d74d009636416d6fb7bef084459ea69a64afbd03401f6bb7dc",
+  "secciones.py": "78be8f64328f944c98679d1adcdede7cafd5fc5dec26d5d45515e36c4c4f6479",
   "sobreelevacion.py": "87368bdd22b690af56fb4dd2c350c14fc9c8599b0936eb43b7412f250eb5c293",
   "superficie.py": "c2d9519d02dce32c3078acbfb0c8b55639ecda194d36cb1686864a8d8609c37a",
   "tin.py": "6f0c84d3b8fcca5551793c418fc04c32542b831523bde92567281cd5bfd0dc07",
-  "volumenes.py": "0d6e067805af1479503a6be0ad339072df7f9b5d1048dc7c859b579df8726367"
+  "volumenes.py": "edb4008238fffe7f77b82493206a15583b16bc25145020a22d6420b6389fd8df"
  }
 }

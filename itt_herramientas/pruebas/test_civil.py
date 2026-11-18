@@ -194,6 +194,31 @@ def test_curva_masa_por_la_cola_y_lotificar(cliente_de, dibujante):
     assert r["resumen"]["lotes"] == 5 and r["resumen"]["superficie"] == pytest.approx(10000)
 
 
+def test_hojas_de_perfil_y_secciones_con_estaciones_libres(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+    xs, ys = np.meshgrid(np.arange(0, 201, 20.0), np.arange(-40, 41, 20.0))
+    pts = [[X0 + x, Y0 + y, 100 + 0.05 * x, str(i), ""] for i, (x, y) in enumerate(zip(xs.ravel(), ys.ravel()))]
+    tri = cl.get(mandar(cl, "triangular", {"puntos": pts}).json()["resultado"]["url"]).json()
+    eje = {"vertices": [[X0, Y0], [X0 + 200, Y0]]}
+    base = {"caras": caras_de(tri["dxf"]), "eje": eje, "rasante": [[0, 105], [200, 105]], "bloque": "1F3", "intervalo": 25, "hasta": 100,
+            "adicionales": ["0+033.30"], "adicionales_puntos": [[X0 + 60, Y0 + 7]]}
+    # cuántas estaciones salen: lo dice la hoja antes de dibujar
+    d = mandar(cl, "estaciones", {**base, "columnas": 2, "renglones": 2}).json()
+    assert d["estado"] == "completada", d
+    res = d["resultado"]["resumen"]
+    assert res["estaciones"] == 7 and res["hojas"] == 2               # 0, 25, 33.3, 50, 60, 75, 100
+    d = mandar(cl, "secciones", {**base, "izquierda": 15, "derecha": 15, "columnas": 2, "renglones": 2, "escala_h": 200, "escala_v": 100, "paso_h": 5, "paso_v": 1,
+                                 "orden": "renglones"}, comprimir=True).json()
+    assert d["estado"] == "completada", d
+    r = cl.get(d["resultado"]["url"]).json()
+    assert r["resumen"]["secciones"] == 7 and r["resumen"]["hojas"] == 2 and r["resumen"]["escala_v"] == 100
+    assert r["csv"].startswith("\ufeff") and "TOTALES" in r["csv"]
+    d = mandar(cl, "perfil", {**base, "escala_h": 1000, "escala_v": 100, "guitarra": ["terreno", "rasante"], "paso_cota": 1}, comprimir=True).json()
+    assert d["estado"] == "completada", d
+    r = cl.get(d["resultado"]["url"]).json()
+    assert r["resumen"]["guitarra"] == 7 and r["resumen"]["escala_v"] == 100
+
+
 def test_errores_de_la_persona_salen_con_su_mensaje(cliente_de, dibujante):
     cl = cliente_de(dibujante)
     r = mandar(cl, "curvas", {"caras": []})

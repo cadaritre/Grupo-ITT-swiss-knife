@@ -392,11 +392,36 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     p.locator('[data-civil-form="perfil"] [data-civil-agregar-piv]').click()
     filas.nth(1).locator("[name=piv_e]").fill("0+260.19")
     filas.nth(1).locator("[name=piv_z]").fill("118")
+    # opciones de la hoja del perfil: escalas H/V, estación libre y adicional, guitarra solo con terreno y rasante
+    p.locator('[data-civil-form="perfil"] summary:has-text("Hoja del perfil")').click()
+    p.locator("#civil-per-eh").fill("2000")
+    p.locator("#civil-per-ev").fill("200")
+    p.locator("#civil-per-int").fill("25")
+    p.locator('[data-civil-form="perfil"] summary:has-text("Estaciones de la guitarra")').click()
+    p.locator("#civil-per-adic").fill("0+033.30")
+    p.locator('[data-civil-form="perfil"] [name=g_corte]').uncheck()
+    p.locator('[data-civil-form="perfil"] [name=g_terraplen]').uncheck()
+    esperar(p, "/estaci/.test(document.querySelector('[data-civil-form=perfil] [data-civil-estaciones-cuenta]').textContent)", LARGO)
     foto(p, "10-perfil", 1280)
     p.locator('[data-civil-form="perfil"] button[type=submit]').click()
     poner_aqui(p)
     esperar(p, "!document.getElementById('civil-hoja-perfil').open", LARGO * 3)
     assert cuenta(p, None, "PERFIL_TERRENO") >= 1 and cuenta(p, None, "PERFIL_RASANTE") == 1
+    titulos = [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "PERFIL_TEXTOS", "detail": "geometry"})["entities"]]
+    assert any("ESC. H 1:2000   V 1:200" in t for t in titulos) and "0+033.30" in titulos and "ELEV. TERRENO" in titulos and "ESPESOR CORTE" not in titulos
+    # las marcas de estación en planta se quedan sobre el eje aunque el perfil se ponga en otro lugar
+    marcas = pedir(p, {"op": "query", "type": "Line", "layer": "EJE_ESTACIONES", "detail": "geometry"})["entities"]
+    assert marcas and all(Y0 + 140 < min(m["start"][1], m["end"][1]) and max(m["start"][1], m["end"][1]) < Y0 + 175 for m in marcas)
+    # volver a dibujar con otras opciones reemplaza el perfil anterior (no queda doble)
+    antes = cuenta(p, None, "PERFIL_RETICULA")
+    menu(p, "ejes", "perfil")
+    p.locator("#civil-per-ev").fill("100")
+    p.locator('[data-civil-form="perfil"] button[type=submit]').click()
+    poner_aqui(p)
+    esperar(p, "!document.getElementById('civil-hoja-perfil').open", LARGO * 3)
+    assert cuenta(p, None, "PERFIL_RASANTE") == 1 and cuenta(p, None, "PERFIL_RETICULA") != 0
+    titulos = [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "PERFIL_TEXTOS", "detail": "geometry"})["entities"]]
+    assert sum("ESC. H 1:2000" in t for t in titulos) == 1 and any("V 1:100" in t for t in titulos)
 
     apagar(p, "EJE_ESTACIONES")                                             # las marcas del perfil están sobre el eje
     mapa_eje = enfocar(p, (X0 + 20, Y0 + 150, X0 + 280, Y0 + 160))
@@ -415,13 +440,48 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     p.locator('[data-civil-form="secciones"] [data-civil-agregar-piv]').click()
     fs.nth(1).locator("[name=piv_e]").fill("0+260.19")
     fs.nth(1).locator("[name=piv_z]").fill("118")
+    # estación libre (30 m) con una adicional, hoja de 2 columnas × 2 renglones, escalas H/V y retícula propia
+    p.locator("#civil-sec-int").fill("30")
+    p.locator('[data-civil-form="secciones"] summary:has-text("Estaciones y tramo")').click()
+    p.locator("#civil-sec-adic").fill("0+033.30, 0+050")
+    p.locator('[data-civil-form="secciones"] summary:has-text("Hoja de secciones")').click()
+    p.locator("#civil-sec-col").fill("2")
+    p.locator("#civil-sec-ren").fill("2")
+    p.locator("#civil-sec-eh").fill("200")
+    p.locator("#civil-sec-ev").fill("100")
+    p.locator("#civil-sec-ph").fill("5")
+    try:
+        esperar(p, "/^12 secciones en 3 hojas/.test(document.querySelector('[data-civil-form=secciones] [data-civil-estaciones-cuenta]').textContent.trim())", LARGO)
+    except AssertionError:
+        print("\ncuenta de estaciones:", repr(p.locator('[data-civil-form="secciones"] [data-civil-estaciones-cuenta]').inner_text()), p.evaluate("window.__consola || null"), flush=True)
+        raise
+    cuenta_txt = p.locator('[data-civil-form="secciones"] [data-civil-estaciones-cuenta]').inner_text()
+    assert cuenta_txt.startswith("12 secciones en 3 hojas"), cuenta_txt          # 0, 30, …, 240, 260.19 + 33.3 + 50 = 0+000, 030, 033.3, 050, 060, 090, 120, 150, 180, 210, 240, 260.19
     foto(p, "11-secciones", 1280)
     p.locator('[data-civil-form="secciones"] button[type=submit]').click()
     poner_aqui(p)
     esperar(p, "!document.querySelector('[data-civil-form=secciones] [data-civil-resultado]').hidden", LARGO * 3)
     assert "Corte" in p.locator('[data-civil-form="secciones"] [data-civil-resultado]').inner_text()
+    assert not p.locator('[data-civil-form="secciones"] [data-civil-csv]').is_hidden()
+    assert cuenta(p, None, "SECCION_PROYECTO") == 12 and cuenta(p, "Text", "VOLUMEN_TABLA") > 10 and cuenta(p, None, "SECCION_HOJA") >= 6
+    # otra vez, con 1 columna × 3 renglones: reemplaza lo anterior (un solo bloque) y deshacer lo trae de vuelta
+    p.locator("#civil-sec-col").fill("1")
+    p.locator("#civil-sec-ren").fill("3")
+    p.locator('[data-civil-form="secciones"] button[type=submit]').click()
+    poner_aqui(p)
+    esperar_libre(p)
+    esperar(p, "!document.querySelector('[data-civil-form=secciones] button[type=submit]').disabled", LARGO * 3)
+    titulos = [e["value"] for e in pedir(p, {"op": "query", "type": "Text", "layer": "SECCION_TEXTOS", "detail": "geometry"})["entities"]]
+    assert cuenta(p, None, "SECCION_PROYECTO") == 12 and sum("HOJA 1 DE 4" in t for t in titulos) == 1 and not any("DE 3" in t for t in titulos), titulos
     p.locator("#civil-hoja-secciones [data-tv-cerrar]").first.click()
-    assert cuenta(p, None, "SECCION_PROYECTO") == 14 and cuenta(p, "Text", "VOLUMEN_TABLA") > 10
+    # elegir el mismo eje otra vez trae las opciones con las que se dibujó
+    menu(p, "ejes", "secciones")
+    p.locator("#civil-sec-col").fill("7")
+    p.locator('[data-civil-form="secciones"] [data-civil-elegir="eje"]').click()
+    elegir_en_dibujo(p, [(X0 + 169.5, Y0 + 155.75)], mapa_eje)
+    esperar(p, "document.getElementById('civil-sec-col').value === '1'", LARGO)
+    assert p.locator("#civil-sec-int").input_value() == "30" and "0+033.30" in p.locator("#civil-sec-adic").input_value()
+    p.locator("#civil-hoja-secciones [data-tv-cerrar]").first.click()
 
     # 7. Volumen entre superficies: una plataforma de proyecto a 110 m
     plat = tmp_path / "plataforma.txt"
