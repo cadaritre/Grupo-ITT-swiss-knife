@@ -71,6 +71,12 @@ MENUS = (
         {"separador": True},
         {"clave": "masa", "nombre": "Curva masa…", "icono": "chart-spline"},
     )},
+    # Imágenes: la imagen satelital de un área (cad/local/satelite.js; docs/cad.md, «Imagen satelital»). Grupo de la cinta «Civil» del
+    # editor (ahí van también «Insertar imagen georreferenciada» y «Referencias externas»); `solo_cinta`: la barra de la página no lo
+    # muestra (no cabría a 1280 px) y la acción está en «Más acciones» del plano.
+    {"clave": "imagenes", "nombre": "Imágenes", "icono": "image", "solo_cinta": True, "acciones": (
+        {"clave": "satelite", "nombre": "Imagen satelital…", "icono": "satellite"},
+    )},
 )
 
 NOMBRES_ALTURA = {

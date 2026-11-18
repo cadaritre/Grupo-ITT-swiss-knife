@@ -145,3 +145,13 @@
 .civil-colindancias[hidden] { display: none; }
 .civil-colindancias__lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); gap: var(--tv-espacio-2) var(--tv-espacio-3); }
 .civil-colindancias__lista .tv-campo { margin: 0; }
+
+/* Imagen satelital (cad/local/satelite.js) */
+.civil-sat__botones { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2); justify-content: flex-end; }
+.civil-sat__plan { display: grid; gap: 2px; padding: var(--tv-espacio-2) var(--tv-espacio-3); border-radius: var(--tv-radio); background: var(--tv-estado-info-fondo); font-size: var(--tv-texto-sm); }
+.civil-sat__plan:empty { display: none; }
+.civil-sat__plan strong { font-variant-numeric: tabular-nums; }
+.civil-sat__plan [data-tipo="aviso"] { color: var(--tv-estado-aviso-texto); }
+.civil-sat__plan [data-tipo="error"] { color: var(--tv-estado-error-texto); font-weight: 600; }
+.civil-sat__donde { display: grid; gap: var(--tv-espacio-2); justify-items: start; }
+.civil-sat__progreso { width: 100%; }

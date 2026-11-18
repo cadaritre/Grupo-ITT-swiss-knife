@@ -1864,6 +1864,8 @@
     perfil: () => abrirHoja("civil-hoja-perfil"),
     secciones: () => abrirHoja("civil-hoja-secciones"),
     volumen: () => abrirHoja("civil-hoja-volumen"),
+    // Imágenes: «Imagen satelital desde una polilínea» (cad/local/satelite.js)
+    satelite: () => (window.TVCadSatelite ? window.TVCadSatelite.abrir() : avisar("La imagen satelital no está disponible en esta página.", "error")),
   };
   let llenarEscala = () => {};
   let alAbrirPuntoNuevo = async () => {};
@@ -1914,5 +1916,7 @@
   }
 
   window.TVCad.listo.then(montar);
-  window.TVCivil = Object.freeze({ version: 1, insertarDxf, calcular, consultar, enUnPaso, lugarLibre });
+  window.TVCivil = Object.freeze({ version: 1, insertarDxf, calcular, consultar, enUnPaso, lugarLibre,
+    // para las hojas de otros módulos (cad/local/satelite.js): elegir y señalar como Civil, con su hoja y su zona UTM
+    elegir, senalar, polilinea, abrirHoja, avisar, ErrorCivil, zona: () => zona(), escala: () => ({ ...est.escala }) });
 })();

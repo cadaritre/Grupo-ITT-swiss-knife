@@ -850,6 +850,24 @@
     st.xrefsDadas.clear(); st.vueltasXref = 0;
   }
 
+  // ── Para «Imagen satelital» (satelite.js) ─────────────────────────────────────────────────────────────────────────────────────
+  // Inserta un archivo ya escrito (en la carpeta del plano, `enCarpeta`, o descargado: su nombre) por el mismo camino que «Insertar
+  // imagen georreferenciada»: image_attach con su archivo de mundo y, si hay `pasos`, en un solo `batch` (un paso de deshacer); cada paso
+  // puede tomar el handle de la imagen nueva con `enlace` en sus `bindings`. Devuelve lo que respondió image_attach.
+  async function insertarArchivo({ archivo, ruta, mundo, enCarpeta = false, capa, atras = true, pasos, etiqueta }) {
+    const st = e;
+    const info = await pool.pedir({ tipo: "info", archivo }).promesa;
+    if (info.motivo) throw new Error(info.motivo);
+    const peticion = { op: "image_attach", path: ruta, size: [info.ancho, info.alto], send_to_back: atras, world_file: mundo, ...(capa ? { layer: capa } : {}) };
+    const extra = pasos ? pasos({ step: 0, path: "/result/handle" }) : [];
+    const r = extra.length ? await pedir({ op: "batch", steps: [peticion, ...extra], label: etiqueta || "IMAGEATTACH" }, { tiempoMs: 120000 }) : await pedir(peticion);
+    const res = extra.length ? r.result.steps[0].result : r.result;
+    st.res.set(ruta, { estado: enCarpeta ? "ruta" : "nombre", entrada: { ruta: ruta.replace(/\\/g, "/"), nombre: archivo.name, archivo }, archivo, coincide: 1, candidatos: [], info });
+    if (sum.has(ruta)) soltar(ruta);
+    await refrescar(st);
+    return res;
+  }
+
   e = estadoDe(config.id);
   enganchar();
   pintarCarpeta();
@@ -870,5 +888,7 @@
         permisoPendiente: st.permisoPendiente, resueltas: st.res.size })),
     }),
     usar: (raices) => usar(e, raices), refrescar: () => refrescar(e), vincular,
+    // «Imagen satelital» (satelite.js): las carpetas del plano a la vista (handles con permiso) y la inserción de un archivo.
+    carpetas: () => e.raices.filter((r) => r.handle).map((r) => r.handle), insertarArchivo,
   });
 })();

@@ -1,14 +1,14 @@
 {% load static tv %}{# Civil: barra de menús y hojas (docs/civil.md). Es igual para todas las cuentas y todos los planos: llega aparte, una vez por versión (cad/vistas.py, `panel_civil`), y civil-panel.js la pone en la página del plano antes de civil.js. #}
 <template id="civil-barra">
   <span class="civil-marca">{% icono "mountain" %}<span>Civil</span></span>
-  {% for m in civil.menus %}
+  {% for m in civil.menus %}{% if not m.solo_cinta %}
   <details class="cad-menu civil-menu" data-civil-menu="{{ m.clave }}">
     <summary class="tv-boton tv-boton--fantasma civil-menu__boton" aria-label="{{ m.nombre }}">{% icono m.icono %}<span>{{ m.nombre }}</span>{% icono "chevron-down" clase="civil-menu__flecha" %}</summary>
     <div class="cad-menu__lista civil-menu__lista" role="menu" aria-label="{{ m.nombre }}">
       {% for a in m.acciones %}{% if a.separador %}<hr class="civil-menu__separador">{% else %}<button type="button" role="menuitem" data-civil="{{ a.clave }}">{% icono a.icono %}<span>{{ a.nombre }}</span></button>{% endif %}{% endfor %}
     </div>
   </details>
-  {% endfor %}
+  {% endif %}{% endfor %}
   <button type="button" class="tv-boton tv-boton--secundario civil-escala" data-civil="escala" data-tv-tooltip="Escala del plano y altura de los textos">{% icono "ruler" %}<span id="civil-escala-texto">1:1000</span></button>
 </template>
 
@@ -587,6 +587,31 @@
   <div class="civil-resultado" data-civil-resultado hidden></div>
   <p class="itt-estado civil-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cerrar</button><button type="submit" class="tv-boton">{% icono "box" %}<span>Calcular volumen</span></button></div>
+</form>
+{% endhoja_inferior %}
+
+{# -- Imagen satelital (cad/local/satelite.js; docs/cad.md, «Imagen satelital») -------------------------------------------------- #}
+{% hoja_inferior "civil-hoja-satelite" titulo="Imagen satelital" %}
+<form class="tv-formulario civil-form civil-sat" data-civil-form="satelite" id="civil-sat-form" novalidate>
+  <div class="civil-elecciones">
+    <div class="civil-eleccion"><div><strong>Área</strong><span class="tv-tenue" id="civil-sat-area">Sin elegir · una polilínea cerrada o dos esquinas</span></div>
+      <div class="civil-sat__botones"><button type="button" class="tv-boton" id="civil-sat-polilinea">{% icono "mouse-pointer-click" %}<span>Polilínea</span></button><button type="button" class="tv-boton tv-boton--secundario" id="civil-sat-esquinas">{% icono "square-dashed" %}<span>Dos esquinas</span></button></div></div>
+  </div>
+  <div class="civil-fila">
+    <div class="tv-campo"><label for="civil-sat-calidad">Calidad</label>
+      <select id="civil-sat-calidad" name="calidad"><option value="max" selected>Máxima disponible</option><option value="0.15">15 cm por píxel</option><option value="0.3">30 cm por píxel</option><option value="0.6">60 cm por píxel</option><option value="1.2">1.2 m por píxel</option><option value="2.4">2.4 m por píxel</option><option value="otra">Otra…</option></select></div>
+    <div class="tv-campo" id="civil-sat-otra-campo" hidden><label for="civil-sat-otra">Píxel</label><div class="civil-unidad"><input id="civil-sat-otra" name="otra" inputmode="decimal" value="50" autocomplete="off"><span>cm</span></div></div>
+    <div class="tv-campo"><label for="civil-sat-margen">Margen alrededor</label><div class="civil-unidad"><input id="civil-sat-margen" name="margen" inputmode="decimal" value="10" autocomplete="off"><span>m</span></div></div>
+  </div>
+  <div class="tv-campo"><label for="civil-sat-nombre">Nombre del archivo</label><input id="civil-sat-nombre" name="nombre" maxlength="100" autocomplete="off" spellcheck="false"></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-sat-recortar" name="recortar" value="1" checked><label for="civil-sat-recortar">Recortar a la polilínea</label></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-sat-atras" name="atras" value="1" checked><label for="civil-sat-atras">Debajo del dibujo</label></div>
+  <div class="civil-sat__plan" id="civil-sat-plan" role="status" aria-live="polite"></div>
+  <div class="civil-sat__donde"><p class="tv-tenue civil-nota" id="civil-sat-donde"></p><button type="button" class="tv-boton tv-boton--secundario" id="civil-sat-vincular" hidden>{% icono "folder-plus" %}<span>Vincular la carpeta del proyecto</span></button></div>
+  <progress class="civil-sat__progreso" id="civil-sat-progreso" max="1" value="0" hidden></progress>
+  <p class="itt-estado civil-estado" id="civil-sat-estado" role="status" hidden></p>
+  <p class="tv-tenue civil-nota" id="civil-sat-fuente"></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton tv-boton--secundario" id="civil-sat-detener" hidden>{% icono "square" %}<span>Detener</span></button><button type="submit" class="tv-boton" id="civil-sat-ir" disabled>{% icono "satellite" %}<span>Descargar e insertar</span></button></div>
 </form>
 {% endhoja_inferior %}
 

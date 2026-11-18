@@ -28,7 +28,7 @@ from ..comun import condicional, perfiles, zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
 from ..civil import pagina as civil_pagina
-from . import editor, fuentes, nativo, registro, salidas, servicio, tactil
+from . import editor, fuentes, nativo, registro, salidas, satelite, servicio, tactil
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
 editar = requiere_rol("herramientas", "cad", "admin")
@@ -273,10 +273,12 @@ def plano(request, pk):
         # navegador; las direcciones de los trabajadores van con su huella de estáticos. Nada de la carpeta llega al servidor.
         "local": {"cuenta": usuario.pk, "trabajador": static("herramientas/cad/local/trabajador.js"),
                   "tiff": static("herramientas/cad/local/tiff.js")},
+        # Imagen satelital (Civil → Imágenes): quien puede dibujar, en la versión vigente. Las teselas van del navegador al proveedor.
+        "satelite": satelite.config_de_pagina() if puede and v is None and editor.disponible() and not sin_archivo else None,
     }
     if config["pestanas"]:
         config["versiones"] = _versiones(p)
-    return _privado(render(request, "herramientas/cad/plano.html", {
+    return _privado(satelite.poner_csp(request, render(request, "herramientas/cad/plano.html", {
         "p": p, "v": v, "config": config, "versiones": _versiones(p), "puede_editar": puede, "es_admin": servicio.es_admin(usuario),
         "puede_eliminar": servicio.puede_eliminar(usuario, p), "papeles": nativo.PAPELES, "papel": nativo.PAPEL_POR_OMISION,
         "orientaciones": nativo.ORIENTACIONES, "areas": nativo.AREAS, "escalas": nativo.ESCALAS, "nativo": nativo.disponible() and not sin_archivo,
@@ -285,7 +287,7 @@ def plano(request, pk):
         "versiones_max": servicio.limites()["versiones"], "versiones_minimas": servicio.VERSIONES_MINIMAS,
         # Civil (topografía) solo dibuja: aparece para quien puede editar, en la versión vigente y con el editor disponible.
         "civil": civil_pagina.contexto(p) if puede and v is None and editor.disponible() and not sin_archivo else None,
-        "tactil": bool(config["tactil"])}))
+        "tactil": bool(config["tactil"])}), config["satelite"]))
 
 
 @ver

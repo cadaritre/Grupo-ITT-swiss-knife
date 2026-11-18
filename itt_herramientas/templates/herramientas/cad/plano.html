@@ -23,6 +23,7 @@
     <a href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1{% if v %}&version={{ v.numero }}{% endif %}" id="cad-descargar">{% icono "download" %}<span>Descargar {% if v %}{{ v.formato|upper }}{% else %}{{ p.formato|upper }}{% endif %}</span></a>
     {% if nativo %}<button type="button" id="cad-convertir" data-formato="{% if v %}{% if v.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% else %}{% if p.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% endif %}">{% icono "file-output" %}<span>Descargar como {% if v %}{% if v.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% else %}{% if p.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% endif %}</span></button>{% endif %}
     {% if editor_listo and puede_editar and not v %}<button type="button" id="cad-menu-insertar-imagen">{% icono "image-plus" %}<span>Insertar imagen georreferenciada</span></button>{% endif %}
+    {% if civil %}<button type="button" id="cad-menu-imagen-satelite">{% icono "satellite" %}<span>Imagen satelital…</span></button>{% endif %}
     {% if drive %}<button type="button" id="cad-drive">{% icono "hard-drive-upload" %}<span>Enviar a Google Drive</span></button>{% endif %}
     {% if puede_editar %}
     <button type="button" data-tv-abrir="cad-renombrar">{% icono "pencil" %}<span>Renombrar</span></button>
@@ -205,7 +206,9 @@
 <script src="{% static 'herramientas/cad/editor.js' %}"></script>
 <script src="{% static 'herramientas/cad/pantalla.js' %}"></script>
 {% if editor_listo %}<script src="{% static 'herramientas/cad/local/carpeta.js' %}"></script>
-<script src="{% static 'herramientas/cad/local/local.js' %}"></script>{% endif %}
+<script src="{% static 'herramientas/cad/local/local.js' %}"></script>
+{% if civil %}<script src="{% static 'herramientas/cad/local/satelite-geo.js' %}"></script>
+<script src="{% static 'herramientas/cad/local/satelite.js' %}"></script>{% endif %}{% endif %}
 {% if tactil and editor_listo %}<script src="{% static 'herramientas/cad/campo.js' %}"></script>
 <script src="{% static 'herramientas/cad/tactil.js' %}"></script>{% endif %}
 {% block extensiones_cad %}{% if civil %}{% include "herramientas/cad/civil.html" %}{% endif %}{% endblock %}
