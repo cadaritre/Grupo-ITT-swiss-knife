@@ -736,7 +736,8 @@ def test_el_paso_a_sin_guardar_va_con_el_borrador_sin_nada_del_dibujo(tactil, na
     ops = [f[1] for f in d["r"]]
     assert "abierto" in ops and "batch" in ops, ops
     assert d["s"] and d["s"][0][1] > d["s"][0][2], d["s"]                                  # revisión > base
-    assert "395" not in enviados[0] and "LINE" not in enviados[0] and "EJES" not in enviados[0]
+    # Las coordenadas escritas, completas: «395» solo también aparece en un tiempo del registro (p. ej. 3952 ms).
+    assert "395001" not in enviados[0] and "3175002" not in enviados[0] and "LINE" not in enviados[0] and "EJES" not in enviados[0]
     # Una sola vez por sesión: el siguiente borrador ya no la lleva.
     p.evaluate("TVCad.ejecutar('CIRCLE 395040,3175040 1')")
     p.wait_for_timeout(5000)
