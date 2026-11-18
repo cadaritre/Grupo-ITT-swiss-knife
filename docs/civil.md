@@ -24,6 +24,10 @@ Civil aparece para quien puede editar planos (`cad`, `admin`) en la versión vig
 (exportar puntos solo lee y funciona sin él). En una barra angosta los menús se compactan (sin flechas y, más angosta, solo iconos);
 cada menú se abre bajo su botón aunque la barra se desplace a lo ancho.
 
+La barra y las hojas (`civil_panel.html`, ~16 KB comprimidas, igual para todas las cuentas y todos los planos) no viajan con cada página
+del plano: `civil-panel.js` las pide a `/cad/panel-civil/?v=<huella>` (se guardan un año; ETag y 304), las pone en la página y carga
+`civil.js`. En un teléfono con el CAD descargado quedan en la caché `itt-cad-pagina-civil` (docs/cad.md, «Datos móviles»).
+
 ## Cómo funciona
 
 ```

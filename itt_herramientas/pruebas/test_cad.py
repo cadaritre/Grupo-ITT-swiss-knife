@@ -695,6 +695,7 @@ def test_el_service_worker_no_guarda_el_editor_en_cache(settings):
     settings.TV_CAD_TACTIL = True
     contenido = sw.contenido()
     cad = (Path(sw.__file__).parent / "sw_cad.js").read_text()
+    cad = sw.sin_comentarios(cad)                                                            # se sirve sin sus líneas de comentario
     assert cad in contenido and contenido.index(cad) > contenido.index("importScripts(")     # antes del manejador general de fetch
     assert 'CAD_EDITOR = "itt-cad-editor-"' in cad and "deCache(CAD_EDITOR + version" in cad           # una caché por versión del editor
     assert r"ruta.match(/^\/cad\/editor\/([^/]+)\/(.+)$/)" in cad                                # /cad/editor/<versión>/…

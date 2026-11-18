@@ -9,13 +9,23 @@
  * - Junto al editor se guarda la página de CAD sin conexión (`/cad/sin-conexion/`) con sus estilos y scripts (`itt-cad-pagina`).
  *
  * PLANOS SIN CONEXIÓN (base `tv-cad-campo`, ver sesion.js)
- * - Llevar un plano NO toma el bloqueo de edición (el bloqueo dura 90 s sin latido; no puede durar días).
+ * - Llevar un plano NO toma el bloqueo de edición (el bloqueo dura 150 s sin latido; no puede durar días).
  * - Lo editado sin conexión vive en el teléfono como «cambios» y nunca es una versión hasta volver a tener conexión.
  * - Al volver: «Guardar como versión nueva» solo si la versión del servidor sigue siendo la base y nadie tiene el bloqueo; si no, se guarda
  *   como copia («<nombre> (copia)»). Nunca se pisa nada (el servidor además lo exige: bloqueo de esta página y versión base vigente).
  *
- * API: window.TVCadCampo = { instalada(), estadoEditor(), descargarEditor(alProgreso), quitarEditor(), versionInstalada(),
- *      llevar(id), quitar(id), plano(id), planos(), cambios(id), guardarCambios(datos), descartarCambios(id), subir(id), hoja(ui), uso() }
+ * CON CONEXIÓN, SIN GASTAR DATOS (docs/cad.md, «Datos móviles»)
+ * - Abrir un plano que está en el teléfono no lo baja: editor.js pregunta si la copia sigue siendo la vigente (If-None-Match con su
+ *   SHA-256, `copiaVigente`) y abre la del teléfono; si hay una versión nueva, llega una vez y reemplaza la copia (`actualizarCopia`).
+ * - Guardar una versión deja esos mismos bytes como la copia (`alGuardarVersion`): no se baja nada después.
+ * - Con cambios, la página deja una copia de ellos en el teléfono (`guardarCambios` con `origen: "pagina"`): la recupera la página del
+ *   plano (como su borrador) o la abre la página sin conexión.
+ * - El editor nuevo se baja ANTES de abrir el marco y solo lo que cambió (`prepararEditor`); la página sin conexión se vuelve a guardar
+ *   solo cuando cambia (huella `tactil.pagina` de la página del plano).
+ *
+ * API: window.TVCadCampo = { instalada(), estadoEditor(), descargarEditor(alProgreso), prepararEditor(decir), quitarEditor(), versionInstalada(),
+ *      llevar(id), quitar(id), plano(id), planos(), copiaVigente(id), actualizarCopia(id, datos), alGuardarVersion(id, datos), cambios(id),
+ *      guardarCambios(datos), actualizarCambios(id, campos), descartarCambios(id), descartarCambiosDePagina(id), subir(id), hoja(ui), uso() }
  */
 (function () {
   "use strict";
@@ -65,6 +75,15 @@
     const instal = await versionInstalada();
     return { instalada: instal, fijada: T.version || null, alDia: !!(instal && T.version && instal.version === T.version), descarga: T.descarga || 0, ocupa: T.bytes || 0 };
   }
+  // Antes de abrir el editor en la página del plano: si el CAD de este teléfono es de otra versión, se baja ya lo que cambió (solo eso)
+  // para que el marco lo abra desde el teléfono. Sin la app instalada, sin red o si falla, el editor se abre de la red como siempre.
+  async function prepararEditor(decir) {
+    if (!T.version || !instalada() || !navigator.onLine || !("caches" in window)) return;
+    const ed = await estadoEditor();
+    if (!ed.instalada || ed.alDia) return;
+    if (decir) decir("Actualizando el CAD de este teléfono…");
+    await descargarEditor(({ bytes, totalBytes }) => { if (decir) decir(`Actualizando el CAD de este teléfono… ${MB(bytes)} de ${MB(totalBytes)}`); });
+  }
   let bajando = null;
   // Baja el editor fijado (o lo que cambió desde la versión instalada). alProgreso({hechos, total, bytes, totalBytes}).
   function descargarEditor(alProgreso) {
@@ -95,7 +114,9 @@
           }
         }
         if (!copiado) {
-          const resp = await fetch(url, { credentials: "same-origin", cache: "reload" });
+          // Lo que el navegador ya trajo al abrir este plano (los archivos con huella se guardan un año) no se baja otra vez; lo que
+          // llega se cuenta igual, y uno cortado no se da por bueno.
+          const resp = await fetch(url, { credentials: "same-origin" });
           if (!resp.ok) throw new Error("La descarga se interrumpió. Vuelve a intentarlo: lo ya bajado no se repite.");
           // Se cuenta lo que llega (sin cargar el archivo entero en memoria): un archivo cortado no se da por bueno.
           let llegaron = 0;
@@ -149,6 +170,7 @@
     for (const req of await cache.keys()) if (!vigentes.has(req.url)) await cache.delete(req);
     // Se lee de vuelta cada pieza: en WebKit una escritura que no terminó se pierde si la persona cambia de página en seguida.
     for (const [u] of piezas) { const x = await cache.match(u, { ignoreVary: true }); if (!x) throw new Error("No se pudo guardar la página sin conexión."); await x.arrayBuffer(); }
+    if (T.pagina) await con("estado", "readwrite", (e) => req(e.put({ clave: "pagina", version: T.pagina }))).catch(() => {});
   }
   // Una copia sin las cabeceras de la red (compresión, Vary, Set-Cookie), con el cuerpo de la red tal cual llega (en WebKit, una
   // respuesta guardada con un cuerpo hecho en la página se pierde al cambiar de página).
@@ -196,32 +218,82 @@
   const cambios = async (id) => { const c = await con("cambios", "readonly", (s) => req(s.get(id))).catch(() => null); return c && c.cuenta === (await cuentaActual()) ? c : null; };
   const todosLosCambios = async () => deCuenta(await con("cambios", "readonly", (s) => req(s.getAll())).catch(() => []));
 
+  async function sha256(bytes) {
+    const h = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    return Array.from(h, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  // Lleva el plano al teléfono. En su página, con la versión vigente recién abierta, usa esos bytes (no lo baja otra vez).
   async function llevar(id) {
-    const urls = C.urls && C.id === id ? C.urls : null;
-    const base = urls ? urls : { archivo: `/cad/${id}/archivo/`, estado: `/cad/${id}/estado/` };
-    const [ra, re] = await Promise.all([fetch(base.archivo, { credentials: "same-origin" }), fetch(base.estado, { credentials: "same-origin", headers: { Accept: "application/json" } })]);
-    if (!ra.ok || !re.ok) throw new Error(ra.status === 401 || re.status === 401 ? "Tu sesión terminó. Vuelve a entrar." : "No se pudo llevar el plano al teléfono.");
-    const bytes = await ra.arrayBuffer(), est = await re.json();
-    const revision = Number(ra.headers.get("X-TV-Revision") || est.revision);
     const cuenta = await cuentaActual();
     if (!cuenta) throw new Error("Vuelve a entrar para llevar planos al teléfono.");
+    const abiertos = C.id === id && window.TVCadPagina && window.TVCadPagina.abiertos ? window.TVCadPagina.abiertos() : null;
+    let bytes, est, revision;
+    if (abiertos) {
+      bytes = abiertos.bytes; revision = abiertos.revision;
+      est = { nombre: C.nombre, proyecto: C.proyecto, formato: C.formato, modificado_por: C.modificado_por };
+    } else {
+      const base = C.urls && C.id === id ? C.urls : { archivo: `/cad/${id}/archivo/`, estado: `/cad/${id}/estado/` };
+      const [ra, re] = await Promise.all([fetch(base.archivo, { credentials: "same-origin", cache: "no-store" }),
+        fetch(`${base.estado}?ligero=1`, { credentials: "same-origin", headers: { Accept: "application/json" } })]);
+      if (!ra.ok || !re.ok) throw new Error(ra.status === 401 || re.status === 401 ? "Tu sesión terminó. Vuelve a entrar." : "No se pudo llevar el plano al teléfono.");
+      bytes = await ra.arrayBuffer(); est = await re.json();
+      revision = Number(ra.headers.get("X-TV-Revision") || est.revision);
+    }
     await recordarSesion(cuenta);
     const registro = { id, cuenta, nombre: est.nombre, proyecto: est.proyecto || "", formato: est.formato, revision, bytes, tamano: bytes.byteLength,
-      modificado_por: est.modificado_por || "", guardado: new Date().toISOString() };
+      sha256: await sha256(bytes), modificado_por: est.modificado_por || "", guardado: new Date().toISOString() };
     await con("planos", "readwrite", (s) => req(s.put(registro)));
     return registro;
   }
+  // La copia del teléfono con su SHA-256 (lo calcula y lo guarda si es de antes de tenerlo), o null.
+  async function copiaVigente(id) {
+    const p = await plano(id);
+    if (!p || !p.bytes) return null;
+    if (!p.sha256) {
+      p.sha256 = await sha256(p.bytes);
+      await con("planos", "readwrite", (s) => req(s.put(p))).catch(() => {});
+    }
+    return p;
+  }
+  // Cambia la copia del teléfono (de esta cuenta): bytes nuevos (otra versión) o solo su número.
+  async function actualizarCopia(id, { bytes, revision, formato } = {}) {
+    const p = await plano(id);
+    if (!p) return null;
+    const nuevo = { ...p, revision: revision || p.revision, formato: formato || p.formato };
+    if (bytes) Object.assign(nuevo, { bytes, tamano: bytes.byteLength, sha256: await sha256(bytes), guardado: new Date().toISOString() });
+    await con("planos", "readwrite", (s) => req(s.put(nuevo)));
+    return nuevo;
+  }
+  // Se guardó una versión en la página del plano: esos bytes son la copia del teléfono, y la copia de sus cambios ya no hace falta.
+  async function alGuardarVersion(id, datos) {
+    await descartarCambiosDePagina(id);
+    if (await plano(id)) await actualizarCopia(id, { bytes: datos.bytes.slice(0), revision: datos.revision, formato: datos.formato });
+  }
   async function quitar(id) { await con("planos", "readwrite", (s) => req(s.delete(id))); }
-  async function guardarCambios({ id, nombre, formato, base, bytes }) {
+  // `origen: "pagina"`: la copia que deja la página del plano con conexión (ver arriba); sin él, lo hecho en la página sin conexión.
+  // `borrador`: la fecha del borrador del servidor que tiene estos mismos cambios.
+  async function guardarCambios({ id, nombre, formato, base, bytes, origen, borrador }) {
     const cuenta = await cuentaActual();
     if (!cuenta) throw new Error("No hay una sesión en este teléfono.");
-    await con("cambios", "readwrite", (s) => req(s.put({ id, cuenta, nombre, formato, base, bytes, tamano: bytes.byteLength, actualizado: new Date().toISOString() })));
+    const registro = { id, cuenta, nombre, formato, base, bytes, tamano: bytes.byteLength, actualizado: new Date().toISOString() };
+    if (origen) registro.origen = origen;
+    if (borrador) registro.borrador = borrador;
+    await con("cambios", "readwrite", (s) => req(s.put(registro)));
+  }
+  async function actualizarCambios(id, campos) {
+    const c = await cambios(id);
+    if (c) await con("cambios", "readwrite", (s) => req(s.put({ ...c, ...campos })));
   }
   async function descartarCambios(id) { await con("cambios", "readwrite", (s) => req(s.delete(id))); }
+  async function descartarCambiosDePagina(id) {
+    const c = await cambios(id);
+    if (c && c.origen === "pagina") await descartarCambios(id);
+  }
 
   // Sube lo hecho sin conexión: versión nueva solo si la base sigue vigente y nadie edita; si no, una copia. `sesion`: la de la página que
   // ya tiene el bloqueo (la del plano), o ninguna (se toma uno corto con una sesión propia y se suelta al terminar).
   function sesionNueva() { const b = new Uint8Array(18); crypto.getRandomValues(b); return btoa(String.fromCharCode(...b)).replace(/[+/=]/g, (c) => ({ "+": "-", "/": "_", "=": "" }[c])); }
+  const comprimir = (b) => (window.TVCadSesion && window.TVCadSesion.comprimir ? window.TVCadSesion.comprimir(b) : Promise.resolve({ cuerpo: b, cabeceras: {} }));
   async function post(url, cuerpo, cabeceras) {
     const r = await fetch(url, { method: "POST", credentials: "same-origin", headers: { "X-CSRFToken": csrf(), Accept: "application/json", ...cabeceras }, body: cuerpo });
     if (r.status === 401) throw new Error("Tu sesión terminó. Vuelve a entrar para subir tus cambios.");
@@ -231,7 +303,7 @@
   async function decidir(id, sesion = "") {
     const c = await cambios(id);
     if (!c) return null;
-    const r = await fetch(`/cad/${id}/estado/?sesion=${encodeURIComponent(sesion)}`, { credentials: "same-origin", headers: { Accept: "application/json" } });
+    const r = await fetch(`/cad/${id}/estado/?sesion=${encodeURIComponent(sesion)}&ligero=1`, { credentials: "same-origin", headers: { Accept: "application/json" } });
     if (r.status === 404) return { cambio: c, comoVersion: false, motivo: "El plano ya no está en la biblioteca: tus cambios se guardan como un plano nuevo." };
     if (!r.ok) throw new Error(r.status === 401 ? "Tu sesión terminó. Vuelve a entrar para subir tus cambios." : "No se pudo revisar el plano.");
     const est = await r.json();
@@ -254,11 +326,11 @@
       }
       if (mio) {
         try {
-          const g = await post(`/cad/${id}/guardar/`, c.bytes, { "Content-Type": "application/octet-stream", "X-TV-Sesion": s, "X-TV-Revision": String(c.base) });
+          const z = await comprimir(c.bytes);
+          const g = await post(`/cad/${id}/guardar/`, z.cuerpo, { "Content-Type": "application/octet-stream", "X-TV-Sesion": s, "X-TV-Revision": String(c.base), ...z.cabeceras });
           if (g.r.ok) {
             await descartarCambios(id);
-            const p = await plano(id);
-            if (p) await con("planos", "readwrite", (st) => req(st.put({ ...p, bytes: c.bytes, tamano: c.tamano, revision: g.d.revision, formato: g.d.formato, guardado: new Date().toISOString() })));
+            await actualizarCopia(id, { bytes: c.bytes, revision: g.d.revision, formato: g.d.formato });
             return { tipo: "version", revision: g.d.revision };
           }
           if (g.r.status !== 409) throw new Error(g.d.error || "No se pudo guardar. Inténtalo de nuevo.");
@@ -267,7 +339,8 @@
         }
       }
     }
-    const k = await post(`/cad/${id}/copia/`, c.bytes, { "Content-Type": "application/octet-stream" });
+    const z = await comprimir(c.bytes);
+    const k = await post(`/cad/${id}/copia/`, z.cuerpo, { "Content-Type": "application/octet-stream", ...z.cabeceras });
     if (!k.r.ok) throw new Error(k.d.error || "No se pudo guardar la copia. Inténtalo de nuevo.");
     await descartarCambios(id);
     return { tipo: "copia", nombre: k.d.nombre, url: k.d.url, id: k.d.id };
@@ -340,31 +413,25 @@
       }
       cont.append(ul);
     }
-    cont.append(nodo("p", "tt-nota-hoja", `En el teléfono: CAD ${MB(u.editor)} · planos ${MB(u.planos + u.cambios)}${u.persistente ? "" : " · el teléfono podría borrarlo si se queda sin espacio"}.`));
+    cont.append(nodo("p", "tt-nota-hoja", `En el teléfono: CAD ${MB(u.editor)} · planos ${MB(u.planos + u.cambios)}.`));
+    cont.append(nodo("p", "tt-nota-hoja", u.persistente ? "El teléfono lo conserva aunque se quede con poco espacio." : "El teléfono podría borrarlo si se queda sin espacio. Abre la app desde la pantalla de inicio para que lo conserve."));
     abrirHoja("Sin conexión", cont);
   }
 
   // ------------------------------------------------------------------------------------------------------------- en la página del plano
-  // Con conexión: (1) cambios hechos sin conexión de este plano → aviso con las salidas; (2) la copia del teléfono se pone al día;
-  // (3) el editor del teléfono se actualiza si cambió la versión fijada.
+  // Con conexión: (1) cambios hechos sin conexión de este plano → aviso con las salidas (los que dejó la página del plano los ofrece ella,
+  // como su borrador); (2) la página sin conexión se vuelve a guardar solo si cambió. La copia del plano la pone al día editor.js al abrir
+  // (una pregunta de unos bytes) y al guardar, y el editor del teléfono se actualiza antes de abrirlo (`prepararEditor`).
   async function enLaPagina() {
     if (!C.id || document.documentElement.dataset.cadCampo || !navigator.onLine) return;
     if (T.cuenta) await recordarSesion(T.cuenta);
     const c = await cambios(C.id);
-    if (c) avisoCambios(c);
-    document.addEventListener("tvcad:guardado", () => ponerAlDia(true));
-    ponerAlDia(false);
+    if (c && c.origen !== "pagina") avisoCambios(c);
     const ed = await estadoEditor();
-    if (ed.instalada && !ed.alDia && instalada()) descargarEditor().catch(() => { /* se reintenta en la siguiente visita */ });
-    else if (ed.alDia) guardarPagina().catch(() => {});
-  }
-  async function ponerAlDia(forzar) {
-    const p = await plano(C.id);
-    if (!p || (await cambios(C.id))) return;
-    const r = await fetch(C.urls.estado, { credentials: "same-origin", headers: { Accept: "application/json" } }).catch(() => null);
-    if (!r || !r.ok) return;
-    const est = await r.json();
-    if (forzar || est.revision !== p.revision) await llevar(C.id).catch(() => {});
+    if (ed.alDia && T.pagina) {
+      const guardada = await con("estado", "readonly", (e) => req(e.get("pagina"))).catch(() => null);
+      if (!guardada || guardada.version !== T.pagina) guardarPagina().catch(() => {});
+    }
   }
   async function avisoCambios(c) {
     const cont = $("cad-avisos");
@@ -418,8 +485,9 @@
     });
   }
 
-  window.TVCadCampo = Object.freeze({ instalada, estadoEditor, descargarEditor, quitarEditor, versionInstalada, llevar, quitar, plano, planos,
-    cambios, todosLosCambios, guardarCambios, descartarCambios, subir, decidir, hoja, uso, recordarSesion, cuentaActual, confirmar,
+  window.TVCadCampo = Object.freeze({ instalada, estadoEditor, descargarEditor, prepararEditor, quitarEditor, versionInstalada, llevar, quitar, plano, planos,
+    copiaVigente, actualizarCopia, alGuardarVersion, cambios, todosLosCambios, guardarCambios, actualizarCambios, descartarCambios, descartarCambiosDePagina,
+    subir, decidir, hoja, uso, recordarSesion, cuentaActual, confirmar,
     ponerCsrf: (t) => { tokenCsrf = String(t || ""); }, guardarPagina,
     fuentes: async () => { const x = await con("estado", "readonly", (e) => req(e.get("fuentes"))).catch(() => null); return (x && x.lista) || []; } });
   // En la lista de Planos: cuántos planos hay en este teléfono y cuántos con cambios sin subir (lleva a la página sin conexión).

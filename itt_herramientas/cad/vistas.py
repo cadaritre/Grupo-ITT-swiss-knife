@@ -23,7 +23,7 @@ from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from tvplataforma.permisos import requiere_rol
 
-from ..comun import perfiles, zips
+from ..comun import condicional, perfiles, zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
 from ..civil import pagina as civil_pagina
@@ -236,12 +236,13 @@ def plano(request, pk):
         "borrador": {"actualizado": borrador.actualizado.isoformat(), "revision_base": borrador.revision_base, "bytes": borrador.bytes,
                      "formato": borrador.formato} if borrador else None,
         "urls": _urls(p), "limite_bytes": servicio.limites()["bytes"],
-        # Borrador de recuperación cada 2 minutos con cambios; latido del bloqueo cada 30 s (caduca a los 90). Las pruebas los acortan.
-        "autoguardado_s": int(getattr(settings, "HERRAMIENTAS_CAD_AUTOGUARDADO_S", 120)), "latido_s": int(getattr(settings, "HERRAMIENTAS_CAD_LATIDO_S", 30)),
+        # Borrador de recuperación cada 2 minutos con cambios; latido del bloqueo cada 60 s (caduca a los 150: un navegador deja latir una
+        # pestaña en segundo plano una vez por minuto). Las pruebas los acortan. Ver docs/cad.md, «Datos móviles».
+        "autoguardado_s": int(getattr(settings, "HERRAMIENTAS_CAD_AUTOGUARDADO_S", 120)), "latido_s": int(getattr(settings, "HERRAMIENTAS_CAD_LATIDO_S", 60)),
         "nativo": nativo.disponible(), "puente": bool(editor.upstream().get("puente")),
         "fuentes": fuentes.para_editor(),
         # Modo táctil (teléfono y tableta): solo con el ajuste TV_CAD_TACTIL encendido; si no, `None` y la página es la de siempre.
-        "tactil": tactil.config_de_pagina(usuario),
+        "tactil": tactil.config_de_pagina(request),
     }
     return _privado(render(request, "herramientas/cad/plano.html", {
         "p": p, "v": v, "config": config, "versiones": _versiones(p), "puede_editar": puede, "es_admin": servicio.es_admin(usuario),
@@ -255,25 +256,43 @@ def plano(request, pk):
         "tactil": bool(config["tactil"])}))
 
 
+def etiqueta_version(v: VersionPlano) -> str:
+    """ETag de una versión: su SHA-256 (el teléfono lo calcula de su copia, así pregunta «¿sigue siendo esta?» sin guardar nada más)."""
+    return f'"{v.sha256}"' if v.sha256 else ""
+
+
 @ver
 @require_GET
 def archivo(request, pk):
-    """Los bytes de la versión vigente (o de `?version=n`, o del borrador con `?borrador=1`). `?descargar=1` lo baja con su nombre."""
+    """Los bytes de la versión vigente (o de `?version=n`, o del borrador con `?borrador=1`). `?descargar=1` lo baja con su nombre.
+
+    Una versión lleva su `ETag` (el SHA-256 del archivo). Con `If-None-Match` igual responde 304 sin cuerpo: es la pregunta del teléfono
+    que tiene el plano «Disponible sin conexión» («¿mi copia sigue siendo la vigente?»), con la misma sesión y el mismo rol que bajarlo.
+    """
     p = _plano(pk)
     if request.GET.get("borrador") == "1":
         b = servicio.borrador_de(p, request.user.pk)
         if b is None:
             raise Http404
         ruta, formato, nombre = servicio.raiz() / b.ruta, b.formato, f"{p.nombre} (sin guardar).{b.formato}"
+        etiqueta = ""
     else:
         v = _version_pedida(request, p) or servicio.version_vigente(p)
         if v is None or not servicio.ruta_version(v).is_file():
             raise Http404
         ruta, formato = servicio.ruta_version(v), v.formato
         nombre = f"{p.nombre}.{formato}" if v.numero == p.revision else f"{p.nombre} (versión {v.numero}).{formato}"
+        etiqueta = etiqueta_version(v)
+        if condicional.coincide(request, etiqueta) and request.GET.get("descargar") != "1":
+            r = HttpResponse(status=304)
+            r["ETag"] = etiqueta
+            r["X-TV-Revision"] = str(p.revision)
+            return _privado(r)
     r = FileResponse(open(ruta, "rb"), content_type=servicio.TIPOS_MIME[formato])
     r["Content-Disposition"] = content_disposition_header(request.GET.get("descargar") == "1", nombre)
     r["X-TV-Revision"] = str(p.revision)
+    if etiqueta:
+        r["ETag"] = etiqueta
     return _privado(r)
 
 
@@ -283,9 +302,12 @@ def estado(request, pk):
     p = _plano(pk)
     sesion = request.GET.get("sesion", "")
     b = servicio.borrador_de(p, request.user.pk) if servicio.puede_editar(request.user) else None
-    return _json({"revision": p.revision, "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "modificado_por": p.modificado_por_nombre,
-                  "actualizado": p.actualizado.isoformat(), "bloqueo": servicio.estado_bloqueo(p, request.user, sesion), "versiones": _versiones(p),
-                  "borrador": {"actualizado": b.actualizado.isoformat(), "revision_base": b.revision_base} if b else None})
+    datos = {"revision": p.revision, "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "modificado_por": p.modificado_por_nombre,
+             "actualizado": p.actualizado.isoformat(), "bloqueo": servicio.estado_bloqueo(p, request.user, sesion),
+             "borrador": {"actualizado": b.actualizado.isoformat(), "revision_base": b.revision_base} if b else None}
+    if request.GET.get("ligero") != "1":            # la lista de versiones (hasta 30) solo si se pide: la página que vigila no la usa
+        datos["versiones"] = _versiones(p)
+    return _json(datos)
 
 
 @editar

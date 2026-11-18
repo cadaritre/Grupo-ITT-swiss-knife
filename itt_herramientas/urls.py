@@ -110,6 +110,7 @@ urlpatterns = [
     path("cad/fuentes/<str:nombre>/eliminar/", cad.fuente_eliminar, name="cad_fuente_eliminar"),
     path("cad/fuentes/<str:nombre>/informe/", cad.fuente_informe, name="cad_fuente_informe"),
     path("cad/civil/resultado/<str:token>/", civil.resultado, name="civil_resultado"),
+    path("cad/panel-civil/", civil.panel, name="cad_panel_civil"),
     path("cad/civil/<str:orden>/", civil.orden, name="civil_orden"),
     path("cad/<uuid:pk>/", cad.plano, name="cad_plano"),
     path("cad/<uuid:pk>/archivo/", cad.archivo, name="cad_archivo"),

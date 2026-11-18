@@ -1,6 +1,9 @@
 """Lo que la plantilla de Civil necesita (menús, listas y configuración de la página)."""
 from __future__ import annotations
 
+import hashlib
+from functools import lru_cache
+
 from django.urls import reverse
 
 from .motor.dibujos import BLOQUES, CAPAS_PUNTOS, CAPAS_TIN
@@ -78,7 +81,8 @@ NOMBRES_ALTURA = {
 }
 
 
-def contexto(plano) -> dict:
+def contexto_panel() -> dict:
+    """Lo que necesita la barra y las hojas de Civil (`civil_panel.html`): igual para todas las cuentas y todos los planos."""
     return {
         "menus": MENUS,
         "escalas": ESCALAS_COMUNES,
@@ -89,6 +93,30 @@ def contexto(plano) -> dict:
         "decimales": (0, 1, 2, 3, 4),
         "iconos": ("triangle-alert", "circle-alert"),
         "zonas": ZONAS_MEXICO,
+    }
+
+
+def _panel() -> tuple[str, str]:
+    from django.template.loader import render_to_string
+
+    html = render_to_string("herramientas/cad/civil_panel.html", {"civil": contexto_panel()})
+    return html, hashlib.sha256(html.encode()).hexdigest()[:16]
+
+
+_panel_guardado = lru_cache(maxsize=1)(_panel)
+
+
+def panel() -> tuple[str, str]:
+    """La barra y las hojas de Civil ya hechas, con su huella. No cambian hasta el siguiente despliegue (en desarrollo, en cada petición)."""
+    from django.conf import settings
+
+    return _panel() if settings.DEBUG else _panel_guardado()
+
+
+def contexto(plano) -> dict:
+    """Lo de la página del plano: la dirección del panel (con su huella, se guarda un año) y la configuración de este plano."""
+    return {
+        "panel": reverse("herramientas:cad_panel_civil") + f"?v={panel()[1]}",
         "config": {
             "plano": str(plano.pk),
             "urls": {"orden": reverse("herramientas:civil_orden", args=["__ORDEN__"]), "tarea": reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA})},

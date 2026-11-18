@@ -16,7 +16,10 @@ const PAGINAS = ["/capturar/", "/instalar/", "/cotizaciones/", "/reportes/", "/c
 const ACTIVOS = __ACTIVOS__;
 const OPCIONALES = ["/manifest.webmanifest", "/manifest.webmanifest?p=tresvizo", "/perfil.css"];
 
-importScripts(...__SCRIPTS_SW__);
+// La cola, tus y el subidor solo los usa la subida en segundo plano (Background Sync: Android/Chrome, abajo). Al abrir cada página el
+// navegador vuelve a pedir sw.js y todo lo que importa para ver si cambió; WebKit (iPhone, que no tiene Background Sync) lo pide entero,
+// sin preguntar: sin estos tres son ~11 KB menos por página allí (docs/cad.md, «Datos móviles»).
+if (self.registration && "sync" in self.registration) importScripts(...__SCRIPTS_SW__);
 
 self.addEventListener("install", (evento) => {
   evento.waitUntil((async () => {

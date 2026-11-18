@@ -13,6 +13,7 @@ Ver docs/cad.md, «Modo táctil» y «CAD sin conexión».
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -22,11 +23,12 @@ from pathlib import Path
 from django.conf import settings
 from django.http import Http404, JsonResponse
 from django.shortcuts import render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.views.decorators.http import require_GET
 from tvplataforma.permisos import requiere_rol
 
-from . import editor
+from . import editor, fuentes
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
 #: No se bajan al teléfono: el manifiesto (no lo pide el editor), las declaraciones de tipos del trabajador, y las letras chinas,
@@ -79,12 +81,28 @@ def paquete_del_editor() -> dict | None:
         return None
 
 
-def config_de_pagina(usuario) -> dict | None:
+def _contexto_sin_conexion() -> dict:
+    urls = {"paquete": reverse("herramientas:cad_tactil_paquete"), "sin_conexion": reverse("herramientas:cad_sin_conexion"),
+            "sesion": reverse("herramientas:sesion"), "instalar": reverse("herramientas:instalar"), "lista": reverse("herramientas:cad")}
+    return {"config": {"campo": True, "tactil": {"version": editor.version(), "urls": urls}, "urls": urls}}
+
+
+def version_pagina(request) -> str:
+    """Huella de la página sin conexión tal como la recibe esta cuenta (su HTML, que nombra cada estilo y script con su huella, y depende del
+    perfil) más las fuentes SHX. La página del plano la lleva en su configuración: el teléfono vuelve a guardar la página sin conexión
+    solo cuando cambia, sin preguntar nada al servidor en cada apertura."""
+    html = render_to_string("herramientas/cad/sin_conexion.html", _contexto_sin_conexion(), request=request)
+    resumen = hashlib.sha256(html.encode())
+    resumen.update(json.dumps([[f["nombre"], f["url"]] for f in fuentes.para_editor()]).encode())
+    return resumen.hexdigest()[:16]
+
+
+def config_de_pagina(request) -> dict | None:
     """Lo que la página del plano necesita del modo táctil (None si el ajuste está apagado)."""
     if not activo():
         return None
     p = paquete_del_editor()
-    return {"version": editor.version(), "cuenta": usuario.pk,
+    return {"version": editor.version(), "cuenta": request.user.pk, "pagina": version_pagina(request),
             "descarga": p["descarga"] if p else 0, "bytes": p["bytes"] if p else 0,
             "urls": {"paquete": reverse("herramientas:cad_tactil_paquete"), "sin_conexion": reverse("herramientas:cad_sin_conexion"),
                      "sesion": reverse("herramientas:sesion"), "instalar": reverse("herramientas:instalar")}}
@@ -109,8 +127,6 @@ def sin_conexion(request):
     """CAD sin conexión: lista de planos guardados en este teléfono y el plano en modo táctil. Mismo HTML para todas las cuentas."""
     if not activo():
         raise Http404
-    urls = {"paquete": reverse("herramientas:cad_tactil_paquete"), "sin_conexion": reverse("herramientas:cad_sin_conexion"),
-            "sesion": reverse("herramientas:sesion"), "instalar": reverse("herramientas:instalar"), "lista": reverse("herramientas:cad")}
-    r = render(request, "herramientas/cad/sin_conexion.html", {"config": {"campo": True, "tactil": {"version": editor.version(), "urls": urls}, "urls": urls}})
+    r = render(request, "herramientas/cad/sin_conexion.html", _contexto_sin_conexion())
     r["Cache-Control"] = "no-cache"
     return r

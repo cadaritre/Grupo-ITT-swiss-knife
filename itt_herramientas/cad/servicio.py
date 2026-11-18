@@ -18,6 +18,7 @@ import re
 import shutil
 import unicodedata
 import uuid
+import zlib
 from datetime import timedelta
 from pathlib import Path
 
@@ -49,7 +50,7 @@ AVISO_ESPACIO = 0.9
 #: Versiones que se conservan siempre de cada plano, aun si la biblioteca se llena (se recortan las más viejas primero).
 VERSIONES_MINIMAS = 5
 #: Segundos sin latido tras los cuales el bloqueo caduca (el editor late cada 30 s).
-BLOQUEO_SEGUNDOS = 90
+BLOQUEO_SEGUNDOS = 150                     # el latido llega cada 60 s (datos móviles: docs/cad.md, «Datos móviles»)
 PAPELERA_DIAS = 30
 BORRADOR_DIAS = 30
 SALIDAS_HORAS = 24
@@ -182,24 +183,57 @@ def _sha256(ruta: Path) -> str:
     return h.hexdigest()
 
 
+#: Codificaciones del cuerpo que se aceptan al subir un plano (guardar, copia, borrador): sin codificar o gzip (`Content-Encoding`).
+CODIFICACIONES = ("", "identity", "gzip")
+_TROZO = 1024 * 1024
+
+
 def recibir_cuerpo(request, maximo: int | None = None) -> Path:
-    """Escribe el cuerpo de la petición (bytes del plano) en un temporal sin cargarlo entero en memoria. Aplica el límite."""
+    """Escribe el cuerpo de la petición (bytes del plano) en un temporal sin cargarlo entero en memoria. Aplica el límite.
+
+    Con `Content-Encoding: gzip` (el teléfono comprime lo que sube cuando ahorra datos; un DXF baja a una décima parte) se descomprime al
+    vuelo, de a 1 MB, y el límite vale para lo descomprimido: un archivo que crece de más se corta en cuanto pasa el límite. Lo guardado
+    es el plano tal cual, igual que sin comprimir.
+    """
     maximo = maximo or limites()["bytes"]
+    codificacion = str(request.META.get("HTTP_CONTENT_ENCODING") or "").strip().lower()
+    if codificacion not in CODIFICACIONES:
+        raise ErrorUsuario("La petición no es válida.")
+    grande = f"El plano pesa más de {megas(maximo)}, el máximo en la web."
     try:
         declarado = int(request.META.get("CONTENT_LENGTH") or 0)
     except ValueError:
         declarado = 0
     if declarado > maximo:
-        raise ErrorUsuario(f"El plano pesa más de {megas(maximo)}, el máximo en la web.")
+        raise ErrorUsuario(grande)
     destino = carpeta_temporal() / f"{uuid.uuid4().hex}.tmp"
-    total = 0
+    descomprimir = zlib.decompressobj(31) if codificacion == "gzip" else None
+    total = llegados = 0
     try:
         with open(destino, "wb") as f:
-            while trozo := request.read(1024 * 1024):
-                total += len(trozo)
+            def escribir(parte: bytes) -> None:
+                nonlocal total
+                total += len(parte)
                 if total > maximo:
-                    raise ErrorUsuario(f"El plano pesa más de {megas(maximo)}, el máximo en la web.")
-                f.write(trozo)
+                    raise ErrorUsuario(grande)
+                f.write(parte)
+
+            while trozo := request.read(_TROZO):
+                llegados += len(trozo)
+                if llegados > maximo:
+                    raise ErrorUsuario(grande)
+                if descomprimir is None:
+                    escribir(trozo)
+                    continue
+                datos = trozo
+                while datos and not descomprimir.eof:
+                    try:
+                        escribir(descomprimir.decompress(datos, _TROZO))
+                    except zlib.error:
+                        raise ErrorUsuario("El archivo llegó dañado. Inténtalo de nuevo.") from None
+                    datos = descomprimir.unconsumed_tail
+            if descomprimir is not None and llegados and not descomprimir.eof:
+                raise ErrorUsuario("El archivo llegó incompleto. Inténtalo de nuevo.")
         if not total:
             raise ErrorUsuario("No llegó ningún archivo.")
     except BaseException:

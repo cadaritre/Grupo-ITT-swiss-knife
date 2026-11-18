@@ -48,3 +48,25 @@ def resultado(request, token):
     if r is None:
         raise Http404
     return _json(r)
+
+
+@editar
+@require_GET
+def panel(request):
+    """La barra y las hojas de Civil (`civil_panel.html`), aparte de la página del plano: son ~16 KB comprimidas y no cambian de un plano a
+    otro, así que viajan una vez por versión. Con la huella vigente en `?v=` se guardan un año; `ETag` y 304 para lo demás."""
+    from django.http import HttpResponse
+
+    from ..comun import condicional
+    from . import pagina
+
+    html, huella = pagina.panel()
+    etiqueta = f'"{huella}"'
+    if condicional.coincide(request, etiqueta):
+        r = HttpResponse(status=304)
+    else:
+        r = HttpResponse(html, content_type="text/html; charset=utf-8")
+    r["ETag"] = etiqueta
+    r["Cache-Control"] = "private, max-age=31536000, immutable" if request.GET.get("v") == huella else "private, no-cache"
+    r["X-Content-Type-Options"] = "nosniff"
+    return r

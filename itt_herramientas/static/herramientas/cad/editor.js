@@ -34,7 +34,8 @@
   function pintarEstado(estado, texto) {
     if (!chip) return;
     chip.dataset.estado = estado;
-    chipTexto.textContent = texto;
+    // El plano se abrió con la copia de este teléfono (la vigente, confirmada por el servidor): no se bajó.
+    chipTexto.textContent = e.desdeTelefono ? `${texto} · Desde el teléfono` : texto;
     const punto = chip.querySelector(".tv-punto");
     punto.className = "tv-punto " + ({ guardado: "tv-punto--exito", sucio: "tv-punto--aviso", error: "tv-punto--error" }[estado] || "tv-punto--neutro");
     if (botonGuardar) botonGuardar.disabled = !((e.editable || e.perdido) && e.cargado) || e.guardando || !(e.sucio || e.recuperado);
@@ -70,8 +71,9 @@
   }
 
   // -- Peticiones -------------------------------------------------------------------------------------------------------------
-  async function pedir(url, { metodo = "GET", json, cuerpo, cabeceras = {}, keepalive = false } = {}) {
+  async function pedir(url, { metodo = "GET", json, cuerpo, cabeceras = {}, keepalive = false, cache } = {}) {
     const opciones = { method: metodo, credentials: "same-origin", keepalive, headers: { Accept: "application/json", ...cabeceras } };
+    if (cache) opciones.cache = cache;
     if (metodo !== "GET") opciones.headers["X-CSRFToken"] = csrf();
     if (json !== undefined) { opciones.headers["Content-Type"] = "application/json"; opciones.body = JSON.stringify(json); }
     else if (cuerpo !== undefined) opciones.body = cuerpo;
@@ -97,7 +99,7 @@
   async function comprobarSesion() {
     if (!e.sinSesion) return;
     let r;
-    try { r = await fetch(`${C.urls.estado}?sesion=${SESION}`, { credentials: "same-origin", headers: { Accept: "application/json" } }); }
+    try { r = await fetch(`${C.urls.estado}?sesion=${SESION}&ligero=1`, { credentials: "same-origin", headers: { Accept: "application/json" } }); }
     catch (_) { return; }                                                  // sin red: se vuelve a intentar al volver a la pestaña
     if (r.status === 401 || !r.ok) return;
     e.sinSesion = false;
@@ -111,6 +113,8 @@
   addEventListener("focus", comprobarSesion);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") comprobarSesion(); });
   async function datos(r) { try { return await r.json(); } catch (_) { return {}; } }
+  // El plano que se sube (guardar, copia, borrador), con gzip si así pesa menos (cad/sesion.js; el servidor lo acepta: Content-Encoding).
+  const comprimir = (b) => (window.TVCadSesion && window.TVCadSesion.comprimir ? window.TVCadSesion.comprimir(b) : Promise.resolve({ cuerpo: b, cabeceras: {} }));
 
   // -- El editor: canal de control oficial (`?automation=1`) y, si la versión fijada lo trae, el puente `?embed=1` ---------------------
   // Con el canal se abre el plano, se lee su estado (cambios sin guardar) y se piden los bytes para guardar o para el borrador.
@@ -212,14 +216,54 @@
     return r.arrayBuffer();
   }
 
+  // -- La copia del teléfono («Disponible sin conexión», campo.js) -------------------------------------------------------------
+  // Con la copia del plano en este teléfono, abrirlo con conexión no lo baja otra vez: se pregunta al servidor si sigue siendo la versión
+  // vigente (If-None-Match con su SHA-256; 304 sin cuerpo) y se abre la del teléfono. Si hay una versión nueva, llega una sola vez y
+  // reemplaza la copia. Nunca se abre una versión vieja sin decirlo: la respuesta del servidor manda.
+  const Campo = () => (C.tactil && window.TVCadCampo ? window.TVCadCampo : null);
+  async function copiaDelTelefono() {
+    const campo = Campo();
+    if (!campo || C.version) return null;
+    try { return await campo.copiaVigente(C.id); } catch (_) { return null; }
+  }
+  async function bytesVigente() {
+    const copia = await copiaDelTelefono();
+    const r = await pedir(C.urls.archivo, { cabeceras: copia ? { "If-None-Match": `"${copia.sha256}"` } : {}, cache: "no-store" });
+    const revision = Number(r.headers.get("X-TV-Revision")) || C.revision;
+    if (r.status === 304 && copia) {
+      e.desdeTelefono = true;
+      if (revision !== copia.revision) Campo().actualizarCopia(C.id, { revision }).catch(() => {});     // mismo archivo, otro número (restaurada)
+      return copia.bytes;
+    }
+    if (!r.ok) throw new Error(r.status === 404 ? "El plano ya no existe." : "No se pudo descargar el plano. Recarga la página.");
+    const buffer = await r.arrayBuffer();
+    e.desdeTelefono = false;
+    if (copia) {
+      await Campo().actualizarCopia(C.id, { bytes: buffer.slice(0), revision, formato: e.formato }).catch(() => {});
+      avisar(`Había una versión nueva (la ${revision}): se descargó y quedó en el teléfono.`);
+    } else if (C.tactil && buffer.byteLength <= COPIA_MAX) {
+      e.abiertos = { revision, bytes: buffer.slice(0) };                  // si la persona lo deja «Disponible sin conexión», no se baja otra vez
+    }
+    return buffer;
+  }
+  const COPIA_MAX = 25 * 1048576;
+  async function bytesDeLaCopia() {
+    const c = Campo() && (await Campo().cambios(C.id));
+    if (!c) throw new Error("Los cambios de este teléfono ya no están.");
+    return c.bytes;
+  }
+
   async function abrir(fuente, soloLectura) {
     e.cargado = false; e.sucio = false;
     refrescarEstado();
     carga("Abriendo el plano…");
-    let url = C.urls.archivo, formato = e.formato;
-    if (fuente === "borrador") { url += "?borrador=1"; formato = (C.borrador && C.borrador.formato) || e.formato; }
-    else if (C.version) url += `?version=${C.version}`;
-    const buffer = await bytesDe(url);
+    const url = C.urls.archivo;
+    let formato = e.formato, buffer;
+    if (fuente === "borrador") {
+      formato = (C.borrador && C.borrador.formato) || e.formato;
+      buffer = C.borrador && C.borrador.local ? await bytesDeLaCopia() : await bytesDe(`${url}?borrador=1`);
+    } else if (C.version) buffer = await bytesDe(`${url}?version=${C.version}`);
+    else buffer = await bytesVigente();
     if (abrioVez) await cargarMarco();                                    // un editor limpio por plano: sin pestañas viejas
     abrioVez = true; documento = null;
     e.editable = !soloLectura;
@@ -304,6 +348,7 @@
       if (!doc) return;
       revEditor = doc.revision || 0;
       const sucio = revEditor !== revGuardada;
+      if ((sucio || e.recuperado) && revEditor !== revTelefono) programarCopia();
       if (sucio !== e.sucio) {
         e.sucio = sucio;
         if (sucio) e.sucioDesde = Date.now();
@@ -356,7 +401,7 @@
     catch (_) { /* se usa la última conocida */ }
     try {
       const buffer = await bytesDelEditor();
-      if (destino === "borrador") await guardarBorrador(buffer);
+      if (destino === "borrador") await guardarBorrador(buffer, revision);
       else await recibirGuardado({ buffer, formato: e.formato, origen: "pagina", destino, revision });
     } catch (err) {
       e.guardando = false; refrescarEstado();
@@ -381,11 +426,15 @@
     e.guardando = true; refrescarEstado(); error("");
     if (destino === "copia" || e.perdido) return guardarCopia(buffer, saveId);
     try {
-      const r = await pedir(C.urls.guardar, { metodo: "POST", cuerpo: buffer, cabeceras: { "Content-Type": "application/octet-stream", "X-TV-Sesion": SESION, "X-TV-Revision": String(e.base) } });
+      const { cuerpo, cabeceras: codificacion } = await comprimir(buffer);
+      const r = await pedir(C.urls.guardar, { metodo: "POST", cuerpo, cabeceras: { "Content-Type": "application/octet-stream", "X-TV-Sesion": SESION, "X-TV-Revision": String(e.base), ...codificacion } });
       const d = await datos(r);
       if (r.ok) {
         e.revision = e.base = d.revision; e.formato = d.formato; e.recuperado = false;
         revGuardada = revision; e.sucio = revEditor !== revGuardada;
+        // La copia del teléfono pasa a ser esta versión (con los bytes que se acaban de subir: no se baja nada) y sus cambios ya no hacen falta.
+        if (Campo()) Campo().alGuardarVersion(C.id, { bytes: buffer, revision: d.revision, formato: d.formato }).catch(() => {});
+        revTelefono = revBorrador = null;
         responder(true, undefined, `${e.nombre}.${d.formato}`);
         $("cad-formato").textContent = d.formato.toUpperCase(); $("cad-formato").dataset.formato = d.formato;
         pintarVersiones(d.versiones);
@@ -416,9 +465,11 @@
 
   async function guardarCopia(buffer, saveId) {
     try {
-      const r = await pedir(C.urls.copia, { metodo: "POST", cuerpo: buffer, cabeceras: { "Content-Type": "application/octet-stream" } });
+      const { cuerpo, cabeceras: codificacion } = await comprimir(buffer);
+      const r = await pedir(C.urls.copia, { metodo: "POST", cuerpo, cabeceras: { "Content-Type": "application/octet-stream", ...codificacion } });
       const d = await datos(r);
       if (!r.ok) throw new Error(d.error || "No se pudo guardar la copia.");
+      if (Campo()) await Campo().descartarCambiosDePagina(C.id).catch(() => {});
       if (saveId) alEditor("ocs:saved", { ok: true, saveId, name: `${d.nombre}.${e.formato}` });
       e.sucio = false; e.recuperado = false; e.guardando = false;
       soltar();
@@ -446,7 +497,7 @@
   });
 
   // -- Borrador de recuperación ---------------------------------------------------------------------------------------------
-  let borradorEnCurso = false;
+  let borradorEnCurso = false, revBorrador = null;
   // El borrador lleva la sesión de esta página y, tras recuperar o guardar como copia el de la última vez, cuál era ese
   // (`X-TV-Borrador-Previo`): el servidor nunca deja que otra página pise en silencio un borrador que nadie ha decidido (auditoría
   // M-6). Si lo hay (409 `borrador_pendiente`), se pide elegir.
@@ -460,20 +511,28 @@
     while (texto.length > 2000 && r.length) { r.shift(); texto = JSON.stringify({ v: 1, m: "?", r, s }); }
     return texto;
   }
-  async function guardarBorrador(buffer) {
+  // Lo que viaja: el plano entero, comprimido si así pesa menos (un DXF baja a una décima parte; un DWG ya viene comprimido).
+  async function guardarBorrador(buffer, revision) {
     try {
-      const cabeceras = { "Content-Type": "application/octet-stream", "X-TV-Revision": String(e.base), "X-TV-Sesion": SESION };
+      const { cuerpo, cabeceras: codificacion } = await comprimir(buffer);
+      const cabeceras = { "Content-Type": "application/octet-stream", "X-TV-Revision": String(e.base), "X-TV-Sesion": SESION, ...codificacion };
       if (e.borradorVisto) cabeceras["X-TV-Borrador-Previo"] = e.borradorVisto;
       if (e.registroSucio) cabeceras["X-TV-Registro"] = e.registroSucio;
-      const r = await pedir(C.urls.borrador, { metodo: "POST", cuerpo: buffer, cabeceras });
-      if (r.ok) { e.ultimoBorrador = Date.now(); if (e.registroSucio) { e.registroSucio = null; e.registroEnviado = true; } return; }
+      const r = await pedir(C.urls.borrador, { metodo: "POST", cuerpo, cabeceras });
       const d = await datos(r);
+      if (r.ok) {
+        e.ultimoBorrador = Date.now(); revBorrador = revision; borradorServidor = d.actualizado;
+        if (e.registroSucio) { e.registroSucio = null; e.registroEnviado = true; }
+        // La copia del teléfono es la misma que el borrador del servidor: al volver se recupera de la del teléfono, sin bajarla.
+        if (Campo() && revision === revTelefono) Campo().actualizarCambios(C.id, { borrador: d.actualizado }).catch(() => {});
+        return;
+      }
       if (r.status === 409 && d.motivo === "borrador_pendiente") await borradorAjeno(d.actualizado);
     } catch (_) { /* sin red: se intenta en la siguiente vuelta */ }
   }
   async function borradorAjeno(actualizado) {
     try {
-      const r = await pedir(`${C.urls.estado}?sesion=${SESION}`);
+      const r = await pedir(`${C.urls.estado}?sesion=${SESION}&ligero=1`);
       const d = await datos(r);
       C.borrador = d.borrador ? { ...(C.borrador || {}), ...d.borrador } : { ...(C.borrador || {}), actualizado };
     } catch (_) { C.borrador = { ...(C.borrador || {}), actualizado }; }
@@ -489,14 +548,59 @@
     borradorEnCurso = true;
     try { await pedirGuardado("borrador"); } finally { borradorEnCurso = false; }
   }
+  // El borrador del servidor sale solo si algo cambió desde el anterior: a lo más uno cada 2 minutos mientras hay cambios (el primero, 2
+  // minutos después del primer cambio) y al pasar la app a segundo plano o cerrarla. Mirar el plano nunca manda borradores.
+  const cambioSinBorrador = () => revEditor !== revBorrador;
   setInterval(() => {
     const desde = Math.max(e.sucioDesde, e.ultimoBorrador);
-    if (Date.now() - desde >= C.autoguardado_s * 1000) borrador();
+    if (Date.now() - desde >= C.autoguardado_s * 1000 && cambioSinBorrador()) borrador();
   }, Math.min(5000, C.autoguardado_s * 500));
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden" && Date.now() - e.ultimoBorrador > 20000) borrador();
+    if (document.visibilityState !== "hidden") return;
+    copiarAlTelefono(true);
+    if (cambioSinBorrador()) borrador();
   });
 
+  // -- La copia de los cambios en el teléfono (planos «Disponibles sin conexión») -------------------------------------------
+  // Con cambios, lo que hay en el editor queda en el teléfono en cuanto la persona deja de dibujar (2 s; a lo más una vez cada 10 s): si
+  // se va la señal, se cierra la app o se apaga el teléfono, nada se pierde, y la página sin conexión lo abre tal cual. No viaja por la
+  // red. Al volver, se ofrece recuperarla (sin bajar nada); al guardar una versión o una copia, se borra.
+  let revTelefono = null, copiaTimer = null, copiando = false, ultimaCopia = 0, borradorServidor = null;
+  function programarCopia() {
+    if (!Campo() || copiaTimer) return;
+    copiaTimer = setTimeout(() => copiarAlTelefono(false), Math.max(2000, 10000 - (Date.now() - ultimaCopia)));
+  }
+  async function copiarAlTelefono(ya) {
+    clearTimeout(copiaTimer); copiaTimer = null;
+    if (!Campo() || copiando || !e.cargado || !documento || e.guardando || extensionOcupada() || !(e.sucio || e.recuperado) || !(e.editable || e.perdido)) return;
+    if (revEditor === revTelefono || !(await Campo().plano(C.id))) return;          // solo los planos que están en el teléfono
+    copiando = true;
+    try {
+      const est = await canal({ op: "state" }, 5000).catch(() => ({}));
+      const doc = (est.documents || []).find((d) => d.id === documento);
+      const rev = doc ? doc.revision || 0 : revEditor;
+      const bytes = await bytesDelEditor();
+      await Campo().guardarCambios({ id: C.id, nombre: e.nombre, formato: e.formato, base: e.base, bytes, origen: "pagina",
+        borrador: rev === revBorrador ? borradorServidor : null });
+      revTelefono = rev; ultimaCopia = Date.now();
+    } catch (_) { /* sin espacio o el editor ocupado: la próxima vez */ }
+    finally {
+      copiando = false;
+      if (!ya && revEditor !== revTelefono && (e.sucio || e.recuperado)) programarCopia();
+    }
+  }
+
+  // Cambios de una visita anterior que quedaron en el teléfono (la copia de arriba). Si son al menos tan nuevos como el borrador del
+  // servidor, son esos los que se ofrecen («Tienes cambios sin guardar del …»), y recuperarlos no baja nada.
+  async function borradorDelTelefono() {
+    const c = Campo() && (await Campo().cambios(C.id).catch(() => null));
+    if (!c || c.origen !== "pagina") return;
+    const servidor = C.borrador;
+    const fecha = (x) => Date.parse(x) || 0;
+    if (servidor && c.borrador !== servidor.actualizado && fecha(c.actualizado) < fecha(servidor.actualizado)) return;     // el del servidor es más nuevo
+    C.borrador = { actualizado: c.actualizado, revision_base: c.base, formato: c.formato, bytes: c.tamano, local: true,
+      servidor: servidor ? servidor.actualizado : null, borrador: c.borrador || null };
+  }
   function ocultarBorrador() { $("cad-aviso-borrador").hidden = true; e.borradorPendiente = false; }
   function mostrarBorrador() {
     if (!C.borrador || !e.editable) return;
@@ -521,12 +625,14 @@
     $("cad-borrador-elegir-copia").addEventListener("click", async (ev) => {
       const b = ev.currentTarget; b.setAttribute("aria-busy", "true");
       try {
-        const bytes = await bytesDe(`${C.urls.archivo}?borrador=1`);
-        const r = await pedir(C.urls.copia, { metodo: "POST", cuerpo: bytes, cabeceras: { "Content-Type": "application/octet-stream" } });
+        const bytes = C.borrador && C.borrador.local ? await bytesDeLaCopia() : await bytesDe(`${C.urls.archivo}?borrador=1`);
+        const { cuerpo, cabeceras: codificacion } = await comprimir(bytes);
+        const r = await pedir(C.urls.copia, { metodo: "POST", cuerpo, cabeceras: { "Content-Type": "application/octet-stream", ...codificacion } });
         const d = await datos(r);
         if (!r.ok) throw new Error(d.error || "No se pudo guardar la copia.");
         await pedir(C.urls.borrador_descartar, { metodo: "POST" });
-        e.borradorVisto = C.borrador && C.borrador.actualizado;
+        if (Campo()) await Campo().descartarCambiosDePagina(C.id).catch(() => {});
+        e.borradorVisto = C.borrador && (C.borrador.local ? C.borrador.servidor : C.borrador.actualizado);
         ocultarBorrador();
         $("cad-borrador-elegir").close();
         avisar(`Tus cambios de la última vez quedaron en «${d.nombre}».`);
@@ -538,9 +644,12 @@
     ocultarBorrador();
     try {
       e.base = C.borrador.revision_base;
-      e.borradorVisto = C.borrador.actualizado;
+      e.borradorVisto = C.borrador.local ? C.borrador.servidor : C.borrador.actualizado;
       await abrir("borrador", false);
       e.recuperado = true; e.sucioDesde = Date.now();
+      // Lo recuperado del servidor ya está allá; lo del teléfono puede ser más nuevo que el borrador del servidor: ese sí se manda.
+      revBorrador = C.borrador.local && C.borrador.borrador !== C.borrador.servidor ? null : revEditor;
+      if (!C.borrador.local && Campo()) Campo().descartarCambiosDePagina(C.id).catch(() => {});        // la del teléfono era más vieja
       anunciar("cambio", { sucio: true });
       refrescarEstado();
       if (e.base !== e.revision) { e.perdido = true; lectura("Estos cambios se hicieron sobre una versión anterior: al guardar se crea una copia."); }
@@ -549,6 +658,7 @@
   $("cad-descartar-borrador").addEventListener("click", async () => {
     ocultarBorrador();
     await pedir(C.urls.borrador_descartar, { metodo: "POST" }).catch(() => {});
+    if (Campo()) await Campo().descartarCambiosDePagina(C.id).catch(() => {});
     avisar("Cambios descartados");
   });
 
@@ -583,6 +693,7 @@
       if (d.mio) {
         e.revision = e.base = d.revision;
         await abrir("vigente", false);
+        await borradorDelTelefono();
         mostrarBorrador();
         latir();
       } else {
@@ -607,7 +718,7 @@
         if (d.perdido && d.motivo === "cambio") cambioAjeno(d.quien);
         else if (d.perdido) perderBloqueo(d);
         else if (!e.guardando && Number.isInteger(d.revision) && d.revision > e.base) cambioAjeno();
-      } catch (_) { /* sin red un momento: el bloqueo dura 90 s */ }
+      } catch (_) { /* sin red un momento: el bloqueo dura 150 s */ }
     }, C.latido_s * 1000);
   }
   function perderBloqueo(d) {
@@ -620,12 +731,12 @@
     refrescarEstado();
   }
 
-  // El bloqueo caducó (el equipo durmió más de 90 s), otra persona guardó una versión nueva y el latido lo volvió a tomar (auditoría M-7):
+  // El bloqueo caducó (el equipo durmió más de 150 s), otra persona guardó una versión nueva y el latido lo volvió a tomar (auditoría M-7):
   // seguir sería dibujar sobre una versión vieja. Se suelta el bloqueo, se dice quién guardó y lo de aquí se guarda como copia.
   async function cambioAjeno(nombre) {
     if (!e.editable) return;
     let quien = nombre || "";
-    if (!quien) { try { const r = await pedir(`${C.urls.estado}?sesion=${SESION}`); if (r.ok) quien = (await datos(r)).modificado_por || ""; } catch (_) { /* sin nombre */ } }
+    if (!quien) { try { const r = await pedir(`${C.urls.estado}?sesion=${SESION}&ligero=1`); if (r.ok) quien = (await datos(r)).modificado_por || ""; } catch (_) { /* sin nombre */ } }
     if (!e.editable) return;
     soltar();
     e.perdido = true;
@@ -641,14 +752,14 @@
     clearInterval(vigia);
     vigia = setInterval(async () => {
       try {
-        const r = await pedir(`${C.urls.estado}?sesion=${SESION}`);
+        const r = await pedir(`${C.urls.estado}?sesion=${SESION}&ligero=1`);
         const d = await datos(r);
         if (r.ok && d.bloqueo && d.bloqueo.libre) {
           clearInterval(vigia);
           lectura("Ya nadie está editando este plano.", { reintentar: true });
         }
       } catch (_) { /* se vuelve a intentar */ }
-    }, 30000);
+    }, C.latido_s * 1000);
   }
   async function editarAhora(forzar) {
     try {
@@ -876,10 +987,25 @@
   if (window.ITT && ITT.combobox) document.querySelectorAll("[data-cad-proyectos]").forEach((i) => ITT.combobox(i, () => proyectos));
 
   // Para el modo táctil y CAD sin conexión (campo.js): la sesión de esta página (dueña del bloqueo) y volver a abrir la versión vigente.
-  if (C.tactil) window.TVCadPagina = Object.freeze({ sesion: () => SESION, reabrir: () => (e.editable ? editarAhora(false) : location.reload()) });
+  // `abiertos()`: la versión vigente que se acaba de bajar (para dejarla «Disponible sin conexión» sin bajarla otra vez).
+  if (C.tactil) window.TVCadPagina = Object.freeze({ sesion: () => SESION, reabrir: () => (e.editable ? editarAhora(false) : location.reload()),
+    abiertos: () => (e.abiertos && e.abiertos.revision === e.revision ? { revision: e.abiertos.revision, bytes: e.abiertos.bytes.slice(0) } : null),
+    desdeTelefono: () => !!e.desdeTelefono });
 
   // -- Arranque -------------------------------------------------------------------------------------------------------------------
+  // Después de los demás scripts de la página (campo.js): si el CAD de este teléfono tiene una versión vieja, primero se baja lo que
+  // cambió (solo eso) y luego se abre el editor desde el teléfono; si no, el marco bajaría la versión nueva entera de la red.
   refrescarEstado();
-  if (frame) cargarMarco().then(alListo).catch((err) => { carga(""); error(err.message); });
-  else carga("");
+  async function arrancar() {
+    const campo = Campo();
+    if (campo && campo.prepararEditor) {
+      try { await campo.prepararEditor((t) => carga(t)); } catch (_) { /* se abre desde la red, como sin el CAD en el teléfono */ }
+    }
+    await cargarMarco();
+    await alListo();
+  }
+  if (frame) {
+    const ir = () => arrancar().catch((err) => { carga(""); error(err.message); });
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ir); else setTimeout(ir, 0);
+  } else carga("");
 })();

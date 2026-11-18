@@ -72,11 +72,29 @@ def version_servida() -> str:
     return version() if not cad else hashlib.sha256((version() + cad).encode()).hexdigest()[:12]
 
 
+def sin_comentarios(js: str) -> str:
+    """El script sin sus líneas de comentario (`//` y bloques `/* … */` que empiezan la línea). Se sirve así porque el navegador vuelve a
+    pedir sw.js al abrir cada página, y WebKit (iPhone) lo baja entero: los comentarios eran ~40 % de lo comprimido."""
+    salida, en_bloque = [], False
+    for linea in js.split("\n"):
+        s = linea.strip()
+        if en_bloque:
+            en_bloque = "*/" not in s
+            continue
+        if s.startswith("/*"):
+            en_bloque = "*/" not in s
+            continue
+        if s.startswith("//"):
+            continue
+        salida.append(linea)
+    return "\n".join(salida)
+
+
 def contenido() -> str:
     plantilla = (AQUI / "sw.js.tpl").read_text(encoding="utf-8")
     cad = _cad()
     if cad:
         plantilla = plantilla.replace("importScripts(...__SCRIPTS_SW__);", "importScripts(...__SCRIPTS_SW__);\n\n" + cad, 1)
-    return (plantilla.replace("__VERSION__", version_servida())
+    return sin_comentarios(plantilla.replace("__VERSION__", version_servida())
             .replace("__ACTIVOS__", json.dumps([static(f"herramientas/{a}") for a in ACTIVOS] + [static(f"tvplataforma/{a}") for a in ACTIVOS_PLATAFORMA]))
             .replace("__SCRIPTS_SW__", json.dumps([static(f"herramientas/{a}") for a in SCRIPTS_SW])))

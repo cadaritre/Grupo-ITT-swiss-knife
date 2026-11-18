@@ -7,7 +7,7 @@ Estado: IT-3, 13-11-2026. Diseño: `TresVizo-Portal/docs/arquitectura.md` §18 y
 | Pieza | Dónde | Qué hace |
 | --- | --- | --- |
 | Manifiesto | `/manifest.webmanifest` | «TresVizo Herramientas», `scope` y `start_url` = `/`, `display: standalone`, íconos 192/512 y maskable |
-| Service worker | `/sw.js` (alcance `/`) | Guarda la interfaz con versión y las páginas `/capturar/` e `/instalar/` (sin datos de cuenta). Sin red, cualquier navegación abre `/capturar/`. No guarda `/subidas/`, `/sesion/` ni páginas con datos. No se activa solo: ofrece «Hay una versión nueva · Actualizar» |
+| Service worker | `/sw.js` (alcance `/`, con `ETag`: 304 cuando el navegador busca una versión nueva al abrir cada página; importa la cola, tus y el subidor solo donde hay Background Sync, porque WebKit vuelve a bajar entero todo lo que importa en cada página) | Guarda la interfaz con versión y las páginas `/capturar/` e `/instalar/` (sin datos de cuenta). Sin red, cualquier navegación abre `/capturar/`. No guarda `/subidas/`, `/sesion/` ni páginas con datos. No se activa solo: ofrece «Hay una versión nueva · Actualizar» |
 | Cola local | `static/herramientas/offline/cola.js` | IndexedDB. Una captura = una transacción; solo cuenta como guardada cuando la transacción termina |
 | Subida | `tus.js`, `subidor.js` | tus 1.0.0 contra `/subidas/` (contrato de `tvplataforma`). Guarda la URL de la subida **antes** de enviar datos, así reanuda tras un cierre. Borra la captura local **solo** cuando el servidor confirma el mismo `sha256` (`X-TV-Sha256` y `GET /subidas/<id>/`) |
 | Destino | `herramientas.captura` | Valida que sea JPEG/PNG de hasta 40 MP, aplica cuota por cuenta y guarda con el `sha256` como nombre. Idempotente por (cuenta, sha256): reenviar la misma foto no duplica |

@@ -281,7 +281,19 @@ def service_worker(request):
 
     from .offline import sw
 
-    respuesta = HttpResponse(sw.contenido(), content_type="text/javascript; charset=utf-8")
+    # El navegador vuelve a pedir sw.js al abrir cada página de la app (busca una versión nueva): con su ETag, si no cambió, Chromium recibe
+    # un 304 sin cuerpo en vez de los ~5 KB del archivo (WebKit lo pide entero igual; ver sw.js.tpl, «importScripts»). docs/cad.md, «Datos móviles».
+    import hashlib
+
+    from .comun import condicional
+
+    texto = sw.contenido()
+    etiqueta = '"%s"' % hashlib.sha256(texto.encode()).hexdigest()[:20]
+    if condicional.coincide(request, etiqueta):
+        respuesta = HttpResponse(status=304)
+    else:
+        respuesta = HttpResponse(texto, content_type="text/javascript; charset=utf-8")
+    respuesta["ETag"] = etiqueta
     respuesta["Service-Worker-Allowed"] = "/"
     respuesta["Cache-Control"] = "no-cache, max-age=0"
     return respuesta

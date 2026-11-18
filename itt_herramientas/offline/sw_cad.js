@@ -5,9 +5,10 @@
  *    campo.js), sale de su caché; si no, de la red, SIN guardarla (las páginas que no usan CAD nunca bajan el editor).
  *  - Navegar a /cad/… sin red: la página de CAD sin conexión, si está guardada (lista los planos de este teléfono y los abre).
  *  - /static/…: primero la caché de la página sin conexión (sus scripts y estilos), luego lo de siempre.
+ *  - /cad/panel-civil/?v=…: la barra y las hojas de Civil (sin datos de nadie), de su caché si la página las guardó (CAD descargado).
  *  - Nunca guarda planos ni páginas con datos de una cuenta: los planos viven en IndexedDB, de la cuenta, y los maneja la página.
  */
-const CAD_EDITOR = "itt-cad-editor-", CAD_PAGINA = "itt-cad-pagina";
+const CAD_EDITOR = "itt-cad-editor-", CAD_PAGINA = "itt-cad-pagina", CAD_CIVIL = "itt-cad-pagina-civil";
 const CAD_PLANO = /^\/cad\/([0-9a-f-]{36})\/$/;
 // Las respuestas de Django llevan «Vary: Cookie»: lo guardado se busca sin mirar Vary (WebKit lo aplica estricto).
 
@@ -26,6 +27,11 @@ self.addEventListener("fetch", (evento) => {
   if (peticion.mode === "navigate" && (ruta === "/cad/" || ruta === "/cad/sin-conexion/" || CAD_PLANO.test(ruta))) {
     evento.stopImmediatePropagation();
     evento.respondWith(navegarCad(peticion));
+    return;
+  }
+  if (ruta === "/cad/panel-civil/" && peticion.mode !== "navigate") {
+    evento.stopImmediatePropagation();
+    evento.respondWith(panelCivil(peticion, url));
     return;
   }
   if (ruta.startsWith("/static/") || (ruta.startsWith("/cad/fuentes/") && peticion.mode !== "navigate")) {
@@ -49,6 +55,12 @@ async function editorCad(peticion, version, url) {
   const guardada = await deCache(CAD_EDITOR + version, url.pathname);     // la página se pide con ?embed=1&automation=1
   if (guardada) return guardada;
   return fetch(peticion);
+}
+
+// La barra y las hojas de Civil (iguales para todas las cuentas; la dirección lleva su huella): en un teléfono con el CAD descargado la
+// página las deja en su propia caché (civil-panel.js) y de ahí salen hasta que cambien.
+async function panelCivil(peticion, url) {
+  return (await deCache(CAD_CIVIL, url.pathname + url.search)) || fetch(peticion);
 }
 
 async function navegarCad(peticion) {

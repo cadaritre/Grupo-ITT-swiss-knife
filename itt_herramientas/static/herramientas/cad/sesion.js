@@ -8,7 +8,7 @@
  *   está cerrada, la página sin conexión no muestra nada.
  *
  * API: window.TVCadSesion = { abrir(): Promise<IDBDatabase|null>, pendientes(cuenta?), alSalir(): Promise<pendientes>, limpiarEditor(),
- *       descargar(cambio) }
+ *       descargar(cambio), comprimir(bytes): Promise<{cuerpo, cabeceras}> }
  */
 (function () {
   "use strict";
@@ -95,7 +95,7 @@
       const cuerpo = document.createElement("div"); cuerpo.className = "tv-hoja__cuerpo";
       const h = document.createElement("h2"); h.id = "cad-sesion-titulo"; h.textContent = "Tienes cambios de planos sin subir";
       const p = document.createElement("p");
-      p.textContent = `${cambios.length === 1 ? "Un plano tiene cambios hechos sin conexión" : `${cambios.length} planos tienen cambios hechos sin conexión`}. Descárgalos para tenerlos a mano. Si cierras sesión, se quedan en este dispositivo y se suben cuando vuelvas a entrar con la misma cuenta.`;
+      p.textContent = `${cambios.length === 1 ? "Un plano tiene cambios que solo están en este dispositivo" : `${cambios.length} planos tienen cambios que solo están en este dispositivo`}. Descárgalos para tenerlos a mano. Si cierras sesión, se quedan en este dispositivo y se suben cuando vuelvas a entrar con la misma cuenta.`;
       const lista = document.createElement("ul"); lista.className = "cad-sesion__lista";
       for (const c of cambios) {
         const li = document.createElement("li");
@@ -142,5 +142,16 @@
   // página de Herramientas (la limpieza al salir del plano puede no terminar si el navegador cierra la página antes).
   document.addEventListener("DOMContentLoaded", () => { if (!document.getElementById("cad-editor")) limpiarEditor(); });
 
-  window.TVCadSesion = Object.freeze({ abrir, pendientes, alSalir, limpiarEditor, descargar, preguntar });
+  // Un plano para subirlo (guardar, copia, borrador): con gzip si así pesa al menos un 10 % menos (un DXF baja a una décima parte; un DWG
+  // casi no cambia y va tal cual). El servidor lo acepta con `Content-Encoding: gzip` y guarda el plano tal cual (cad/servicio.py).
+  async function comprimir(bytes) {
+    const tal = { cuerpo: bytes, cabeceras: {} };
+    if (typeof CompressionStream === "undefined" || !bytes || bytes.byteLength < 4096) return tal;
+    try {
+      const gz = await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+      return gz.byteLength <= bytes.byteLength * 0.9 ? { cuerpo: gz, cabeceras: { "Content-Encoding": "gzip" } } : tal;
+    } catch (_) { return tal; }
+  }
+
+  window.TVCadSesion = Object.freeze({ abrir, pendientes, alSalir, limpiarEditor, descargar, preguntar, comprimir });
 })();

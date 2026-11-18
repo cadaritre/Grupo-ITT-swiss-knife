@@ -220,8 +220,13 @@ def test_tope_de_tamano(cliente_de, dibujante, monkeypatch):
 def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, supervisora, editor_civil, settings, tactil):
     settings.TV_CAD_TACTIL = tactil   # Civil está igual con el modo táctil encendido (producción) o apagado
     p = cad_servicio.crear_vacio(dibujante, "Predio", "", "dxf")
-    html = cliente_de(dibujante).get(url("cad_plano", pk=p.pk)).content.decode()
-    assert 'id="civil-barra"' in html and "herramientas/cad/civil.js" in html and "Cuadro de construcción" in html
+    pagina = cliente_de(dibujante).get(url("cad_plano", pk=p.pk)).content.decode()
+    # La barra y las hojas llegan aparte (iguales para todos los planos, con su huella: docs/cad.md, «Datos móviles»); la página trae su lugar,
+    # la configuración de este plano y el script que las pone antes de civil.js.
+    assert 'id="civil-panel"' in pagina and "herramientas/cad/civil-panel.js" in pagina and "herramientas/cad/civil.js" in pagina
+    panel = pagina.split('id="civil-panel" hidden data-url="')[1].split('"')[0].replace("&amp;", "&")
+    html = cliente_de(dibujante).get(panel).content.decode()
+    assert 'id="civil-barra"' in html and "Cuadro de construcción" in html
     assert "Invertir triángulos" in html and "Importar puntos" in html
     for nuevo in ("Renumerar puntos", "Revisar triangulación", "Cuadro de curvas", "Los que elija", "Localizar punto", "Reporte de puntos",
                   "Insertar puntos", "Rumbo y distancia de lados", "Numerar vértices", "Memoria descriptiva", "Cuadrícula UTM", "UTM-GPS", "Zona UTM",
@@ -232,11 +237,11 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
     # la curva nunca se corta bajo su etiqueta; y lo que agrega un bloque siempre pregunta dónde va (sin «Debajo del plano» automático)
     for quitado in ("Cortar la curva bajo la etiqueta", "Debajo del plano", "A un lado del plano", "Junto al polígono"):
         assert quitado not in html, quitado
-    cfg = json.loads(html.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
+    cfg = json.loads(pagina.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
     assert cfg["capas"]["tin"]["terreno"] == "TRIANGULACION" and cfg["bloques"]["terreno"] == "PT_TERRENO"
     assert "__ORDEN__" in cfg["urls"]["orden"]
     html = cliente_de(supervisora).get(url("cad_plano", pk=p.pk)).content.decode()
-    assert "civil-barra" not in html
+    assert "civil-barra" not in html and "civil-panel" not in html
 
 
 @pytest.fixture
