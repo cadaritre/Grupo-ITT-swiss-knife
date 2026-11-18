@@ -16,6 +16,10 @@ html.cad-tactil, html.cad-tactil body { height: 100%; overflow: hidden; overscro
    tactil.js (viewport y gestos de iOS). */
 html.cad-tactil, html.cad-tactil body, html.cad-tactil body * { touch-action: pan-x pan-y; }
 html.cad-tactil .tt-capa { touch-action: none; }
+/* Deslizar desde el borde nunca navega (dueño, 17-11): la página no rebota ni recarga y nada desplazable de la interfaz pasa su desplazamiento
+   a la página (en Chrome un desplazamiento horizontal que llega a la página puede ir atrás o adelante). El área de dibujo (.tt-capa) va
+   de borde a borde. Ver tactil.js, «atrás nunca sale del plano». */
+html.cad-tactil .tt-seleccion__fila, html.cad-tactil .tt-din__campos, html.cad-tactil .tt-abajo, html.cad-tactil #cad-avisos { overscroll-behavior: contain; }
 html.cad-tactil body { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; background: var(--tt-lienzo); }
 /* La página de siempre queda detrás: sin lateral, cabecera, encabezado ni pie; el editor ocupa el área de dibujo del modo táctil. */
 html.cad-tactil .tv-lateral, html.cad-tactil .tv-cabecera, html.cad-tactil .tv-encabezado, html.cad-tactil .tv-pie, html.cad-tactil .tv-velo,

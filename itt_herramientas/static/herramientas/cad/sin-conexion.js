@@ -191,7 +191,7 @@
   $("cad-volver").addEventListener("click", async (ev) => {
     ev.preventDefault();
     if (sucio && !(await guardarLocal())) return;
-    location.assign(C.urls.sin_conexion);
+    if (window.TVCadTactil) window.TVCadTactil.ir(C.urls.sin_conexion); else location.assign(C.urls.sin_conexion);   // sin dejar la guarda de tactil.js
   });
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && sucio) guardarLocal(); });
   addEventListener("pagehide", () => { if (window.TVCadSesion) TVCadSesion.limpiarEditor(); });

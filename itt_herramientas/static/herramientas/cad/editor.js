@@ -423,7 +423,7 @@
       e.sucio = false; e.recuperado = false; e.guardando = false;
       soltar();
       avisar(`Se guardó «${d.nombre}»`);
-      location.assign(d.url);
+      ir(d.url);
     } catch (err) {
       if (saveId) alEditor("ocs:saved", { ok: false, saveId, error: err.message });
       e.guardando = false; e.salirDespues = null; refrescarEstado();
@@ -679,7 +679,9 @@
   });
 
   // -- Salir de la página con cambios ----------------------------------------------------------------------------------------
-  function salir(url) { e.sucio = false; e.recuperado = false; soltar(); location.assign(url); }
+  // En modo táctil la página tiene una entrada de guarda en el historial (tactil.js): `ir` la reemplaza en lugar de dejarla detrás.
+  const ir = (url) => (window.TVCadTactil ? window.TVCadTactil.ir(url) : location.assign(url));
+  function salir(url) { e.sucio = false; e.recuperado = false; soltar(); ir(url); }
   document.addEventListener("click", (ev) => {
     const a = ev.target.closest("a[href]");
     if (!a || ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.shiftKey || a.target === "_blank" || a.hasAttribute("download")) return;

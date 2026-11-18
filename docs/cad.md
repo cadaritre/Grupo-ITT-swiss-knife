@@ -143,6 +143,24 @@ la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` 
   dibujo lleva `touch-action: pan-x pan-y` (se desplaza, no se acerca) y el área de dibujo `none`; mientras el modo está activo el
   viewport de la página del plano no deja acercar (`maximum-scale=1, user-scalable=no`, se quita al salir) y en iOS se cancelan
   `gesturestart/gesturechange/gestureend` y `dblclick`. Las demás páginas acercan como siempre. Los campos de texto miden ≥ 16 px.
+- **Atrás y el borde de la pantalla** (dueño, 17-11: deslizar desde la izquierda llevaba a la página anterior). En modo táctil, en la
+  página del plano y en la sin conexión, un dedo que empieza en cualquier borde mueve el plano como cualquier arrastre; nunca va atrás o
+  adelante, recarga ni hace rebotar la página. Capas, cada una para lo suyo:
+  - `overscroll-behavior: none` en `html` y `body` (y `contain` en lo que se desplaza de la interfaz): sin «tirar para recargar», sin
+    rebote y sin la navegación por desplazamiento horizontal de Chrome (Chrome de Android; Safari 16+ para el rebote y la recarga).
+  - `touch-action: none` en el área de dibujo (`.tt-capa`), que va de borde a borde: el navegador no toma el arrastre para sí.
+  - Un `touchstart` no pasivo en el área de dibujo que cancela los toques que empiezan a ≤ 28 px de un borde: el gesto de atrás/adelante
+    de Safari de iOS (pestaña) no arranca. Los eventos de puntero, con los que se mueve el plano, siguen igual; en Chrome no cambia nada.
+  - **La guarda del historial**, para lo que la página no puede cancelar (el gesto o botón «atrás» de Android, el de iOS en la app de
+    inicio o si WebKit lo toma igual, un borde sobre las barras): mientras está el modo táctil hay una entrada más del mismo documento
+    (misma dirección, `history.state.tvCadTactil`). «Atrás» la consume, la página se queda y la vuelve a poner, y cuenta como un paso
+    atrás en la interfaz: cierra el diálogo, la hoja, el teclado o la ficha abiertos; si no, deja la selección por área, la herramienta,
+    la selección o el puntero; si no, pregunta «¿Salir del plano?» («Salir» / «Quedarme»), y la pregunta se queda aunque se vuelva a ir
+    atrás. «Salir» hace lo mismo que el botón de cerrar (con cambios sin guardar, la pregunta de siempre de `editor.js`; sin conexión, se
+    guarda en el teléfono). Para salir, `TVCadTactil.ir(url)` reemplaza la entrada de la guarda con la página siguiente (`editor.js` y
+    `sin-conexion.js` la usan, y también los enlaces de la página): el historial no crece y «atrás» desde la página siguiente vuelve al
+    plano, que vuelve a poner la guarda. Recargar no pone otra encima. «Modo completo» la quita (`history.back()`). Chrome salta con
+    «atrás» las entradas que una página puso antes de que la persona la tocara; se pone al entrar y queda válida con el primer toque.
 - **Herramientas (cada figura o edición, un paso de deshacer):** polilínea, línea, rectángulo, círculo, arco por 3 puntos, punto,
   perpendicular, texto, cotas horizontal/vertical y alineada; borrar, mover, copiar, girar, desfasar (línea, polilínea, círculo, arco),
   explotar (`explode`; lo nuevo queda elegido y se dice cuántos no se pudieron), recortar y alargar (`trim`/`extend` del editor: tocar la

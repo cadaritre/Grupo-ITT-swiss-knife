@@ -993,6 +993,7 @@
     if (recordar) guardado.poner("tactil", true);
     if (activo) return;
     activo = true;
+    armarGuarda();
     sinZoomDelNavegador(true);
     raiz.classList.add("cad-tactil");
     tt.hidden = false;
@@ -1019,6 +1020,7 @@
     if (!activo) return;
     cancelarHerramienta(); quitarSeleccion(); ocultarPuntero(); cerrarHojas();
     activo = false; listo = false;
+    quitarGuarda();
     sinZoomDelNavegador(false);
     delete tt.dataset.listo;
     tt.hidden = true;
@@ -1035,6 +1037,86 @@
     await espera(50);
     activo = false; await entrar(false);
   });
+
+  // ---------------------------------------------------------------------------------------------------------------- atrás nunca sale del plano
+  // Dueño, 17-11: deslizar desde el borde de la pantalla llevaba el navegador a la página anterior. En modo táctil un dedo que empieza en
+  // el borde mueve el plano como cualquier otro arrastre. Capas (ver docs/cad.md, «Atrás y el borde de la pantalla»):
+  //  - tactil.css: `overscroll-behavior: none` en la página (sin «tirar para recargar», sin rebote ni navegación por desplazamiento
+  //    horizontal en Chrome; Safari 16+) y `touch-action: none` en toda el área de dibujo, bordes incluidos;
+  //  - un `touchstart` no pasivo en el área de dibujo que cancela los toques que empiezan en las franjas de los bordes: en Safari de iOS
+  //    así no arranca el gesto de «atrás/adelante» del navegador (los eventos de puntero, con los que se mueve el plano, siguen igual);
+  //  - una guarda en el historial para lo que la página no puede cancelar (el gesto o botón «atrás» de Android, el de iOS si WebKit lo
+  //    toma igual): mientras está el modo táctil hay UNA entrada más del mismo documento (misma dirección). «Atrás» la consume, la
+  //    página se queda, se vuelve a poner y cuenta como un paso atrás en nuestra interfaz: cierra la hoja o el teclado; si no, cancela
+  //    lo que está en marcha; si no, pregunta una vez «¿Salir del plano?». Salir (de ahí o con nuestros botones) reemplaza esa entrada
+  //    con la página siguiente (`ir`), así no se apilan entradas y «atrás» desde la página siguiente vuelve al plano como siempre.
+  //    Chrome salta al ir «atrás» las entradas que una página puso sin que la persona la tocara, hasta su primer toque; por eso se
+  //    pone al entrar (el primer toque la habilita) y no al primer toque (más tarde).
+  const GUARDA = "tvCadTactil";
+  let guardaArmada = false, quitandoGuarda = false;
+  const enGuarda = () => !!(history.state && history.state[GUARDA]);
+  function armarGuarda() {
+    guardaArmada = true;
+    if (enGuarda()) return;          // al recargar el plano, o al volver a entrar, la entrada ya está: nunca otra encima
+    try { history.pushState({ ...(history.state || {}), [GUARDA]: 1 }, "", location.href); } catch (_) { guardaArmada = false; }
+  }
+  // Al pasar a «Modo completo»: se quita la entrada (vuelve a la del plano); el editor completo navega como cualquier página.
+  function quitarGuarda() {
+    guardaArmada = false;
+    if (enGuarda()) { quitandoGuarda = true; history.back(); }
+  }
+  // Ir a otra página desde el plano: con la guarda puesta, la reemplaza (la página del plano queda una sola vez en el historial).
+  function ir(url) {
+    if (enGuarda()) location.replace(url); else location.assign(url);
+  }
+  // De vuelta al plano desde la página siguiente con la copia en memoria del navegador: la entrada de la guarda ya no está (se reemplazó
+  // al salir), se vuelve a poner.
+  addEventListener("pageshow", (ev) => { if (ev.persisted && activo) armarGuarda(); });
+  addEventListener("popstate", () => {
+    if (quitandoGuarda) { quitandoGuarda = false; if (activo) armarGuarda(); return; }     // volvió al modo táctil antes de quitarla
+    if (!activo || !guardaArmada || enGuarda()) return;
+    armarGuarda();
+    atras();
+  });
+  function atras() {
+    if (hojaAbierta === "salir") return;                                           // la pregunta ya está a la vista: se queda
+    const dialogo = document.querySelector("dialog[open]");
+    if (dialogo) { dialogo.close(); return; }
+    if (!$("tt-hoja").hidden || num) { cerrarHojas(); return; }
+    if (din.abierto) { cerrarDinamica(); return; }
+    if (cerrarTarjeta()) return;
+    if (gesto && (gesto.tipo === "ventana" || gesto.tipo === "cerca")) return;    // con un dedo en el plano no se pregunta nada
+    if (modoVentana) { modoArea(false); return; }
+    if (herr) { cancelarHerramienta(); return; }
+    if (seleccion.size) { quitarSeleccion(); return; }
+    if (puntero.visible) { ocultarPuntero(); return; }
+    preguntarSalir();
+  }
+  function preguntarSalir() {
+    const acciones = nodo("div", "tt-acciones");
+    acciones.append(
+      boton("Quedarme", "", cerrarHojas, { clase: "tt-boton tt-boton--secundario" }),
+      boton("Salir", "", () => { cerrarHojas(); $("tt-cerrar").click(); }, { clase: "tt-boton" }),
+    );
+    abrirHoja("¿Salir del plano?", [acciones], { grupo: "salir" });
+  }
+  // Los enlaces a otra página (p. ej. «Planos»), si nadie los detuvo antes (editor.js pregunta si hay cambios sin guardar).
+  document.addEventListener("click", (ev) => {
+    if (ev.defaultPrevented || !enGuarda() || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    const a = ev.target.closest && ev.target.closest("a[href]");
+    if (!a || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
+    const url = new URL(a.href, location.href);
+    if (!/^https?:$/.test(url.protocol) || url.searchParams.get("descargar") === "1") return;
+    if (url.pathname === location.pathname && url.search === location.search) return;                // un ancla de la misma página
+    ev.preventDefault();
+    ir(url.href);
+  });
+  const BORDE_GESTO_PX = 28;
+  capa.addEventListener("touchstart", (ev) => {
+    if (!activo) return;
+    const ancho = document.documentElement.clientWidth || innerWidth;
+    for (const t of ev.changedTouches) if (t.clientX <= BORDE_GESTO_PX || t.clientX >= ancho - BORDE_GESTO_PX) { ev.preventDefault(); return; }
+  }, { passive: false });
 
   // ---------------------------------------------------------------------------------------------------------------- barra superior
   $("tt-cerrar").addEventListener("click", () => { const v = $("cad-volver"); if (v) v.click(); });
@@ -2163,6 +2245,8 @@
     entrarBoton.addEventListener("click", () => entrar(true));
   }
   window.TVCadTactil = Object.freeze({ entrar: () => entrar(true), salir: () => salir(true), activo: () => activo, listo: () => listo,
+    // Ir a otra página sin dejar la guarda del historial detrás (editor.js y sin-conexion.js la usan si está).
+    ir: (url) => ir(url), guarda: () => enGuarda(),
     // Para las pruebas y para depurar en el teléfono: la vista calculada aquí y la conversión pantalla ↔ mundo.
     vista: () => ({ ...vista }), aMundo: (x, y) => aMundo(x, y), aPantalla: (x, y) => aPantalla(x, y), herramienta: () => herr && herr.id,
     puntos: () => (herr ? herr.puntos.map((p) => p.slice()) : []), puntero: () => ({ visible: puntero.visible, mundo: puntoActual(), snap: puntero.snap && puntero.snap.tipo }),
