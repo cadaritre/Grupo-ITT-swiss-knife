@@ -1,15 +1,17 @@
 # Civil en CAD
 
-Herramientas de topografía al estilo CivilCAD dentro de la página de un plano de CAD (`/cad/<id>/`): una barra «Civil» encima del editor
-con sus menús y hojas. Especificación completa (funciones, convenciones del dibujo, fases): `docs/especificacion.md` del repositorio del
+Herramientas de topografía al estilo CivilCAD dentro de la página de un plano de CAD (`/cad/<id>/`): una pestaña «Civil» en la cinta del
+propio editor, con sus grupos, botones y comandos (como CivilCAD dentro de AutoCAD), y sus hojas junto al dibujo. Con un editor sin
+pestañas propias (anterior a tv-v2026.45-13), los mismos menús en una barra encima del editor. Especificación completa (funciones, convenciones del dibujo, fases): `docs/especificacion.md` del repositorio del
 motor, `cadaritre/TresVizo-Civil`.
 
-Código: `itt_herramientas/civil/` (servidor y motor fijado), `templates/herramientas/cad/civil*.html`, `static/herramientas/cad/civil.js` y
-`civil.css`. Pruebas: `pruebas/test_civil.py` y `pruebas_navegador/test_civil_navegador.py`.
+Código: `itt_herramientas/civil/` (servidor y motor fijado), `templates/herramientas/cad/civil*.html`, `static/herramientas/cad/civil.js`,
+`civil-cinta.js` y `civil.css`. Pruebas: `pruebas/test_civil.py`, `pruebas_navegador/test_civil_navegador.py` y
+`pruebas_navegador/test_civil_cinta_navegador.py`.
 
 ## Qué hay
 
-| Menú | Acciones |
+| Grupo de la cinta (menú de la barra) | Acciones |
 | --- | --- |
 | Puntos | Importar (PNEZD, PENZD, NEZ… con orden y separador reconocidos, vista previa, renglones descartados con su motivo; terreno o proyecto) · Exportar · Dibujar punto (señalado o por coordenadas, con el siguiente número libre) · Editar punto (número, elevación, descripción, posición) · Etiquetas de puntos (mostrar u ocultar número, elevación y descripción —capa por rótulo— y reescribir los decimales de la elevación) · Convertir puntos (terreno ↔ proyecto, conservando sus datos) · Renumerar (desde N, de cuánto en cuánto, prefijo; por número actual, de oeste a este o de norte a sur) · Localizar punto (por número: la vista va a él y queda seleccionado) · Reporte de puntos (PDF o Word, con latitud y longitud si se pide) |
 | Triangulación | Triangular (todos los puntos de la superficie, los que se seleccionan en el plano —clic, ventana o captura— o los que caen dentro de un polígono, con la cuenta antes de correr; líneas de quiebre, límite, islas, arista máxima, sin los puntos de ciertas descripciones —ARBOL, POSTE, BAR*—; reemplaza la anterior) · Invertir triángulos · Borrar triángulos (los que elija, fuera de un límite, dentro de un polígono, lados largos) · Agregar triángulo · Insertar puntos (seleccionados en el plano o dentro de un polígono; parten su triángulo o lado y los vecinos se ajustan a Delaunay) · Revisar triangulación (repetidos, encimados, sin superficie, lados con más de dos triángulos, muy delgados: marcados en rojo y seleccionados) |
@@ -18,13 +20,55 @@ Código: `itt_herramientas/civil/` (servidor y motor fijado), `templates/herrami
 | Plano | Cuadrícula UTM (todo el plano o dos esquinas; líneas o cruces; marco; coordenadas al margen y latitud y longitud en las esquinas; reemplaza la anterior) · Lotificar manzana (lotes iguales, de una superficie o de un frente, con cortes perpendiculares al lado de la calle; número y superficie en cada lote y cuadro de áreas) |
 | Perfiles y secciones | Perfil del eje (cadenamiento, rasante con curvas verticales) · Secciones transversales (plantilla sencilla o de carretera: carriles y acotamientos con su pendiente, cuneta en corte, pavimento —terracerías a la subrasante— y despalme; sobreelevación y ampliación en las curvas del eje según la SCT; taludes; áreas) |
 | Volúmenes | Por secciones (áreas medias) · Entre superficies (exacto, línea de ceros opcional, resultado en la hoja o también en el plano) · Curva masa (línea compensadora la mejor —menor momento de acarreo— o en una ordenada; puntos de compensación, volumen y distancia media de cada tramo, sobreacarreo en m³·hm sobre el acarreo libre, préstamo y desperdicio) |
-| 1:1000 (botón) | Escala del plano, zona UTM y altura de los textos en mm de papel |
+| Imágenes | Insertar imagen georreferenciada (de la carpeta del proyecto, con su archivo de mundo o GeoTIFF; docs/cad.md) · Referencias externas (el panel de imágenes y dibujos de referencia del plano) |
+| Escala (botón «1:1000») | Escala del plano, zona UTM y altura de los textos en mm de papel |
 
 Civil aparece para quien puede editar planos (`cad`, `admin`) en la versión vigente; para dibujar hace falta tener el control del plano
-(exportar puntos solo lee y funciona sin él). En una barra angosta los menús se compactan (sin flechas y, más angosta, solo iconos);
-cada menú se abre bajo su botón aunque la barra se desplace a lo ancho.
+(exportar puntos, el reporte, localizar un punto, la memoria descriptiva, las referencias y la escala solo leen y funcionan sin él). En el
+modo táctil no hay Civil.
 
-La barra y las hojas (`civil_panel.html`, ~16 KB comprimidas, igual para todas las cuentas y todos los planos) no viajan con cada página
+### En la cinta del editor
+
+La pestaña «Civil» sigue a las del editor (Inicio, Insertar, Anotar…) y se ve, se compacta y se minimiza como ellas, en claro y en oscuro:
+
+- **Un grupo por menú** de `civil/pagina.py` `MENUS`, en su orden, después del botón de la **escala** y la zona UTM («1:1000 · Zona 14N», abre «Escala y textos»).
+- **Botones grandes** para lo frecuente (las acciones con `grande`): Importar puntos, Triangular, Curvas de nivel, Cuadro de construcción,
+  Perfil, Secciones, Insertar imagen georreferenciada; **Volúmenes** es un solo botón grande con su lista (`como: "desplegable"`).
+- **Botones chicos** para lo demás, por sección del menú (las que parten sus separadores): hasta tres, cada uno con su nombre; una
+  sección más larga es un botón dividido que muestra la última que se usó, con las demás en su lista (como «Rectángulo/Polígono» de
+  AutoCAD). Cuando la ventana no alcanza, el editor compacta los grupos de la derecha (solo iconos y luego un botón por grupo).
+- **La ayuda** de cada botón dice su nombre, para qué sirve, por qué está apagado y su comando.
+- **Sin el control del plano** (o con otra persona editando), lo que dibuja se ve apagado, en cada pestaña de plano por separado: al cambiar
+  de pestaña cambia lo que se puede usar.
+
+**Comandos.** Cada acción tiene su comando, que se escribe en la línea de comandos del editor con autocompletar, como los de un complemento
+de AutoCAD: prefijo **`CV`** y la acción, `CVTRIANGULAR`, `CVCURVAS`, `CVSECCIONES`, `CVIMPORTARPUNTOS`, `CVCUADRO`… (la lista completa es la
+de `cinta()` en `civil/pagina.py`; por omisión «CV» + la clave sin guiones bajos). Escrito, hace lo mismo que el botón; Intro lo repite.
+Apagado, el editor dice por qué en la línea de comandos.
+
+**Las hojas** se abren como paletas del editor: acopladas a la derecha del área de dibujo, debajo de la cinta, sin bloquear el dibujo (se
+puede acercar y mover con una abierta) y sin tapar la cinta: si la persona vuelve a la cinta mientras hay una abierta, la paleta se aparta
+hasta que regresa al dibujo. Al elegir o señalar en el dibujo la paleta se repliega, como siempre. Esc cierra primero la paleta, también
+con el foco en el dibujo; el siguiente Esc es del editor.
+
+**Cómo se arma.** `civil/pagina.py` `cinta()` pasa `MENUS` (comando e icono SVG de cada acción) al panel de Civil; `civil-cinta.js` define
+la pestaña en el editor (`ribbon_define`), pone por plano lo que se puede usar (`ribbon_state` con el `document_id`) y lee lo que la
+persona pulsa o escribe (eventos `ribbon` del canal, `ocs-control-event`) para abrir la hoja de siempre (`civil.js`, `ACCIONES`). El
+contrato del editor está en el fork, `docs/tresvizo-cinta.md` (parche 70). Si el editor responde `unknown_operation`, Civil monta su barra
+encima del editor como antes.
+
+**Agregar una acción** (otro módulo de la página, p. ej. la imagen satelital): su entrada en `MENUS` (clave, nombre, icono; `grande`,
+`solo_lee`, `comando` o `descripcion` si hace falta) y su función con `TVCivil.registrarAccion(clave, fn)` (o en `ACCIONES` de
+`civil.js`). Aparece sola en la cinta, con su comando, y en la barra de respaldo; mientras nadie la registra se ve apagada («todavía no
+está disponible»).
+
+### La barra de respaldo
+
+Con un editor sin pestañas propias: los mismos menús en una barra encima del editor. En una barra angosta los menús se compactan (sin
+flechas y, más angosta, solo iconos); cada menú se abre bajo su botón aunque la barra se desplace a lo ancho; las hojas son las de siempre
+(modales).
+
+La pestaña de la cinta, la barra y las hojas (`civil_panel.html`, ~20 KB comprimidas con los iconos de la cinta, igual para todas las cuentas y todos los planos) no viajan con cada página
 del plano: `civil-panel.js` las pide a `/cad/panel-civil/?v=<huella>` (se guardan un año; ETag y 304), las pone en la página y carga
 `civil.js`. En un teléfono con el CAD descargado quedan en la caché `itt-cad-pagina-civil` (docs/cad.md, «Datos móviles»).
 
@@ -130,6 +174,11 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor uv run pytest itt_herramienta
 
 ## Pruebas
 
+- `pruebas_navegador/test_civil_cinta_navegador.py`, con la compilación propia del editor: la pestaña con cada acción de `MENUS` y que un
+  clic en su botón (o su comando escrito, si su grupo está compacto) abre lo suyo como paleta sin tapar la cinta; el comando escrito; sin el
+  control del plano solo lo que lee (botón apagado, comando que dice por qué); las pestañas de planos cambian el estado; el grupo
+  Imágenes; Esc primero para la paleta; y con la compilación oficial, la barra de respaldo. `CINTA_CAPTURAS=carpeta`: la cinta en claro y
+  oscuro, a escala 1 y 1.5.
 - `pruebas/test_civil.py`: huella del motor, órdenes ligeras y pesadas (con gzip y por la cola), resultado solo de la cuenta, errores con su
   mensaje, permisos, tope de tamaño y que la página traiga Civil solo a quien edita.
 - `pruebas_navegador/test_civil_navegador.py`, con el editor real y coordenadas UTM: importar 5 000 puntos PNEZD, deshacer y rehacer,

@@ -72,7 +72,8 @@ function vigilarLienzo() {
 // - Ctrl/⌘+Mayús+S: «Guardar todo» (el editor lo tomaría como «Guardar como», una descarga).
 // - Ctrl/⌘+Mayús+F y F11: «Pantalla completa» de la página (static/herramientas/cad/pantalla.js); F11 sería la del navegador, sin la
 //   página maximizada ni Esc para el editor.
-// Esc no se toca: es del editor (cancelar y deseleccionar).
+// Esc es del editor (cancelar y deseleccionar), salvo con una hoja de Civil abierta como paleta junto al dibujo: el primer Esc la cierra,
+// como un diálogo del editor, y el siguiente ya llega al editor (static/herramientas/cad/civil-cinta.js, `esc`).
 const ATAJOS = (ev) => {
   const tecla = String(ev.key || "").toLowerCase();
   const mando = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
@@ -82,6 +83,11 @@ const ATAJOS = (ev) => {
   return "";
 };
 addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !ev.repeat) {
+    let cerro = false;
+    try { cerro = !!(parent !== window && parent.TVCivilCinta && parent.TVCivilCinta.esc()); } catch (_) { /* otra página */ }
+    if (cerro) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); return; }
+  }
   const tipo = ATAJOS(ev);
   if (!tipo) return;
   ev.preventDefault();
