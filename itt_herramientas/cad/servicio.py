@@ -678,6 +678,10 @@ def guardar_borrador(plano: Plano, usuario, revision_base: int, temporal: Path, 
     """
     formato = formato_de_archivo(temporal)
     with transaction.atomic():
+        # Primero el plano, en el mismo orden que `guardar` (plano → espacio → borrador). Antes el borrador tomaba su fila y luego el candado
+        # de espacio mientras «Guardar» tenía el candado y esperaba esa fila: PostgreSQL cortaba uno de los dos («deadlock detected», un 500
+        # al guardar), cuando el borrador de cada 2 minutos y Guardar coincidían.
+        Plano.objects.select_for_update().filter(pk=plano.pk).first()
         previo = BorradorPlano.objects.select_for_update().filter(plano=plano, cuenta_id=usuario.pk).first()
         if previo is not None and previo.sesion != sesion and previo.actualizado.isoformat() != previo_visto:
             raise Conflicto("Tienes cambios sin guardar de otra vez en este plano. Recupéralos, descártalos o guárdalos como copia antes de seguir.",
