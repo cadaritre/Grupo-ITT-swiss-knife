@@ -132,7 +132,7 @@ def test_si_no_se_puede_guardar_se_pueden_descargar_los_cambios(cad, navegar, cr
 def test_si_la_sesion_termina_no_se_recarga_y_se_puede_seguir(cad, navegar, crear_usuario, roles, motor):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = servicio.crear_vacio(ana, "Predio Norte", "", "dxf")
-    n = navegar(ana, motor)
+    n = navegar(ana, motor, sin_service_worker=True)
     p = n.ir(f"/cad/{p0.pk}/")
     esperar_estado(p, "guardado")
     p.evaluate("window.__sinRecargar = true")

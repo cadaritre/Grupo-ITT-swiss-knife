@@ -1,5 +1,5 @@
 {
-  "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile. «base»: la versión oficial sobre la que está hecha la compilación; «version» nombra la ruta servida (/cad/editor/<version>/), así un cambio de compilación nunca reusa la caché del navegador.",
+  "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile. «base»: la versión oficial sobre la que está hecha la compilación; «version» nombra la ruta servida (/cad/editor/<version>/), así un cambio de compilación nunca reusa la caché del navegador. «anteriores»: las 2 o 3 compilaciones previas (la más nueva primero); `preparar.py` les hace un parche de cada archivo que cambió (el .wasm, el .js), así quien ya tiene guardada una de ellas baja solo lo que cambió (docs/cad.md, «El editor guardado en el equipo»).",
   "version": "tv-v2026.45-12",
   "base": "v2026.45",
   "publicada": "2026-11-18",
@@ -31,5 +31,33 @@
       "sha256": "04d3302f2b8016cd21b5484ba6fe2a7432fdedc803951880264390e4055327b7",
       "bytes": 50342408
     }
-  }
+  },
+  "anteriores": [
+    {
+      "version": "tv-v2026.45-11",
+      "web": {
+        "archivo": "OpenCADStudio-tv-v2026.45-11-web.zip",
+        "sha256": "2c12f33109e74c865e881809da5590c0f5f1feffd567ffc7d40d6d8dc4b24b5f",
+        "bytes": 63094271,
+        "fuente": {
+          "tipo": "gh",
+          "repo": "cadaritre/OpenCADStudio-TresVizo",
+          "tag": "tv-v2026.45-11"
+        }
+      }
+    },
+    {
+      "version": "tv-v2026.45-10",
+      "web": {
+        "archivo": "OpenCADStudio-tv-v2026.45-10-web.zip",
+        "sha256": "855076733c45c51c36abc40d80d43fc54a3b51d870dcfc1c03befda390f73149",
+        "bytes": 63088135,
+        "fuente": {
+          "tipo": "gh",
+          "repo": "cadaritre/OpenCADStudio-TresVizo",
+          "tag": "tv-v2026.45-10"
+        }
+      }
+    }
+  ]
 }

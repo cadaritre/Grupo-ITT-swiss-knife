@@ -164,6 +164,10 @@ html.cad-completa:not(.cad-tactil) .cad-lienzo { border-radius: 0; border-left: 
 .cad-menu__lista a:hover, .cad-menu__lista button:hover, .cad-menu__lista a:focus-visible, .cad-menu__lista button:focus-visible { background: var(--tv-secundario); outline: none; }
 .cad-menu__lista .tv-icono { width: 1rem; height: 1rem; color: var(--tv-tenue); }
 .cad-menu__peligro, .cad-menu__peligro .tv-icono { color: var(--tv-estado-error-texto) !important; }
+/* El editor guardado en este equipo (instalador.js): qué ocupa y «Quitar», al pie del menú. */
+.cad-menu__guardado { display: grid; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--tv-separador); max-width: 20rem; }
+.cad-menu__estado, .cad-menu__nota { margin: 0; padding: var(--tv-espacio-1) var(--tv-espacio-3); font-size: var(--tv-texto-sm, 0.875rem); overflow-wrap: anywhere; }
+.cad-menu__nota { color: var(--tv-tenue); font-size: var(--tv-texto-xs, 0.8125rem); }
 @keyframes cad-menu { from { opacity: 0; transform: translateY(-4px); } }
 @media (max-width: 599px) { .cad-menu__lista { position: fixed; left: var(--tv-espacio-3); right: var(--tv-espacio-3); top: auto; bottom: var(--tv-espacio-3); } }
 

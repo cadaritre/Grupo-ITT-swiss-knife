@@ -28,7 +28,7 @@ from ..comun import condicional, perfiles, zips
 from ..comun.errores import ErrorUsuario
 from ..models import Plano, VersionPlano
 from ..civil import pagina as civil_pagina
-from . import editor, fuentes, nativo, registro, salidas, servicio, tactil
+from . import editor, fuentes, guardado, nativo, registro, salidas, servicio, tactil
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
 editar = requiere_rol("herramientas", "cad", "admin")
@@ -265,6 +265,9 @@ def plano(request, pk):
         "fuentes": fuentes.para_editor(),
         # Modo táctil (teléfono y tableta): solo con el ajuste TV_CAD_TACTIL encendido; si no, `None` y la página es la de siempre.
         "tactil": tactil.config_de_pagina(request),
+        # El editor guardado en este equipo (docs/cad.md, «El editor guardado en el equipo»): en la computadora se guarda solo al abrir un
+        # plano y cada versión nueva baja solo lo que cambió (parches); en el teléfono, a pedido (modo táctil).
+        "guardado": guardado.config_de_pagina(request),
         # Varios planos en la misma ventana (pestañas): en la computadora, con la versión vigente (docs/cad.md, «Varios planos»).
         "pestanas": {"max": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_MAX", PESTANAS_MAX)),
                      "bytes": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_BYTES", PESTANAS_BYTES)), "pestana": reverse("herramientas:cad_pestana", args=[MARCA]),
@@ -774,6 +777,14 @@ def editor_archivo(request, version, ruta):
     """Sirve el editor en desarrollo y en pruebas. En producción lo sirve Caddy desde la misma ruta, con las mismas cabeceras
     (despliegue/caddy/sitios-disponibles/tools.caddy del portal), sin pasar por aquí."""
     archivo = editor.archivo(version, ruta)
+    parche = editor.parche(version, ruta, request.headers.get("Accept-Encoding", "")) if archivo is None else None
+    if parche is not None:
+        r = FileResponse(open(parche[0], "rb"), content_type="application/octet-stream")
+        for k, v in editor.cabeceras(Path(ruta)).items():
+            r[k] = v
+        r["Content-Encoding"] = parche[1]
+        r["Vary"] = "Accept-Encoding"
+        return r
     if archivo is None:
         r = HttpResponse(status=404)
         r["Cache-Control"] = "no-store"

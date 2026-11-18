@@ -60,16 +60,16 @@ def version() -> str:
 
 
 def _cad() -> str:
-    """CAD sin conexión (solo con TV_CAD_TACTIL encendido): con el ajuste apagado el service worker queda igual byte a byte."""
+    """CAD: el editor guardado en el equipo (siempre, sw_cad_editor.js) y CAD sin conexión (solo con TV_CAD_TACTIL encendido, sw_cad.js)."""
     from ..cad import tactil
 
-    return (AQUI / "sw_cad.js").read_text(encoding="utf-8") if tactil.activo() else ""
+    editor = (AQUI / "sw_cad_editor.js").read_text(encoding="utf-8")
+    return editor + ("\n" + (AQUI / "sw_cad.js").read_text(encoding="utf-8") if tactil.activo() else "")
 
 
 def version_servida() -> str:
-    """La versión del service worker que se sirve: la de sus archivos y, con el modo táctil encendido, también la de su parte de CAD."""
-    cad = _cad()
-    return version() if not cad else hashlib.sha256((version() + cad).encode()).hexdigest()[:12]
+    """La versión del service worker que se sirve: la de sus archivos y la de su parte de CAD (que cambia con el modo táctil)."""
+    return hashlib.sha256((version() + _cad()).encode()).hexdigest()[:12]
 
 
 def sin_comentarios(js: str) -> str:
@@ -92,9 +92,7 @@ def sin_comentarios(js: str) -> str:
 
 def contenido() -> str:
     plantilla = (AQUI / "sw.js.tpl").read_text(encoding="utf-8")
-    cad = _cad()
-    if cad:
-        plantilla = plantilla.replace("importScripts(...__SCRIPTS_SW__);", "importScripts(...__SCRIPTS_SW__);\n\n" + cad, 1)
+    plantilla = plantilla.replace("importScripts(...__SCRIPTS_SW__);", "importScripts(...__SCRIPTS_SW__);\n\n" + _cad(), 1)
     return sin_comentarios(plantilla.replace("__VERSION__", version_servida())
             .replace("__ACTIVOS__", json.dumps([static(f"herramientas/{a}") for a in ACTIVOS] + [static(f"tvplataforma/{a}") for a in ACTIVOS_PLATAFORMA]))
             .replace("__SCRIPTS_SW__", json.dumps([static(f"herramientas/{a}") for a in SCRIPTS_SW])))

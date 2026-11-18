@@ -115,6 +115,7 @@
 {% block scripts %}
 <script src="{% static 'herramientas/offline/combobox.js' %}"></script>
 {{ proyectos|json_script:"cad-proyectos" }}
-{% if tactil %}<script src="{% static 'herramientas/cad/campo.js' %}"></script>{% endif %}
+{% if tactil %}<script src="{% static 'herramientas/cad/instalador.js' %}"></script>
+<script src="{% static 'herramientas/cad/campo.js' %}"></script>{% endif %}
 <script src="{% static 'herramientas/cad/lista.js' %}" id="cad-script" data-url-tarea="{% url 'tvplataforma:tarea' '00000000-0000-0000-0000-000000000000' %}"></script>
 {% endblock %}

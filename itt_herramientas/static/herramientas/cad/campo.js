@@ -3,9 +3,9 @@
  * EL EDITOR EN ESTE TELÉFONO
  * - Solo a pedido («Descargar CAD en este teléfono», ~39 MB) y solo en la app instalada (en iOS el almacenamiento de un sitio que no está
  *   instalado se borra a los 7 días sin uso). Se pide `navigator.storage.persist()`.
- * - Cache Storage, una caché por versión fijada del editor (`itt-cad-editor-<versión>`), que sirve el service worker de Herramientas.
- *   Al cambiar la versión fijada se baja solo lo que cambió: lo que tiene el mismo SHA-256 que en la versión anterior se copia de allí.
- *   La versión instalada se lee de la propia caché (marca `__tv_completo__.json`), así que también se sabe sin conexión.
+ * - Lo guarda instalador.js, el mismo código que en la computadora (Cache Storage `itt-cad-editor-<versión>`, servido por el service
+ *   worker; al cambiar la versión fijada solo lo que cambió, con parches; cada archivo comprobado con el SHA-256 del manifiesto). La
+ *   versión instalada se lee de la base del teléfono, así que también se sabe sin conexión.
  * - Junto al editor se guarda la página de CAD sin conexión (`/cad/sin-conexion/`) con sus estilos y scripts (`itt-cad-pagina`).
  *
  * PLANOS SIN CONEXIÓN (base `tv-cad-campo`, ver sesion.js)
@@ -31,7 +31,7 @@
   "use strict";
   if (window.TVCadCampo) return;
   const $ = (id) => document.getElementById(id);
-  const PREFIJO = "itt-cad-editor-", PAGINA = "itt-cad-pagina", MARCA = "__tv_completo__.json";
+  const PAGINA = "itt-cad-pagina";
   const configEl = $("cad-config");
   const C = configEl ? JSON.parse(configEl.textContent || "{}") : {};
   const T = C.tactil || {};
@@ -46,100 +46,30 @@
   }
 
   // ------------------------------------------------------------------------------------------------------------- el editor
-  // La marca de «versión completa» vive en la base del teléfono (y, por compatibilidad, en la caché): WebKit no conserva entre páginas
-  // una respuesta guardada con un cuerpo hecho en la página.
-  async function marcaDe(nombre) {
-    const v = nombre.slice(PREFIJO.length);
-    try {
-      const x = await con("estado", "readonly", (e) => req(e.get(`editor:${v}`)));
-      if (x && x.marca) return x.marca;
-    } catch (_) { /* sin base */ }
-    try {
-      const r = await (await caches.open(nombre)).match(`/cad/editor/${v}/${MARCA}`, { ignoreVary: true });
-      return r ? await r.json() : null;
-    } catch (_) { return null; }
-  }
-  async function versionesGuardadas() {
-    if (!("caches" in window)) return [];
-    const nombres = (await caches.keys()).filter((n) => n.startsWith(PREFIJO));
-    const res = [];
-    for (const n of nombres) res.push({ nombre: n, version: n.slice(PREFIJO.length), marca: await marcaDe(n) });
-    return res;
-  }
-  async function versionInstalada() {
-    const completas = (await versionesGuardadas()).filter((x) => x.marca);
-    completas.sort((a, b) => String(b.marca.fecha).localeCompare(String(a.marca.fecha)));
-    return completas[0] ? completas[0].marca : null;
-  }
+  // Guardarlo, ponerlo al día (solo lo que cambió, con parches) y quitarlo es lo mismo que en la computadora: instalador.js
+  // (window.TVCadEditor). Aquí solo lo propio del teléfono: a pedido, en la app instalada, y con la página sin conexión al lado.
+  const E = () => window.TVCadEditor;
+  const versionInstalada = () => (E() ? E().versionInstalada() : Promise.resolve(null));
   async function estadoEditor() {
-    const instal = await versionInstalada();
-    return { instalada: instal, fijada: T.version || null, alDia: !!(instal && T.version && instal.version === T.version), descarga: T.descarga || 0, ocupa: T.bytes || 0 };
+    const ed = E() ? await E().estado() : { instalada: null, alDia: false };
+    return { instalada: ed.instalada, fijada: T.version || null, alDia: !!(ed.instalada && T.version && ed.instalada.version === T.version), descarga: T.descarga || 0, ocupa: T.bytes || 0 };
   }
   // Antes de abrir el editor en la página del plano: si el CAD de este teléfono es de otra versión, se baja ya lo que cambió (solo eso)
   // para que el marco lo abra desde el teléfono. Sin la app instalada, sin red o si falla, el editor se abre de la red como siempre.
   async function prepararEditor(decir) {
-    if (!T.version || !instalada() || !navigator.onLine || !("caches" in window)) return;
-    const ed = await estadoEditor();
-    if (!ed.instalada || ed.alDia) return;
-    if (decir) decir("Actualizando el CAD de este teléfono…");
-    await descargarEditor(({ bytes, totalBytes }) => { if (decir) decir(`Actualizando el CAD de este teléfono… ${MB(bytes)} de ${MB(totalBytes)}`); });
+    if (!T.version || !instalada() || !E()) return "red";
+    const antes = await estadoEditor();
+    const r = await E().preparar({ decir, automatico: false });
+    // Con el editor nuevo, la página sin conexión (que nombra su versión) se vuelve a guardar ya, no en la próxima apertura.
+    if (r === "equipo" && antes.instalada && !antes.alDia) await guardarPagina().catch(() => {});
+    return r;
   }
-  let bajando = null;
-  // Baja el editor fijado (o lo que cambió desde la versión instalada). alProgreso({hechos, total, bytes, totalBytes}).
-  function descargarEditor(alProgreso) {
-    if (bajando) return bajando;
-    bajando = (async () => {
-      if (!("caches" in window)) throw new Error("Este navegador no puede guardar el CAD.");
-      if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (_) { /* se intenta igual */ } }
-      // El service worker de Herramientas es quien sirve el editor sin conexión: se registra aquí si esta app aún no lo tenía.
-      if ("serviceWorker" in navigator) { try { await navigator.serviceWorker.register("/sw.js", { scope: "/" }); } catch (_) { /* sin él, solo con conexión */ } }
-      const r = await fetch(T.urls.paquete, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
-      if (!r.ok) throw new Error(r.status === 401 ? "Tu sesión terminó. Vuelve a entrar." : "No se pudo saber qué descargar. Inténtalo de nuevo.");
-      const paquete = await r.json();
-      const nombre = PREFIJO + paquete.version;
-      const cache = await caches.open(nombre);
-      const anteriores = (await versionesGuardadas()).filter((x) => x.nombre !== nombre && x.marca);
-      const total = paquete.archivos.length, totalBytes = paquete.descarga;
-      let hechos = 0, bytes = 0;
-      const avanzar = (a) => { hechos += 1; bytes += a.descarga; if (alProgreso) alProgreso({ hechos, total, bytes, totalBytes }); };
-      for (const a of paquete.archivos) {
-        const url = `${paquete.base}${a.ruta}`;
-        if (await cache.match(url, { ignoreVary: true })) { avanzar(a); continue; }
-        // Mismo archivo (mismo SHA-256) en la versión anterior: se copia, no se baja.
-        let copiado = false;
-        for (const ant of anteriores) {
-          if (ant.marca.archivos && ant.marca.archivos[a.ruta] === a.sha256) {
-            const vieja = await (await caches.open(ant.nombre)).match(`/cad/editor/${ant.version}/${a.ruta}`, { ignoreVary: true });
-            if (vieja) { await cache.put(url, vieja); copiado = true; break; }
-          }
-        }
-        if (!copiado) {
-          // Lo que el navegador ya trajo al abrir este plano (los archivos con huella se guardan un año) no se baja otra vez; lo que
-          // llega se cuenta igual, y uno cortado no se da por bueno.
-          const resp = await fetch(url, { credentials: "same-origin" });
-          if (!resp.ok) throw new Error("La descarga se interrumpió. Vuelve a intentarlo: lo ya bajado no se repite.");
-          // Se cuenta lo que llega (sin cargar el archivo entero en memoria): un archivo cortado no se da por bueno.
-          let llegaron = 0;
-          const contar = new TransformStream({ transform(trozo, ctl) { llegaron += trozo.byteLength; ctl.enqueue(trozo); } });
-          const cabeceras = new Headers(resp.headers);
-          cabeceras.delete("content-encoding"); cabeceras.delete("content-length");
-          await cache.put(url, new Response(resp.body.pipeThrough(contar), { status: 200, headers: cabeceras }));
-          if (llegaron !== a.bytes) { await cache.delete(url); throw new Error("Un archivo llegó incompleto. Vuelve a intentarlo."); }
-        }
-        avanzar(a);
-      }
-      await guardarPagina();
-      const marca = { version: paquete.version, fecha: new Date().toISOString(), bytes: paquete.bytes, descarga: paquete.descarga,
-        archivos: Object.fromEntries(paquete.archivos.map((a) => [a.ruta, a.sha256])) };
-      await con("estado", "readwrite", (e) => req(e.put({ clave: `editor:${paquete.version}`, marca })));
-      for (const ant of await versionesGuardadas()) {
-        if (ant.nombre === nombre) continue;
-        await caches.delete(ant.nombre);
-        await con("estado", "readwrite", (e) => req(e.delete(`editor:${ant.version}`))).catch(() => {});
-      }
-      return marca;
-    })().finally(() => { bajando = null; });
-    return bajando;
+  // Baja el editor fijado (o lo que cambió desde la versión instalada) y la página sin conexión. alProgreso({hechos, total, bytes, totalBytes}).
+  async function descargarEditor(alProgreso) {
+    if (!E()) throw new Error("Este navegador no puede guardar el CAD.");
+    const marca = await E().descargar(alProgreso);
+    await guardarPagina();
+    return marca;
   }
   // La página sin conexión y todo lo que carga, en su propia caché (se rehace en cada visita con conexión si cambió).
   async function guardarPagina() {
@@ -179,16 +109,10 @@
     return new Response(resp.body, { status: 200, headers: { "Content-Type": tipo } });
   }
   async function quitarEditor() {
-    for (const n of await caches.keys()) {
-      if (n.startsWith(PREFIJO)) await con("estado", "readwrite", (e) => req(e.delete(`editor:${n.slice(PREFIJO.length)}`))).catch(() => {});
-      if (n.startsWith(PREFIJO) || n.startsWith(PAGINA)) await caches.delete(n);
-    }
+    if (E()) await E().quitar();
+    for (const n of await caches.keys()) if (n.startsWith(PAGINA)) await caches.delete(n);
   }
-  async function usoEditor() {
-    let total = 0;
-    for (const v of await versionesGuardadas()) if (v.marca) total += v.marca.bytes || 0;
-    return total;
-  }
+  const usoEditor = () => (E() ? E().uso() : Promise.resolve(0));
 
   // ------------------------------------------------------------------------------------------------------------- planos en el teléfono
   const abrirDB = () => (window.TVCadSesion ? window.TVCadSesion.abrir() : Promise.resolve(null));
