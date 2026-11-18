@@ -118,7 +118,7 @@
     } catch (err) {
       throw new ErrorEditor("tiempo", "El editor no respondió a tiempo.", undefined);
     }
-    if (!["state", "snap", "query", "measure", "layers", "layouts", "extents"].includes(peticion.op)) {
+    if (!["state", "snap", "query", "measure", "layers", "layouts", "extents", "references", "image_views"].includes(peticion.op)) {
       anotar({ op: peticion.op, cmd: peticion.cmd || peticion.name || peticion.action || "", ok: !(respuesta && respuesta.ok === false), revision: respuesta && respuesta.revision });
     }
     if (respuesta && respuesta.ok === false) throw new ErrorEditor("rechazada", respuesta.error || respuesta.code || "El editor rechazó la petición.", respuesta);

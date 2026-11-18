@@ -12,6 +12,7 @@
 {% if puede_editar and not v %}<button type="button" class="tv-boton" id="cad-guardar" disabled>{% icono "save" %}<span>Guardar</span><kbd class="tv-tecla cad-tecla" data-tv-tecla-cmd>Ctrl S</kbd></button>{% endif %}
 {% if tactil and editor_listo %}<button type="button" class="tv-boton tv-boton--secundario cad-tactil-entrar" id="cad-tactil-entrar" hidden>{% icono "hand" %}<span>Modo táctil</span></button>{% endif %}
 {% if editor_listo %}<button type="button" class="tv-boton tv-boton--secundario cad-completa-boton" id="cad-completa" aria-pressed="false" data-tv-tooltip="Ctrl Mayús F"><span data-cad-completa-icono="entrar">{% icono "maximize" %}</span><span data-cad-completa-icono="salir" hidden>{% icono "minimize" %}</span><span data-cad-completa-texto>Pantalla completa</span></button>{% endif %}
+{% if editor_listo %}<button type="button" class="tv-boton tv-boton--secundario cad-local-boton" data-tv-abrir="cad-referencias" id="cad-boton-referencias">{% icono "folder-open" %}<span>Referencias</span><span class="tv-insignia tv-insignia--aviso" id="cad-local-boton-cuenta" hidden></span></button>{% endif %}
 <button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-versiones" id="cad-boton-versiones">{% icono "history" %}<span>Versiones</span></button>
 <button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-imprimir" id="cad-boton-imprimir"{% if not nativo %} hidden{% endif %}>{% icono "printer" %}<span>Imprimir PDF</span></button>
 <details class="cad-menu" id="cad-menu">
@@ -19,6 +20,7 @@
   <div class="cad-menu__lista" role="group" aria-label="Más acciones">
     <a href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1{% if v %}&version={{ v.numero }}{% endif %}" id="cad-descargar">{% icono "download" %}<span>Descargar {% if v %}{{ v.formato|upper }}{% else %}{{ p.formato|upper }}{% endif %}</span></a>
     {% if nativo %}<button type="button" id="cad-convertir" data-formato="{% if v %}{% if v.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% else %}{% if p.formato == 'dwg' %}dxf{% else %}dwg{% endif %}{% endif %}">{% icono "file-output" %}<span>Descargar como {% if v %}{% if v.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% else %}{% if p.formato == 'dwg' %}DXF{% else %}DWG{% endif %}{% endif %}</span></button>{% endif %}
+    {% if editor_listo and puede_editar and not v %}<button type="button" id="cad-menu-insertar-imagen">{% icono "image-plus" %}<span>Insertar imagen georreferenciada</span></button>{% endif %}
     {% if drive %}<button type="button" id="cad-drive">{% icono "hard-drive-upload" %}<span>Enviar a Google Drive</span></button>{% endif %}
     {% if puede_editar %}
     <button type="button" data-tv-abrir="cad-renombrar">{% icono "pencil" %}<span>Renombrar</span></button>
@@ -41,6 +43,9 @@
     <button type="button" class="tv-boton tv-boton--fantasma" id="cad-descartar-borrador">Descartar</button></div></div>
   <div class="cad-aviso" data-tipo="aviso" id="cad-aviso-fuentes" hidden>{% icono "type" %}<p id="cad-aviso-fuentes-texto"></p>
     <div class="cad-aviso__acciones"><a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_fuentes' %}">Revisar fuentes</a></div></div>
+  {% if editor_listo %}<div class="cad-aviso" data-tipo="info" id="cad-aviso-local" hidden>{% icono "folder-open" %}<p id="cad-aviso-local-texto"></p>
+    <div class="cad-aviso__acciones"><button type="button" class="tv-boton tv-boton--secundario" id="cad-aviso-local-vincular">{% icono "folder-plus" %}<span>Vincular la carpeta del proyecto</span></button>
+    <button type="button" class="tv-boton tv-boton--secundario" id="cad-aviso-local-permitir" hidden>{% icono "folder-check" %}<span>Permitir el acceso</span></button></div></div>{% endif %}
   <div class="cad-aviso" data-tipo="error" id="cad-aviso-sesion" role="alert" hidden>{% icono "log-in" %}<p>Tu sesión terminó. Entra de nuevo en otra pestaña y vuelve aquí para guardar: tus cambios siguen en el editor.</p>
     <div class="cad-aviso__acciones"><a class="tv-boton" href="{% url 'herramientas:cad' %}" target="_blank" rel="noopener" id="cad-entrar">{% icono "log-in" %}<span>Entrar de nuevo</span></a>
     <button type="button" class="tv-boton tv-boton--secundario" data-cad-descargar-cambios hidden>{% icono "download" %}<span>Descargar mis cambios</span></button></div></div>
@@ -88,6 +93,7 @@
     <div class="tv-campo" id="cad-escala-otra-campo" hidden><label for="cad-escala-otra">Escala</label><input id="cad-escala-otra" name="escala_otra" type="text" inputmode="decimal" placeholder="1:750" autocomplete="off"></div>
   </div>
   <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="cad-grosores" name="grosores" value="1" checked><label for="cad-grosores">Grosores de línea</label></div>
+  <p class="tv-tenue" id="cad-local-imprimir-aviso" hidden>Las imágenes de la carpeta del proyecto viven en tu computadora y no llegan al servidor: en este PDF salen su marco y su nombre.</p>
   <p class="itt-estado" id="cad-imprimir-estado" role="status" hidden></p>
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton" id="cad-imprimir-ir">{% icono "printer" %}<span>Generar PDF</span></button></div>
 </form>
@@ -150,6 +156,7 @@
   </div>
 </dialog>
 {% if tactil and editor_listo %}{% include "herramientas/cad/tactil.html" %}{% endif %}
+{% if editor_listo %}{% include "herramientas/cad/local.html" %}{% endif %}
 <div id="cad-iconos" hidden><span data-cad-icono="eye">{% icono "eye" %}</span><span data-cad-icono="download">{% icono "download" %}</span><span data-cad-icono="rotate-ccw">{% icono "rotate-ccw" %}</span></div>
 {% csrf_token %}
 {% endblock %}
@@ -161,6 +168,8 @@
 <script src="{% static 'herramientas/cad/control.js' %}"></script>
 <script src="{% static 'herramientas/cad/editor.js' %}"></script>
 <script src="{% static 'herramientas/cad/pantalla.js' %}"></script>
+{% if editor_listo %}<script src="{% static 'herramientas/cad/local/carpeta.js' %}"></script>
+<script src="{% static 'herramientas/cad/local/local.js' %}"></script>{% endif %}
 {% if tactil and editor_listo %}<script src="{% static 'herramientas/cad/campo.js' %}"></script>
 <script src="{% static 'herramientas/cad/tactil.js' %}"></script>{% endif %}
 {% block extensiones_cad %}{% if civil %}{% include "herramientas/cad/civil.html" %}{% endif %}{% endblock %}

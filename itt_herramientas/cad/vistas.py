@@ -17,6 +17,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import content_disposition_header
@@ -243,6 +244,10 @@ def plano(request, pk):
         "fuentes": fuentes.para_editor(),
         # Modo táctil (teléfono y tableta): solo con el ajuste TV_CAD_TACTIL encendido; si no, `None` y la página es la de siempre.
         "tactil": tactil.config_de_pagina(request),
+        # Carpeta del proyecto en esta computadora (static/herramientas/cad/local/): la cuenta separa las carpetas guardadas en el
+        # navegador; las direcciones de los trabajadores van con su huella de estáticos. Nada de la carpeta llega al servidor.
+        "local": {"cuenta": usuario.pk, "trabajador": static("herramientas/cad/local/trabajador.js"),
+                  "tiff": static("herramientas/cad/local/tiff.js")},
     }
     return _privado(render(request, "herramientas/cad/plano.html", {
         "p": p, "v": v, "config": config, "versiones": _versiones(p), "puede_editar": puede, "es_admin": servicio.es_admin(usuario),

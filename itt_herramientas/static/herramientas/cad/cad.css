@@ -220,3 +220,27 @@ html.cad-completa:not(.cad-tactil) .cad-lienzo { border-radius: 0; border-left: 
 .cad-campo-tarjeta { text-decoration: none; color: inherit; margin: 0 0 var(--tv-espacio-4); min-height: 44px; }
 .cad-campo-tarjeta[hidden] { display: none; }
 .cad-campo-tarjeta:hover p { text-decoration: underline; }
+
+/* Carpeta del proyecto en esta computadora y «Referencias externas» (local/local.js) */
+.cad-local-boton .tv-insignia { margin-left: var(--tv-espacio-1); }
+.cad-local { display: grid; gap: var(--tv-espacio-3); }
+.cad-local--soltar .tv-hoja__cuerpo { outline: 2px dashed var(--tv-seleccion); outline-offset: -6px; }
+.cad-local__carpeta { display: flex; align-items: flex-start; gap: var(--tv-espacio-2); }
+.cad-local__carpeta p { margin: 0; overflow-wrap: anywhere; }
+.cad-local__botones { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2); }
+.cad-local__nota { margin: 0; font-size: var(--tv-texto-sm); }
+.cad-local__mensaje { margin: 0; padding: var(--tv-espacio-2) var(--tv-espacio-3); border-radius: var(--tv-radio); background: var(--tv-estado-error-fondo); color: var(--tv-estado-error-texto); }
+.cad-local__mensaje[data-tipo="aviso"] { background: var(--tv-estado-aviso-fondo); color: var(--tv-estado-aviso-texto); }
+.cad-local__mensaje[data-tipo="info"] { background: var(--tv-superficie-2, var(--tv-superficie)); color: inherit; }
+.cad-local__lista { list-style: none; margin: 0; padding: 0; max-height: min(55vh, 30rem); overflow: auto; border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); }
+.cad-local__lista:empty { display: none; }
+.cad-local__fila { display: grid; gap: 2px; padding: var(--tv-espacio-2) var(--tv-espacio-3); }
+.cad-local__fila + .cad-local__fila, .cad-local__grupo + .cad-local__fila { border-top: 1px solid var(--tv-separador); }
+.cad-local__grupo { padding: var(--tv-espacio-2) var(--tv-espacio-3); font-weight: 600; background: var(--tv-superficie); border-top: 1px solid var(--tv-separador); }
+.cad-local__grupo:first-child { border-top: 0; }
+.cad-local__nombre { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-1); min-width: 0; overflow-wrap: anywhere; }
+.cad-local__detalle { font-size: var(--tv-texto-sm); overflow-wrap: anywhere; }
+.cad-local__acciones { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-1); margin-top: var(--tv-espacio-1); }
+.cad-local__pie { flex-wrap: wrap; }
+.cad-local-ins p { margin: 0; overflow-wrap: anywhere; }
+.cad-local__chico { min-height: 32px; padding: 0 var(--tv-espacio-2); font-size: var(--tv-texto-sm); }

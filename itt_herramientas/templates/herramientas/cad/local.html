@@ -1,0 +1,63 @@
+{% load static tv herramientas %}{# «Carpeta del proyecto en esta computadora» y «Referencias externas» (static/herramientas/cad/local/local.js). Nada de la carpeta se sube. #}
+{% hoja_inferior "cad-referencias" titulo="Referencias externas" %}
+<div class="cad-local">
+  <div class="cad-local__carpeta">
+    {% icono "folder-open" %}
+    <p id="cad-local-carpeta-texto" role="status" aria-live="polite">Sin carpeta del proyecto en esta computadora.</p>
+  </div>
+  <div class="cad-local__botones">
+    <button type="button" class="tv-boton" id="cad-local-vincular">{% icono "folder-plus" %}<span>Vincular la carpeta del proyecto</span></button>
+    <button type="button" class="tv-boton" id="cad-local-permitir" hidden>{% icono "folder-check" %}<span>Permitir el acceso</span></button>
+    <button type="button" class="tv-boton tv-boton--secundario" id="cad-local-buscar" hidden>{% icono "refresh-cw" %}<span>Volver a buscar</span></button>
+    <button type="button" class="tv-boton tv-boton--secundario" id="cad-local-otra" hidden>{% icono "folder-plus" %}<span>Agregar otra carpeta</span></button>
+    <button type="button" class="tv-boton tv-boton--fantasma" id="cad-local-desvincular" hidden>{% icono "folder-x" %}<span>Desvincular</span></button>
+  </div>
+  <p class="tv-tenue cad-local__nota" id="cad-local-sesion" hidden>En este navegador la carpeta se elige cada vez que abres el plano (también puedes soltarla aquí). En Chrome o Edge se recuerda.</p>
+  <p class="cad-local__mensaje" id="cad-local-mensaje" role="alert" hidden></p>
+  <ul class="cad-local__lista" id="cad-local-lista"></ul>
+  <div class="tv-hoja__acciones cad-local__pie">
+    <button type="button" class="tv-boton tv-boton--fantasma" id="cad-local-borrar-piramides">{% icono "trash-2" %}<span>Borrar vistas generales</span></button>
+    {% if puede_editar and not v %}<button type="button" class="tv-boton tv-boton--secundario" id="cad-local-insertar-boton">{% icono "image-plus" %}<span>Insertar imagen georreferenciada</span></button>{% endif %}
+    <button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cerrar</button>
+  </div>
+  <p class="tv-tenue cad-local__nota">Las imágenes y los dibujos de la carpeta nunca se suben: se leen desde esta computadora. El plano guarda sus rutas como en AutoCAD.</p>
+</div>
+{% endhoja_inferior %}
+
+{% hoja_inferior "cad-local-insertar" titulo="Insertar imagen georreferenciada" %}
+<div class="tv-formulario cad-local-ins">
+  <p><strong id="cad-local-ins-nombre"></strong></p>
+  <p class="tv-tenue" id="cad-local-ins-detalle" role="status"></p>
+  <div id="cad-local-ins-manual" hidden>
+    <div class="cad-imprimir__fila">
+      <div class="tv-campo"><label for="cad-local-ins-x">X de la esquina inferior izquierda</label><input id="cad-local-ins-x" type="text" inputmode="decimal" autocomplete="off"></div>
+      <div class="tv-campo"><label for="cad-local-ins-y">Y</label><input id="cad-local-ins-y" type="text" inputmode="decimal" autocomplete="off"></div>
+    </div>
+    <div class="cad-imprimir__fila">
+      <div class="tv-campo"><label for="cad-local-ins-ancho">Ancho en el plano</label><input id="cad-local-ins-ancho" type="text" inputmode="decimal" autocomplete="off"></div>
+      <div class="tv-campo"><label for="cad-local-ins-rot">Rotación (grados)</label><input id="cad-local-ins-rot" type="text" inputmode="decimal" value="0" autocomplete="off"></div>
+    </div>
+  </div>
+  <div class="tv-campo"><label for="cad-local-ins-capa">Capa</label><input id="cad-local-ins-capa" type="text" maxlength="255" value="Imágenes" autocomplete="off" spellcheck="false"></div>
+  <div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="cad-local-ins-atras" checked><label for="cad-local-ins-atras">Debajo del dibujo</label></div>
+  <div class="tv-campo tv-campo--casilla" id="cad-local-ins-fuera" hidden><input type="checkbox" class="tv-interruptor" role="switch" id="cad-local-ins-vincular" checked><label for="cad-local-ins-vincular">La imagen no está en la carpeta del proyecto: vincular también su carpeta</label></div>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton" id="cad-local-ins-ir" disabled>{% icono "image-plus" %}<span>Insertar</span></button></div>
+</div>
+{% endhoja_inferior %}
+
+{% hoja_inferior "cad-local-desvanecer" titulo="Transparencia de la imagen" %}
+<div class="tv-formulario">
+  <div class="tv-campo"><label for="cad-local-desvanecer-valor">Desvanecer</label><input id="cad-local-desvanecer-valor" type="range" min="0" max="100" step="5" value="0"></div>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton" id="cad-local-desvanecer-ir">{% icono "check" %}<span>Aplicar</span></button></div>
+</div>
+{% endhoja_inferior %}
+
+<dialog id="cad-local-confirmar" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-local-confirmar-titulo">
+  <div class="tv-hoja__cuerpo"><div class="tv-hoja__asa" aria-hidden="true"></div>
+    <h2 id="cad-local-confirmar-titulo"></h2>
+    <p id="cad-local-confirmar-texto"></p>
+    <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton tv-boton--peligro" id="cad-local-confirmar-ir"></button></div>
+  </div>
+</dialog>
+<input type="file" id="cad-local-entrada" webkitdirectory multiple hidden>
+<input type="file" id="cad-local-imagen" multiple hidden accept=".tif,.tiff,.jpg,.jpeg,.png,.bmp,.gif,.webp,.tfw,.tifw,.jgw,.jpgw,.pgw,.pngw,.wld">
