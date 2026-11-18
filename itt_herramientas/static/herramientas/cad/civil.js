@@ -65,6 +65,11 @@
 
   /** Inserta un DXF (base64) en el plano: dibujo temporal + entities_copy_to (un paso de deshacer). Devuelve los handles nuevos. */
   async function insertarDxf(b64, nombre = "civil.dxf") {
+    // Ocupado mientras el dibujo temporal existe: la página no lo toma por un plano más (pestaña) ni guarda a media copia.
+    window.TVCad.ocupar();
+    try { return await insertarDxfLibre(b64, nombre); } finally { window.TVCad.soltar(); }
+  }
+  async function insertarDxfLibre(b64, nombre) {
     const plano = await documentoActivo();
     const antes = new Set(((await pedir({ op: "state" })).documents || []).map((d) => d.id));
     let temporal = null;
@@ -221,6 +226,10 @@
 
   /** Abre `b64` como dibujo temporal (queda activo), corre `fn(id)` y lo cierra sin guardar, volviendo al plano. */
   async function conTemporal(b64, nombre, plano, fn) {
+    window.TVCad.ocupar();                          // como insertarDxf: el dibujo temporal no es una pestaña de la página
+    try { return await conTemporalLibre(b64, nombre, plano, fn); } finally { window.TVCad.soltar(); }
+  }
+  async function conTemporalLibre(b64, nombre, plano, fn) {
     const antes = new Set(((await pedir({ op: "state" })).documents || []).map((d) => d.id));
     let temporal = null;
     try {

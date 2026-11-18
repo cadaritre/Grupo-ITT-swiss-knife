@@ -66,20 +66,27 @@ function vigilarLienzo() {
   observador.observe(document.body, { childList: true, subtree: true });
 }
 
-// ⌘S (Mac): el editor solo atiende Ctrl+S, y Safari abriría «Guardar página». Se le pide a la página de Herramientas que guarde.
+// Atajos de la página de Herramientas con el foco aquí, en el editor (el editor no los ve):
+// - Ctrl/⌘+S: guardar el plano de la pestaña activa en la biblioteca (Safari abriría «Guardar página» con ⌘S; el editor solo atiende
+//   Ctrl+S y guardaría por su cuenta).
+// - Ctrl/⌘+Mayús+S: «Guardar todo» (el editor lo tomaría como «Guardar como», una descarga).
+// - Ctrl/⌘+Mayús+F y F11: «Pantalla completa» de la página (static/herramientas/cad/pantalla.js); F11 sería la del navegador, sin la
+//   página maximizada ni Esc para el editor.
+// Esc no se toca: es del editor (cancelar y deseleccionar).
+const ATAJOS = (ev) => {
+  const tecla = String(ev.key || "").toLowerCase();
+  const mando = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
+  if (mando && ev.shiftKey && tecla === "f") return "pantalla";
+  if (ev.key === "F11" && !mando && !ev.altKey) return "pantalla";
+  if (mando && tecla === "s") return ev.shiftKey ? "guardar-todo" : "guardar";
+  return "";
+};
 addEventListener("keydown", (ev) => {
-  // Ctrl/⌘+Mayús+F: pantalla completa de la página de Herramientas (static/herramientas/cad/pantalla.js), también con el foco aquí.
-  if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && !ev.altKey && (ev.key === "f" || ev.key === "F")) {
-    ev.preventDefault();
-    ev.stopPropagation();
-    try { parent.postMessage({ source: "tresvizo-cad-editor", type: "pantalla" }, location.origin); } catch (_) { /* sin página contenedora */ }
-    return;
-  }
-  if (ev.metaKey && !ev.ctrlKey && !ev.altKey && (ev.key === "s" || ev.key === "S")) {
-    ev.preventDefault();
-    ev.stopPropagation();
-    try { parent.postMessage({ source: "tresvizo-cad-editor", type: "guardar" }, location.origin); } catch (_) { /* sin página contenedora */ }
-  }
+  const tipo = ATAJOS(ev);
+  if (!tipo) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  try { parent.postMessage({ source: "tresvizo-cad-editor", type: tipo }, location.origin); } catch (_) { /* sin página contenedora */ }
 }, true);
 
 async function arrancar() {

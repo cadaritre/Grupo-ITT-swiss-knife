@@ -464,7 +464,7 @@ def crear(usuario, temporal: Path, nombre: str, proyecto: str = "", origen: dict
 
 def _nota_origen(origen: dict) -> str:
     return {"subida": "Subido", "nuevo": "Plano nuevo", "copia": "Copia", "convertidor": "Desde el convertidor",
-            "triangulacion": "Desde triangulación", "croquis": "Desde el croquis de ubicación"}.get((origen or {}).get("tipo", ""), "")
+            "triangulacion": "Desde triangulación", "croquis": "Desde el croquis de ubicación", "editor": "Hecho en el editor"}.get((origen or {}).get("tipo", ""), "")
 
 
 def crear_desde_ruta(usuario, origen_ruta: Path, nombre: str, proyecto: str = "", origen: dict | None = None) -> Plano:
@@ -678,6 +678,10 @@ def guardar_borrador(plano: Plano, usuario, revision_base: int, temporal: Path, 
     """
     formato = formato_de_archivo(temporal)
     with transaction.atomic():
+        # Primero el plano, en el mismo orden que `guardar` (plano → espacio → borrador). Antes el borrador tomaba su fila y luego el candado
+        # de espacio mientras «Guardar» tenía el candado y esperaba esa fila: PostgreSQL cortaba uno de los dos («deadlock detected», un 500
+        # al guardar), cuando el borrador de cada 2 minutos y Guardar coincidían.
+        Plano.objects.select_for_update().filter(pk=plano.pk).first()
         previo = BorradorPlano.objects.select_for_update().filter(plano=plano, cuenta_id=usuario.pk).first()
         if previo is not None and previo.sesion != sesion and previo.actualizado.isoformat() != previo_visto:
             raise Conflicto("Tienes cambios sin guardar de otra vez en este plano. Recupéralos, descártalos o guárdalos como copia antes de seguir.",
