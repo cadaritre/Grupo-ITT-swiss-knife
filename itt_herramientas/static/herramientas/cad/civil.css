@@ -188,3 +188,5 @@
 .civil-superficie i { font-style: normal; font-variant-numeric: tabular-nums; }
 .civil-superficie--vacia { background: var(--tv-estado-aviso-fondo); color: var(--tv-estado-aviso-texto); }
 .civil-superficies .civil-nota:empty { display: none; }
+.civil-opciones label[hidden] { display: none; }
+.civil-opciones--filas label { padding-block: var(--tv-espacio-1, 4px); }

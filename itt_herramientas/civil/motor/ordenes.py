@@ -32,18 +32,20 @@ from .curvas import CAPAS_CURVAS, Curva, ancho_etiqueta, curvas_de_nivel, dibuja
 from .curvas import _en as _en_curva
 from .dibujos import APP, BLOQUES, CAPAS_PUNTOS, bloque_punto, dibujar_puntos, dibujar_tin
 from .edicion_tin import ErrorEdicion, agregar, invertir, normalizar_cara, insertar_puntos, quitar_dentro, quitar_fuera, quitar_largos, revisar
-from .eje import Eje, EjePI, TramoEspiral, formato_estacion
+from .eje import Eje, EjePI, TramoEspiral, formato_estacion, leer_estacion
+from .estaciones import estacion_de_punto, lista_estaciones
 from .entidades import Capa, Dibujo, EstiloTexto, Insercion, Linea, Polilinea, Polilinea3D, Texto
 from .escala import ALTURAS_MM, Escala
 from .memoria import memoria_descriptiva, reporte_puntos
-from .perfiles import PIV, Rasante, dibujar_perfil, perfil_terreno
+from .perfiles import CAPAS_PERFIL, PIV, HojaPerfil, Rasante, dibujar_perfil, perfil_terreno
+from .reticula import marcar_bloque
 from .puntos import PROYECTO, TERRENO, Punto, escribir_puntos, leer_puntos, normalizar_formato, normalizar_orden, numeros_repetidos
 from .lotificacion import dibujar_lotes, lotificar
 from .masa import compensar, dibujar_curva_masa
-from .secciones import Plantilla, PlantillaCarretera, dibujar_secciones, secciones
+from .secciones import HojaSecciones, Plantilla, PlantillaCarretera, dibujar_secciones, medidas_secciones, secciones
 from .superficie import formato_ha_a_ca, formato_miles
 from .tin import LineaQuiebre, crear_tin
-from .volumenes import CAPAS_VOLUMEN, dibujar_tabla_volumenes, volumen_entre_superficies, volumenes_por_secciones
+from .volumenes import CAPAS_VOLUMEN, csv_volumenes, dibujar_tabla_volumenes, volumen_entre_superficies, volumenes_por_secciones
 
 __all__ = ["ErrorOrden", "ORDENES", "ejecutar", "PESADAS"]
 
@@ -893,6 +895,76 @@ def _rasante(d: dict) -> Rasante | None:
         raise ErrorOrden(f"Revisa la rasante: {exc}") from None
 
 
+def _opcional(d: dict, k: str, minimo=None, maximo=None) -> float | None:
+    """Un número que puede faltar («» o null = None)."""
+    v = d.get(k)
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    return _num(d, k, minimo=minimo, maximo=maximo)
+
+
+def _estacion_de(v, nombre: str) -> float | None:
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    try:
+        return float(v) if not isinstance(v, str) else leer_estacion(v)
+    except (TypeError, ValueError):
+        raise ErrorOrden(f"Revisa la estación «{v}» ({nombre}).") from None
+
+
+#: Lo que se guarda en el título del perfil o de la hoja de secciones para volver a abrir la hoja con las mismas opciones.
+OPCIONES_GUARDADAS = ("inicio", "intervalo", "desde", "hasta", "adicionales", "adicionales_puntos", "criticas_curvas", "criticas_rasante", "izquierda", "derecha", "rasante",
+                      "plantilla", "abundamiento", "tabla", "escala_h", "escala_v", "paso_h", "paso_v", "paso_estacion", "paso_cota", "datum", "reticula",
+                      "columnas", "renglones", "separacion_mm", "orden", "marco", "sombrear", "chaflanes", "guitarra", "intervalo_guitarra",
+                      "guitarra_criticas", "curvas_verticales", "pendientes")
+
+
+def _guardadas(d: dict) -> dict:
+    return {k: d[k] for k in OPCIONES_GUARDADAS if k in d}
+
+
+def _estaciones(d: dict, eje: Eje, ras: Rasante | None, avisos: list[str], intervalo_clave: str = "intervalo", criticas: bool = True):
+    """Las estaciones de la orden: cada `intervalo` m de `desde` a `hasta`, más las `adicionales` y las críticas (curvas del eje y rasante)."""
+    intervalo = _num(d, intervalo_clave, 20.0, minimo=0.01)
+    adicionales = [x for x in (_estacion_de(v, "adicional") for v in (d.get("adicionales") or [])) if x is not None]
+    for q in d.get("adicionales_puntos") or []:            # puntos señalados en el plano: se proyectan sobre el eje
+        try:
+            adicionales.append(estacion_de_punto(eje, float(q[0]), float(q[1])))
+        except (TypeError, ValueError, IndexError):
+            raise ErrorOrden("Un punto adicional no es válido.") from None
+    try:
+        return lista_estaciones(eje, intervalo, _estacion_de(d.get("desde"), "desde"), _estacion_de(d.get("hasta"), "hasta"), adicionales,
+                                curvas=criticas and bool(d.get("criticas_curvas", True)), rasante=ras,
+                                verticales=criticas and bool(d.get("criticas_rasante", True)), avisos=avisos)
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+
+
+def estaciones_orden(d: dict) -> dict:
+    """Cuántas estaciones (secciones) salen con las opciones de la hoja, y cuáles son críticas: la hoja lo dice antes de calcular."""
+    eje = _eje(d)
+    avisos: list[str] = []
+    lista = _estaciones(d, eje, _rasante(d), avisos)
+    por_hoja = max(1, int(_num(d, "columnas", 3, minimo=1, maximo=20)) * int(_num(d, "renglones", 5, minimo=1, maximo=50)))
+    return {"resumen": {"estaciones": len(lista), "hojas": math.ceil(len(lista) / por_hoja), "longitud": eje.longitud,
+                        "desde": lista[0].estacion, "hasta": lista[-1].estacion, "criticas": sum(1 for e in lista if e.rotulo)},
+            "estaciones": [[e.estacion, e.rotulo] for e in lista], "avisos": avisos}
+
+
+def _hoja_perfil(d: dict, esc: Escala) -> HojaPerfil:
+    eh = _opcional(d, "escala_h", 1, 100000)
+    ev = _opcional(d, "escala_v", 1, 100000)
+    if ev is None:
+        ev = (eh or float(esc.denominador)) / _num(d, "exageracion", 10.0, minimo=0.1, maximo=100)
+    guitarra = d.get("guitarra")
+    try:
+        return HojaPerfil(eh, ev, _num(d, "paso_estacion", 0.0, minimo=0), _num(d, "paso_cota", 0.0, minimo=0), _opcional(d, "datum"),
+                          tuple(guitarra) if isinstance(guitarra, (list, tuple)) else HojaPerfil.guitarra,
+                          bool(d.get("curvas_verticales", True)), bool(d.get("pendientes", True)))
+    except (ValueError, TypeError) as exc:
+        raise ErrorOrden(str(exc)) from None
+
+
 def _tin_proyecto(d: dict):
     """La superficie de proyecto (su triangulación), si la orden la trae (`caras_proyecto`)."""
     caras = d.get("caras_proyecto")
@@ -911,30 +983,40 @@ def perfil(d: dict) -> dict:
     pf = perfil_terreno(tin, eje, intervalo)
     if not any(p.z is not None for p in pf.puntos):
         raise ErrorOrden("El eje no pasa por la triangulación.")
+    esc = _escala(d)
     tp = _tin_proyecto(d)
     pf_p = perfil_terreno(tp, eje, intervalo) if tp is not None else None
     if pf_p is not None and not any(p.z is not None for p in pf_p.puntos):
         raise ErrorOrden("El eje no pasa por la triangulación de proyecto.")
     origen = d.get("origen")
     if not origen:
-        x, y, _ = eje.punto(eje.inicio)
-        origen = (min(p.x for p in pf.puntos), min(p.y for p in pf.puntos) - 40 * _escala(d).altura("cuadro_dato"))
+        origen = (min(p.x for p in pf.puntos), min(p.y for p in pf.puntos) - 40 * esc.altura("cuadro_dato"))
     ras = _rasante(d)
-    dib = dibujar_perfil(pf, (float(origen[0]), float(origen[1])), _escala(d), _num(d, "exageracion", 10.0, minimo=0.1, maximo=100), ras,
-                         marcar_en_planta=False, proyecto=pf_p)
+    hoja = _hoja_perfil(d, esc)
+    avisos: list[str] = []
+    guitarra = _estaciones(d, eje, ras, avisos, "intervalo_guitarra" if d.get("intervalo_guitarra") else "intervalo", criticas=bool(d.get("guitarra_criticas", True)))
+    try:
+        dib = dibujar_perfil(pf, (float(origen[0]), float(origen[1])), esc, rasante=ras, marcar_en_planta=False, hoja=hoja, guitarra=guitarra,
+                             opciones=_guardadas(d), proyecto=pf_p)
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
     _colocar(dib, d.get("esquina_superior"))
     if d.get("marcar_en_planta", True):
         # las marcas de estación van sobre el eje en planta: se dibujan aparte para no moverlas con el perfil
-        from .perfiles import CAPAS_PERFIL
-        marcas = dibujar_perfil(pf, (0.0, 0.0), _escala(d), 1.0, None, marcar_en_planta=True)
+        marcas = dibujar_perfil(pf, (0.0, 0.0), esc, 1.0, None, marcar_en_planta=True, hoja=HojaPerfil(guitarra=()), guitarra=[])
         marcas.entidades = [e for e in marcas.entidades if e.capa == CAPAS_PERFIL["estaciones"].nombre]
         dib.unir(marcas)
+    marcar_bloque(dib, "perfil", d.get("bloque"))
     fuera = sum(1 for p in pf.redondas if p.z is None)
+    if fuera:
+        avisos.append(f"{fuera} estaciones quedan fuera de la triangulación.")
+    fuera_p = sum(1 for p in pf.redondas if pf_p is not None and pf_p.elevacion(p.estacion) is None)
+    if fuera_p:
+        avisos.append(f"{fuera_p} estaciones quedan fuera de la triangulación de proyecto.")
     return {"dxf": _dxf(dib), "resumen": {"longitud": eje.longitud, "desde": formato_estacion(eje.inicio), "hasta": formato_estacion(eje.fin),
-                                         "estaciones": len(pf.redondas), "puntos": len(pf.puntos)},
-            "estaciones": [[p.estacion, p.z] + ([pf_p.elevacion(p.estacion)] if pf_p is not None else []) for p in pf.redondas],
-            "avisos": ([f"{fuera} estaciones quedan fuera de la triangulación."] if fuera else [])
-            + ([f"{fuera_p} estaciones quedan fuera de la triangulación de proyecto."] if (fuera_p := sum(1 for p in pf.redondas if pf_p is not None and pf_p.elevacion(p.estacion) is None)) else [])}
+                                         "estaciones": len(pf.redondas), "puntos": len(pf.puntos), "guitarra": len(guitarra),
+                                         "escala_h": hoja.escala_h or esc.denominador, "escala_v": hoja.escala_v},
+            "estaciones": [[p.estacion, p.z] + ([pf_p.elevacion(p.estacion)] if pf_p is not None else []) for p in pf.redondas], "avisos": avisos}
 
 
 def _colocar(dib: Dibujo, esquina) -> None:
@@ -988,10 +1070,23 @@ def _curvas_sct(eje, plantilla) -> tuple[list[dict], list[str]]:
              "transicion": c.transicion, "ampliacion": c.ampliacion} for c in pe.curvas], pe.avisos
 
 
+def _hoja_secciones(d: dict, esc: Escala) -> HojaSecciones:
+    eh = _opcional(d, "escala_h", 1, 100000)
+    ev = _opcional(d, "escala_v", 1, 100000)
+    if ev is None and d.get("exageracion") not in (None, ""):
+        ev = (eh or float(esc.denominador)) / _num(d, "exageracion", 1.0, minimo=0.1, maximo=20)
+    try:
+        return HojaSecciones(eh, ev, _num(d, "paso_h", 0.0, minimo=0), _num(d, "paso_v", 0.0, minimo=0), bool(d.get("reticula", True)),
+                             int(_num(d, "columnas", 3, minimo=1, maximo=20)), int(_num(d, "renglones", 5, minimo=1, maximo=50)),
+                             _num(d, "separacion_mm", 10.0, minimo=0, maximo=200), str(d.get("orden") or "columnas_abajo_arriba"),
+                             bool(d.get("marco", True)), bool(d.get("sombrear", True)), bool(d.get("chaflanes", True)))
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+
+
 def secciones_orden(d: dict) -> dict:
     tin = _tin_de_caras(_caras(d.get("caras")))
     eje = _eje(d)
-    intervalo = _num(d, "intervalo", 20.0, minimo=0.1)
     izq, der = _num(d, "izquierda", 20.0, minimo=0.1), _num(d, "derecha", 20.0, minimo=0.1)
     ras = _rasante(d)
     tp = _tin_proyecto(d)
@@ -999,30 +1094,46 @@ def secciones_orden(d: dict) -> dict:
         raise ErrorOrden("El proyecto sale de la rasante o de la triangulación de proyecto: elige una.")
     plantilla = _plantilla(d.get("plantilla") or {})
     curvas_h, avisos_h = _curvas_sct(eje, plantilla) if tp is None else ([], [])
+    esc = _escala(d)
+    hoja = _hoja_secciones(d, esc)
+    avisos: list[str] = []
+    estaciones = _estaciones(d, eje, ras, avisos)
+    rotulos = {e.estacion: e.rotulo for e in estaciones if e.rotulo}
     try:
-        lista = secciones(tin, eje, eje.estaciones(intervalo), izq, der, ras, plantilla, tin_proyecto=tp)
+        lista = secciones(tin, eje, [e.estacion for e in estaciones], izq, der, ras, plantilla, tin_proyecto=tp)
     except ValueError as exc:
         raise ErrorOrden(str(exc)) from None
-    esc = _escala(d)
     origen = d.get("origen")
     if not origen:
         xs = [eje.punto(e)[0] for e in (eje.inicio, eje.fin)]
         ys = [eje.punto(e)[1] for e in (eje.inicio, eje.fin)]
         origen = (max(xs) + 20 * esc.altura("cuadro_dato"), max(ys))
-    dib = dibujar_secciones(lista, (float(origen[0]), float(origen[1])), esc, _num(d, "exageracion", 1.0, minimo=0.1, maximo=20), int(d.get("columnas", 4)))
-    resumen: dict[str, Any] = {"secciones": len(lista)}
-    avisos = avisos_h + [a for s in lista for a in s.avisos][:30]
+    tramo = f"{formato_estacion(lista[0].estacion)} a {formato_estacion(lista[-1].estacion)}"
+    try:
+        dib = dibujar_secciones(lista, (float(origen[0]), float(origen[1])), esc, hoja, rotulos, tramo=tramo, opciones=_guardadas(d))
+    except ValueError as exc:
+        raise ErrorOrden(str(exc)) from None
+    medidas = medidas_secciones(lista, hoja, float(esc.denominador))
+    resumen: dict[str, Any] = {"secciones": len(lista), "hojas": math.ceil(len(lista) / (hoja.columnas * hoja.renglones)), "criticas": len(rotulos),
+                               "desde": lista[0].estacion, "hasta": lista[-1].estacion, "paso_h": medidas["paso_h"], "paso_v": medidas["paso_v"],
+                               "escala_h": hoja.escala_h or esc.denominador, "escala_v": hoja.escala_v or esc.denominador}
+    avisos = avisos_h + avisos + [a for s in lista for a in s.avisos][:30]
+    salida: dict[str, Any] = {}
     if ras is not None or tp is not None:
         renglones = volumenes_por_secciones(lista, _num(d, "abundamiento", 1.0, minimo=0.01))
-        resumen.update(corte=renglones[-1].acum_corte, terraplen=renglones[-1].acum_terraplen, ordenada_final=renglones[-1].ordenada,
-                       despalme=renglones[-1].acum_despalme)
+        resumen.update(corte=sum(r.vol_corte for r in renglones), terraplen=sum(r.vol_terraplen for r in renglones), ordenada_final=renglones[-1].ordenada,
+                       despalme=sum(r.vol_despalme for r in renglones))
+        salida["csv"] = csv_volumenes(renglones, rotulos)
         if d.get("tabla", True):
             h = esc.altura("cuadro_dato")
-            xs = [e.inicio[0] for e in dib.entidades if hasattr(e, "inicio")] or [float(origen[0])]
-            ys = [e.inicio[1] for e in dib.entidades if hasattr(e, "inicio")] or [float(origen[1])]
-            dib.unir(dibujar_tabla_volumenes(renglones, (float(origen[0]), min(ys) - 6 * h), esc))
+            caja = dib.caja()
+            abund = _num(d, "abundamiento", 1.0, minimo=0.01)
+            titulo = f"VOLÚMENES   {tramo}" + (f"   ABUNDAMIENTO {abund:g}" if abund != 1 else "")
+            dib.unir(dibujar_tabla_volumenes(renglones, (caja[0] if caja else float(origen[0]), (caja[1] if caja else float(origen[1])) - 8 * h), esc,
+                                             rotulos=rotulos, titulo=titulo))
     _colocar(dib, d.get("esquina_superior"))
-    return {"dxf": _dxf(dib), "resumen": resumen, "curvas": curvas_h, "avisos": avisos}
+    marcar_bloque(dib, "secciones", d.get("bloque"))
+    return {"dxf": _dxf(dib), "resumen": resumen, "curvas": curvas_h, "avisos": avisos, **salida}
 
 
 def volumen_superficies(d: dict) -> dict:
@@ -1155,7 +1266,7 @@ def curva_masa(d: dict) -> dict:
     plantilla = _plantilla(d.get("plantilla") or {})
     curvas_h, avisos_h = _curvas_sct(eje, plantilla) if tp is None else ([], [])
     try:
-        lista = secciones(tin, eje, eje.estaciones(_num(d, "intervalo", 20.0, minimo=0.1)), _num(d, "izquierda", 30.0, minimo=0.1),
+        lista = secciones(tin, eje, [e.estacion for e in _estaciones(d, eje, ras, [])], _num(d, "izquierda", 30.0, minimo=0.1),
                           _num(d, "derecha", 30.0, minimo=0.1), ras, plantilla, tin_proyecto=tp)
     except ValueError as exc:
         raise ErrorOrden(str(exc)) from None
@@ -1347,6 +1458,7 @@ ORDENES: dict[str, Callable[[dict], dict]] = {
     "reporte_puntos": reporte_puntos_orden,
     "perfil": perfil,
     "secciones": secciones_orden,
+    "estaciones": estaciones_orden,
     "volumen_superficies": volumen_superficies,
     "curva_masa": curva_masa,
     "eje_espirales": eje_espirales,

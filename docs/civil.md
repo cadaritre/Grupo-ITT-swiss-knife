@@ -57,6 +57,7 @@ página (civil.js) ──TVCad.pedir──▶ editor (lee entidades: records, qu
 | Acción | Pasos de deshacer (compilación propia, -4 en adelante) | En la compilación oficial |
 | --- | --- | --- |
 | Importar, triangular la primera vez, curvas la primera vez, cuadro, perfil, secciones, volumen | 1 | 1 |
+| Volver a dibujar el perfil o las secciones de un eje con otras opciones (lo nuevo se copia y se borra lo anterior) | 2 | 2 |
 | Invertir triángulos (dos `set_properties` en un `batch`) | 1 | 2 |
 | Borrar triángulos | 1 | 1 |
 | Volver a triangular, actualizar curvas (lo nuevo se copia y después se borra lo anterior) | 2 | 2 |
@@ -153,12 +154,37 @@ Todo el flujo de proyecto existe: puntos de proyecto (Importar → «Proyecto»)
 arriba la línea «Terreno · N triángulos / Proyecto · N triángulos» (o «Sin triangular») y una frase que dice cuál superficie usa, y
 perfil, secciones y curva masa tienen el interruptor «Con la superficie de proyecto (triangulación de proyecto)»:
 
-- **Perfil:** dibuja el terreno y la superficie de proyecto (capa `PERFIL_PROYECTO`) y llena en la tabla ELEV. PROYECTO y ESPESOR; con
-  rasante a la vez, la superficie va en un renglón aparte.
+- **Perfil:** dibuja el terreno y la superficie de proyecto (capa `PERFIL_PROYECTO`); sin rasante, la guitarra lleva ELEV. PROYECTO y
+  los espesores de corte y terraplén contra esa superficie; con rasante a la vez, la superficie va en su renglón, ELEV. SUP. PROYECTO.
 - **Secciones y curva masa:** la sección de proyecto es el corte de esa superficie en la misma línea; el corte y el terraplén salen de la
   diferencia con el terreno. La rasante y la superficie de proyecto son una cosa o la otra (el interruptor apaga la rasante y al revés).
 - **Volumen entre superficies** compara Terreno contra Proyecto, como siempre.
 - Sin triangulación de proyecto, la hoja lo dice y a dónde ir (importar los puntos de proyecto y triangular como «Proyecto»).
+
+## Perfil y secciones al nivel de CivilCAD (motor 0.9)
+
+Las brechas contra las rutinas oficiales de CivilCAD, con su responsable, están en el repositorio del motor (`docs/brechas-civilcad.md`).
+Lo de perfiles, secciones y volúmenes:
+
+- **Estaciones libres.** «Estación cada» es un número cualquiera (5, 7.5, 20, 33…); las cerradas son múltiplos desde 0+000. Un bloque
+  «Estaciones y tramo» da **desde / hasta**, **estaciones adicionales** (escritas como 0+033.30 o señaladas en el eje: se proyectan sobre
+  él) y las **críticas** de las curvas del eje (PC, PT, PI, TE, EC, CE, ET) y de las verticales (PCV, PIV, PTV), que se pueden apagar. Dos
+  estaciones a menos de 1 mm se juntan. Antes de dibujar, la hoja dice «N secciones en M hojas · C críticas». En el perfil las mismas
+  opciones fijan los renglones de la guitarra; la curva masa también las usa.
+- **Hoja de secciones.** Escalas H y V (por omisión, la del plano), retícula con su paso H y V (automático, o el que se escriba) que se
+  puede apagar, columnas × renglones, separación en mm y orden (por columnas de abajo arriba, de arriba abajo o por renglones), marco y
+  título «HOJA n DE m», sombreado de corte y terraplén y rótulo de chaflanes. Cada sección lleva su estación (y su tipo si es crítica),
+  desplazamientos IZQ./DER., cotas, plano de comparación y áreas.
+- **Hoja del perfil.** Escalas H y V, líneas de estación y de cota, plano de comparación, guitarra (cadenamiento, elevación del terreno y
+  de la rasante, espesores de corte y de terraplén) a la estación que se elija, curvas verticales rotuladas (PCV, PIV, PTV, longitud) y la
+  pendiente de cada tangente. Las marcas de estación en planta (`EJE_ESTACIONES`) se quedan sobre el eje aunque el perfil se ponga en
+  otro lugar: al colocar el perfil solo se mueven las capas `PERFIL_*`.
+- **Volúmenes.** La tabla por estación lleva el tipo de cada estación, el renglón TOTALES y su título; «Descargar tabla (CSV)» la baja
+  con la rasante (BOM y CRLF, para Excel).
+- **Editable después.** Cada objeto del bloque lleva en su XDATA `TVCIVIL` el tipo y `bloque:<handle del eje>`, y el título guarda las
+  opciones. «Reemplazar el anterior de este eje» (activado) busca el bloque por esa marca, dibuja el nuevo donde estaba el anterior y
+  lo borra: dos pasos de deshacer. Al elegir un eje que ya tiene su perfil o sus secciones, la hoja se llena con las opciones con que se
+  dibujaron (estaciones, hoja y rasante; la plantilla de la sección no se guarda y se vuelve a escribir).
 
 ## El motor fijado
 
@@ -184,8 +210,9 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor uv run pytest itt_herramienta
   vuelta; perfil, secciones y curva masa con la superficie de proyecto; formatos guardados (por cuenta, permisos, validación, tope y borrado
   con la cuenta).
 - `pruebas_navegador/test_civil_navegador.py`, con el editor real y coordenadas UTM: importar 5 000 puntos PNEZD, deshacer y rehacer,
-  triangular, invertir dos triángulos elegidos con el ratón, curvas, cuadro de un lote con lado curvo, perfil y secciones con rasante,
-  volumen contra una plataforma, guardar en DWG y volver a abrir; 360 px; y el camino sin `user_select` (selección + «Listo»). La prueba
+  triangular, invertir dos triángulos elegidos con el ratón, curvas, cuadro de un lote con lado curvo, perfil y secciones con rasante
+  (estación libre y adicional, hoja de 2 × 2, escalas H/V, retícula, reemplazo del bloque anterior, reapertura con las opciones guardadas
+  y marcas en planta fijas), volumen contra una plataforma, guardar en DWG y volver a abrir; 360 px; y el camino sin `user_select` (selección + «Listo»). La prueba
   de los pedidos del 16-11: triangular solo lo seleccionado con una ventana y lo que cae en un polígono (la cuenta antes de correr),
   curvas con una polilínea por curva y etiquetas con fondo, unir las curvas cortadas de un plano viejo al etiquetar, y colocar el cuadro
   donde se señala (la vista previa sigue al puntero; Esc no dibuja nada; un paso de deshacer).

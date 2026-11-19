@@ -21,7 +21,7 @@ from .entidades import Capa, Dibujo, EstiloTexto, Linea, Texto
 from .escala import Escala
 from .secciones import Seccion
 
-__all__ = ["RenglonVolumen", "volumenes_por_secciones", "ResultadoSuperficies", "volumen_entre_superficies", "volumen_por_rejilla", "dibujar_tabla_volumenes", "CAPAS_VOLUMEN"]
+__all__ = ["RenglonVolumen", "volumenes_por_secciones", "ResultadoSuperficies", "volumen_entre_superficies", "volumen_por_rejilla", "dibujar_tabla_volumenes", "csv_volumenes", "CAPAS_VOLUMEN"]
 
 CAPAS_VOLUMEN = {
     "linea_cero": Capa("VOLUMEN_LINEA_CERO", 6, grosor_mm=0.35, descripcion="Línea de ceros entre superficies"),
@@ -220,8 +220,47 @@ def volumen_por_rejilla(terreno, proyecto, paso: float) -> tuple[float, float]:
     return corte, terraplen
 
 
-def dibujar_tabla_volumenes(renglones: Sequence[RenglonVolumen], esquina: tuple[float, float], escala: Escala | None = None, estilo: str = "CIVIL", decimales: int = 2) -> Dibujo:
-    """Tabla de volúmenes por estaciones (áreas medias) con la ordenada de curva masa."""
+def _columnas_volumen(renglones):
+    con_despalme = any(r.vol_despalme for r in renglones)
+    titulos = ["ESTACIÓN", "ÁREA CORTE", "ÁREA TERRAPLÉN", "VOL. CORTE", "VOL. TERRAPLÉN", "ACUM. CORTE", "ACUM. TERRAPLÉN", "ORDENADA"]
+    if con_despalme:
+        titulos[3:3] = ["VOL. DESPALME"]
+
+    def valores(r):
+        v = [r.area_corte, r.area_terraplen, r.vol_corte, r.vol_terraplen, r.acum_corte, r.acum_terraplen, r.ordenada]
+        if con_despalme:
+            v[2:2] = [r.vol_despalme]
+        return v
+
+    def totales():
+        t = ["", "", sum(r.vol_corte for r in renglones), sum(r.vol_terraplen for r in renglones), "", "", ""]
+        if con_despalme:
+            t[2:2] = [sum(r.vol_despalme for r in renglones)]
+        return t
+
+    return con_despalme, titulos, valores, totales
+
+
+def csv_volumenes(renglones: Sequence[RenglonVolumen], rotulos: dict[float, str] | None = None, decimales: int = 3) -> str:
+    """La tabla de volúmenes como CSV (coma, punto decimal, UTF-8 con BOM para que Excel lea los acentos), con su renglón de totales."""
+    import csv
+    import io
+
+    rotulos = {round(k, 3): v for k, v in (rotulos or {}).items()}
+    _, titulos, valores, totales = _columnas_volumen(renglones)
+    salida = io.StringIO()
+    w = csv.writer(salida, lineterminator="\r\n")
+    w.writerow(["ESTACIÓN", "PUNTO", *titulos[1:]])
+    for r in renglones:
+        w.writerow([formato_estacion(r.estacion), rotulos.get(round(r.estacion, 3), ""), *(f"{v:.{decimales}f}" for v in valores(r))])
+    w.writerow(["TOTALES", "", *(f"{v:.{decimales}f}" if isinstance(v, float) else v for v in totales())])
+    return "\ufeff" + salida.getvalue()
+
+
+def dibujar_tabla_volumenes(renglones: Sequence[RenglonVolumen], esquina: tuple[float, float], escala: Escala | None = None, estilo: str = "CIVIL", decimales: int = 2,
+                            rotulos: dict[float, str] | None = None, titulo: str = "") -> Dibujo:
+    """Tabla de volúmenes por estaciones (áreas medias) con la ordenada de curva masa y el renglón de totales; `rotulos`: el tipo de las
+    estaciones críticas («PC», «PIV»…), que se escribe junto al cadenamiento."""
     esc = escala or Escala()
     d = Dibujo()
     for c in CAPAS_VOLUMEN.values():
@@ -229,27 +268,25 @@ def dibujar_tabla_volumenes(renglones: Sequence[RenglonVolumen], esquina: tuple[
     d.estilo(EstiloTexto(estilo, "romans.shx", 0.85))
     f = float(esc.denominador) / 1000.0
     h = esc.altura("cuadro_dato")
-    con_despalme = any(r.vol_despalme for r in renglones)
-    titulos = ["ESTACIÓN", "ÁREA CORTE", "ÁREA TERRAPLÉN", "VOL. CORTE", "VOL. TERRAPLÉN", "ACUM. CORTE", "ACUM. TERRAPLÉN", "ORDENADA"]
-    anchos = [22, 20, 24, 20, 24, 22, 26, 22]
+    rotulos = {round(k, 3): v for k, v in (rotulos or {}).items()}
+    con_despalme, titulos, valores, totales = _columnas_volumen(renglones)
+    largo_est = max([len(formato_estacion(r.estacion) + (" " + rotulos[round(r.estacion, 3)] if round(r.estacion, 3) in rotulos else "")) for r in renglones] + [8])
+    anchos = [max(22, largo_est * 2.0 + 4), 20, 24, 20, 24, 22, 26, 22]
     if con_despalme:
-        titulos[3:3] = ["VOL. DESPALME"]
         anchos[3:3] = [24]
     xs = [esquina[0]]
     for a in anchos:
         xs.append(xs[-1] + a * f)
     alto = 2 * h
     capa = CAPAS_VOLUMEN["tabla"].nombre
-    def valores(r):
-        v = [r.area_corte, r.area_terraplen, r.vol_corte, r.vol_terraplen, r.acum_corte, r.acum_terraplen, r.ordenada]
-        if con_despalme:
-            v[2:2] = [r.vol_despalme]
-        return v
-    filas = [titulos] + [[formato_estacion(r.estacion), *(f"{v:,.{decimales}f}" for v in valores(r))] for r in renglones]
-    if con_despalme:
-        filas.append(["TOTALES", "", "", f"{renglones[-1].acum_despalme:,.{decimales}f}", f"{renglones[-1].acum_corte:,.{decimales}f}",
-                      f"{renglones[-1].acum_terraplen:,.{decimales}f}", "", "", ""])
+    def estacion(r):
+        rot = rotulos.get(round(r.estacion, 3), "")
+        return formato_estacion(r.estacion) + (f" {rot}" if rot else "")
+    filas = [titulos] + [[estacion(r), *(f"{v:,.{decimales}f}" for v in valores(r))] for r in renglones]
+    filas.append(["TOTALES", *(f"{v:,.{decimales}f}" if isinstance(v, float) else v for v in totales())])
     y = esquina[1]
+    if titulo:
+        d.agregar(Texto(capa, valor=titulo, posicion=(xs[0], y + 0.8 * h), altura=esc.altura("cuadro_titulo"), estilo=estilo, alineacion_h="izquierda", alineacion_v="base"))
     for k, fila in enumerate(filas):
         d.agregar(Linea(capa, inicio=(xs[0], y, 0.0), fin=(xs[-1], y, 0.0)))
         for c, v in enumerate(fila):
