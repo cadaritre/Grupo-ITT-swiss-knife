@@ -292,3 +292,50 @@ def test_medir_ortofoto(cad, navegar, ana, tmp_path):
     print(json.dumps(m))
     if CAPTURAS:
         (Path(CAPTURAS) / f"cad-mosaicos-medidas-{ruta.stem}-{etiqueta or 'actual'}.json").write_text(json.dumps(m, indent=1))
+
+
+@pytest.mark.skipif(not os.environ.get("TV_CAD_MEDIR_PIRAMIDE"), reason="TV_CAD_MEDIR_PIRAMIDE=<BigTIFF sin vistas generales> para medir")
+@pytest.mark.parametrize("vista", ["sobre", "fuera"])
+def test_medir_piramide(cad, navegar, ana, tmp_path, vista):
+    """Medición (no en la corrida de siempre), igual para cualquier versión de la página: cuánto tarda la pirámide local de un archivo
+    sin vistas generales y cómo van los cuadros mientras se arma, con la vista sobre la imagen (acercándose y moviéndose cada 2 s, como
+    quien la recorre) o fuera de ella. Escribe ITT_CAPTURAS/cad-mosaicos-piramide-<archivo>-<vista>-<TV_CAD_MEDIR_ETIQUETA>-<n>.json."""
+    ruta = Path(os.environ["TV_CAD_MEDIR_PIRAMIDE"])
+    etiqueta = os.environ.get("TV_CAD_MEDIR_ETIQUETA", "")
+    lado = int(ruta.stem.rsplit("_", 1)[1].split("x")[0])
+    arriba = Y0 + lado * PIXEL
+    plano = servicio.crear_vacio(ana, "Pirámide", "", "dxf")
+    n = navegar(ana, "chromium")
+    p = n.ir(f"/cad/{plano.pk}/")
+    listo(p)
+    t0 = time.monotonic()
+    insertar_archivo(p, ruta)
+    esperar(p, "TVCad.pedir({op: 'references'}).then(r => r.images.some(i => i.supplied))", 900000)
+    p.wait_for_timeout(1500)
+    cerca = altura_para(p, 2.0)
+    if vista == "fuera":
+        ver(p, X0 - 5000.0, arriba + 5000.0, 50.0)
+    p.evaluate("""() => { const w = document.getElementById('cad-editor').contentWindow; window.__cuadros = []; let t = w.performance.now();
+      const f = (ahora) => { window.__cuadros.push(ahora - t); t = ahora; if (!window.__fin) w.requestAnimationFrame(f); }; w.requestAnimationFrame(f); }""")
+    k = 0
+    while p.evaluate("TVCadLocal.estado().piramides.some(x => x.corriendo)") and time.monotonic() - t0 < 1500:
+        if vista == "sobre":
+            col, fila = lado // 2 + (k % 5 - 2) * 700, lado // 2 + (k % 3 - 1) * 700
+            ver(p, *lugar(col, fila, arriba), cerca * (8 if k % 2 else 1))
+            k += 1
+        p.wait_for_timeout(2000)
+    p.evaluate("window.__fin = true")
+    total = time.monotonic() - t0
+    cuadros = sorted(p.evaluate("window.__cuadros"))
+    pir = p.evaluate("TVCadLocal.estado().piramides")
+    contadores = p.evaluate("TVCadLocal.estado().contadores || null")
+    m = {"archivo": ruta.name, "gb": round(ruta.stat().st_size / 1e9, 2), "version": etiqueta, "vista": vista,
+         "piramide_s": pir[0]["segundos"] if pir else None, "hasta_terminar_s": round(total, 1),
+         "cuadros": len(cuadros), "cuadro_mediana_ms": round(cuadros[len(cuadros) // 2], 1),
+         "cuadro_p95_ms": round(cuadros[int(len(cuadros) * 0.95)], 1), "cuadro_max_ms": round(cuadros[-1], 1), "contadores": contadores}
+    print("piramide", json.dumps(m), flush=True)
+    if CAPTURAS:
+        i = 1
+        while (Path(CAPTURAS) / f"cad-mosaicos-piramide-{ruta.stem}-{vista}-{etiqueta}-{i}.json").exists():
+            i += 1
+        (Path(CAPTURAS) / f"cad-mosaicos-piramide-{ruta.stem}-{vista}-{etiqueta}-{i}.json").write_text(json.dumps(m, indent=1))

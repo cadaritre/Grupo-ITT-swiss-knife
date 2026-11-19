@@ -526,7 +526,8 @@ El editor web es wasm32 (4 GB de memoria) y la GPU tiene límites de textura: un
     bit a bit, sin costuras a ningún acercamiento, escala de pantalla ni giro de la vista.
   - **La página lee y entrega**: del archivo, en sus trabajadores, a lo sumo dos lecturas por trabajador; las lecturas de mosaicos que
     salieron de la vista se cortan; los mosaicos de una misma fila y nivel van al mismo trabajador (comparten los bloques del TIFF);
-    al editor se le dan a lo sumo 4 por cuadro, para que ningún cuadro se alargue. Un mosaico se lee solo de una fuente al menos tan
+    al editor se le dan a lo sumo 4 por cuadro, para que ningún cuadro se alargue. Pregunta al editor a lo sumo cada 90 ms mientras
+    hay algo que leer y cada 250 ms con la vista quieta (cada pregunta lo despierta: sin esa pausa le quitaría la CPU al dibujo). Un mosaico se lee solo de una fuente al menos tan
     fina como su nivel (las vistas internas del archivo, la pirámide local o el nivel completo, si leerlo cuesta poco): nunca se le da
     al editor algo borroso como si fuera nítido; mientras no hay fuente, el editor dibuja el ancestro.
   - **Lo ya visto queda**: un mosaico leído se queda en el editor (y su textura en la tarjeta de video): volver a pasar por ahí es
@@ -540,6 +541,10 @@ El editor web es wasm32 (4 GB de memoria) y la GPU tiene límites de textura: un
   JPEG en TIFF (YCbCr o RGB, con JPEGTables); predictor horizontal; 8 bits (16 se reducen a 8); gris, RGB, RGBA y paleta; un plano o
   planos separados. **No soportado** (el panel lo dice): JPEG antiguo (compresión 6), fax (CCITT), muestras flotantes (modelos de
   elevación), CMYK y Lab, y JPEG/PNG de más de 268 millones de píxeles (conviértelos a GeoTIFF en mosaicos).
+- **Mientras se arma la pirámide local, ella va primero**: tiene su trabajador para ella sola (las lecturas de mosaicos van a los
+  demás), del archivo completo solo se leen los mosaicos que se ven de los niveles completo y ½ (pocos bloques del archivo), sin anillo
+  ni niveles vecinos; los niveles intermedios esperan a la pirámide y el editor dibuja mientras tanto el nivel ya armado más cercano.
+  Los trabajadores vuelven a leer su manifiesto (a lo sumo cada segundo) y usan cada nivel en cuanto queda listo.
 - **Sin vistas generales** (o JPEG/PNG de más de 16 millones de píxeles): la página arma una **pirámide local una sola vez**, en segundo
   plano, en el almacenamiento privado del navegador (OPFS, carpeta `tv-cad-piramides`, por nombre + tamaño + fecha del archivo): mosaicos
   de 256 px en JPEG (PNG si hay transparencia) a ½, ¼, ⅛… y una vista general de 2048 px que se va llenando mientras se lee el archivo
@@ -567,16 +572,28 @@ El editor web es wasm32 (4 GB de memoria) y la GPU tiene límites de textura: un
 | Archivo | Versión | Al abrir: ¼ / nítido | Mover a terreno nuevo | Volver a lo ya visto | Acercar un paso | Cuadros al mover y acercar sin parar (mediana / p95 / máx.) | Pico del navegador | En el editor |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | BigTIFF 3.12 GB, 32 256 px, mosaicos de 512, sin compresión **ni vistas generales** | 1.2.19 | 4.9 s / nunca | ¼ 0.22 s / nunca | ¼ 0.26 s / nunca | nunca | 16.7 / 33 / 34 ms | 2.3 GB | 18 MB |
-| ídem | mosaicos | 5.0 s / 5.0 s | 0.07 s | 0.11 s | 0.10 s | 33 / 50 / 67 ms | 2.7 GB | 64 MB |
+| ídem | mosaicos | 3.7 s / 3.7 s | 0.47 s | 0.09 s | ¼ 0.06 s / 0.23 s | 16.7 / 33 / 50 ms | 2.3 GB | 49 MB |
 | JPEG en TIFF 0.67 GB, 32 768 px, mosaicos de 512, **6 vistas internas** | 1.2.19 | 3.5 s / nunca | nunca | nunca | ¼ 0.06 s / nunca | 16.7 / 33 / 50 ms | 1.7 GB | 6 MB |
-| ídem | mosaicos | 2.9 s / 2.9 s | 0.29 s | 0.07 s | 0.12 s | 16.7 / 33 / 67 ms | 2.2 GB | 80 MB |
+| ídem | mosaicos | 3.4 s / 3.4 s | 0.29 s | 0.06 s | 0.03 s | 16.8 / 50 / 50 ms | 2.3 GB | 99 MB |
 
 - «Nunca» es dentro de 2 min (10 min al abrir): el detalle de 1.2.19 se remuestreaba a una ventana fraccionaria y promediaba los píxeles
   sueltos; con ortofotos reales eso se ve como el «borroso y luego nítido» del dueño. Los mosaicos copian los píxeles tal cual.
 - Mover y acercar: el anillo y el nivel siguiente ya leídos hacen que casi siempre esté al instante; volver no lee nada.
-- Cuadros: con vistas internas, iguales a 1.2.19. Sin vistas generales, mientras se arma la pirámide local (los primeros ~1–3 min) los
-  niveles intermedios se leen del archivo completo y compiten con el dibujo por la CPU (aquí la tarjeta de video es software y comparte
-  la CPU): mediana 33 ms. Mientras la vista se mueve la página pide solo lo visible; el resto, al detenerse 250 ms.
+- **Pirámide local** (BigTIFF de 1.2 GB, 19 968 px, sin vistas generales; `test_medir_piramide`, dos corridas de cada una, con la vista
+  sobre la imagen recorriéndola cada 2 s y fuera de ella):
+
+  | Versión | Vista | Pirámide completa | Cuadros mientras se arma (mediana / p95 / máx.) |
+  | --- | --- | --- | --- |
+  | 1.2.19 | fuera | 11.1 s, 11.2 s | 16.7 / 16.7 / 67 ms |
+  | 1.2.19 | sobre | 12.6 s, 12.6 s | 16.7 / 16.8 / 50 ms |
+  | mosaicos, primera entrega (`e90915e`) | fuera | 103 s, 93 s | 16.7 / 33 / 183 ms |
+  | mosaicos, primera entrega | sobre | 100 s, 100 s | 16.7 / 33 / 217 ms |
+  | mosaicos | fuera | 11.5 s, 11.6 s | 16.7 / 16.8 / 100 ms |
+  | mosaicos | sobre | 13.5 s, 13.3 s | 16.7 / 16.8 / 167 ms |
+
+  La primera entrega preguntaba al editor sin pausa (la espera entre vueltas se perdía y volvía a preguntar enseguida): cada pregunta
+  lo despierta y lo redibuja, y con el dibujo por software eso le quitaba la CPU al trabajador de la pirámide (9 veces más lenta) y
+  alargaba los cuadros. Ahora espera 90 o 250 ms entre vueltas, y la pirámide va primero (arriba).
 - Nada se sube: 23 KB en toda la medición (latidos), ningún byte ni nombre del archivo. Los archivos se generan para medir y se borran al
   terminar.
 

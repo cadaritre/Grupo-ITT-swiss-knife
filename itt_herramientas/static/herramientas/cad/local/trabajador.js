@@ -161,8 +161,16 @@ function fuentes(a) {
 
 class Cancelada extends Error {}
 
+const construyendo = new Set();   // claves de las pirámides que arma este trabajador
+
 async function region(archivo, rect, ancho, alto, factor, id) {
   const a = await abrir(archivo);
+  // Otro trabajador arma (o armó) su pirámide: su manifiesto en OPFS dice qué niveles ya están; se vuelve a leer a lo sumo cada segundo.
+  if (!construyendo.has(a.clave) && !(a.piramide && a.piramide.lista) && Date.now() - (a.manifiestoLeido || 0) > 1000) {
+    a.manifiestoLeido = Date.now();
+    const m = await leerManifiesto(a.clave);
+    if (m) a.piramide = m;
+  }
   if (a.motivo) return { pendiente: true, motivo: a.motivo };
   const [x0, y0, x1, y1] = rect;
   const estricto = factor > 0;
@@ -399,6 +407,11 @@ function rejilla(t) {
 
 async function piramide(archivo, id, teselas) {
   const a = await abrir(archivo);
+  construyendo.add(a.clave);
+  try { return await armarPiramide(a, archivo, id, teselas); } finally { construyendo.delete(a.clave); }
+}
+
+async function armarPiramide(a, archivo, id, teselas) {
   if (a.motivo) throw new Error(a.motivo);
   const conAlfa = !!a.alfa;
   const ext = conAlfa ? "png" : "jpg";
