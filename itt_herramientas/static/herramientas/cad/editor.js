@@ -1605,12 +1605,25 @@
   // cambió (solo eso) y luego se abre el editor desde el teléfono; si no, el marco bajaría la versión nueva entera de la red.
   refrescarEstado(t0);
   pintarPestanas();
+  // El editor guardado en este equipo (instalador.js, docs/cad.md «El editor guardado en el equipo»): en la computadora se guarda solo
+  // la primera vez y cada versión nueva baja solo lo que cambió; en el teléfono, solo si se descargó (modo táctil). Si el editor no arranca
+  // desde lo guardado, esa versión se borra y se abre de la red.
+  const ENEL_TELEFONO = matchMedia("(max-width: 767px) and (pointer: coarse)").matches;
   async function arrancar() {
     const campo = Campo(t0);
-    if (campo && campo.prepararEditor) {
-      try { await campo.prepararEditor((x) => carga(x)); } catch (_) { /* se abre desde la red, como sin el CAD en el teléfono */ }
+    let desde = "red";
+    try {
+      if (ENEL_TELEFONO) { if (campo && campo.prepararEditor) desde = await campo.prepararEditor((x) => carga(x)); }
+      else if (C.guardado && window.TVCadEditor) desde = await window.TVCadEditor.preparar({ decir: (x) => carga(x), automatico: true });
+    } catch (_) { desde = "red"; /* se abre desde la red, como sin el CAD guardado */ }
+    if (window.TVCadEditor && window.TVCadEditor.pintarMenu) window.TVCadEditor.pintarMenu();
+    try {
+      await cargarMarco();
+    } catch (err) {
+      if (desde !== "equipo" || !window.TVCadEditor) throw err;
+      await window.TVCadEditor.fallo(C.guardado ? C.guardado.version : (C.tactil || {}).version);
+      await cargarMarco();
     }
-    await cargarMarco();
     await alListo(t0);
     if (P && !enTactil() && !(C.tactil && matchMedia("(pointer: coarse)").matches)) await restaurarPestanas();
   }

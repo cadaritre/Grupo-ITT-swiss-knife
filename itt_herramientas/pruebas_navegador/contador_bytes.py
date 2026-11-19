@@ -9,7 +9,8 @@ Hace lo que hace Caddy en producción (Portal, `despliegue/caddy`), para que lo 
 - `encode zstd gzip` de las páginas de Django: gzip de lo comprimible (los tipos por omisión de Caddy: texto, JS, JSON, CSS, SVG, fuentes,
   WebAssembly) cuando el navegador lo acepta, la respuesta mide al menos 512 bytes y no viene ya comprimida (zstd comprime algo más: lo
   contado es un poco más que lo de producción). Los planos (DWG, DXF) viajan tal cual, como en producción.
-- `/cad/editor/…`: el `.gz` que deja `preparar.py` junto a cada archivo grande (`precompressed gzip`).
+- `/cad/editor/…`: el `.gz` que deja `preparar.py` junto a cada archivo grande (`precompressed gzip`); los parches entre versiones
+  (`_parches/…`) los elige el servidor (.br o .gz según Accept-Encoding, como Caddy) y pasan tal cual.
 - `/static/…`: un nombre con la huella de collectstatic (12 hex) se guarda un año (`immutable`); uno sin huella, 5 minutos. En producción además va HTTP/2 o HTTP/3, que comprime las cabeceras repetidas (HPACK/QPACK): lo contado
 aquí es el peor caso.
 
@@ -279,7 +280,9 @@ class ContadorBytes:
             sigue = _valor(pares, "connection").lower() != "close"
             acepta_gzip = "gzip" in _valor(pares, "accept-encoding").lower()
             # Al servidor: una conexión por petición (Connection: close), sin compresión (la pone este proxy, como Caddy).
-            arriba_pares = [(k, v) for k, v in pares if k.lower() not in ("connection", "keep-alive", "accept-encoding", "proxy-connection")]
+            # Los parches del editor (`/_parches/`) solo existen comprimidos: el servidor elige el .br o el .gz como Caddy y aquí pasan tal cual.
+            quitar = ("connection", "keep-alive", "proxy-connection") if "/_parches/" in primera.split(" ")[1] else ("connection", "keep-alive", "accept-encoding", "proxy-connection")
+            arriba_pares = [(k, v) for k, v in pares if k.lower() not in quitar]
             arriba_pares.append(("Connection", "close"))
             arriba = socket.create_connection(self.destino, timeout=600)
             try:

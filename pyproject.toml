@@ -53,6 +53,7 @@ itt_herramientas = [
     "static/**/*",
     "offline/*.tpl",
     "offline/sw_cad.js",
+    "offline/sw_cad_editor.js",
     "cad/editor/*.json",
     "cad/editor/*.html",
     "cad/editor/*.js",

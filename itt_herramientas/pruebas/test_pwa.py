@@ -54,8 +54,12 @@ def test_service_worker_en_la_raiz_con_alcance_total(client, settings, tactil):
     assert r.status_code == 200 and r["Service-Worker-Allowed"] == "/" and "no-cache" in r["Cache-Control"]
     texto = r.content.decode()
     assert sw.version_servida() in texto and "/capturar/" in texto and "/subidas/" in texto and "__" not in texto.replace("__proto__", "")
-    # con el modo táctil la versión cambia con su parte de CAD (el teléfono se entera de cada cambio de esa parte)
-    assert (sw.version_servida() == sw.version()) is (not tactil)
+    # la versión cambia con su parte de CAD (el editor guardado siempre; con el modo táctil, también la parte sin conexión): el navegador
+    # se entera de cada cambio de esa parte
+    assert sw.version_servida() != sw.version()
+    otra = sw.version_servida()
+    settings.TV_CAD_TACTIL = not tactil
+    assert sw.version_servida() != otra
     for activo in sw.ACTIVOS:
         assert (sw.ESTATICOS / activo).is_file(), activo
 

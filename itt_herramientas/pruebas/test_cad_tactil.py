@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from itt_herramientas.cad import editor, tactil
+from itt_herramientas.cad import editor, guardado, tactil
 from itt_herramientas.offline import sw
 
 from .conftest import url
@@ -23,11 +23,11 @@ def test_apagado_por_omision_la_pagina_y_el_service_worker_son_los_de_siempre(cl
     html = cliente_de(dibujante).get(url("cad_plano", pk=plano.pk)).content.decode()
     assert _config(html)["tactil"] is None
     assert "tactil.js" not in html and 'id="tt"' not in html and "cad-tactil-entrar" not in html and "campo.js" not in html
+    # El service worker sirve el editor guardado en el equipo (siempre), pero no la parte sin conexión.
     contenido = sw.contenido()
-    assert "/cad/editor" not in contenido and "itt-cad-" not in contenido
+    assert "itt-cad-editor-" in contenido and "itt-cad-pagina" not in contenido and "/cad/sin-conexion/" not in contenido
     c = cliente_de(dibujante)
     assert c.get(url("cad_sin_conexion")).status_code == 404
-    assert c.get(url("cad_tactil_paquete")).status_code == 404
 
 
 @pytest.mark.parametrize("valor,esperado", [("1", True), ("true", True), ("si", True), ("0", False), ("", False), ("no", False)])
@@ -47,13 +47,13 @@ def test_encendido_la_pagina_lleva_la_capa_tactil_y_el_paquete_del_editor(client
     (editor_falso / "fonts" / "chinese.ttf").write_bytes(b"x" * 100)
     (editor_falso / "fonts" / "latin.ttf").write_bytes(b"x" * 10)
     (editor_falso / "OpenCADStudio-0123456789abcdef_bg.wasm.gz").write_bytes(b"gz")
-    tactil._paquete.cache_clear()
+    guardado._paquete.cache_clear()
     c = cliente_de(dibujante)
     html = c.get(url("cad_plano", pk=plano.pk)).content.decode()
     t = _config(html)["tactil"]
     assert t["version"] == editor.version() and t["cuenta"] == dibujante.pk and t["descarga"] > 0
     assert 'id="tt"' in html and "herramientas/cad/tactil.js" in html and "herramientas/cad/campo.js" in html and 'id="cad-tactil-entrar"' in html
-    p = c.get(url("cad_tactil_paquete")).json()
+    p = c.get(url("cad_editor_paquete")).json()
     assert p["version"] == editor.version() and p["base"] == f"/cad/editor/{editor.version()}/"
     wasm = next(a for a in p["archivos"] if a["ruta"].endswith(".wasm"))
     assert wasm["sha256"] == "b" * 64 and wasm["descarga"] == 2 and wasm["bytes"] == 8
@@ -64,10 +64,10 @@ def test_encendido_la_pagina_lleva_la_capa_tactil_y_el_paquete_del_editor(client
     assert r.status_code == 200
     cuerpo = r.content.decode()
     assert dibujante.email not in cuerpo and "Ana" not in cuerpo and 'data-cad-campo="1"' in cuerpo and "sin-conexion.js" in cuerpo
-    assert _config(cuerpo)["tactil"]["urls"]["paquete"] == url("cad_tactil_paquete")
+    assert _config(cuerpo)["tactil"]["urls"]["paquete"] == url("cad_editor_paquete")
     # El service worker sirve el editor descargado y la página sin conexión; con otro número de versión.
     contenido = sw.contenido()
-    assert "itt-cad-editor-" in contenido and "stopImmediatePropagation" in contenido
+    assert "itt-cad-editor-" in contenido and "itt-cad-pagina" in contenido and "stopImmediatePropagation" in contenido
     settings.TV_CAD_TACTIL = False
     assert sw.contenido() != contenido
 

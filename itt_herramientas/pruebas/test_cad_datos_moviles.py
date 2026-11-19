@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from itt_herramientas.cad import servicio, tactil
+from itt_herramientas.cad import guardado, servicio, tactil
 from itt_herramientas.models import BorradorPlano, VersionPlano
 
 from .conftest import url
@@ -211,7 +211,7 @@ def con_editor(tmp_path, settings):
     (base / "MANIFIESTO.json").write_text(json.dumps({"archivos": {"index.html": hashlib.sha256(b"<!doctype html><title>x</title>").hexdigest()}}))
     settings.HERRAMIENTAS_CAD_EDITOR_DIR = str(tmp_path / "editor")
     settings.TV_CAD_TACTIL = True
-    tactil._paquete.cache_clear()
+    guardado._paquete.cache_clear()
     return base
 
 

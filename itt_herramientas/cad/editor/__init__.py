@@ -80,6 +80,23 @@ def archivo(ver: str, ruta: str) -> Path | None:
     return destino
 
 
+def parche(ver: str, ruta: str, acepta: str) -> tuple[Path, str] | None:
+    """Un parche entre versiones (`_parches/<versión anterior>/<ruta>.tvp`): en disco solo está comprimido, en .br y .gz. Devuelve el que
+    se entrega (brotli si el navegador lo acepta) y su Content-Encoding, como hace Caddy (tools.caddy del portal)."""
+    r = raiz()
+    if r is None or ver != version() or not ruta.startswith("_parches/") or not ruta.endswith(".tvp"):
+        return None
+    base = (r / ver).resolve()
+    acepta = acepta.lower()
+    for codificacion, sufijo in (("br", ".br"), ("gzip", ".gz")):
+        if codificacion not in acepta:
+            continue
+        destino = (base / f"{ruta}{sufijo}").resolve()
+        if base in destino.parents and destino.is_file():
+            return destino, codificacion
+    return None
+
+
 def tipo(ruta: Path) -> str:
     if ruta.suffix == ".wasm":
         return "application/wasm"

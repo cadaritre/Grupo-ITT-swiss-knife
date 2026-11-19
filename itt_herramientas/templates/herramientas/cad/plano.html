@@ -29,6 +29,13 @@
     <form method="post" action="{% url 'herramientas:cad_duplicar' p.pk %}" id="cad-form-duplicar">{% csrf_token %}<button type="submit">{% icono "copy" %}<span>Duplicar</span></button></form>
     {% endif %}
     {% if puede_eliminar %}<button type="button" class="cad-menu__peligro" data-tv-abrir="cad-eliminar">{% icono "trash-2" %}<span>Eliminar</span></button>{% endif %}
+    {% if config.guardado and editor_listo %}{# El editor guardado en este equipo (instalador.js): qué ocupa y «Quitar». #}
+    <div class="cad-menu__guardado" id="cad-guardado" hidden>
+      <p class="cad-menu__estado" id="cad-guardado-texto" role="status" aria-live="polite"></p>
+      <p class="cad-menu__nota" id="cad-guardado-nota" hidden></p>
+      <button type="button" id="cad-guardado-quitar" hidden>{% icono "hard-drive" %}<span>Quitar</span></button>
+      <button type="button" id="cad-guardado-guardar" hidden>{% icono "hard-drive-download" %}<span>Guardar el CAD en esta computadora</span></button>
+    </div>{% endif %}
   </div>
 </details>
 {% endblock %}
@@ -202,6 +209,7 @@
 {{ proyectos|json_script:"cad-proyectos" }}
 {{ config|json_script:"cad-config" }}
 <script src="{% static 'herramientas/cad/control.js' %}"></script>
+{% if config.guardado %}<script src="{% static 'herramientas/cad/instalador.js' %}"></script>{% endif %}
 <script src="{% static 'herramientas/cad/editor.js' %}"></script>
 <script src="{% static 'herramientas/cad/pantalla.js' %}"></script>
 {% if editor_listo %}<script src="{% static 'herramientas/cad/local/carpeta.js' %}"></script>

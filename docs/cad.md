@@ -203,7 +203,8 @@ documento dado; tv-v2026.45-12 agrega `documents`, `file_tabs` y el documento en
 ## Modo táctil (teléfono y tableta) — detrás de `TV_CAD_TACTIL`
 
 Apagado por omisión (`settings.TV_CAD_TACTIL` o la variable de entorno del mismo nombre: «1»). Apagado, nada cambia: la página del plano es
-la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` y `/cad/tactil/paquete/` responden 404 (`cad/tactil.py`).
+la de siempre, el service worker no lleva la parte sin conexión (`offline/sw_cad.js`) y `/cad/sin-conexion/` responde 404 (`cad/tactil.py`).
+El editor guardado en el equipo no depende de este ajuste (abajo, «El editor guardado en el equipo»).
 
 - **Qué es.** Una capa táctil en nuestra página (`static/herramientas/cad/tactil.{js,css}`, `templates/herramientas/cad/tactil.html`) encima
   del editor, que lo maneja por su canal de control (`window.TVCad`). El editor dibuja; la página (`editor.js`) sigue siendo la dueña de
@@ -294,12 +295,13 @@ la de siempre, el service worker es el mismo byte a byte y `/cad/sin-conexion/` 
 ## CAD sin conexión (teléfono) — detrás de `TV_CAD_TACTIL`
 
 - **El editor, una vez por versión.** «Más › Sin conexión › Descargar CAD en este teléfono» (≈ 39 MB con compresión, 123 MB guardados; sin las letras chinas, japonesas y coreanas, que se bajan solas con conexión si un plano las usa),
-  solo en la app instalada (iOS borra lo de un sitio no instalado a los 7 días sin uso) y con `navigator.storage.persist()`. Cache Storage
-  `itt-cad-editor-<versión>`; `/cad/tactil/paquete/` da la lista (ruta, SHA-256, tamaño y tamaño comprimido, del `MANIFIESTO.json`).
-  Al cambiar la versión fijada se baja solo lo que cambió (lo de igual SHA-256 se copia de la versión anterior) y la anterior se borra. La
-  versión instalada se lee de la propia caché: también sin conexión. Las páginas de campo que no usan CAD nunca bajan el editor.
-- **El service worker** (`offline/sw_cad.js`, agregado por `sw.py` solo con el ajuste) sirve el editor descargado, abre la página sin
-  conexión al navegar a `/cad/…` sin señal, sus estilos y scripts desde `itt-cad-pagina` y el panel de Civil desde `itt-cad-pagina-civil`.
+  solo en la app instalada (iOS borra lo de un sitio no instalado a los 7 días sin uso) y con `navigator.storage.persist()`. Lo guarda el
+  mismo código que en la computadora (`instalador.js`, abajo «El editor guardado en el equipo»): Cache Storage `itt-cad-editor-<versión>`,
+  cada archivo comprobado con el SHA-256 de `MANIFIESTO.json`, y al cambiar la versión fijada solo lo que cambió (copias y parches); la
+  anterior se borra. La versión instalada se lee de la base del teléfono: también sin conexión. Las páginas de campo que no usan CAD
+  nunca bajan el editor.
+- **El service worker**: `offline/sw_cad_editor.js` (siempre) sirve el editor guardado; `offline/sw_cad.js` (agregado por `sw.py` solo con
+  el ajuste) abre la página sin conexión al navegar a `/cad/…` sin señal, sus estilos y scripts desde `itt-cad-pagina` y el panel de Civil desde `itt-cad-pagina-civil`.
   Nunca guarda planos ni páginas con datos; esas cachés las llena la página.
 - **Con conexión, desde el teléfono**: abrir un plano «Disponible sin conexión» no lo baja (ver «Datos móviles»). La cabecera dice
   «Desde el teléfono»; si había una versión nueva, se baja una vez, reemplaza la copia y se dice: «Había una versión nueva (la N): se
@@ -403,6 +405,118 @@ desde que el editor lo guarda en (d)). Notas:
 Lo que sigue viajando en cada apertura (lo que debe ir al servidor): la página del plano (sus datos: versión vigente, bloqueo, borrador),
 la pregunta de versión (304), tomar y soltar el bloqueo, `perfil.css` (los colores del perfil, red primero) y, si el navegador la busca, la
 versión del service worker (304; WebKit pide `sw.js` entero, ~6 KB, y también el manifiesto). Por minuto: un latido.
+
+## El editor guardado en el equipo (18-11-2026)
+
+Pedido del dueño: «que también se pueda descargar OpenCAD en el caché en la PC, para no estar descargue y descargue lo mismo». Antes el
+editor (~33 MB con gzip, casi todo el `.wasm`) vivía solo en la caché HTTP del navegador: Chrome la recorta cuando se llena y cada
+compilación nueva (`/cad/editor/<versión>/`, a veces varias por semana) bajaba el `.wasm` entero otra vez.
+
+**Qué ve la persona.**
+- **Computadora (y tableta):** automático. La primera vez que abre un plano, la carga dice «Guardando el CAD en esta computadora… 12 de
+  37 MB» y el editor abre de lo guardado. «Más acciones» termina con «CAD guardado en esta computadora · 118 MB» y, debajo, «Se abre sin
+  descargar nada y se actualiza solo con lo que cambie.» (o, si el navegador no concedió el almacenamiento persistente, «… Si el
+  navegador se queda sin espacio podría borrarlo; se vuelve a guardar solo.»), con el botón «Quitar». Quitado: «El CAD se descarga cada
+  vez que abres un plano.» y «Guardar el CAD en esta computadora». Con una versión nueva: «Actualizando el CAD de esta computadora… 1.2
+  de 3.4 MB».
+- **Teléfono:** como antes, a pedido («Descargar CAD en este teléfono» en «Sin conexión» del modo táctil, solo en la app instalada), con el
+  mismo código; sus actualizaciones también bajan solo los parches.
+
+**Por qué automático en la computadora.** Es lo que el navegador ya bajaba al abrir un plano (la misma cantidad de bytes la primera vez),
+ahora guardado de forma fiable y visible, con «Quitar». Un botón «Descargar» sería un paso más para lo mismo, y quien no lo tocara
+seguiría bajando el editor en cada versión. En el teléfono sigue a pedido: son datos móviles y espacio de un teléfono, y iOS borra lo de un
+sitio no instalado.
+
+**Cómo funciona** (`static/herramientas/cad/instalador.js`, `window.TVCadEditor`; lo usan `editor.js` y `campo.js`):
+- Cache Storage `itt-cad-editor-<versión>` (la misma de antes), `navigator.storage.persist()` y la marca de versión completa en la base
+  `tv-cad-campo` (`estado`, `editor:<versión>`), escrita al final. `/cad/paquete-del-editor/` (`cad/guardado.py`, con o sin modo táctil)
+  da la lista: ruta, SHA-256 de `MANIFIESTO.json`, tamaño, lo que se baja y los parches de cada archivo.
+- Se guarda **antes** de abrir el marco y el marco abre de lo guardado (el service worker, `offline/sw_cad_editor.js`, siempre presente):
+  la primera vez el editor viaja una sola vez; después, cero bytes del editor al reabrir y en cada pestaña nueva. Si el service worker no
+  está, no hay Cache Storage o algo falla, el editor se abre de la red como siempre.
+- Una sola instalación a la vez en todo el navegador (`navigator.locks`): dos pestañas que abren planos a la vez no bajan dos veces.
+- **Versión nueva, solo lo que cambió:** lo de igual SHA-256 (en cualquier ruta) se copia de la versión guardada; el `.wasm` y el `.js`
+  principales (cambian de nombre en cada compilación) se arman con un parche en `static/herramientas/cad/parche.worker.js`; lo demás se
+  baja entero. La versión anterior se borra cuando la nueva está completa.
+- **Seguridad:** cada archivo se lee de vuelta de la caché y se compara con el SHA-256 del manifiesto antes de darlo por guardado; el
+  parche se arma, se compara con el SHA-256 y solo entonces se guarda. Cada archivo lleva su tamaño y su SHA-256 en cabeceras
+  (`X-TV-Bytes`, `X-TV-SHA256`): el service worker no sirve uno que no mida lo que debe y borra esa versión entera (la próxima apertura la
+  rehace). Si el editor no arranca desde lo guardado, la página borra esa versión y lo abre de la red. Una versión a medias no tiene su
+  marca y no cuenta como guardada (sus archivos ya comprobados se aprovechan al terminarla).
+- **Página y editor, siempre la pareja exacta:** la página pide `/cad/editor/<versión fijada>/…` y el service worker solo responde con esa
+  versión; nunca un editor de otra versión.
+- **Cerrar sesión no borra el editor** (`sesion.js` no toca Cache Storage): es el programa, igual para todas las cuentas, sin datos de nadie.
+  Se borra con «Quitar» (o «Quitar el CAD de este teléfono»), al borrar los datos del sitio o si el navegador lo desaloja.
+- **CSP sin cambios:** el trabajador es un script de `/static/` (`worker-src 'self'`) y solo usa `fetch`, Cache Storage y `crypto.subtle`;
+  no lleva WebAssembly.
+
+**Los parches** (`cad/editor/preparar.py`): `upstream.json` lista en «anteriores» las 2 o 3 compilaciones previas (hoy -11 y -10). Al
+preparar, para cada una y cada archivo del paquete oficial que cambió (≥ 16 KB), `bsdiff` hace el parche, que se pasa al formato TVP
+(los registros y el «extra» al principio, la diferencia al final: se aplica leyendo de corrido, con solo el archivo viejo, el nuevo y unos MB
+en memoria), se comprueba aplicándolo y comparando el SHA-256 y se publica solo si pesa menos de la mitad que el archivo entero. Quedan en
+`<versión>/_parches/<versión anterior>/<ruta>.tvp.{br,gz}`, con sus SHA-256 en `MANIFIESTO.json` («parches»); en disco solo comprimidos:
+Caddy entrega el `.br` (o el `.gz`) con su `Content-Encoding` y el navegador lo descomprime. Se guardan en la caché de preparar
+(`~/.cache/tresvizo-cad/parches/`, por los SHA-256 de los dos archivos): bsdiff tarda ~1 min con el `.wasm` y no se repite.
+
+**Medición -11 → -12** (la pareja real; el `.wasm` de 98.6 → 98.7 MB, el `.js` de 185 → 189 KB; lo demás igual):
+
+Medido el 18-11-2026 en esta Mac. «Proxy»: `pruebas_navegador/test_cad_guardado_navegador.py`, perfil de escritorio que se guarda
+(1280 × 860), todo por el contador de bytes de «Datos móviles» (HTTP/1.1 con cabeceras; MB = 1 048 576 bytes); lo del editor es lo que pasó
+por `/cad/editor/`. «Caddy»: Caddy 2.11 local con las reglas de `tools.caddy`, bytes del cuerpo según su registro.
+
+| Escenario | Chromium | WebKit |
+| --- | ---: | ---: |
+| Primera vez: abrir un plano guarda el editor (proxy) | 37.6 MB | 37.6 MB |
+| Reabrir el plano (proxy) | 0 B del editor | 0 B del editor |
+| Pestaña nueva con el plano (proxy) | 0 B del editor | 0 B del editor |
+| Uso normal, cualquier apertura después (proxy) | 0 B del editor | 0 B del editor |
+| -11 → -12 **sin** parches (antes: el `.wasm` y el `.js` enteros) | 31.4 MB | 31.4 MB |
+| -11 → -12 con el parche TVP (B), por el proxy (Chromium recibe brotli en `localhost`; WebKit, gzip) | 3.35 MB | 4.07 MB |
+| -11 → -12 con el parche TVP (B), por Caddy con HTTPS (brotli en los dos) | 3.35 MB | 3.35 MB |
+| -11 → -12 con `dcz` (A), por Caddy (Chromium usa el `.wasm` de -11 como diccionario; WebKit no conoce `dcz`) | 4.59 MB | 31.4 MB |
+| Parche dañado: ese archivo se baja entero y el resultado queda con su SHA-256 (proxy) | 31.5 MB | 31.5 MB |
+| Lo guardado dañado: el editor abre de la red (Chromium, de su caché HTTP) y se vuelve a guardar | 5.3 MB + 0 | 68.3 + 36.8 MB |
+
+Detalle de -11 → -12: el `.wasm` es 32 894 635 B con gzip; su parche, 3 510 529 B con brotli (4 257 880 con gzip); con `dcz`
+(`zstd -22 --long=27 --patch-from`) 4 812 319 B. El `.js`: 27 444 B con gzip, parche 1 141 B (brotli), `dcz` 1 045 B. Lo demás que cambia
+es nuestra página (`index.html`, `release.json`: ~2 KB). Desde -10 el parche del `.wasm` es de 3 440 913 B. Armar el parche en el
+navegador: ~0.4 s para el `.wasm` (con su SHA-256). Preparar los parches de dos versiones anteriores: 4 minutos y 1.9 GB de memoria
+(bsdiff), una sola vez (caché). Lo guardado en el equipo: 117.5 MB (sin las letras chinas, japonesas y coreanas, que se bajan solas si un
+plano las usa). `dcz` solo funcionó con un origen de confianza sin errores de certificado: con el certificado de prueba ignorado
+(HTTPS local), Chromium no anuncia `dcb`/`dcz`.
+
+«Datos móviles» con este cambio (`test_cad_datos_moviles_navegador.py`, Chromium / WebKit): (e) primera apertura con el editor nuevo
+41.3 / 42.8 KB (ahora incluye volver a guardar la página sin conexión, que nombra la versión del editor) y reabrir 26.4 / 28.4 KB; (f)
+reabrir 26.5 / 28.6 KB. Todo dentro del objetivo.
+
+**La opción elegida: el parche TVP (B), no Compression Dictionary Transport (A).**
+- **Pesa menos:** el `.wasm` -11 → -12 son 3.35 MB con el parche y brotli contra 4.59 MB con `dcz` (en Chromium; en WebKit `dcz` no existe y baja 31.4 MB).
+- **Funciona en todos:** Chromium, Edge, Safari/WebKit, Firefox y el teléfono, con el mismo código; `dcz` solo existe en Chrome y Edge.
+- **No depende de la caché del navegador:** el diccionario de `dcz` es el `.wasm` viejo tal como lo guardó el navegador en su almacén de
+  diccionarios cuando lo bajó de la red. Con el editor guardado en Cache Storage el `.wasm` ya no se pide a la red, y ese almacén se recorta
+  como la caché HTTP: justo cuando hace falta puede no estar. El parche se aplica sobre lo que tenemos guardado y comprobado.
+- **Caddy no sabe `dcz`:** habría que generar reglas por versión con el hash de cada diccionario (`Available-Dictionary`) y el
+  `Use-As-Dictionary` de cada archivo; el parche son dos reglas fijas (`.br`/`.gz`).
+- `dcz` (A) no se implementa. La medición de A se hizo con Caddy local y Chromium reales (`Use-As-Dictionary` en el `.wasm` de -11, `dcz`
+  precalculado con `zstd --patch-from --long=27 -22`).
+
+**Lo que hay que hacer al desplegar** (además de lo de siempre):
+1. En la Mac, para preparar la versión: `brew install bsdiff brotli` (una vez; `preparar-release.sh` se niega sin ellos). La primera vez
+   baja también los ZIP de -11 y -10 (con `gh`, por SHA-256) y tarda ~3 minutos más por los parches; después salen de la caché.
+2. En el servidor, **antes o junto con** `tvctl desplegar`, el `tools.caddy` nuevo: `sudo sh ~/despliegue/caddy/sitio.sh habilitar tools`
+   (recarga Caddy). Sin él CAD funciona igual y solo las actualizaciones se bajan enteras; tv-salud avisa («Caddy no entrega los parches del
+   editor de CAD»).
+3. `sudo sh ~/despliegue/salud/instalar.sh` para el aviso nuevo `cad:parches` de tv-salud.
+4. `tvctl desplegar` ya comprueba los parches (cada `.br` y `.gz` con su SHA-256 del manifiesto y el `.gz` descomprimido contra el parche
+   probado en la Mac).
+5. Nada para el dueño en la consola. Al actualizar el editor fijado, pasar la versión anterior al principio de «anteriores» en
+   `upstream.json` (y dejar 2 o 3).
+
+**A comprobar a mano en Windows (Chrome y Edge):** abrir un plano → la carga dice «Guardando el CAD en esta computadora…»; «Más acciones» →
+«CAD guardado en esta computadora · 118 MB»; cerrar y abrir otro plano → abre en segundos y en DevTools › Red, filtrando `cad/editor`, todo
+sale «(ServiceWorker)»; en DevTools › Aplicación › Almacenamiento, «Persistente» (si Chrome no lo concedió, la nota del menú lo dice);
+cerrar sesión y volver a entrar → sigue guardado; «Quitar» → ya no está y el siguiente plano lo baja de la red; «Guardar el CAD en esta
+computadora» → vuelve. Con la siguiente versión del editor desplegada: la carga dice «Actualizando el CAD de esta computadora… x de 3.4 MB» y en Red solo aparece el `.tvp` del `.wasm` (~3.4 MB), no el `.wasm`.
 
 ## Espacio, archivos que faltan y autoría
 
@@ -628,6 +742,9 @@ uv run pytest itt_herramientas/pruebas/test_cad_datos_moviles.py                
 uv run pytest itt_herramientas/pruebas/test_cad_pestanas.py                              # pestañas: bloqueo por pestaña, la hoja, permisos
 TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
   uv run pytest itt_herramientas/pruebas_navegador/test_cad_pestanas_navegador.py -k chromium   # Esc en cada camino y las pestañas; luego webkit
+uv run pytest itt_herramientas/pruebas/test_cad_guardado.py                              # paquete, parches (bsdiff + brotli), cómo se sirven
+TV_CAD_EDITOR_PRUEBAS=DIR ITT_DATOS_CAD=/tmp/datos uv run pytest \
+  itt_herramientas/pruebas_navegador/test_cad_guardado_navegador.py -k chromium              # editor guardado y -11 → -12; luego webkit
 TV_CAD_TACTIL=1 ITT_DATOS_CAD=/tmp/datos uv run pytest \
   itt_herramientas/pruebas_navegador/test_cad_datos_moviles_navegador.py -k chromium      # «Datos móviles», ~10 min por motor (tiempo real)
 ```
