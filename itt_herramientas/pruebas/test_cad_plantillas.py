@@ -167,8 +167,18 @@ def test_la_pagina_lleva_la_hoja_solo_a_quien_puede_editar_la_vigente(cliente_de
     assert config["plantillas"]["mias"] == url("cad_plantillas")
     assert config["plantillas"]["guardar"] == url("cad_plantilla_guardar")
     if 'id="cad-editor"' in html:
-        assert 'id="cad-plantilla"' in html and "plantillas.js" in html
-        assert "Mis plantillas" in html and "De la biblioteca" in html and "De esta computadora" in html
+        assert "plantillas.js" in html
+    # Las dos hojas no viajan en cada página (Datos móviles): llegan aparte, con su huella, y se guardan un año.
+    assert 'id="cad-plantilla"' not in html and "De esta computadora" not in html
+    hojas = config["plantillas"]["hojas"]
+    assert hojas.startswith(url("cad_plantillas_hojas") + "?v=")
+    r = c.get(hojas)
+    assert r.status_code == 200 and r["Cache-Control"] == "private, max-age=31536000, immutable"
+    h = r.content.decode()
+    assert 'id="cad-plantilla"' in h and 'id="cad-plantilla-guardar"' in h
+    assert "Mis plantillas" in h and "De la biblioteca" in h and "De esta computadora" in h
+    assert c.get(hojas, HTTP_IF_NONE_MATCH=r["ETag"]).status_code == 304
+    assert c.get(url("cad_plantillas_hojas"))["Cache-Control"] == "private, no-cache"
     # Solo lectura (supervisión) y una versión anterior: sin plantillas.
     hs = cliente_de(sara).get(url("cad_plano", pk=marco.pk)).content.decode()
     cs = json.loads(hs.split('id="cad-config" type="application/json">')[1].split("</script>")[0])

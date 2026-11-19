@@ -100,6 +100,7 @@ urlpatterns = [
     path("cad/desde/editor/", cad.desde_editor, name="cad_desde_editor"),
     path("cad/plantillas/", cad.plantillas, name="cad_plantillas"),
     path("cad/plantillas/guardar/", cad.plantilla_guardar, name="cad_plantilla_guardar"),
+    path("cad/plantillas/hojas/", cad.plantillas_hojas, name="cad_plantillas_hojas"),
     path("cad/plantillas/<uuid:pk>/", cad.plantilla_marcar, name="cad_plantilla_marcar"),
     path("cad/papelera/vaciar/", cad.vaciar, name="cad_vaciar"),
     path("cad/zip/", cad.zip_lote, name="cad_zip"),

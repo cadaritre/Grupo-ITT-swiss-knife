@@ -22,7 +22,9 @@
   const CAPA = "Imagen satelital", CARPETA = "Satelital";
   const PARALELAS = 8, REINTENTOS = 3, ZMIN_MAX = 15, NIVELES_ATRAS = 4;
 
-  const est = { area: null, plan: null, aviso: null, disp: new Map(), seq: 0, trabajo: null, atribucion: cfg.atribucion || "", info: false };
+  const est = { area: null, plan: null, aviso: null, disp: new Map(), seq: 0, trabajo: null, atribucion: "", info: false };
+  // El proveedor y su atribución llegan con la hoja (el panel de Civil, que se guarda una vez por versión), no en cada página.
+  const textos = () => { const f = $("civil-sat-form"); return { atribucion: (f && f.dataset.atribucion) || "", proveedor: (f && f.dataset.proveedor) || "" }; };
   const civil = () => window.TVCivil;
   const avisar = (t, tipo = "error") => (window.tvAviso ? window.tvAviso(t, tipo) : console.log(t));
   const mil = (v, d = 0) => Number(v).toLocaleString("es-MX", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -87,6 +89,7 @@
     if (!hoja()) return avisar("La imagen satelital no está disponible en esta página.");
     if (!window.TVCad.estado().editable) return avisar("Para dibujar, toma el control del plano.");
     if (!enganchada) enganchar();
+    if (!est.atribucion) est.atribucion = textos().atribucion;
     civil().abrirHoja("civil-hoja-satelite");
     if (!$("civil-sat-nombre").value) $("civil-sat-nombre").value = nombrePorOmision();
     pintarDonde();
@@ -135,7 +138,7 @@
   function decir(t) { const el = $("civil-sat-estado"); el.hidden = !t; el.textContent = t || ""; }
 
   function pintarFuente() {
-    $("civil-sat-fuente").textContent = `Imagen de ${cfg.proveedor_nombre}. La atribución queda en la imagen y en un archivo junto a ella; no la quites al usar la imagen.`;
+    $("civil-sat-fuente").textContent = `Imagen de ${textos().proveedor}. La atribución queda en la imagen y en un archivo junto a ella; no la quites al usar la imagen.`;
   }
 
   function carpetas() { return window.TVCadLocal && window.TVCadLocal.carpetas ? window.TVCadLocal.carpetas() : []; }
@@ -402,7 +405,7 @@
       `Imagen satelital: ${nombre}.jpg`,
       "",
       `Fuente: ${est.atribucion}`,
-      `Proveedor: ${cfg.proveedor_nombre}. Conserva esta atribución en todo uso de la imagen (planos impresos o PDF incluidos).`,
+      `Proveedor: ${textos().proveedor}. Conserva esta atribución en todo uso de la imagen (planos impresos o PDF incluidos).`,
       "",
       `Sistema: UTM zona ${plan.zona} ${plan.sur ? "sur" : "norte"} (WGS84 / ITRF), metros. Archivo de mundo: ${nombre}.jgw.`,
       `Esquina superior izquierda: E ${plan.x0.toFixed(3)}, N ${plan.y1.toFixed(3)}. Esquina inferior derecha: E ${plan.x1.toFixed(3)}, N ${plan.y0.toFixed(3)}.`,

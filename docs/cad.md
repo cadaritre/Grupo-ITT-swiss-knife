@@ -253,6 +253,10 @@ marco de planos.» Es el «Desde plantilla…» de AutoCAD (LAYOUT › Plantilla
   `{"usada": true}` la sube en la lista) y `POST /cad/plantillas/guardar/`; `/cad/elegir/` dice de cada plano si es plantilla de quien
   pregunta y la dirección de su archivo. Tope: 60 plantillas por cuenta. Al eliminar una cuenta se borra su lista (los planos se quedan).
   Migración `0019_cad_plantillas` (tras `0018_formatos_puntos_civil`).
+- **Las dos hojas no van en la página del plano** (~1.3 KB comprimidas por apertura, que el teléfono y el modo táctil nunca usan):
+  `plantillas.js` las pide en la computadora al estar listo el editor, `GET /cad/plantillas/hojas/?v=<huella>` (iguales para todas las
+  cuentas; con la huella vigente se guardan un año, `ETag` y 304), como el panel de Civil. Así la apertura con datos móviles sigue bajo
+  30 KB con la cinta, las plantillas y la imagen satelital juntas (los textos fijos del proveedor satelital van en el panel de Civil).
 - **Editor**: hace falta la compilación con el parche 80 del fork (rama `tv-plantillas-layout`); con una anterior la hoja no se abre
   porque el editor no ofrece las opciones. Probado con la compilación local `tv-v2026.45-cf` (servida como la versión fijada).
 - **Página**: `static/herramientas/cad/plantillas.js` (el gancho `openCadStudioLayoutTemplate` del editor, la hoja y el menú),

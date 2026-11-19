@@ -39,7 +39,7 @@ def config_de_pagina() -> dict:
     """Lo que la página del plano necesita (solo para quien puede editar: insertar es dibujar)."""
     return {
         "clave": clave(), "servicio": servicio(), "zmax": NIVEL_MAX,
-        "atribucion": ATRIBUCION, "proveedor_nombre": PROVEEDOR,
+        # el proveedor y su atribución van en el panel de Civil (civil/pagina.py), no en cada página
         # Con su huella de estáticos: el trabajador nunca deriva estas direcciones de su propio nombre.
         "trabajador": static("herramientas/cad/local/satelite-trabajador.js"), "geo": static("herramientas/cad/local/satelite-geo.js"),
     }

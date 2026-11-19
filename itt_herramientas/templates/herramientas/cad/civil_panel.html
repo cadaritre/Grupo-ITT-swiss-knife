@@ -700,7 +700,7 @@
 
 {# -- Imagen satelital (cad/local/satelite.js; docs/cad.md, «Imagen satelital») -------------------------------------------------- #}
 {% hoja_inferior "civil-hoja-satelite" titulo="Imagen satelital" %}
-<form class="tv-formulario civil-form civil-sat" data-civil-form="satelite" id="civil-sat-form" novalidate>
+<form class="tv-formulario civil-form civil-sat" data-civil-form="satelite" id="civil-sat-form" data-atribucion="{{ civil.satelite.atribucion }}" data-proveedor="{{ civil.satelite.proveedor }}" novalidate>
   <div class="civil-elecciones">
     <div class="civil-eleccion"><div><strong>Área</strong><span class="tv-tenue" id="civil-sat-area">Sin elegir · una polilínea cerrada o dos esquinas</span></div>
       <div class="civil-sat__botones"><button type="button" class="tv-boton" id="civil-sat-polilinea">{% icono "mouse-pointer-click" %}<span>Polilínea</span></button><button type="button" class="tv-boton tv-boton--secundario" id="civil-sat-esquinas">{% icono "square-dashed" %}<span>Dos esquinas</span></button></div></div>

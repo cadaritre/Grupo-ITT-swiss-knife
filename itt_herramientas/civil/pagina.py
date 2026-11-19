@@ -158,11 +158,20 @@ def cinta() -> dict:
     }
 
 
+def _satelite_panel() -> dict:
+    """Los textos fijos de la imagen satelital (proveedor y atribución): van en el panel, que se guarda una vez por versión, y no en cada
+    página del plano (docs/cad.md, «Datos móviles»)."""
+    from ..cad import satelite
+
+    return {"atribucion": satelite.ATRIBUCION, "proveedor": satelite.PROVEEDOR}
+
+
 def contexto_panel() -> dict:
     """Lo que necesita la barra y las hojas de Civil (`civil_panel.html`): igual para todas las cuentas y todos los planos."""
     return {
         "menus": MENUS,
         "cinta": cinta(),
+        "satelite": _satelite_panel(),
         "escalas": ESCALAS_COMUNES,
         "alturas": [{"clave": k, "nombre": NOMBRES_ALTURA.get(k, k), "mm": v} for k, v in ALTURAS_MM.items() if k in NOMBRES_ALTURA],
         "ordenes": ORDENES,

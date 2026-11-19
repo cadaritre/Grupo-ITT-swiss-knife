@@ -14,14 +14,35 @@
  * Solo para la pestaña que se puede editar (esta página tiene su bloqueo); en solo lectura y en el modo táctil el editor no muestra esas
  * opciones (`layout_templates {menu}`).
  */
-(function () {
+(function plantillas() {
   "use strict";
   const $ = (id) => document.getElementById(id);
   let C;
   try { C = JSON.parse($("cad-config").textContent); } catch (_) { return; }
   const P = C.plantillas;
+  if (!P || !$("cad-editor") || !window.TVCad) return;
+  // Las dos hojas no vienen en la página (en el teléfono y en el modo táctil no se usan): en la computadora llegan aparte, con su huella
+  // en la dirección (se guardan un año), y entonces se arma todo lo de abajo.
+  if (!$("cad-plantilla")) {
+    if (!C.tactil && matchMedia("(max-width: 767px) and (pointer: coarse)").matches) return;
+    let intentos = 0;
+    const cargar = async () => {
+      if (document.documentElement.classList.contains("cad-tactil")) return;
+      try {
+        const r = await fetch(P.hojas, { credentials: "same-origin" });
+        if (!r.ok) throw new Error(String(r.status));
+        const t = document.createElement("template");
+        t.innerHTML = await r.text();
+        document.body.append(t.content);
+        plantillas();
+      } catch (_) {
+        if (++intentos < 4) setTimeout(cargar, 3000 * intentos);     // sin red un momento: unas veces más; sin plantillas el editor sigue igual
+      }
+    };
+    window.TVCad.listo.then(cargar, () => {});
+    return;
+  }
   const frame = $("cad-editor"), hoja = $("cad-plantilla"), hojaGuardar = $("cad-plantilla-guardar");
-  if (!P || !frame || !hoja || !window.TVCad) return;
   const MARCA = "00000000-0000-0000-0000-000000000000";
   const LIMITE_LOCAL = 200 * 1048576;            // la memoria del editor en el navegador; la biblioteca ya tiene su propio tope
   const avisar = (texto, tipo) => { if (window.tvAviso) window.tvAviso(texto, tipo); };
@@ -178,7 +199,7 @@
     const n = ++bib.n;
     decir("Buscando…");
     let d;
-    try { d = await json(`${P.elegir}?${new URLSearchParams({ q: bib.q, proyecto: bib.proyecto, pagina: String(bib.pagina) })}`); }
+    try { d = await json(`${C.pestanas.elegir}?${new URLSearchParams({ q: bib.q, proyecto: bib.proyecto, pagina: String(bib.pagina) })}`); }
     catch (err) { if (n === bib.n) decir(err instanceof TypeError ? "Sin conexión." : err.message); return; }
     if (n !== bib.n) return;
     bib.paginas = d.paginas;

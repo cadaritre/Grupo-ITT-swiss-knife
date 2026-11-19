@@ -5,10 +5,12 @@ control de un plano en edición) y `supervision` (solo lectura: abre, descarga e
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
 import re
 from datetime import date, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 from django.conf import settings
@@ -274,9 +276,11 @@ def plano(request, pk):
                      "elegir": reverse("herramientas:cad_elegir"), "desde_editor": reverse("herramientas:cad_desde_editor")} if v is None else None,
         # «Desde plantilla…» y «Guardar como plantilla…» (clic derecho en una pestaña de presentación del editor; docs/cad.md,
         # «Presentaciones desde plantilla»): para quien puede editar, en la versión vigente.
+        # (la biblioteca se elige con `pestanas.elegir` y el tope es `limite_bytes`: no se repiten en cada página)
+        # Sus dos hojas no van en la página: llegan aparte al usarse en la computadora (`hojas`, con su huella: se guardan un año).
         "plantillas": {"mias": reverse("herramientas:cad_plantillas"), "guardar": reverse("herramientas:cad_plantilla_guardar"),
-                       "marcar": reverse("herramientas:cad_plantilla_marcar", args=[MARCA]), "elegir": reverse("herramientas:cad_elegir"),
-                       "max_bytes": servicio.limites()["bytes"]} if puede and v is None else None,
+                       "marcar": reverse("herramientas:cad_plantilla_marcar", args=[MARCA]),
+                       "hojas": reverse("herramientas:cad_plantillas_hojas") + f"?v={_hojas_plantilla()[1]}"} if puede and v is None else None,
         # Carpeta del proyecto en esta computadora (static/herramientas/cad/local/): la cuenta separa las carpetas guardadas en el
         # navegador; las direcciones de los trabajadores van con su huella de estáticos. Nada de la carpeta llega al servidor.
         "local": {"cuenta": usuario.pk, "trabajador": static("herramientas/cad/local/trabajador.js"),
@@ -350,6 +354,35 @@ def _fila_plantilla(p: Plano) -> dict:
     return {"id": str(p.pk), "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "bytes": p.bytes,
             "actualizado": p.actualizado.isoformat(), "disponible": servicio.archivo_disponible(servicio.version_vigente(p)),
             "plantilla": True, "archivo": reverse("herramientas:cad_archivo", args=[p.pk])}
+
+
+def _hojas_plantilla_html() -> tuple[str, str]:
+    from django.template.loader import render_to_string
+
+    html = render_to_string("herramientas/cad/plantilla.html", {})
+    return html, hashlib.sha256(html.encode()).hexdigest()[:16]
+
+
+_hojas_plantilla_guardadas = lru_cache(maxsize=1)(_hojas_plantilla_html)
+
+
+def _hojas_plantilla() -> tuple[str, str]:
+    """Las hojas «Desde plantilla» y «Guardar como plantilla» ya hechas, con su huella (en desarrollo, en cada petición)."""
+    return _hojas_plantilla_html() if settings.DEBUG else _hojas_plantilla_guardadas()
+
+
+@ver
+@require_GET
+def plantillas_hojas(request):
+    """Las dos hojas de las plantillas (`plantilla.html`), aparte de la página del plano: ~1.3 KB comprimidas que ni el teléfono ni la
+    tableta en modo táctil usan. Iguales para todas las cuentas: con la huella vigente en `?v=` se guardan un año; `ETag` y 304."""
+    html, huella = _hojas_plantilla()
+    etiqueta = f'"{huella}"'
+    r = HttpResponse(status=304) if condicional.coincide(request, etiqueta) else HttpResponse(html, content_type="text/html; charset=utf-8")
+    r["ETag"] = etiqueta
+    r["Cache-Control"] = "private, max-age=31536000, immutable" if request.GET.get("v") == huella else "private, no-cache"
+    r["X-Content-Type-Options"] = "nosniff"
+    return r
 
 
 @ver
