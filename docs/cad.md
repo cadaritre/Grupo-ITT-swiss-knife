@@ -748,9 +748,11 @@ Dar píxeles o dibujos no es una edición: no deja paso de deshacer ni marca «S
 
 ## Imagen satelital (Civil → Imágenes, 18-11-2026)
 
-Dónde: «Más acciones» → «Imagen satelital…» del plano, y el grupo «Imágenes» de la cinta «Civil» del editor (`MENUS` de
-`civil/pagina.py`, clave `satelite`, grupo `imagenes` con `solo_cinta`: la barra de Civil de la página no lo lleva porque con nueve
-menús ya no cabe a 1280 px). Para quien puede dibujar, en la versión vigente.
+Dónde: el grupo «Imágenes» de la cinta «Civil» del editor (botón grande «Imagen satelital», comando `CVSATELITE`; `MENUS` de
+`civil/pagina.py`, clave `satelite`, grupo `imagenes`, junto a «Imagen georreferenciada» y «Referencias»), y «Más acciones» →
+«Imagen satelital…» del plano. `satelite.js` registra la acción con `TVCivil.registrarAccion("satelite", …)`, también si Civil llega
+después (evento `tvcivil:listo`). Con un editor sin pestañas propias, el grupo va en la barra de respaldo de Civil. Para quien puede
+dibujar, en la versión vigente.
 
 Como «Importar imagen de Google Earth» de CivilCAD: la persona elige el área (una polilínea cerrada o dos esquinas) y la calidad, y la imagen
 queda en el plano como un IMAGE georreferenciado, guardada en su computadora. Código: `static/herramientas/cad/local/satelite.js` (la hoja y

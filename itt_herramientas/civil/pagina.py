@@ -89,9 +89,7 @@ MENUS = (
     )},
     # Imágenes del plano: las de la carpeta del proyecto (cad/local/) y la satelital de un área (cad/local/satelite.js, que registra su acción
     # con `TVCivil.registrarAccion`; docs/cad.md, «Imagen satelital»). Otra fuente de imágenes se agrega aquí como cualquier acción.
-    # `solo_cinta`: la barra de respaldo de la página no lleva este grupo (no cabría a 1280 px); sus acciones también están en el plano
-    # («Más acciones» y el botón «Referencias»).
-    {"clave": "imagenes", "nombre": "Imágenes", "icono": "image", "solo_cinta": True, "acciones": (
+    {"clave": "imagenes", "nombre": "Imágenes", "icono": "image", "acciones": (
         {"clave": "imagen", "nombre": "Insertar imagen georreferenciada…", "corto": "Imagen georreferenciada", "icono": "image-plus", "comando": "CVIMAGEN", "grande": True,
          "descripcion": "Coloca una imagen u ortofoto de la carpeta del proyecto con su archivo de mundo o GeoTIFF. Nada se sube."},
         {"clave": "satelite", "nombre": "Imagen satelital…", "corto": "Imagen satelital", "icono": "satellite", "comando": "CVSATELITE", "grande": True,

@@ -290,18 +290,22 @@ def test_la_pestana_civil_de_la_cinta_sale_de_los_menus(cliente_de, dibujante, e
         assert a["nombre"] and not a["nombre"].endswith("…"), a["nombre"]
         por_comando.setdefault(a["comando"], set()).add(a["clave"])
     assert all(len(v) == 1 for v in por_comando.values()), {k: v for k, v in por_comando.items() if len(v) > 1}
-    for comando in ("CVTRIANGULAR", "CVCURVAS", "CVSECCIONES", "CVIMPORTARPUNTOS", "CVCUADRO", "CVPERFIL", "CVVOLUMEN", "CVIMAGEN", "CVREFERENCIAS"):
+    for comando in ("CVTRIANGULAR", "CVCURVAS", "CVSECCIONES", "CVIMPORTARPUNTOS", "CVCUADRO", "CVPERFIL", "CVVOLUMEN", "CVIMAGEN", "CVREFERENCIAS",
+                    "CVSATELITE", "CVIMPORTARKML", "CVEXPORTARKML"):
         assert comando in por_comando, comando
     grandes = {a["clave"] for a in acciones if a["grande"]}
-    assert {"importar", "triangular", "curvas", "cuadro", "perfil", "secciones", "volumen", "imagen"} <= grandes, grandes
-    assert {a["clave"] for a in acciones if a["solo_lee"]} >= {"exportar", "reporte", "localizar", "memoria", "referencias", "escala"}
+    assert {"importar", "triangular", "curvas", "cuadro", "perfil", "secciones", "volumen", "imagen", "satelite"} <= grandes, grandes
+    assert {a["clave"] for a in acciones if a["solo_lee"]} >= {"exportar", "reporte", "localizar", "memoria", "referencias", "escala", "exportar_kml"}
     # por omisión, «CV» + la clave sin guiones bajos: lo que se agregue a MENUS tiene su comando sin tocar nada más
     assert civil_pagina.comando({"clave": "imagen_satelital"}) == "CVIMAGENSATELITAL"
-    # cada acción tiene su hoja o su orden en civil.js
-    js = (Path(__file__).resolve().parents[1] / "static" / "herramientas" / "cad" / "civil.js").read_text(encoding="utf-8")
+    # cada acción tiene su hoja o su orden en civil.js, o la registra otro módulo de la página (TVCivil.registrarAccion)
+    cad = Path(__file__).resolve().parents[1] / "static" / "herramientas" / "cad"
+    js = (cad / "civil.js").read_text(encoding="utf-8")
     bloque = js.split("const ACCIONES = {")[1].split("\n  };")[0]
+    registradas = {m for f in cad.rglob("*.js") for m in re.findall(r'registrarAccion\("(\w+)"', f.read_text(encoding="utf-8"))}
+    assert "satelite" in registradas
     for a in acciones:
-        assert re.search(rf"\b{a['clave']}:", bloque), f"civil.js no abre «{a['clave']}»"
+        assert re.search(rf"\b{a['clave']}:", bloque) or a["clave"] in registradas, f"civil.js no abre «{a['clave']}»"
     p = cad_servicio.crear_vacio(dibujante, "Predio", "", "dxf")
     pagina = cliente_de(dibujante).get(url("cad_plano", pk=p.pk)).content.decode()
     assert pagina.index("herramientas/cad/civil-cinta.js") < pagina.index("herramientas/cad/civil-panel.js")

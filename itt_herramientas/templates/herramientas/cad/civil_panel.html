@@ -1,14 +1,14 @@
 {% load static tv %}{# Civil: barra de menús y hojas (docs/civil.md). Es igual para todas las cuentas y todos los planos: llega aparte, una vez por versión (cad/vistas.py, `panel_civil`), y civil-panel.js la pone en la página del plano antes de civil.js. #}
 <template id="civil-barra">
   <span class="civil-marca">{% icono "mountain" %}<span>Civil</span></span>
-  {% for m in civil.menus %}{% if not m.solo_cinta %}
+  {% for m in civil.menus %}
   <details class="cad-menu civil-menu" data-civil-menu="{{ m.clave }}">
     <summary class="tv-boton tv-boton--fantasma civil-menu__boton" aria-label="{{ m.nombre }}">{% icono m.icono %}<span>{{ m.nombre }}</span>{% icono "chevron-down" clase="civil-menu__flecha" %}</summary>
     <div class="cad-menu__lista civil-menu__lista" role="menu" aria-label="{{ m.nombre }}">
       {% for a in m.acciones %}{% if a.separador %}<hr class="civil-menu__separador">{% else %}<button type="button" role="menuitem" data-civil="{{ a.clave }}">{% icono a.icono %}<span>{{ a.nombre }}</span></button>{% endif %}{% endfor %}
     </div>
   </details>
-  {% endif %}{% endfor %}
+  {% endfor %}
   <button type="button" class="tv-boton tv-boton--secundario civil-escala" data-civil="escala" data-tv-tooltip="Escala del plano y altura de los textos">{% icono "ruler" %}<span id="civil-escala-texto">1:1000</span></button>
 </template>
 

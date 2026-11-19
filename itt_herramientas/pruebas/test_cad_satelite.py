@@ -125,8 +125,8 @@ def test_la_accion_esta_en_los_menus_de_civil_y_su_hoja_en_el_panel(settings):
     assert acciones["satelite"]["nombre"] == "Imagen satelital…" and acciones["satelite"]["icono"] == "satellite"
     html, _ = civil_pagina._panel()
     assert 'id="civil-hoja-satelite"' in html
-    # el grupo «Imágenes» es de la cinta del editor: la barra de la página no lo lleva (no cabría a 1280 px); está en «Más acciones»
-    assert 'data-civil-menu="imagenes"' not in html and 'data-civil-menu="plano"' in html
+    # el grupo «Imágenes» de la cinta del editor, también en la barra de respaldo (editor sin pestañas propias) y en «Más acciones»
+    assert 'data-civil-menu="imagenes"' in html and 'data-civil="satelite"' in html and 'data-civil-menu="plano"' in html
     for texto in ("Polilínea", "Dos esquinas", "Máxima disponible", "30 cm por píxel", "Recortar a la polilínea", "Descargar e insertar", "Detener"):
         assert texto in html, texto
 
