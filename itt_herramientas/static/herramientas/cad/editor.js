@@ -114,6 +114,25 @@
     if (texto) $("cad-carga-texto").textContent = texto;
   }
   const cargaDe = (t, texto) => { if (t === activa) carga(texto); };
+  // «Abriendo el plano… 60 %»: bajar el archivo es lo primero (hasta 35 %), luego el editor lo lee (35–95 %, lo que dice su `open_progress`)
+  // y arma la primera vista. Nunca dice 100 % antes de que el plano se vea.
+  const avance = (t, fraccion) => cargaDe(t, `Abriendo el plano… ${Math.max(0, Math.min(99, Math.round(fraccion * 100)))} %`);
+  // El cuerpo de una respuesta, contando lo que llega (Content-Length; sin él, el avance espera al final).
+  async function leerConAvance(r, alAvance) {
+    const total = Number(r.headers.get("Content-Length")) || 0;
+    if (!total || !r.body || !r.body.getReader) return r.arrayBuffer();
+    const lector = r.body.getReader(), bytes = new Uint8Array(total);
+    let n = 0;
+    for (;;) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      if (n + value.length > total) return new Blob([bytes.subarray(0, n), value, ...(await restoDe(lector))]).arrayBuffer();
+      bytes.set(value, n); n += value.length;
+      alAvance(n / total);
+    }
+    return n === total ? bytes.buffer : bytes.slice(0, n).buffer;
+  }
+  async function restoDe(lector) { const partes = []; for (;;) { const { done, value } = await lector.read(); if (done) return partes; partes.push(value); } }
 
   // -- Peticiones -------------------------------------------------------------------------------------------------------------
   let sinSesion = false;
@@ -279,10 +298,10 @@
     }
   }
 
-  async function bytesDe(url) {
+  async function bytesDe(url, alAvance) {
     const r = await pedir(url);
     if (!r.ok) throw new Error(r.status === 404 ? "El plano ya no existe." : "No se pudo descargar el plano. Recarga la página.");
-    return r.arrayBuffer();
+    return alAvance ? leerConAvance(r, alAvance) : r.arrayBuffer();
   }
 
   // -- La copia del teléfono («Disponible sin conexión», campo.js; solo el modo táctil, una pestaña) ----------------------------
@@ -307,7 +326,7 @@
       return copia.bytes;
     }
     if (!r.ok) throw new Error(r.status === 404 ? "El plano ya no existe." : "No se pudo descargar el plano. Recarga la página.");
-    const buffer = await r.arrayBuffer();
+    const buffer = await leerConAvance(r, (f) => avance(t, 0.35 * f));
     t.e.desdeTelefono = false;
     if (copia) {
       await Campo(t).actualizarCopia(t.cfg.id, { bytes: buffer.slice(0), revision, formato: t.e.formato }).catch(() => {});
@@ -338,14 +357,17 @@
   async function abrir(t, fuente, soloLectura) {
     t.e.cargado = false; t.e.sucio = false;
     refrescarEstado(t);
-    cargaDe(t, "Abriendo el plano…");
-    const url = t.cfg.urls.archivo;
+    avance(t, 0);
+    const url = t.cfg.urls.archivo, bajando = (f) => avance(t, 0.35 * f);
     let formato = t.e.formato, buffer;
     if (fuente === "borrador") {
       formato = (t.cfg.borrador && t.cfg.borrador.formato) || t.e.formato;
-      buffer = t.cfg.borrador && t.cfg.borrador.local ? await bytesDeLaCopia(t) : await bytesDe(`${url}?borrador=1`);
-    } else if (t.cfg.version) buffer = await bytesDe(`${url}?version=${t.cfg.version}`);
+      buffer = t.cfg.borrador && t.cfg.borrador.local ? await bytesDeLaCopia(t) : await bytesDe(`${url}?borrador=1`, bajando);
+    } else if (t.cfg.version) buffer = await bytesDe(`${url}?version=${t.cfg.version}`, bajando);
     else buffer = await bytesVigente(t);
+    avance(t, 0.35);
+    // Un plano grande tarda más en abrir en el editor (medido: docs/cad.md, «Planos grandes»): los topes crecen con su tamaño.
+    const tope = 120000 + 4000 * Math.ceil(buffer.byteLength / 1048576);
     t.e.editable = !soloLectura;
     return enCola(async () => {
       if (t.cerrando) return;
@@ -354,13 +376,16 @@
       // El plano cuenta como abierto cuando aparece su documento. La respuesta de «open» puede tardar o venir con un error que no es del
       // plano (WebKit: el editor no logra guardar su lista de recientes en el almacenamiento del navegador), así que no se espera solo a ella.
       let respuesta = null;
-      const pedido = canalLibre({ op: "open", name: nombreEnEditor(t, formato), data_base64: base64(buffer) }).then((r) => { respuesta = r; }, () => { respuesta = { ok: false }; });
+      const pedido = canalLibre({ op: "open", name: nombreEnEditor(t, formato), data_base64: base64(buffer) }, tope).then((r) => { respuesta = r; }, () => { respuesta = { ok: false }; });
+      buffer = null;                                                       // lo que queda es la copia del editor
       let documento = null;
-      for (let i = 0; i < 1200 && !documento; i++) {
-        const doc = (await documentosDelEditor()).find((d) => !d.start && !antes.has(d.id));
+      for (const hasta = Date.now() + tope, desde = Date.now(); Date.now() < hasta && !documento;) {
+        const est = await canal({ op: "state" }, 10000).catch(() => ({}));
+        const doc = (est.documents || []).find((d) => !d.start && !antes.has(d.id));
         if (doc) { documento = doc.id; break; }
-        if (respuesta && respuesta.ok === false && i > 20) break;
-        await espera(100);
+        if (Number.isFinite(est.open_progress)) avance(t, 0.35 + 0.6 * est.open_progress / 100);
+        if (respuesta && respuesta.ok === false && Date.now() - desde > 2000) break;
+        await espera(150);
       }
       if (!documento) {
         await Promise.race([pedido, espera(1000)]);
@@ -372,7 +397,8 @@
       // terminó: con la respuesta de «open» y la revisión quieta. Antes se tomaba al ver la pestaña y, si el editor la movía mientras
       // terminaba de abrir un plano grande, el plano quedaba «Sin guardar» sin que nadie lo tocara; y la capa táctil empezaba a pedirle
       // cosas al editor a media apertura.
-      await Promise.race([pedido, espera(120000)]);
+      avance(t, 0.97);
+      await Promise.race([pedido, espera(tope)]);
       if (anterior && anterior !== documento) await canal({ op: "close", document_id: anterior, discard: true }, 30000).catch(() => {});
       // Abrir deja el plano nuevo al frente: si es otra pestaña la que se ve (se abre detrás, al recuperar las pestañas), vuelve la vista.
       if (activa !== t && activa.documento) await canalLibre({ op: "activate", document_id: activa.documento }, 30000).catch(() => {});
@@ -793,17 +819,26 @@
   }
   // El borrador del servidor sale solo si algo cambió desde el anterior: a lo más uno cada 2 minutos mientras hay cambios (el primero, 2
   // minutos después del primer cambio) y al pasar la app a segundo plano o cerrarla. Mirar el plano nunca manda borradores.
+  // En un plano grande el borrador es caro: el editor reescribe el archivo entero (un DWG de 48.7 MB tarda segundos y mucha memoria) y sube
+  // todo (con gzip un DWG baja ~14 %). Su intervalo crece con el tamaño: 2 minutos hasta 10 MB, luego 2 minutos por cada 10 MB (un plano de
+  // 48 MB, cada ~10 minutos), a lo más 15. Así lo que se sube queda en ~5 MB por minuto de cambios como mucho, y lo que se pierde en el peor
+  // caso (el navegador se cierra) son esos minutos. Al pasar la app a segundo plano sale el borrador si el anterior ya tiene la mitad del
+  // intervalo (docs/cad.md, «Planos grandes»).
   const cambioSinBorrador = (t) => t.revEditor !== t.revBorrador;
+  const intervaloBorrador = (t) => {
+    const mb = (Number(t.cfg.bytes) || 0) / 1048576;
+    return C.autoguardado_s * 1000 * Math.min(7.5, Math.max(1, mb / 10));
+  };
   setInterval(() => {
     for (const t of pestanas) {
       const desde = Math.max(t.e.sucioDesde, t.e.ultimoBorrador);
-      if (Date.now() - desde >= C.autoguardado_s * 1000 && cambioSinBorrador(t)) borrador(t);
+      if (Date.now() - desde >= intervaloBorrador(t) && cambioSinBorrador(t)) borrador(t);
     }
   }, Math.min(5000, C.autoguardado_s * 500));
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "hidden") return;
     copiarAlTelefono(t0, true);
-    for (const t of pestanas) if (cambioSinBorrador(t)) borrador(t);
+    for (const t of pestanas) if (cambioSinBorrador(t) && Date.now() - t.e.ultimoBorrador >= intervaloBorrador(t) / 2) borrador(t);
   });
 
   // -- La copia de los cambios en el teléfono (planos «Disponibles sin conexión», solo el modo táctil) ---------------------------
@@ -1600,6 +1635,42 @@
     maximo: () => (P ? P.max : 1),
   });
 
+  // -- Planos grandes en un teléfono o una tableta ---------------------------------------------------------------------------------
+  // Un teléfono deja a una pestaña mucha menos memoria que una computadora, y si el editor pasa de ella el navegador cierra la página sin
+  // aviso. Antes de bajar el editor y el plano se estima lo que el editor necesitará y, si no cabe, se dice claro, con «Descargar el plano»
+  // y, por si acaso, «Intentar abrirlo aquí». El modelo y el tope están medidos (docs/cad.md, «Planos grandes»).
+  // Medido el 18-11-2026 (WebKit, la memoria del editor tras abrir y dibujar): el editor solo ~270 MB; un DWG denso de 25.5 MB, 1 153 MB
+  // (35 MB por MB); un DXF de 22 MB, 371 MB (5 por MB). Se toma un poco más, para quedar del lado seguro.
+  const MEMORIA_EDITOR = Object.freeze({ base: 300, porMB: { dwg: 40, dxf: 10 } });                         // MB del editor: base + MB × archivo
+  // Lo que el editor puede usar en un iPhone o iPad sin que Safari cierre la página: ~1 GB en los de 4 GB de memoria (iOS deja a una
+  // pestaña algo más de 1.5 GB y el navegador, la página y la GPU toman lo suyo). No se puede medir aquí (sin teléfonos ni simuladores):
+  // es el tope conservador de WebKit en iOS, y con él caben los DWG de hasta ~17 MB y los DXF de hasta ~70 MB.
+  const TOPE_TELEFONO_MB = 1000;
+  const tactilPrimero = () => matchMedia("(pointer: coarse)").matches;                                    // el puntero principal es el dedo
+  function memoriaNecesariaMB(bytes, formato) {
+    return MEMORIA_EDITOR.base + (MEMORIA_EDITOR.porMB[formato] || MEMORIA_EDITOR.porMB.dwg) * (bytes / 1048576);
+  }
+  // Android dice su memoria (navigator.deviceMemory, en GB, a lo más 8); iPhone y iPad no: se toma el tope medido.
+  function topeDelEquipoMB() {
+    const gb = Math.min(Number(navigator.deviceMemory) || 0, 8);                                         // la especificación tapa en 8
+    return gb > 0 ? Math.min(TOPE_TELEFONO_MB * Math.max(1, gb / 4), 3072) : TOPE_TELEFONO_MB;
+  }
+  function cabeEnEsteEquipo(t) {
+    const bytes = Number(t.cfg.bytes) || 0, formato = t.e.formato;
+    if (!tactilPrimero() || !bytes || memoriaNecesariaMB(bytes, formato) <= topeDelEquipoMB()) return Promise.resolve(true);
+    const panel = $("cad-grande");
+    if (!panel) return Promise.resolve(true);
+    carga("");
+    const mb = (bytes / 1048576).toLocaleString("es-MX", { maximumFractionDigits: 1 });
+    $("cad-grande-texto").textContent = `Pesa ${mb} MB y abrirlo necesita más memoria de la que el navegador de este equipo deja usar: se cerraría sin avisar. Ábrelo en una computadora o descárgalo.`;
+    panel.hidden = false;
+    anunciar("grande", { bytes, necesaria: Math.round(memoriaNecesariaMB(bytes, formato)), tope: Math.round(topeDelEquipoMB()) });
+    return new Promise((resolver) => {
+      $("cad-grande-intentar").addEventListener("click", () => { panel.hidden = true; carga("Abriendo el editor…"); resolver(true); }, { once: true });
+    });
+  }
+  window.TVCadMemoria = Object.freeze({ necesariaMB: memoriaNecesariaMB, topeMB: topeDelEquipoMB });
+
   // -- Arranque -------------------------------------------------------------------------------------------------------------------
   // Después de los demás scripts de la página (campo.js): si el CAD de este teléfono tiene una versión vieja, primero se baja lo que
   // cambió (solo eso) y luego se abre el editor desde el teléfono; si no, el marco bajaría la versión nueva entera de la red.
@@ -1610,6 +1681,7 @@
   // desde lo guardado, esa versión se borra y se abre de la red.
   const ENEL_TELEFONO = matchMedia("(max-width: 767px) and (pointer: coarse)").matches;
   async function arrancar() {
+    await cabeEnEsteEquipo(t0);
     const campo = Campo(t0);
     let desde = "red";
     try {

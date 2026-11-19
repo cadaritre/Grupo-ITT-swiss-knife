@@ -73,6 +73,16 @@
 <div class="cad-lienzo" id="cad-lienzo">
   <iframe id="cad-editor" title="Editor de planos" src="about:blank" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
   <div class="cad-lienzo__carga" id="cad-carga" role="status"><span class="cad-giro" aria-hidden="true"></span><span id="cad-carga-texto">Abriendo el editor…</span></div>
+  {# Un plano que este equipo no puede tener abierto (docs/cad.md, «Planos grandes»): se dice antes de intentarlo. #}
+  <div class="cad-lienzo__grande" id="cad-grande" role="alert" hidden>
+    {% icono "smartphone" %}
+    <p class="cad-lienzo__grande-titulo" id="cad-grande-titulo">Este plano es demasiado grande para este teléfono.</p>
+    <p class="tv-tenue" id="cad-grande-texto"></p>
+    <div class="cad-lienzo__grande-acciones">
+      <a class="tv-boton tv-boton--primario" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1">{% icono "download" %}<span>Descargar el plano</span></a>
+      <button type="button" class="tv-boton tv-boton--secundario" id="cad-grande-intentar">{% icono "triangle-alert" %}<span>Intentar abrirlo aquí</span></button>
+    </div>
+  </div>
 </div>
 {% elif sin_archivo %}
 {% vacio titulo="El archivo de este plano no está en el servidor." icono="file-x" %}<p class="tv-tenue cad-sin-archivo">Los planos no tienen copia de seguridad fuera del servidor y este archivo se perdió (por ejemplo, al restaurar o cambiar de servidor). Si tienes una copia, súbela como plano nuevo.</p>{% if puede_eliminar %}<button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-eliminar">{% icono "trash-2" %}<span>Eliminar el plano</span></button>{% endif %}{% endvacio %}

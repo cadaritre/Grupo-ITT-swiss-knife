@@ -223,6 +223,17 @@ def test_la_pagina_del_editor_lo_incrusta_con_el_canal_de_control_y_el_lugar_par
     assert "herramientas/cad/tactil.js" in html and "herramientas/cad/campo.js" in html and 'id="cad-tactil-entrar"' in html
 
 
+def test_un_plano_grande_se_anuncia_antes_de_abrirlo_en_un_telefono(cliente_de, dibujante, plano, editor_falso):
+    """El teléfono decide antes de bajar el editor (docs/cad.md, «Planos grandes»): la página trae el aviso con «Descargar el plano»
+    e «Intentar abrirlo aquí», escondido, y el tamaño del plano en su configuración, que es lo que el aviso compara."""
+    html = cliente_de(dibujante).get(url("cad_plano", pk=plano.pk)).content.decode()
+    config = json.loads(html.split('id="cad-config" type="application/json">')[1].split("</script>")[0])
+    assert config["bytes"] == plano.bytes > 0
+    panel = html.split('id="cad-grande"')[1].split('id="cad-grande-intentar"')[0]
+    assert panel.startswith(' role="alert" hidden>')
+    assert f'{url("cad_archivo", pk=plano.pk)}?descargar=1' in panel
+
+
 def test_sin_manifiesto_del_editor_la_pagina_abre_y_no_ofrece_bajarlo(cliente_de, dibujante, plano, editor_falso, settings, caplog):
     """Un editor sin MANIFIESTO.json (o dañado) no tumba la página del plano: no se guarda en el equipo (se abre de la red como siempre),
     el modo táctil no ofrece bajarlo y queda en el registro."""

@@ -121,6 +121,13 @@
 .cad-lienzo__carga { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--tv-espacio-3);
   background: var(--tv-fondo); color: var(--tv-tenue); font-weight: 500; }
 .cad-lienzo__carga[hidden] { display: none; }
+.cad-lienzo__grande { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--tv-espacio-3);
+  padding: var(--tv-espacio-5) var(--tv-espacio-4); background: var(--tv-fondo); text-align: center; overflow-y: auto; }
+.cad-lienzo__grande[hidden] { display: none; }
+.cad-lienzo__grande > svg { width: 32px; height: 32px; color: var(--tv-tenue); }
+.cad-lienzo__grande p { margin: 0; max-width: 36rem; }
+.cad-lienzo__grande-titulo { font-weight: 600; }
+.cad-lienzo__grande-acciones { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2); justify-content: center; }
 .cad-giro { width: 28px; height: 28px; border: 3px solid var(--tv-separador); border-top-color: var(--tv-primario); border-radius: 50%; animation: cad-giro .8s linear infinite; }
 @keyframes cad-giro { to { transform: rotate(360deg); } }
 @media (max-width: 599px) { .cad-lienzo { height: var(--cad-alto-editor, max(360px, calc(100dvh - 250px))); border-radius: var(--tv-radio); } }
