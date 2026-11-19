@@ -131,8 +131,20 @@ def esperar_imagenes(p, n, timeout=LARGO):
             p.screenshot(path=f"{CAPTURAS}/fallo-imagenes.png")
         diag = p.evaluate("""async () => ({ local: window.TVCadLocal && (({resueltas, ...x}) => ({...x, resueltas: resueltas.length, malas: resueltas.filter(r => r.estado !== 'ruta').slice(0, 3)}))(TVCadLocal.estado()),
           vistas: await TVCad.pedir({op: 'image_tiles'}).catch(e => String(e)),
-          refs: await TVCad.pedir({op: 'references'}).then(r => ({images: r.images.slice(0, 3), supplied_bytes: r.supplied_bytes})).catch(e => String(e)) })""")
-        raise AssertionError(f"imágenes sin dar: {json.dumps(diag)[:3000]}")
+          refs: await TVCad.pedir({op: 'references'}).then(r => ({images: r.images.slice(0, 3), supplied_bytes: r.supplied_bytes, xrefs: r.xrefs})).catch(e => String(e)),
+          estado: await TVCad.pedir({op: 'state'}).then(r => ({view: r.view, viewport_rect: r.viewport_rect, command: r.command, modal: r.modal})).catch(e => String(e)),
+          extension: await TVCad.pedir({op: 'extents'}).catch(e => String(e)),
+          vistas_imagen: await TVCad.pedir({op: 'image_views'}).then(r => ({n: r.views.length, tam: r.viewport_size})).catch(e => String(e)) })""")
+        loc = diag.get("local") or {}
+        sum_ = loc.get("suministradas") or []
+        vistas = diag.get("vistas") if isinstance(diag.get("vistas"), dict) else {}
+        resumen = {"suministradas": len(sum_), "con_raiz": sum(1 for s in sum_ if s.get("raiz")), "faltan": sum(s.get("faltan") or 0 for s in sum_),
+                   "documento": loc.get("documento"), "leyendo": loc.get("leyendo"), "porEntregar": loc.get("porEntregar"), "editorBytes": loc.get("editorBytes"),
+                   "piramides": loc.get("piramides"), "planos": loc.get("planos"), "resueltas": loc.get("resueltas"), "malas": loc.get("malas"),
+                   "vistas": {k: (v if not isinstance(v, list) else f"{len(v)} elementos") for k, v in vistas.items()} if vistas else diag.get("vistas"),
+                   "refs": diag.get("refs") if not isinstance(diag.get("refs"), dict) else {"supplied_bytes": diag["refs"].get("supplied_bytes"), "xrefs": diag["refs"].get("xrefs")},
+                   "estado": diag.get("estado"), "extension": diag.get("extension"), "vistas_imagen": diag.get("vistas_imagen")}
+        raise AssertionError(f"imágenes sin dar ({n} esperadas): {json.dumps(resumen, ensure_ascii=False)[:4000]}")
 
 
 @pytest.fixture
