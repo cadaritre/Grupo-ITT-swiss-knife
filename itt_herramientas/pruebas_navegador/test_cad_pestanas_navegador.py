@@ -93,6 +93,10 @@ def abrir_desde_la_hoja(p, nombre):
     hoja = p.locator("#cad-elegir")
     expect(hoja).to_be_visible()
     p.locator("#cad-elegir-q").fill(nombre)
+    # La búsqueda se rehace 250 ms después de escribir y reemplaza la lista: se pulsa en la lista ya filtrada, no en la de antes (un clic
+    # sobre un botón que se está reemplazando se pierde).
+    esperar(p, "(() => { const b = [...document.querySelectorAll('#cad-elegir-lista .cad-elegir__plano')]; const e = document.getElementById('cad-elegir-estado').textContent;"
+               f" return !e.startsWith('Buscando') && b.length > 0 && b.every(x => x.textContent.includes({nombre!r})); }})()", LARGO)
     boton = hoja.locator(".cad-elegir__plano", has_text=nombre).first
     expect(boton).to_be_visible(timeout=LARGO)
     boton.click()

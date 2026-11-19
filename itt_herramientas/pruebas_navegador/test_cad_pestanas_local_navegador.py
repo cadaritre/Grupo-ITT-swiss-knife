@@ -26,7 +26,7 @@ from itt_herramientas.models import VersionPlano
 
 from . import cad_local_rasters as r
 from .contador_bytes import ContadorBytes, agrupar
-from .test_cad_local_navegador import Red, carpeta_opfs, color_en, esperar_imagenes, insertado, listo, sin_subir, ver
+from .test_cad_local_navegador import Red, carpeta_opfs, zoom_extension, color_en, esperar_imagenes, insertado, listo, sin_subir, ver
 from .test_cad_navegador import LARGO, Navegador, _errores_propios, _persona, cad, esperar_estado  # noqa: F401 (fixtures)
 from .test_pwa_navegador import esperar
 
@@ -302,11 +302,11 @@ def test_insertar_en_una_pestana_guardar_todo_y_un_solo_permiso(cad, abrir, ana,
         p.screenshot(path=f"{CAPTURAS}/cad-pestanas-local-permiso-1366.png")
     p.locator("#cad-aviso-local-permitir").click()
     esperar(p, "TVCadLocal.estado().planos.every(x => !x.permisoPendiente)", LARGO)
-    p.evaluate("TVCad.pedir({op: 'run', cmd: 'ZOOM E'})")
+    zoom_extension(p)
     esperar_imagenes(p, 1)
     otra = b.pk if p.evaluate("TVCad.estado().plano.id") == str(a.pk) else a.pk
     activa(p, otra)
-    p.evaluate("TVCad.pedir({op: 'run', cmd: 'ZOOM E'})")
+    zoom_extension(p)
     esperar_imagenes(p, 1)
     expect(p.locator("#cad-aviso-local")).to_be_hidden()
     assert p.evaluate("self.__pedidos") == 2, "un toque: las dos carpetas a la vez"

@@ -123,6 +123,22 @@ def ver(p, cx, cy, alto):
     p.evaluate("async ([cx, cy, h]) => { await TVCad.pedir({op: 'view_set', center: [cx, cy], height: h}); }", [cx, cy, alto])
 
 
+def zoom_extension(p):
+    """ZOOM E cuando el área de dibujo ya no cambia de tamaño. Un ZOOM E encuadra el área de ese momento (como AutoCAD, que al cambiar el
+    tamaño conserva centro y altura): si después se abre un panel o se acomoda la página, lo de los lados queda fuera de la vista. Deja en
+    la página el área con la que se encuadró, para el diagnóstico."""
+    anterior, quieta = None, 0
+    for _ in range(40):
+        rect = p.evaluate("TVCad.pedir({op: 'state'}).then(r => r.viewport_rect)")
+        quieta = quieta + 1 if rect == anterior else 0
+        if quieta >= 3:
+            break
+        anterior = rect
+        p.wait_for_timeout(250)
+    p.evaluate("TVCad.pedir({op: 'run', cmd: 'ZOOM E'})")
+    p.evaluate("r => { window.__rect_zoom = r; }", anterior)
+
+
 def esperar_imagenes(p, n, timeout=LARGO):
     try:
         esperar(p, f"window.TVCadLocal && TVCadLocal.estado().suministradas.filter(s => s.raiz).length >= {n}", timeout)
@@ -134,6 +150,7 @@ def esperar_imagenes(p, n, timeout=LARGO):
           refs: await TVCad.pedir({op: 'references'}).then(r => ({images: r.images.slice(0, 3), supplied_bytes: r.supplied_bytes, xrefs: r.xrefs})).catch(e => String(e)),
           estado: await TVCad.pedir({op: 'state'}).then(r => ({view: r.view, viewport_rect: r.viewport_rect, command: r.command, modal: r.modal})).catch(e => String(e)),
           extension: await TVCad.pedir({op: 'extents'}).catch(e => String(e)),
+          rect_al_zoom: window.__rect_zoom || null,
           vistas_imagen: await TVCad.pedir({op: 'image_views'}).then(r => ({n: r.views.length, tam: r.viewport_size})).catch(e => String(e)) })""")
         loc = diag.get("local") or {}
         sum_ = loc.get("suministradas") or []
@@ -143,7 +160,7 @@ def esperar_imagenes(p, n, timeout=LARGO):
                    "piramides": loc.get("piramides"), "planos": loc.get("planos"), "resueltas": loc.get("resueltas"), "malas": loc.get("malas"),
                    "vistas": {k: (v if not isinstance(v, list) else f"{len(v)} elementos") for k, v in vistas.items()} if vistas else diag.get("vistas"),
                    "refs": diag.get("refs") if not isinstance(diag.get("refs"), dict) else {"supplied_bytes": diag["refs"].get("supplied_bytes"), "xrefs": diag["refs"].get("xrefs")},
-                   "estado": diag.get("estado"), "extension": diag.get("extension"), "vistas_imagen": diag.get("vistas_imagen")}
+                   "estado": diag.get("estado"), "rect_al_zoom": diag.get("rect_al_zoom"), "extension": diag.get("extension"), "vistas_imagen": diag.get("vistas_imagen")}
         raise AssertionError(f"imágenes sin dar ({n} esperadas): {json.dumps(resumen, ensure_ascii=False)[:4000]}")
 
 
@@ -180,7 +197,7 @@ def test_carpeta_vinculada_imagenes_y_xref_sin_subir_nada(cad, navegar, ana, fac
     malas = [x for x in estado["resueltas"] if x["estado"] not in ("ruta",)]
     assert not malas, malas[:5]
     # Todo el juego a la vista: cada imagen con su vista reducida, memoria acotada.
-    p.evaluate("TVCad.pedir({op: 'run', cmd: 'ZOOM E'})")
+    zoom_extension(p)
     esperar_imagenes(p, 240)
     t_todas = time.monotonic() - t0
     refs = p.evaluate("TVCad.pedir({op: 'references'})")
@@ -208,7 +225,7 @@ def test_carpeta_vinculada_imagenes_y_xref_sin_subir_nada(cad, navegar, ana, fac
     p.reload()
     listo(p)
     esperar(p, "window.TVCadLocal && TVCadLocal.estado().raices.length === 1", LARGO)
-    p.evaluate("TVCad.pedir({op: 'run', cmd: 'ZOOM E'})")
+    zoom_extension(p)
     esperar_imagenes(p, 240)
     # Desvincular: vuelve el marco con el nombre y el aviso.
     p.locator("#cad-boton-referencias").click()
@@ -234,7 +251,7 @@ def test_permiso_tras_reiniciar_se_pide_con_un_toque(cad, navegar, ana, fachadas
     listo(p)
     carpeta_opfs(p, carpeta)
     p.locator("#cad-aviso-local-vincular").click()
-    p.evaluate("TVCad.pedir({op: 'run', cmd: 'ZOOM E'})")
+    zoom_extension(p)
     esperar_imagenes(p, 1)
     # Lo que hace Chrome tras reiniciar: el handle guardado sigue, el permiso pasa a «prompt» hasta que la persona lo concede.
     p.context.add_init_script("""
@@ -250,7 +267,7 @@ def test_permiso_tras_reiniciar_se_pide_con_un_toque(cad, navegar, ana, fachadas
     if CAPTURAS:
         p.screenshot(path=f"{CAPTURAS}/cad-local-permiso-chromium-1280.png")
     p.locator("#cad-aviso-local-permitir").click()
-    p.evaluate("TVCad.pedir({op: 'run', cmd: 'ZOOM E'})")
+    zoom_extension(p)
     esperar_imagenes(p, 1)
     expect(p.locator("#cad-aviso-local")).to_be_hidden()
     assert not _errores_propios(n, "chromium"), n.errores
@@ -424,7 +441,7 @@ def test_safari_y_firefox_eligen_la_carpeta_para_la_sesion(cad, navegar, ana, fa
         p.locator("#cad-aviso-local-vincular").click()
     fc.value.set_files(str(carpeta))
     esperar(p, "TVCadLocal.estado().resueltas.length >= 240", LARGO)
-    p.evaluate("TVCad.pedir({op: 'run', cmd: 'ZOOM E'})")
+    zoom_extension(p)
     esperar_imagenes(p, 20)
     p.locator("#cad-boton-referencias").click()
     expect(p.locator("#cad-local-sesion")).to_be_visible()

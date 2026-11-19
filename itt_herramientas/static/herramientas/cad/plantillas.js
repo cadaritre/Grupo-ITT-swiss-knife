@@ -39,6 +39,8 @@
         if (++intentos < 4) setTimeout(cargar, 3000 * intentos);     // sin red un momento: unas veces más; sin plantillas el editor sigue igual
       }
     };
+    // Mientras llegan, la API ya está (sin menú todavía); al llegar las hojas se reemplaza por la completa.
+    window.TVCadPlantillas = Object.freeze({ estado: () => ({ fuente: null, plantilla: null, menu: null, cargando: true }), abrir: () => {}, abrirGuardar: () => {} });
     window.TVCad.listo.then(cargar, () => {});
     return;
   }
