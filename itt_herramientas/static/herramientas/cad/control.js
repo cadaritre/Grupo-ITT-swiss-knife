@@ -129,7 +129,7 @@
     // Al registro van las peticiones que pueden tocar el dibujo: no las consultas, ni las de la cinta, ni las de las plantillas que no tocan
     // el dibujo (el menú del editor, leer una plantilla).
     if (!["state", "snap", "query", "measure", "layers", "layouts", "extents", "references", "image_views", "events", "ribbon_items", "ribbon_state",
-      "ribbon_define", "layout_templates", "layout_list"].includes(peticion.op)) {
+      "ribbon_define", "layout_templates", "layout_list", "image_tiles"].includes(peticion.op)) {
       anotar({ op: peticion.op, cmd: peticion.cmd || peticion.name || peticion.action || "", ok: !(respuesta && respuesta.ok === false), revision: respuesta && respuesta.revision });
     }
     if (respuesta && respuesta.ok === false) throw new ErrorEditor("rechazada", respuesta.error || respuesta.code || "El editor rechazó la petición.", respuesta);

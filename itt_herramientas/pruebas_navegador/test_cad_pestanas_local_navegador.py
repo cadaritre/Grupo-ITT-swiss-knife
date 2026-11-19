@@ -173,8 +173,8 @@ def test_cada_pestana_con_su_carpeta_y_nada_viaja(cad, abrir, ana, tmp_path, pro
     ver(p, X0 + 20, Y0 + 15, 60)
     esperar_imagenes(p, 1)
     esperar_color(p, azul, X0 + 20, Y0 + 15, "B en azul")
-    est = p.evaluate("TVCadLocal.estado()")
-    assert [x["plano"] for x in est["editor"] if x["ruta"] == RUTA] == [str(b.pk)], est["editor"]
+    # El editor ata la ruta de B, en el documento de B, al archivo de la carpeta de B (su raíz ya está).
+    assert de_la_imagen(p)[0] and de_la_imagen(p)[0]["root"], de_la_imagen(p)
 
     # De vuelta en A: su archivo otra vez, no el de B; la carpeta de A sigue vinculada a A.
     activa(p, str(a.pk))
@@ -201,17 +201,17 @@ def test_cada_pestana_con_su_carpeta_y_nada_viaja(cad, abrir, ana, tmp_path, pro
     activa(p, str(b.pk))
     esperar_imagenes(p, 1)
     esperar_color(p, azul, X0 + 20, Y0 + 15, "B otra vez en azul")
+    antes = p.evaluate("TVCad.pedir({op: 'references'}).then(r => r.supplied_bytes)")
     p.locator(".cad-pestana", has_text="Fachada B").locator(".cad-pestana__cerrar").click()
     esperar_pestanas(p, 2)
     esperar(p, f"!TVCadLocal.estado().planos.some(x => x.plano === {str(b.pk)!r})", LARGO)
-    est = p.evaluate("TVCadLocal.estado()")
-    assert not [x for x in est["editor"] if x["plano"] == str(b.pk)], est["editor"]
+    # Lo de B salió del editor (sus mosaicos eran solo suyos).
+    esperar(p, f"TVCad.pedir({{op: 'references'}}).then(r => r.supplied_bytes < {antes})", LARGO)
     activa(p, str(a.pk))
     esperar_imagenes(p, 1)
     esperar_color(p, rojo, X0 + 20, Y0 + 15, "A tras cerrar B")
-    # Las pestañas de atrás no se quedan con detalles (solo su vista reducida, con tope).
-    est = p.evaluate("TVCadLocal.estado()")
-    assert not [x for x in est["editor"] if x["plano"] != str(a.pk) and x["detalle"]], est["editor"]
+    # Las pestañas de atrás se quedan solo con sus niveles gruesos, con tope (las pruebas del editor lo comprueban por documento).
+    assert p.evaluate("TVCadLocal.estado().editorBytes") < 256 * 1048576
 
     # Nada de las carpetas viajó: ni bytes de sus archivos, ni nombres que los planos no traen; y pocos bytes subidos.
     proxy.esperar_quieto()

@@ -620,8 +620,8 @@ quedan en la computadora. El servidor guarda solo el DWG, con las rutas tal como
   con ese nombre, por nombre. Si varios empatan, se usa el primero (orden alfabético) y el panel dice «Varias con ese nombre» con los
   demás. Reglas y pruebas: `static/herramientas/cad/local/carpeta.js`, `pruebas/js/cad_local_carpeta.mjs`.
 - **Nada se sube**: ni píxeles, ni nombres de archivos (fuera de lo que el plano ya trae), ni miniaturas, ni métricas. La página lee los
-  archivos con `File.slice` y los decodifica en sus trabajadores; al editor le pasa los píxeles por su función `ocs_image_supply` (mismo
-  origen, dentro de la página). Lo prueban `test_cad_local_navegador.py` (registro de cada petición de la página, sus marcos y
+  archivos con `File.slice` y los decodifica en sus trabajadores; al editor le pasa los píxeles, por mosaicos, con sus funciones
+  `ocs_image_tiles_open` y `ocs_image_tile` (mismo origen, dentro de la página). Lo prueban `test_cad_local_navegador.py` (registro de cada petición de la página, sus marcos y
   trabajadores: ningún cuerpo lleva bytes de la carpeta ni sus nombres) y el contador de bytes.
 - **Sin la carpeta** (otra computadora, otra cuenta): cada imagen se ve como su marco con el nombre del archivo (parche 19 del editor) y
   arriba del plano un aviso con una sola acción, «Vincular la carpeta del proyecto».
@@ -637,15 +637,17 @@ quedan en la computadora. El servidor guarda solo el DWG, con las rutas tal como
 Cada pestaña es un plano con **su** carpeta (la clave del navegador es `<cuenta>:<plano>`), su índice y su panel «Referencias externas»;
 el panel, el aviso y «Insertar imagen georreferenciada» son siempre de la pestaña a la vista.
 
-- **Dos proyectos con los mismos nombres.** El editor guarda los píxeles por la ruta tal como la escribe el plano, para todas sus
-  pestañas, y dos proyectos suelen repetir nombres (`C:\Obra\Fotos\f001.png`, `base.dwg`). Al cambiar de pestaña, la página quita del
-  editor toda ruta que el plano nuevo no resuelve **al mismo archivo** (mismo nombre, tamaño y fecha); una pestaña sin carpeta muestra el
-  marco con el nombre, nunca la imagen de otro proyecto. Si dos planos usan el mismo archivo (hojas del mismo proyecto), sus píxeles se
-  comparten y no se vuelven a leer. El editor ya no busca una imagen «por el nombre» (parche 58).
+- **Dos proyectos con los mismos nombres.** Dos proyectos suelen repetir nombres (`C:\Obra\Fotos\f001.png`, `base.dwg`). El editor
+  guarda los mosaicos de una imagen **por documento y ruta**, atados al archivo exacto que la página resolvió: su carpeta, su ruta en
+  ella, su nombre, tamaño y fecha (parche 60). Un plano dibuja solo lo que él ató: una pestaña sin carpeta muestra el marco con el
+  nombre, nunca la imagen de otro proyecto, aunque los dos archivos se llamen y pesen igual. Si dos planos usan el mismo archivo de la
+  misma carpeta (hojas del mismo proyecto), comparten sus mosaicos y no se vuelven a leer. El editor nunca busca una imagen «por el
+  nombre» (parche 58).
 - **Dibujos de referencia**: se dan al documento de su plano (`ocs_xref_supply(ruta, bytes, document_id)`): la xref de otra pestaña con el
   mismo nombre no se vuelve a cargar con el archivo de este proyecto (parche 58).
-- **Atrás**: una pestaña que pasa atrás suelta sus detalles; sus vistas reducidas se quedan, hasta 256 MB entre todas, para volver sin
-  esperar. **Cerrar** una pestaña suelta todo lo suyo (sus píxeles, sus pirámides en curso); la carpeta sigue recordada para ese plano.
+- **Atrás**: una pestaña que pasa atrás se queda solo con sus niveles gruesos (de hasta 1024 px por lado), hasta 256 MB entre todas,
+  para volver sin esperar; lo decide el editor. **Cerrar** una pestaña suelta todo lo suyo (sus mosaicos, sus lecturas y pirámides en
+  curso); la carpeta sigue recordada para ese plano.
 - **Permiso tras reiniciar**: al recargar vuelven las pestañas, cada una con su carpeta recordada; la de la vista dice «El navegador pide
   permiso para leerla» y **un solo toque** pide el permiso de las carpetas de todas las pestañas que lo esperan (una carpeta que comparten
   varios planos, una vez). Si el navegador no concede alguna en ese toque, esa pestaña lo vuelve a pedir al mostrarse.
@@ -680,18 +682,37 @@ su archivo de mundo). Formatos: TIFF/GeoTIFF/BigTIFF, JPEG, PNG, BMP, GIF y WebP
   omisión, **debajo del dibujo**. La ruta que se guarda es la relativa a la carpeta del proyecto (`Ortofotos\orto.tif`, con barras de
   Windows: AutoCAD la resuelve si el DWG se guarda en esa carpeta); si la imagen no está en la carpeta, su nombre, y la página ofrece
   vincular también la carpeta de la imagen. Op del editor: `image_attach`.
+- **Entrada para otros módulos de la página** (estable): `TVCadLocal.insertarImagen(archivos)`, con `archivos` una lista de `File` (la
+  imagen y, si hay, su archivo de mundo), abre la misma hoja que el menú (lugar, capa, «Insertar») y sigue el mismo camino.
 
 ### Ortofotos enormes (≥ 3 GB): solo lo que la vista necesita
 
 El editor web es wasm32 (4 GB de memoria) y la GPU tiene límites de textura: una ortofoto nunca se carga entera.
 
-- **Arquitectura**: el editor dibuja la imagen como un IMAGE normal (su lugar, su recorte, su orden, su desvanecido, rotación de la vista,
-  coordenadas UTM sin temblor: posiciones relativas al ojo, como la rejilla), pero sus píxeles los da la página: una **vista completa
-  reducida** (de 64 a 1024 px por lado, según lo grande que se vea) y, al acercarse, un **detalle** de la parte visible a la resolución
-  de la pantalla (hasta 2560 px por lado), dibujado encima. La página pregunta al editor qué se ve de cada imagen (`image_views`: la
-  ventana en píxeles de la imagen y cuántos píxeles de pantalla mide cada uno, con la vista girada también) y le da solo eso. Se eligió
-  así, y no un lienzo de la página bajo el editor, porque la imagen sigue siendo una entidad del editor (orden de dibujo con el resto,
-  recortes, bloques y xrefs, selección, impresión en el editor) y nunca se desfasa de la vista.
+- **Arquitectura: mosaicos y niveles, como un SIG (parche 60 del editor, 18-11-2026).** El editor dibuja la imagen como un IMAGE normal
+  (su lugar, su recorte, su orden, su desvanecido, rotación de la vista, coordenadas UTM sin temblor), y sus píxeles son una
+  **pirámide de mosaicos**: el nivel 0 es el archivo, el nivel z el archivo reducido 2^z veces, en mosaicos de 512 px desde la esquina
+  superior izquierda (con un píxel de más en cada lado que tiene vecino, para que el filtrado no deje líneas entre mosaicos); el nivel
+  más alto es un solo mosaico, la **raíz**, que se lee primero y está siempre: la imagen se ve entera desde el principio. Las imágenes
+  de hasta 1024 px por lado (fachadas) son un mosaico por nivel, de su tamaño a 64 px.
+  - **El editor decide** qué necesita la vista (`image_tiles`): el nivel cuyos píxeles miden hasta un píxel de la pantalla (con la
+    escala de Windows de 1.25 o 1.5 incluida) y sus mosaicos visibles, del centro hacia afuera; luego un anillo de un mosaico
+    alrededor, el nivel siguiente más grueso y, para el centro de la vista, el siguiente más fino. Dibuja lo que tiene: el mosaico; si
+    falta, sus cuatro hijos más finos si están todos (al alejarse); si no, la parte de su **ancestro más cercano**, ampliada (al
+    acercarse se ve el nivel anterior y luego se afina). Nunca dos piezas encima de la otra (el desvanecido y la transparencia se ven
+    bien), y cada vértice se calcula en f64 y se parte en dos f32 por separado (parche 59): los mosaicos vecinos comparten sus bordes
+    bit a bit, sin costuras a ningún acercamiento, escala de pantalla ni giro de la vista.
+  - **La página lee y entrega**: del archivo, en sus trabajadores, a lo sumo dos lecturas por trabajador; las lecturas de mosaicos que
+    salieron de la vista se cortan; los mosaicos de una misma fila y nivel van al mismo trabajador (comparten los bloques del TIFF);
+    al editor se le dan a lo sumo 4 por cuadro, para que ningún cuadro se alargue. Un mosaico se lee solo de una fuente al menos tan
+    fina como su nivel (las vistas internas del archivo, la pirámide local o el nivel completo, si leerlo cuesta poco): nunca se le da
+    al editor algo borroso como si fuera nítido; mientras no hay fuente, el editor dibuja el ancestro.
+  - **Lo ya visto queda**: un mosaico leído se queda en el editor (y su textura en la tarjeta de video): volver a pasar por ahí es
+    nítido al instante y no lee nada.
+  - Se eligió así, y no componer en la página una imagen de la pantalla, porque esa imagen habría que volver a subirla entera a la
+    tarjeta de video en cada paso (era el «borroso y luego nítido» de la versión 1.2.19); y no un lienzo de la página bajo el editor,
+    porque la imagen sigue siendo una entidad del editor (orden de dibujo con el resto, recortes, bloques y xrefs, selección) y nunca se
+    desfasa de la vista.
 - **Lectura por partes**: TIFF y BigTIFF en mosaicos o en tiras, leyendo solo los bloques de la ventana (`File.slice`), en el nivel
   adecuado: las vistas generales internas del archivo (COG o TIFF piramidal) si las tiene. Compresión: ninguna, LZW, Deflate, PackBits y
   JPEG en TIFF (YCbCr o RGB, con JPEGTables); predictor horizontal; 8 bits (16 se reducen a 8); gris, RGB, RGBA y paleta; un plano o
@@ -700,31 +721,48 @@ El editor web es wasm32 (4 GB de memoria) y la GPU tiene límites de textura: un
 - **Sin vistas generales** (o JPEG/PNG de más de 16 millones de píxeles): la página arma una **pirámide local una sola vez**, en segundo
   plano, en el almacenamiento privado del navegador (OPFS, carpeta `tv-cad-piramides`, por nombre + tamaño + fecha del archivo): mosaicos
   de 256 px en JPEG (PNG si hay transparencia) a ½, ¼, ⅛… y una vista general de 2048 px que se va llenando mientras se lee el archivo
-  (la imagen aparece de arriba abajo). Avanza por bandas: se puede «Detener» y «Continuar» (y se retoma sola al volver a abrir), y
+  (la imagen aparece de arriba abajo: los mosaicos del editor que salen de ella se le dan con cada avance, solo los de las filas que
+  cambiaron). Avanza por bandas: se puede «Detener» y «Continuar» (y se retoma sola al volver a abrir), y
   «Borrar vistas generales» en el panel las quita de este navegador. Nunca sale de la computadora.
-- **Memoria**: los trabajadores (2 o 3) decodifican; caché de bloques de 192 MB y de mosaicos de la pirámide de 400; el editor guarda
-  solo lo que se le dio (límite duro 1.5 GB; la página se queda muy por debajo, ver las medidas). Las texturas no cambiadas se conservan
-  entre cuadros (parche del editor).
+- **Memoria** (límites fijos):
+
+  | Dónde | Qué | Límite |
+  | --- | --- | --- |
+  | Editor | mosaicos del plano a la vista | 512 MB; sale primero el usado hace más tiempo, nunca las raíces del plano a la vista ni lo que se dibujó o pidió en los dos últimos pasos |
+  | Editor | planos de atrás | solo sus niveles de hasta 1024 px, 256 MB entre todos (sale primero el que se vio hace más tiempo) |
+  | Editor | límite duro | 1.5 GB: un mosaico que no cabe se rechaza |
+  | Tarjeta de video | texturas de mosaicos | cada una con su nivel y uno a la mitad; las que no se usan se quedan hasta 256 MB mientras su mosaico esté en el editor |
+  | Página | trabajadores (2 o 3) | caché de bloques del TIFF de 128 MB por trabajador y 400 mosaicos de la pirámide local abiertos |
+  | Página | por entregar | lo leído espera a lo sumo unos cuadros (4 mosaicos por cuadro) |
 - **Imprimir**: la impresión a PDF corre en el servidor, que no tiene los píxeles: las imágenes salen como su marco y su nombre, y la hoja
   de «Imprimir PDF» lo dice. (El editor web no imprime PDF.)
 
-**Medido** (18-11-2026, Mac M4, Chromium de Playwright con dibujo por software, compilación «tv-imagenes-locales»,
-`test_ortofoto_enorme_fluida` con `TV_CAD_ORTO_GRANDE`): BigTIFF RGB sin comprimir de 3.12 GB (32 256 × 32 256 px, 5 cm/px) **sin vistas
-generales**, el peor caso.
+**Medido** (19-11-2026, Mac M4, Chromium de Playwright con dibujo por software, `test_medir_ortofoto` de
+`test_cad_mosaicos_navegador.py` con `TV_CAD_MEDIR`; la misma prueba, que solo mira la pantalla, con la página y el editor de 1.2.19
+(`tv-v2026.45-12`) y con los de mosaicos). Patrón de nitidez (`cad_local_rasters.patron_nitidez`: ajedrez de 1 px y de 8 px), vista a
+2 px de pantalla por píxel del archivo. «Nítido»: se ve el ajedrez de 1 px (el nivel completo, sin remuestrear); «¼»: se ve el de 8 px.
 
-| Archivo | Leer encabezado | Primera vista | Pirámide local completa | Cuadros al acercar, alejar y mover (60 pasos) | En el editor | Pico del navegador | Subido |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| en mosaicos de 512 | 0.04 s | 1.5 s | 23 s | mediana 16.7 ms, p95 33 ms, máx. 33 ms | 16 MB | 2.2 GB | 25 KB (latidos; ningún byte del archivo) |
-| en tiras de 16 filas | 0.04 s | 1.3 s | 23 s | mediana 16.7 ms, p95 33 ms, máx. 33 ms | 16 MB | 2.2 GB | 25 KB (ídem) |
+| Archivo | Versión | Al abrir: ¼ / nítido | Mover a terreno nuevo | Volver a lo ya visto | Acercar un paso | Cuadros al mover y acercar sin parar (mediana / p95 / máx.) | Pico del navegador | En el editor |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| BigTIFF 3.12 GB, 32 256 px, mosaicos de 512, sin compresión **ni vistas generales** | 1.2.19 | 4.9 s / nunca | ¼ 0.22 s / nunca | ¼ 0.26 s / nunca | nunca | 16.7 / 33 / 34 ms | 2.3 GB | 18 MB |
+| ídem | mosaicos | 5.0 s / 5.0 s | 0.07 s | 0.11 s | 0.10 s | 33 / 50 / 67 ms | 2.7 GB | 64 MB |
+| JPEG en TIFF 0.67 GB, 32 768 px, mosaicos de 512, **6 vistas internas** | 1.2.19 | 3.5 s / nunca | nunca | nunca | ¼ 0.06 s / nunca | 16.7 / 33 / 50 ms | 1.7 GB | 6 MB |
+| ídem | mosaicos | 2.9 s / 2.9 s | 0.29 s | 0.07 s | 0.12 s | 16.7 / 33 / 67 ms | 2.2 GB | 80 MB |
 
-El pico del navegador es la memoria residente de todos sus procesos (renderizador, GPU por software, trabajadores) e incluye la caché de
-bloques y la pirámide mientras se arma; el editor guarda 16 MB de píxeles. En una computadora con GPU los cuadros son más cortos; la
-SwiftShader de las pruebas marca 30–60 cuadros por segundo. Los archivos de prueba se generan para medir y se borran al terminar.
+- «Nunca» es dentro de 2 min (10 min al abrir): el detalle de 1.2.19 se remuestreaba a una ventana fraccionaria y promediaba los píxeles
+  sueltos; con ortofotos reales eso se ve como el «borroso y luego nítido» del dueño. Los mosaicos copian los píxeles tal cual.
+- Mover y acercar: el anillo y el nivel siguiente ya leídos hacen que casi siempre esté al instante; volver no lee nada.
+- Cuadros: con vistas internas, iguales a 1.2.19. Sin vistas generales, mientras se arma la pirámide local (los primeros ~1–3 min) los
+  niveles intermedios se leen del archivo completo y compiten con el dibujo por la CPU (aquí la tarjeta de video es software y comparte
+  la CPU): mediana 33 ms. Mientras la vista se mueve la página pide solo lo visible; el resto, al detenerse 250 ms.
+- Nada se sube: 23 KB en toda la medición (latidos), ningún byte ni nombre del archivo. Los archivos se generan para medir y se borran al
+  terminar.
 
 ### Planos tipo PointCab (cientos de imágenes y referencias)
 
-- Con la carpeta: todas aparecen, cada una a la resolución con que se ve (de 64 px si es pequeña en pantalla a su detalle al acercarse),
-  así la memoria depende de la pantalla y no del número de imágenes; las más grandes en pantalla primero.
+- Con la carpeta: todas aparecen, cada una a la resolución con que se ve (de 64 px si es pequeña en pantalla a la completa al acercarse):
+  las de hasta 1024 px por lado van como una imagen entera por nivel, sin mosaicos ni niveles vecinos de más; las más grandes, por
+  mosaicos como las ortofotos. La memoria depende de la pantalla y no del número de imágenes; las más grandes en pantalla primero.
 - Sin la carpeta: marcos con nombres, al instante, y un solo aviso para vincular.
 - **Medido** (mismo equipo): 240 imágenes PNG/JPG en 8 carpetas con su referencia externa: todas visibles 0.8 s después de vincular,
   1 imagen = la resolución con que se ve (al ver todo, 2.9 MB de píxeles en el editor para las 240), 0 bytes de la carpeta subidos.
@@ -736,17 +774,20 @@ SwiftShader de las pruebas marca 30–60 cuadros por segundo. Los archivos de pr
   con IMAGE en fachadas y cortes (rutas absolutas de Windows como las exporta PointCab: `C:\PointCab\Proyecto_Demo\Imagenes\<vista>\…`),
   PNG y JPG en una carpeta por vista y un DXF de marco y ejes como referencia externa.
 
-### Lo que hace el editor (compilación con «tv-imagenes-locales»)
+### Lo que hace el editor (compilación con «tv-imagenes-locales» y «tv-mosaicos»)
 
 | Qué | Cómo |
 | --- | --- |
 | Imágenes y referencias del plano | consulta `references` → `images` (handle, path, size, shown, fade, clipped, block, supplied), `xrefs` (name, path, overlay, status), `supplied_bytes` |
 | Qué se ve de cada imagen | consulta `image_views` → `views` (path, size, rect en píxeles con y hacia abajo, density, screen_area), `camera_revision`, `viewport_size`, `screen_scale` |
+| Qué mosaicos necesita la vista | consulta `image_tiles` → `views` (lo de `image_views` más `set`: el archivo atado y la rejilla, `level`, `file_rect`, `want`: hasta 64 `[nivel, col, fila]` en orden, `complete`), `tiles_bytes`, `budget_bytes` |
 | Insertar | op `image_attach` (`path`, `size`, y `world_file` o `geotiff` o `insert` + `width` + `rotation`; `layer`, `send_to_back`) |
 | Ajustes de una imagen | op `image_set` (`handle`; `fade`, `transparency`, `shown`, `clip_rect` o `null`, `draw_order`, `detach`) |
-| Dar píxeles | `wasmBindings.ocs_image_supply(ruta, anchoArchivo, altoArchivo, x0, y0, x1, y1, ancho, alto, rgba)`; `ocs_image_drop_detail`, `ocs_image_release` |
+| Atar una imagen a un archivo | `wasmBindings.ocs_image_tiles_open(document_id, ruta, ident, anchoArchivo, altoArchivo)` |
+| Dar un mosaico | `wasmBindings.ocs_image_tile(document_id, ruta, ident, nivel, col, fila, ancho, alto, rgba)` (el bloque con su margen; `Stale` si la ruta ya está atada a otro archivo) |
+| Soltar | `ocs_image_tiles_release(document_id, ruta)`; con ruta vacía, todo lo de ese documento |
 | Dar un dibujo referido | `wasmBindings.ocs_xref_supply(ruta, bytes, document_id)` (solo ese documento vuelve a resolver sus xrefs) |
-| Desvincular | `ocs_image_release` de cada ruta de ese plano (las demás pestañas conservan lo suyo); `ocs_local_reset()` suelta todo |
+| Desvincular | `ocs_image_tiles_release(document_id, "")` (las demás pestañas conservan lo suyo); `ocs_local_reset()` suelta todo |
 
 Dar píxeles o dibujos no es una edición: no deja paso de deshacer ni marca «Sin guardar».
 
@@ -886,6 +927,10 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
 uv run pytest itt_herramientas/pruebas/test_cad_guardado.py                              # paquete, parches (bsdiff + brotli), cómo se sirven
 TV_CAD_EDITOR_PRUEBAS=DIR ITT_DATOS_CAD=/tmp/datos uv run pytest \
   itt_herramientas/pruebas_navegador/test_cad_guardado_navegador.py -k chromium              # editor guardado y -11 → -12; luego webkit
+TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
+  uv run pytest itt_herramientas/pruebas_navegador/test_cad_mosaicos_navegador.py      # mosaicos: nítido al volver, nivel anterior al acercar, sin costuras a escala 1–1.5 con la vista girada
+TV_CAD_MEDIR=<GeoTIFF con el patrón de nitidez> uv run pytest \
+  itt_herramientas/pruebas_navegador/test_cad_mosaicos_navegador.py -k medir            # la medición de «Ortofotos enormes» (cad_local_rasters grande --nitidez)
 TV_CAD_TACTIL=1 ITT_DATOS_CAD=/tmp/datos uv run pytest \
   itt_herramientas/pruebas_navegador/test_cad_datos_moviles_navegador.py -k chromium      # «Datos móviles», ~10 min por motor (tiempo real)
 ```

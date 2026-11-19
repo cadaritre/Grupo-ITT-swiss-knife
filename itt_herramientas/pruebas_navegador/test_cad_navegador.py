@@ -61,7 +61,7 @@ def _persona(crear_usuario, roles, usuario, nombre, *rol):
 class Navegador:
     """Un contexto con su sesión; junta los errores de JavaScript y de la CSP de la página (y del editor)."""
 
-    def __init__(self, playwright_, motor, servidor, cookie, ancho=1280, alto=860, movil=False, user_agent=None, sin_service_worker=False):
+    def __init__(self, playwright_, motor, servidor, cookie, ancho=1280, alto=860, movil=False, user_agent=None, sin_service_worker=False, escala=None):
         tipo = getattr(playwright_, motor)
         args = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] if motor == "chromium" else []
         self.navegador = tipo.launch(args=args)
@@ -70,6 +70,8 @@ class Navegador:
         # desde que guarda el editor en el equipo), así que en ellas no se registra.
         if sin_service_worker:
             extra["service_workers"] = "block"
+        if escala:
+            extra["device_scale_factor"] = escala  # escala de pantalla fraccionaria (Windows: 1.25, 1.5)
         self.contexto = self.navegador.new_context(viewport={"width": ancho, "height": alto}, is_mobile=movil and motor == "chromium", has_touch=movil,
                                                    locale="es-MX", accept_downloads=True, **extra)
         self.contexto.add_cookies([cookie])

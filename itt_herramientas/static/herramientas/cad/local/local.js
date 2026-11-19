@@ -2,18 +2,21 @@
  *
  * El plano (DWG/DXF) vive en la biblioteca; sus imágenes (IMAGE + IMAGEDEF) y referencias a otros dibujos (xref) guardan rutas, como en
  * AutoCAD. Esta página resuelve esas rutas contra una carpeta de la computadora y le da al editor lo que la vista necesita:
- *   - imágenes: decodificadas en trabajadores, a la resolución de la pantalla (una vista completa reducida y, al acercarse, solo la parte
- *     visible), por `ocs_image_supply` del editor; las ortofotos enormes se leen por mosaicos y vistas generales, y si el archivo no las
+ *   - imágenes: por mosaicos y niveles, como un SIG. El editor dice qué mosaicos necesita la vista (`image_tiles`: el nivel cuyos
+ *     píxeles miden hasta un píxel de la pantalla, del centro hacia afuera, un anillo alrededor y los niveles vecinos) y dibuja lo que
+ *     tiene, con el ancestro más cercano mientras falta uno; esta página los lee del archivo en sus trabajadores, a lo sumo unos pocos
+ *     a la vez, corta los que salieron de la vista, y se los da (`ocs_image_tile`). Un mosaico ya visto se queda en el editor: volver
+ *     a pasar por ahí no espera nada. Las ortofotos enormes se leen de sus mosaicos y vistas generales internas, y si el archivo no las
  *     tiene se arma una pirámide local en el almacenamiento privado del navegador (OPFS), una vez, en segundo plano;
  *   - referencias a dibujos: los bytes del DWG/DXF por `ocs_xref_supply`; se muestran como en AutoCAD (solo lectura).
  * NADA de la carpeta se sube: ni píxeles, ni nombres (fuera de lo que el plano ya trae), ni miniaturas, ni métricas. El servidor guarda
  * solo el DWG, con las rutas tal como la persona las tenía.
  *
  * Varios planos en la ventana (pestañas, editor.js): cada plano tiene su carpeta (por cuenta y plano), su índice y sus referencias; lo
- * que se ve es siempre el de la pestaña activa. El editor guarda los píxeles por la ruta tal como la escribe el plano, para todas sus
- * pestañas: al cambiar de pestaña se quitan las rutas que el plano nuevo no resuelve al mismo archivo (dos proyectos con «f001.png»),
- * los detalles de los planos de atrás se sueltan y sus vistas reducidas se quedan hasta INACTIVAS_MAX bytes, para volver rápido.
- * Cerrar una pestaña suelta lo suyo. Los dibujos de referencia se dan al documento de su plano (ocs_xref_supply con document_id).
+ * que se ve es siempre el de la pestaña activa. El editor guarda los mosaicos por documento y ruta, atados al archivo exacto que esta
+ * página resolvió (ruta en la carpeta, nombre, tamaño y fecha): dos proyectos con «f001.png» nunca se mezclan, y dos planos del mismo
+ * proyecto comparten los mosaicos del mismo archivo. Los planos de atrás conservan solo sus niveles gruesos (el editor, hasta 256 MB
+ * entre todos); cerrar una pestaña suelta lo suyo. Los dibujos de referencia se dan al documento de su plano (ocs_xref_supply).
  *
  * Partes: carpeta.js (vincular, índice, reglas para resolver), tiff.js y trabajador.js (leer y decodificar), este archivo (la página).
  */
@@ -41,7 +44,9 @@
       indice: null,
       refs: { images: [], xrefs: [] },
       res: new Map(),          // ruta del plano → {estado, entrada, coincide, candidatos, archivo, info, error}
-      piramides: new Map(),    // ruta → {progreso, id, detenida}
+      piramides: new Map(),    // ruta → {progreso, id, detenida, vistaLista}
+      abiertas: new Map(),     // ruta → ident con que se ató en el editor (ocs_image_tiles_open)
+      vista: null,             // la última respuesta de image_tiles
       xrefsDadas: new Set(),
       vueltasXref: 0,
       avisoCrs: false,
@@ -53,10 +58,6 @@
   const estadoDe = (id) => planos.get(id) || nuevoEstado(id);
   let e = null;
 
-  // Lo que el editor tiene de cada ruta, para todas sus pestañas: ruta → {st, ident, base: [w, h], detalle: {rect, w, h}|null,
-  // pidiendo, pidiendoDetalle, esperarHasta, visto}. `st`: el plano para el que se dio; `ident`: el archivo exacto.
-  const sum = new Map();
-  const INACTIVAS_MAX = 256 * 1048576;
 
   // ── Editor ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   function editor() { try { return $("cad-editor").contentWindow.wasmBindings || null; } catch (_) { return null; } }
@@ -70,14 +71,14 @@
     const pendientes = new Map();
     const crear = () => {
       const w = new Worker(cfg.trabajador);
-      const h = { w, ocupados: 0 };
+      const h = { w, ocupados: 0, ids: new Set() };
       w.onmessage = (ev) => {
         const m = ev.data;
         const p = pendientes.get(m.id);
         if (!p) return;
         if (m.progreso !== undefined && m.ok === undefined) { if (p.progreso) p.progreso(m); return; }
         pendientes.delete(m.id);
-        h.ocupados--;
+        if (h.ids.delete(m.id)) h.ocupados--;
         if (m.ok) p.ok(m); else p.mal(new Error(m.error || "error"));
       };
       w.onerror = (ev) => console.error("CAD: trabajador de imágenes", ev.message);
@@ -87,7 +88,7 @@
     };
     function enviar(h, msg, transferir, progreso) {
       const id = ++sig;
-      h.ocupados++;
+      h.ocupados++; h.ids.add(id);
       return { id, promesa: new Promise((ok, mal) => { pendientes.set(id, { ok, mal, progreso }); h.w.postMessage({ ...msg, id }, transferir || []); }) };
     }
     return {
@@ -96,8 +97,13 @@
         const h = hilo !== undefined ? hilos[hilo % hilos.length] : hilos.reduce((a, b) => (b.ocupados < a.ocupados ? b : a));
         return enviar(h, msg, null, progreso);
       },
-      cancelar(id) { for (const h of hilos) h.w.postMessage({ tipo: "cancelar", objetivo: id, id: -1 }); },
-      libres() { return hilos.length ? hilos.reduce((s, h) => s + Math.max(0, 2 - h.ocupados), 0) : 2 * n; },
+      cancelar(id) {
+        for (const h of hilos) h.w.postMessage({ tipo: "cancelar", objetivo: id, id: -1 });
+        const p = pendientes.get(id);
+        if (p) { pendientes.delete(id); for (const h of hilos) if (h.ids && h.ids.delete(id)) h.ocupados--; p.ok({ cancelada: true }); }
+      },
+      cupo: () => 2 * n,
+      hilos: () => n,
       cerrar() { for (const h of hilos) h.w.terminate(); hilos.length = 0; },
     };
   })();
@@ -129,7 +135,7 @@
     for (const [, p] of st.piramides) if (p.id && p.corriendo) pool.cancelar(p.id);
     st.piramides.clear();
     // Lo que el editor tenía de este plano venía de la carpeta anterior: se vuelve a leer de esta.
-    for (const [ruta, s] of sum) if (s.st === st) soltar(ruta);
+    soltarPlano(st);
     if (st === e) pintarCarpeta();
     await refrescar(st);
   }
@@ -172,49 +178,41 @@
     for (const [, p] of st.piramides) if (p.id) pool.cancelar(p.id);
     st.piramides.clear();
     // Solo lo de este plano: las demás pestañas conservan su carpeta y sus imágenes.
-    for (const [ruta, s] of sum) if (s.st === st) soltar(ruta);
+    soltarPlano(st);
     pintarCarpeta();
     pintarPanel();
   }
 
   // ── Lo que el editor tiene, con varias pestañas ──────────────────────────────────────────────────────────────────────────────
-  function soltar(ruta) {
-    sum.delete(ruta);
-    const w = editor();
-    if (w && w.ocs_image_release) w.ocs_image_release(ruta);
-  }
-  const identDe = (r, archivo) => `${(r && r.entrada && r.entrada.ruta) || ""}|${archivo.name}|${archivo.size}|${archivo.lastModified}`;
-
-  // La pestaña `st` pasa al frente. Lo que el editor tiene por una ruta de otro plano se queda solo si este plano la resuelve al mismo
-  // archivo; si no, se quita (el editor la mostraría con los píxeles del otro proyecto). Los detalles de los de atrás se sueltan, y sus
-  // vistas reducidas se quedan hasta INACTIVAS_MAX bytes (sale primero la de la pestaña vista hace más tiempo).
-  async function alFrente(st) {
-    const usadas = new Set(st.refs.images.map((x) => x.path));
-    const dudas = [];
-    for (const [ruta, s] of [...sum]) {
-      if (s.st === st) { s.visto = performance.now(); continue; }
-      const r = st.res.get(ruta);
-      if (usadas.has(ruta) || r) {
-        if (!r || !r.entrada) soltar(ruta);
-        else dudas.push([ruta, s, r]);
-      } else if (s.detalle && !s.pidiendoDetalle) {
-        s.detalle = null;
-        const w = editor(); if (w && w.ocs_image_drop_detail) w.ocs_image_drop_detail(ruta);
+  // El editor ata cada (documento, ruta) al archivo exacto (`ident`) y nunca dibuja otro: cambiar de pestaña no necesita nada aquí.
+  // La identidad de un archivo: su carpeta (la misma carpeta en dos pestañas es la misma ficha; otra carpeta, otra, aunque se llame
+  // igual), su ruta en ella, su nombre, tamaño y fecha. Dos proyectos copiados con los mismos nombres y tamaños nunca comparten.
+  const fichas = [];
+  let sigFicha = 0;
+  async function fichaDe(raiz) {
+    if (raiz.ficha) return raiz.ficha;
+    if (raiz.handle) {
+      for (const f of fichas) {
+        try { if (f.handle && (await f.handle.isSameEntry(raiz.handle))) return (raiz.ficha = f.id); } catch (_) { /* otra */ }
       }
     }
-    await Promise.all(dudas.map(async ([ruta, s, r]) => {
-      let a = null;
-      try { a = await archivoDe(st, ruta); } catch (_) { /* no se pudo leer */ }
-      if (sum.get(ruta) !== s || s.st === st) return;
-      if (a && s.ident && identDe(r, a) === s.ident) { s.st = st; s.visto = performance.now(); } else soltar(ruta);
-    }));
-    const atras = [...sum.entries()].filter(([, s]) => s.st !== st && s.base).sort((a, b) => (a[1].visto || 0) - (b[1].visto || 0));
-    let bytes = atras.reduce((n, [, s]) => n + s.base[0] * s.base[1] * 4, 0);
-    for (const [ruta, s] of atras) {
-      if (bytes <= INACTIVAS_MAX) break;
-      bytes -= s.base[0] * s.base[1] * 4;
-      soltar(ruta);
-    }
+    const id = `c${++sigFicha}`;
+    fichas.push({ handle: raiz.handle || null, id });
+    return (raiz.ficha = id);
+  }
+  async function identDe(st, r, archivo) {
+    const raiz = r && r.entrada && r.entrada.raiz !== undefined ? st.raices[r.entrada.raiz] : null;
+    const ficha = raiz ? await fichaDe(raiz) : (r.ficha || (r.ficha = `s${++sigFicha}`));
+    return `${ficha}|${(r && r.entrada && r.entrada.ruta) || ""}|${archivo.name}|${archivo.size}|${archivo.lastModified}`;
+  }
+
+  /** Lo de este plano sale del editor (otra carpeta, desvincular, cerrar): sus imágenes vuelven a su marco. */
+  function soltarPlano(st) {
+    cancelarDe(st);
+    st.abiertas.clear();
+    st.vista = null;
+    const w = editor();
+    if (w && w.ocs_image_tiles_release && st.documento) w.ocs_image_tiles_release(st.documento, "");
   }
 
   // Se cerró una pestaña: lo suyo sale del editor y de esta página (la carpeta sigue recordada en el navegador para ese plano).
@@ -223,7 +221,7 @@
     if (!st) return;
     planos.delete(id);
     for (const [, p] of st.piramides) if (p.id && p.corriendo) pool.cancelar(p.id);
-    for (const [ruta, s] of [...sum]) if (s.st === st) soltar(ruta);
+    soltarPlano(st);
   }
 
   // ── Referencias del plano ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -243,8 +241,6 @@
         st.res.set(ruta, C.resolver(st.indice, ruta));
       }
     }
-    if (st !== e) return;
-    await alFrente(st);
     if (st !== e) return;
     pintarPanel();
     pintarAviso();
@@ -294,22 +290,52 @@
     if (dio && (st.vueltasXref = (st.vueltasXref || 0) + 1) <= 4) setTimeout(() => refrescar(st), 400);
   }
 
-  // ── Imágenes: qué pide la vista y qué se le da al editor ─────────────────────────────────────────────────────────────────────
-  const BASE_MAX = 1024, BASE_MIN = 64, DETALLE_MAX = 2560;
-  const potencia = (v) => 2 ** Math.ceil(Math.log2(Math.max(1, v)));
-  let ciclo = null, enVuelo = 0, enPaso = false, otraVez = false;
+  // ── Imágenes: qué mosaicos pide la vista y cuáles se le dan al editor ─────────────────────────────────────────────────────────
+  // La rejilla es la del editor (local_raster.rs: Grid): nivel z = el archivo reducido 2^z veces, en mosaicos de `tile` píxeles desde
+  // la esquina superior izquierda; cada mosaico se da con `gutter` píxeles de más en los lados que tienen vecino.
+  const VISTA_LADO = 2048;            // la vista general de la pirámide local (trabajador.js, VISTA)
+  const ENTREGAS_POR_CUADRO = 4;      // mosaicos que se le dan al editor por cuadro, para que nunca se trabe
+  const ESPERA_SIN_FUENTE = 1500;     // ms antes de volver a pedir un mosaico que aún no tiene de dónde salir
+  const rejilla = (info, set) => {
+    const W = info.ancho, H = info.alto, T = set.tile, g = set.gutter;
+    const lado = (v, z) => Math.max(1, Math.ceil(v / 2 ** z));
+    return {
+      W, H, T, g, top: set.top,
+      bloque(z, c, r) {
+        const lw = lado(W, z), lh = lado(H, z);
+        const x0 = Math.min(c * T, lw), y0 = Math.min(r * T, lh), x1 = Math.min((c + 1) * T, lw), y1 = Math.min((r + 1) * T, lh);
+        return [Math.max(0, x0 - g), Math.max(0, y0 - g), Math.min(lw, x1 + g), Math.min(lh, y1 + g)];
+      },
+      archivo(z, b) { const k = 2 ** z; return [Math.min(W, b[0] * k), Math.min(H, b[1] * k), Math.min(W, b[2] * k), Math.min(H, b[3] * k)]; },
+      // El nivel más fino que sale entero de la vista general de la pirámide local.
+      nivelVista() { let z = 0; while (z < set.top && Math.max(lado(W, z), lado(H, z)) > VISTA_LADO) z++; return z; },
+    };
+  };
 
-  function planear(pronto) {
+  const QUIETO_MS = 250;              // la vista se considera quieta tras este tiempo sin cambiar
+  let ultimaCamara = null, movidaEn = 0;
+  let ciclo = null, enPaso = false, otraVez = false;
+  const trabajos = new Map();         // clave → {id, st}: lecturas en curso
+  const esperando = new Map();        // clave → hasta (ms): sin fuente todavía
+  const entregas = [];                // mosaicos leídos que esperan su cuadro
+  const claveDe = (doc, ruta, ident, z, c, r) => `${doc}|${ruta}|${ident}|${z}/${c}/${r}`;
+
+  function planear(pronto, ms = 140) {
     if (enPaso) { otraVez = true; return; }
     if (ciclo) { if (!pronto) return; clearTimeout(ciclo); }
     ciclo = setTimeout(async () => {
       ciclo = null;
       enPaso = true;
-      try { await paso(); } finally {
+      try { await paso(); } catch (err) { console.warn("CAD: imágenes", err); setTimeout(() => planear(), 500); } finally {
         enPaso = false;
         if (otraVez) { otraVez = false; planear(true); }
       }
-    }, pronto ? 0 : 140);
+    }, pronto ? 0 : ms);
+  }
+
+  function cancelarDe(st) {
+    for (const [clave, t] of trabajos) if (t.st === st) { pool.cancelar(t.id); trabajos.delete(clave); }
+    for (let i = entregas.length - 1; i >= 0; i--) if (entregas[i].st === st) entregas.splice(i, 1);
   }
 
   async function paso() {
@@ -318,121 +344,128 @@
     const algo = st && (st.indice || [...st.res.values()].some((x) => x.entrada));
     if (!window.TVCad.estaListo() || !algo || document.hidden) { if (algo) setTimeout(() => planear(), 500); return; }
     let v;
-    try { v = await pedir({ op: "image_views" }, { tiempoMs: 5000 }); } catch (_) { setTimeout(() => planear(), 500); return; }
+    try { v = await pedir({ op: "image_tiles" }, { tiempoMs: 5000 }); } catch (_) { setTimeout(() => planear(), 500); return; }
     // La pestaña cambió mientras tanto, o la vista es de otro documento: otra vuelta con la de ahora.
     if (st !== e || (st.documento && v.document_id && v.document_id !== st.documento)) { setTimeout(() => planear(true), 0); return; }
-    const escala = (v.screen_scale || 1) * (window.devicePixelRatio || 1);
-    const [vw, vh] = v.viewport_size || [1, 1];
+    const doc = st.documento || v.document_id;
+    st.vista = v;
+    // Mientras la vista se mueve, solo lo que se ve (y la raíz): el anillo y los niveles vecinos se leen cuando se detiene, así los
+    // trabajadores no compiten con el dibujo durante un arrastre o un acercamiento seguidos.
+    const ahoraMov = performance.now();
+    if (v.camera_revision !== ultimaCamara) { ultimaCamara = v.camera_revision; movidaEn = ahoraMov; }
+    const moviendose = ahoraMov - movidaEn < QUIETO_MS;
+    const ahora = performance.now();
+    const deseados = new Set();
     const pedidos = [];
-    for (const f of v.views) {
+    let abrio = false;
+    const vistas = [...v.views].sort((a, b) => b.screen_area - a.screen_area);
+    for (const f of vistas) {
       const r = st.res.get(f.path);
       if (!r || !r.entrada || r.error) continue;
       const info = r.info;
       if (!info) { infoDe(st, f.path).then(() => planear(true)); continue; }
       if (info.motivo) continue;
-      let s = sum.get(f.path);
-      if (s && s.st !== st) continue;                               // de otro plano: alFrente() decide si se queda o sale
-      if (!s) { s = { st, ident: null, base: null, detalle: null, visto: performance.now() }; sum.set(f.path, s); }
-      const [ew, eh] = f.size;
-      const kx = info.ancho / ew, ky = info.alto / eh;            // píxeles del archivo por píxel de la entidad
-      const d = (f.density * escala) / Math.max(kx, ky);           // px del dispositivo por px del archivo
-      const lado = Math.max(info.ancho, info.alto);
-      // Vista completa: el tamaño con que se ve la imagen entera, en potencias de 2, entre 64 y 1024.
-      const quiere = Math.min(lado, Math.max(BASE_MIN, Math.min(BASE_MAX, potencia(lado * d))));
-      const tiene = s.base ? Math.max(s.base[0], s.base[1]) : 0;
-      if (!s.pidiendo && quiere > tiene && !(st.piramides.get(f.path) || {}).corriendo) {
-        pedidos.push({ prioridad: f.screen_area + 1e9, hacer: () => base(st, f.path, info, quiere) });
+      const archivo = await archivoDe(st, f.path);
+      if (!archivo || st !== e) continue;
+      const ident = await identDe(st, r, archivo);
+      if (st !== e) continue;
+      if (!f.set || f.set.ident !== ident) {
+        // Atar la ruta, en este documento, a este archivo; el editor empieza vacío y pide la raíz.
+        const w = editor();
+        if (w && w.ocs_image_tiles_open) {
+          const motivo = w.ocs_image_tiles_open(doc, f.path, ident, info.ancho, info.alto);
+          if (motivo) console.warn("CAD: el editor no tomó la imagen", f.path, motivo); else { st.abiertas.set(f.path, ident); abrio = true; }
+        }
+        continue;
       }
-      if (info.piramide === "falta" && !st.piramides.has(f.path)) piramide(st, f.path);
-      // Detalle: la parte visible a la resolución de la pantalla, cuando la vista completa no alcanza.
-      if (lado * d > Math.max(tiene, quiere) * 1.25 && lado > Math.max(tiene, quiere)) {
-        const [x0, y0, x1, y1] = f.rect;
-        const mx = (x1 - x0) * 0.15, my = (y1 - y0) * 0.15;      // margen para pequeños movimientos
-        const rect = [Math.max(0, (x0 - mx) * kx), Math.max(0, (y0 - my) * ky), Math.min(info.ancho, (x1 + mx) * kx), Math.min(info.alto, (y1 + my) * ky)];
-        let w = Math.round((rect[2] - rect[0]) * d), h = Math.round((rect[3] - rect[1]) * d);
-        const lim = Math.min(DETALLE_MAX, Math.ceil(Math.max(vw, vh) * escala * 1.3));
-        // Nunca más píxeles que los del archivo, ni más que la pantalla.
-        const k = Math.min(1, lim / Math.max(w, h), (rect[2] - rect[0]) / Math.max(1, w));
-        w = Math.max(1, Math.round(w * k)); h = Math.max(1, Math.round(h * k));
-        const dt = s.detalle;
-        const cubre = dt && dt.rect[0] <= x0 * kx && dt.rect[1] <= y0 * ky && dt.rect[2] >= x1 * kx && dt.rect[3] >= y1 * ky
-          && (dt.w / (dt.rect[2] - dt.rect[0])) >= 0.8 * (w / (rect[2] - rect[0]));
-        if (!cubre && !s.pidiendoDetalle && !(s.esperarHasta > performance.now())) pedidos.push({ prioridad: f.screen_area, hacer: () => detalle(st, f.path, info, rect, w, h) });
-      } else if (s.detalle && !s.pidiendoDetalle) {
-        s.detalle = null;
-        const w8 = editor(); if (w8 && w8.ocs_image_drop_detail) w8.ocs_image_drop_detail(f.path);
-      }
+      st.abiertas.set(f.path, ident);
+      const g = rejilla(info, f.set);
+      if (info.piramide === "falta" && !st.piramides.has(f.path)) piramide(st, f.path, f.set);
+      const pir = st.piramides.get(f.path);
+      // Mientras se arma la vista general, los niveles que salen de ella llegan con su progreso.
+      const desdeVista = pir && pir.corriendo && !pir.vistaLista ? g.nivelVista() : Infinity;
+      const quiere = moviendose ? f.want.filter(([z]) => z === f.level || z === f.set.top).slice(0, 24) : f.want;
+      quiere.forEach(([z, c, rr], i) => {
+        const clave = claveDe(doc, f.path, ident, z, c, rr);
+        deseados.add(clave);
+        if (z >= desdeVista || trabajos.has(clave) || (esperando.get(clave) || 0) > ahora) return;
+        if (entregas.some((x) => x.clave === clave)) return;
+        pedidos.push({ orden: i, area: f.screen_area, clave, hacer: () => leer(st, doc, f.path, ident, archivo, g, z, c, rr, clave) });
+      });
     }
-    pedidos.sort((a, b) => b.prioridad - a.prioridad);
+    // Lo que salió de la vista se corta: los trabajadores quedan para lo que se ve.
+    for (const [clave, t] of trabajos) if (t.st !== st || !deseados.has(clave)) { pool.cancelar(t.id); trabajos.delete(clave); }
+    pedidos.sort((a, b) => a.orden - b.orden || b.area - a.area);
     for (const p of pedidos) {
-      if (pool.libres() <= 0 || enVuelo > 6) break;
+      if (trabajos.size >= pool.cupo()) break;
       p.hacer();
     }
-    setTimeout(() => planear(), 140);
+    // Sin nada pendiente, se mira menos seguido (la vista quieta no pide nada).
+    const ocupado = abrio || trabajos.size || pedidos.length || entregas.length;
+    planear(abrio, ocupado ? 90 : 250);
   }
 
-  // Al editor, solo si `st` sigue al frente y la ruta sigue siendo suya: lo que llega tarde de una pestaña que pasó atrás se descarta.
-  // `esperado`: la entrada de `sum` con que se pidió; si se soltó mientras tanto (otra carpeta, otra pestaña), lo que llegó ya no sirve.
-  function dar(st, ruta, info, rect, r, archivo, esperado) {
-    const w = editor();
-    const s = sum.get(ruta);
-    if (!w || !w.ocs_image_supply || st !== e || !planos.has(st.plano) || (s && s.st !== st)) return false;
-    if (esperado !== undefined && s !== esperado) return false;
-    const motivo = w.ocs_image_supply(ruta, info.ancho, info.alto, rect[0], rect[1], rect[2], rect[3], r.ancho, r.alto, r.rgba);
-    if (motivo) { console.warn("CAD: el editor no tomó la imagen", ruta, motivo); return false; }
-    const x = s || { st, ident: null, base: null, detalle: null };
-    x.visto = performance.now();
-    if (archivo) x.ident = identDe(st.res.get(ruta), archivo);
-    sum.set(ruta, x);
-    return true;
-  }
-
-  async function base(st, ruta, info, lado) {
-    const s = sum.get(ruta);
-    s.pidiendo = true; enVuelo++;
+  async function leer(st, doc, ruta, ident, archivo, g, z, c, r, clave) {
+    const b = g.bloque(z, c, r);
+    const rect = g.archivo(z, b);
+    // Los mosaicos de una misma fila y nivel van al mismo trabajador: comparten sus bloques del TIFF (tiras anchas).
+    let h = 0;
+    for (const ch of `${ruta}|${z}|${r}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const { id, promesa } = pool.pedir({ tipo: "region", archivo, rect, ancho: b[2] - b[0], alto: b[3] - b[1], factor: 2 ** z }, { hilo: h % pool.hilos() });
+    trabajos.set(clave, { id, st });
     try {
-      const k = lado / Math.max(info.ancho, info.alto);
-      const ancho = Math.max(1, Math.round(info.ancho * k)), alto = Math.max(1, Math.round(info.alto * k));
-      const archivo = await archivoDe(st, ruta);
-      const r = await pool.pedir({ tipo: "region", archivo, rect: [0, 0, info.ancho, info.alto], ancho, alto }).promesa;
-      if (r.pendiente) return;
-      if (dar(st, ruta, info, [0, 0, info.ancho, info.alto], r, archivo, s)) { s.base = r.parcial ? [Math.min(r.ancho, 64), Math.min(r.alto, 64)] : [r.ancho, r.alto]; s.detalle = null; }
+      const x = await promesa;
+      if (trabajos.get(clave)?.id !== id) return;          // cortado o reemplazado
+      if (x.cancelada) return;
+      if (x.pendiente) { esperando.set(clave, performance.now() + ESPERA_SIN_FUENTE); return; }
+      entregas.push({ st, doc, ruta, ident, z, c, r, clave, ancho: x.ancho, alto: x.alto, rgba: x.rgba });
+      entregar();
     } catch (err) {
-      const x = st.res.get(ruta); if (x) x.error = String(err.message || err);
-      if (st === e) pintarPanel();
-    } finally { s.pidiendo = false; enVuelo--; planear(true); }
+      console.warn("CAD: mosaico", ruta, z, c, r, err);
+      esperando.set(clave, performance.now() + 5 * ESPERA_SIN_FUENTE);
+    } finally {
+      if (trabajos.get(clave)?.id === id) trabajos.delete(clave);
+      planear(true);
+    }
   }
 
-  async function detalle(st, ruta, info, rect, ancho, alto) {
-    const s = sum.get(ruta);
-    s.pidiendoDetalle = true; enVuelo++;
-    try {
-      const archivo = await archivoDe(st, ruta);
-      const r = await pool.pedir({ tipo: "region", archivo, rect, ancho, alto }).promesa;
-      // Sin la pirámide todavía: lo más fino que hay, y otra vez en un momento (no en cada paso).
-      if (r.pendiente || r.parcial) s.esperarHasta = performance.now() + 1500;
-      if (r.pendiente || !s.base) return;
-      if (dar(st, ruta, info, rect, r, archivo, s)) s.detalle = r.parcial ? { rect, w: 1, h: 1 } : { rect, w: r.ancho, h: r.alto };
-    } catch (err) {
-      console.warn("CAD: detalle", ruta, err);
-    } finally { s.pidiendoDetalle = false; enVuelo--; planear(true); }
+  // Al editor, unos pocos por cuadro: cada mosaico nuevo es una textura que sube, y así ningún cuadro se alarga.
+  let cuadro = 0;
+  function entregar() {
+    if (cuadro) return;
+    cuadro = requestAnimationFrame(() => {
+      cuadro = 0;
+      const w = editor();
+      for (let k = 0; k < ENTREGAS_POR_CUADRO && entregas.length; k++) {
+        const x = entregas.shift();
+        // Lo que llega tarde de una pestaña cerrada o de un archivo que ya no es el de esa ruta se descarta (el editor también).
+        if (!w || !w.ocs_image_tile || !planos.has(x.st.plano) || x.st.abiertas.get(x.ruta) !== x.ident) continue;
+        const motivo = w.ocs_image_tile(x.doc, x.ruta, x.ident, x.z, x.c, x.r, x.ancho, x.alto, x.rgba);
+        if (motivo && motivo !== "Stale") console.warn("CAD: el editor no tomó el mosaico", x.ruta, x.z, x.c, x.r, motivo);
+      }
+      if (entregas.length) entregar();
+    });
   }
 
-  async function piramide(st, ruta) {
+  async function piramide(st, ruta, set) {
     const archivo = await archivoDe(st, ruta);
     const info = st.res.get(ruta).info;
-    const p = { progreso: 0, corriendo: true };
+    const g = rejilla(info, set);
+    const p = { progreso: 0, corriendo: true, vistaLista: false };
     st.piramides.set(ruta, p);
     if (st === e) pintarPanel();
-    const { id, promesa } = pool.pedir({ tipo: "piramide", archivo }, {
+    const ident = await identDe(st, st.res.get(ruta), archivo);
+    const { id, promesa } = pool.pedir({ tipo: "piramide", archivo,
+      teselas: { ancho: info.ancho, alto: info.alto, tile: set.tile, gutter: set.gutter, top: set.top, desde: g.nivelVista() } }, {
       progreso: (m) => {
         p.progreso = m.progreso;
-        if (m.base) {
-          const r = { rgba: new Uint8Array(m.base.rgba.buffer || m.base.rgba), ancho: m.base.ancho, alto: m.base.alto };
-          if (dar(st, ruta, info, [0, 0, info.ancho, info.alto], r, archivo)) {
-            const s = sum.get(ruta); s.base = [r.ancho, r.alto]; s.detalle = null;
-          }
+        p.vistaLista = !!m.vistaLista;
+        const doc = st.documento || (st.vista && st.vista.document_id);
+        for (const t of m.teselas || []) {
+          entregas.push({ st, doc, ruta, ident, z: t.z, c: t.c, r: t.r, clave: claveDe(doc, ruta, ident, t.z, t.c, t.r),
+            ancho: t.ancho, alto: t.alto, rgba: new Uint8Array(t.rgba.buffer || t.rgba) });
         }
+        if (m.teselas && m.teselas.length) entregar();
         if (st === e) pintarProgreso(ruta);
       },
     });
@@ -445,6 +478,8 @@
     } catch (err) {
       p.corriendo = false; p.error = String(err.message || err);
     }
+    // Lo que esperaba fuente puede salir ya de la pirámide.
+    for (const [clave] of esperando) if (clave.includes(`|${ruta}|`)) esperando.delete(clave);
     if (st === e) pintarPanel();
     planear(true);
   }
@@ -599,8 +634,7 @@
     } catch (_) { /* la vista se queda donde estaba */ }
     // Sus píxeles, desde este archivo.
     st.res.set(x.ruta, { estado: x.enCarpeta ? "ruta" : "nombre", entrada: { ruta: x.ruta.replace(/\\/g, "/"), nombre: x.archivo.name, archivo: x.archivo }, archivo: x.archivo, coincide: 1, candidatos: [], info: x.info });
-    // Lo que el editor tuviera de esa ruta era de otro plano (u otro archivo): se vuelve a dar desde este.
-    if (sum.has(x.ruta)) soltar(x.ruta);
+    // Si el editor tenía esa ruta atada a otro archivo, la próxima vuelta la ata a este (otro `ident`) y empieza de cero.
     const w = r.result && r.result.crs_warning;
     if (w && !st.avisoCrs) {
       st.avisoCrs = true;
@@ -674,7 +708,7 @@
     acc.className = "cad-local__acciones";
     const boton = (texto, fn, titulo2) => { const x = document.createElement("button"); x.type = "button"; x.className = "tv-boton tv-boton--secundario cad-local__chico"; x.textContent = texto; if (titulo2) x.title = titulo2; x.addEventListener("click", fn); acc.append(x); };
     if (p && p.corriendo) boton("Detener", () => detenerPiramide(ruta));
-    else if (p && p.detenida) boton("Continuar", () => { e.piramides.delete(ruta); piramide(e, ruta); });
+    else if (p && p.detenida) boton("Continuar", () => { e.piramides.delete(ruta); planear(true); });
     if (tipo === "imagen" && extra !== undefined) {
       const im = e.refs.images.find((x) => x.path === ruta);
       if (im) {
@@ -865,7 +899,7 @@
     const r = extra.length ? await pedir({ op: "batch", steps: [peticion, ...extra], label: etiqueta || "IMAGEATTACH" }, { tiempoMs: 120000 }) : await pedir(peticion);
     const res = extra.length ? r.result.steps[0].result : r.result;
     st.res.set(ruta, { estado: enCarpeta ? "ruta" : "nombre", entrada: { ruta: ruta.replace(/\\/g, "/"), nombre: archivo.name, archivo }, archivo, coincide: 1, candidatos: [], info });
-    if (sum.has(ruta)) soltar(ruta);
+    // Si el editor tenía esa ruta atada a otro archivo, la próxima vuelta la ata a este (otro `ident`) y sus mosaicos empiezan de cero.
     await refrescar(st);
     return res;
   }
@@ -883,9 +917,13 @@
       raices: e.raices.map((r) => r.nombre || (r.handle && r.handle.name)),
       permisoPendiente: e.permisoPendiente,
       resueltas: [...e.res.entries()].map(([ruta, r]) => ({ ruta, estado: r.estado, archivo: r.entrada && r.entrada.ruta, error: r.error || null })),
-      suministradas: [...sum.entries()].filter(([, s]) => s.st === e).map(([ruta, s]) => ({ ruta, base: s.base, detalle: s.detalle && { rect: s.detalle.rect, w: s.detalle.w, h: s.detalle.h } })),
+      // Lo que el editor tiene de cada imagen de la vista: atada a qué archivo, si ya está su raíz (la imagen entera), cuántos mosaicos,
+      // el nivel que la vista necesita y si ya están todos los que se ven.
+      suministradas: ((e.vista && e.vista.views) || []).filter((f) => f.set).map((f) => ({ ruta: f.path, ident: f.set.ident,
+        raiz: f.set.root, teselas: f.set.tiles, bytes: f.set.bytes, nivel: f.level, completa: !!f.complete, faltan: f.want.length })),
+      leyendo: trabajos.size, porEntregar: entregas.length,
       piramides: [...e.piramides.entries()].map(([ruta, p]) => ({ ruta, progreso: p.progreso, corriendo: !!p.corriendo, segundos: p.segundos || null, error: p.error || null })),
-      editor: [...sum.entries()].filter(([, s]) => s.base).map(([ruta, s]) => ({ ruta, plano: s.st.plano, base: s.base, detalle: !!s.detalle })),
+      editorBytes: (e.vista && e.vista.tiles_bytes) || 0,
       planos: [...planos.values()].map((st) => ({ plano: st.plano, documento: st.documento, raices: st.raices.length, guardadas: st.guardadas.length,
         permisoPendiente: st.permisoPendiente, resueltas: st.res.size })),
     }),
@@ -895,5 +933,8 @@
     // Los dibujos de la carpeta vinculada al plano a la vista ([{ruta, nombre}]) y el archivo de uno: se leen aquí, nunca se suben.
     dibujos: () => (e.dibujos || []).map((x) => ({ ruta: x.ruta, nombre: x.nombre })),
     archivo: async (ruta) => { const x = (e.dibujos || []).find((d) => d.ruta === ruta); return x ? C.archivoDe(x) : null; },
+    // Entrada estable de «Insertar imagen georreferenciada» para otros módulos de la página: `archivos` es una lista de File (la
+    // imagen y, si hay, su archivo de mundo), como la daría el selector. Abre la misma hoja (lugar, capa, «Insertar»).
+    insertarImagen: (archivos) => desdeEntradaImagen(archivos),
   });
 })();
