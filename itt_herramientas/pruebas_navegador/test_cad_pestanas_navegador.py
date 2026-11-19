@@ -320,6 +320,85 @@ def test_copiar_y_pegar_entre_pestanas(cad, abrir, crear_usuario, roles, motor):
     assert cuantos(p) == 1
 
 
+# -- Cambiar de pestaña con el editor lento ---------------------------------------------------------------------------------------
+# La página lee el estado del editor una vez por segundo y, si el editor muestra otro documento (lo cambió solo: CLOSE, NUEVO, ABRIR),
+# la sigue. Con el equipo cargado esa lectura llegaba vieja (pedida antes del cambio de pestaña) o caía mientras el plano nuevo aún no
+# estaba en el editor, y la página «seguía» al editor de vuelta al plano anterior: el nuevo quedaba detrás y la cabecera, TVCad y la
+# carpeta del proyecto (TVCadLocal) en el otro plano. Aquí se fuerzan las dos carreras, sin depender del reloj del equipo.
+
+def _vista_de(p, plano_id):
+    """La pestaña activa, la cabecera, TVCad, TVCadLocal y el documento que muestra el editor: todo en `plano_id`."""
+    t = next(x for x in pestanas(p) if x["id"] == plano_id)
+    return {
+        "activa": [x["id"] for x in pestanas(p) if x["activa"]],
+        "tvcad": p.evaluate("TVCad.estado().plano && TVCad.estado().plano.id"),
+        "local": p.evaluate(f"window.TVCadLocal ? TVCadLocal.estado().plano : {plano_id!r}"),
+        "cabecera": p.locator("#cad-nombre").text_content(),
+        "editor": pedir(p, {"op": "state"}).get("document_id") == t["documento"],
+        "editable": t["editable"],
+    }
+
+
+@pytest.mark.parametrize("motor", MOTORES)
+def test_cambiar_de_pestana_con_el_editor_lento_termina_en_la_activa(cad, abrir, crear_usuario, roles, motor):
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    a = servicio.crear_vacio(ana, "Primero", "", "dxf")
+    b = servicio.crear_vacio(ana, "Segundo", "", "dxf")
+    n = abrir(ana, motor)
+    p = n.ir(f"/cad/{a.pk}/")
+    esperar_estado(p, "guardado")
+    esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
+    # Lo que llega a las extensiones (control.js → local.js, Civil): el orden de los «cargado».
+    p.evaluate("() => { window.__cargados = []; TVCad.on('cargado', (d) => window.__cargados.push(d.plano.id)); }")
+
+    # 1. El plano nuevo tarda en llegar al editor (aquí, su bloqueo tarda 3 s): varias lecturas del estado caen mientras el editor sigue
+    #    mostrando el anterior. La pestaña nueva tiene que quedar al frente, no volver a «Primero».
+    p.evaluate("""([id, ms]) => {
+        const f = window.fetch;
+        let una = false;
+        window.fetch = function (u, o) {
+            const url = String((u && u.url) || u);
+            if (!una && o && o.method === 'POST' && url.includes(`/cad/${id}/bloqueo/`)) {
+                una = true;
+                return new Promise((r) => setTimeout(r, ms)).then(() => f.call(this, u, o));
+            }
+            return f.call(this, u, o);
+        };
+    }""", [str(b.pk), 3000])
+    assert p.evaluate("id => TVCadPestanas.abrir(id)", str(b.pk)) == str(b.pk)
+    esperar_pestanas(p, 2)
+    p.wait_for_timeout(2500)                                                    # más lecturas del estado, ya con los dos abiertos
+    assert _vista_de(p, str(b.pk)) == {"activa": [str(b.pk)], "tvcad": str(b.pk), "local": str(b.pk), "cabecera": "Segundo",
+                                       "editor": True, "editable": True}
+    assert str(a.pk) not in p.evaluate("window.__cargados"), p.evaluate("window.__cargados")
+
+    # 2. Una lectura del estado pedida ANTES de cambiar de pestaña llega DESPUÉS (el editor ocupado): dice que se ve «Segundo». La
+    #    página no debe volver a él; las extensiones solo ven «Primero».
+    p.evaluate("""() => {
+        const c = document.getElementById('cad-editor').contentWindow.ocsControl, pedirOriginal = c.request;
+        window.__retener = true; window.__retenida = null;
+        c.request = async function (q, o) {
+            const r = await pedirOriginal.call(this, q, o);
+            if (window.__retener && q && q.op === 'state' && String(q.request_id).startsWith('tv-')) {
+                window.__retener = false;
+                await new Promise((soltar) => { window.__retenida = soltar; });
+            }
+            return r;
+        };
+    }""")
+    esperar(p, "!!window.__retenida", LARGO)
+    p.evaluate("() => { window.__cargados = []; }")
+    p.evaluate("id => TVCadPestanas.activar(id)", str(a.pk))
+    p.evaluate("() => window.__retenida()")
+    p.wait_for_timeout(2500)
+    assert _vista_de(p, str(a.pk)) == {"activa": [str(a.pk)], "tvcad": str(a.pk), "local": str(a.pk), "cabecera": "Primero",
+                                       "editor": True, "editable": True}
+    assert set(p.evaluate("window.__cargados")) == {str(a.pk)}, p.evaluate("window.__cargados")
+    # Las dos pestañas siguen con su bloqueo y su latido: la de atrás no lo soltó.
+    assert all(t["editable"] for t in pestanas(p))
+    assert not n.errores, n.errores
+
+
 def test_el_maximo_de_pestanas_se_dice_claro(cad, abrir, crear_usuario, roles, settings):
     settings.HERRAMIENTAS_CAD_PESTANAS_MAX = 2
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")

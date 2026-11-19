@@ -184,6 +184,14 @@ pestañas de archivo de AutoCAD; también en pantalla completa.
 - **Recargar** vuelve a abrir las mismas pestañas, en su orden y con la misma activa, cada una con su recuperación de borrador de siempre.
   Se recuerdan en este dispositivo, por ventana del navegador (`localStorage tv.cad.pestanas`, la ventana en `sessionStorage`): una ventana
   no pisa las pestañas de otra.
+- **Cambiar de pestaña siempre termina en la pestaña elegida**, también con el equipo cargado. La página lee el estado del editor una vez
+  por segundo y, si el editor cambió solo de documento (CLOSE, NUEVO o ABRIR dentro de él), lo sigue. Hasta 1.2.21 esa lectura podía
+  ganarle a la persona: caía mientras el plano nuevo aún tomaba su bloqueo o bajaba (el editor seguía mostrando el anterior) o llegaba
+  después de cambiar de pestaña habiendo sido pedida antes; la página «seguía» al editor de vuelta al plano anterior, el nuevo quedaba
+  detrás y la cabecera, `TVCad` y la carpeta del proyecto (`TVCadLocal`) en el otro plano. Ahora una lectura pedida antes de cualquier
+  cambio de la página (mostrar una pestaña, abrir, activar o cerrar un documento) se descarta, y mientras la pestaña activa abre su
+  plano la página no sigue al editor. Lo prueba `test_cambiar_de_pestana_con_el_editor_lento_termina_en_la_activa` forzando las dos
+  carreras (un bloqueo que tarda 3 s; una lectura del estado retenida hasta después del cambio).
 - **Un dibujo que no es de la biblioteca** (NUEVO dentro del editor, o un archivo de este equipo con ABRIR) sale como pestaña «Fuera de la
   biblioteca»: «Guardar en la biblioteca» lo deja como plano nuevo (`POST /cad/desde/editor/`) y la pestaña pasa a ser ese plano.
 - **Guardar como copia** (conflicto, bloqueo perdido) deja la copia en la misma pestaña, sin salir de la página.

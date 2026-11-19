@@ -40,7 +40,7 @@
         listo: false, cargado: false, editable: false, sucio: false, sucioDesde: 0, ultimoBorrador: 0,
         guardando: false, bufferPendiente: null, lecturaMotivo: "", perdido: false, salirDespues: null, recuperado: false },
       documento: null, revEditor: 0, revGuardada: 0, revBorrador: null, revTelefono: null, borradorServidor: null,
-      latido: null, vigia: null, borradorEnCurso: false, cerrando: false,
+      latido: null, vigia: null, borradorEnCurso: false, cerrando: false, abriendo: false,
       aviso: { lectura: null, error: null, borrador: "" },
     };
     pestanas.push(t);
@@ -210,11 +210,13 @@
     return r;
   }
   // Lo que cambia los documentos del editor (abrir, cerrar, activar) va de uno en uno: el editor abre un plano a la vez.
-  let cadena = Promise.resolve(), enCurso = 0;
+  // `vuelta` cuenta cada cambio de la página en lo que el editor debe mostrar (una pestaña al frente, el comienzo y el fin de abrir,
+  // activar o cerrar un documento): una lectura del estado del editor pedida en otra vuelta ya no dice lo que se ve (ver la vigilancia).
+  let cadena = Promise.resolve(), enCurso = 0, vuelta = 0;
   function enCola(fn) {
-    enCurso += 1;
+    enCurso += 1; vuelta += 1;
     const r = cadena.then(() => fn());
-    cadena = r.catch(() => {}).finally(() => { enCurso -= 1; });
+    cadena = r.catch(() => {}).finally(() => { enCurso -= 1; vuelta += 1; });
     return r;
   }
   function base64(buffer) {
@@ -456,7 +458,11 @@
     if (consultando || !control || document.visibilityState === "hidden" || !pestanas.some((t) => t.e.cargado && t.documento)) return;
     consultando = true;                                                    // nunca dos consultas a la vez: en un equipo lento se apilarían
     try {
+      const desde = vuelta;
       const est = await canal({ op: "state" }, 5000);
+      // Pedida antes de un cambio de pestaña y respondida después (el editor ocupado, el equipo cargado), la lectura es de lo que se
+      // veía antes: seguirla devolvía la página a la pestaña anterior. Se descarta; la siguiente ya es de ahora.
+      if (vuelta !== desde) return;
       const docs = est.documents || [];
       for (const t of pestanas.slice()) {
         if (!t.e.cargado || !t.documento || t.cerrando) continue;
@@ -508,7 +514,9 @@
       pintarPestanas();
     }
     const visible = pestanas.find((t) => t.documento === est.document_id);
-    if (visible && visible !== activa) mostrar(visible);
+    // Mientras la pestaña activa abre su plano (su bloqueo, sus bytes, el editor abriéndolo), el editor aún muestra el anterior: lo
+    // que pidió la persona manda y la página no se va con él. Al terminar de abrir, el editor muestra el plano de la pestaña.
+    if (visible && visible !== activa && !activa.abriendo) mostrar(visible);
   }
   // El documento ya no está en el editor (CLOSE dentro del editor; si tenía cambios, el editor preguntó y lo guardado llegó por
   // `openCadStudioSaveFile`): la pestaña se quita.
@@ -971,6 +979,7 @@
   async function alListo(t) {
     if (t.e.listo) return;
     t.e.listo = true;
+    t.abriendo = true;
     cargaDe(t, "Abriendo el plano…");
     const e = t.e;
     try {
@@ -997,6 +1006,9 @@
     } catch (err) {
       if (err.message !== "eliminado") error(t, err.message);
       cargaDe(t, "");
+    } finally {
+      t.abriendo = false;
+      vuelta += 1;
     }
   }
 
@@ -1435,6 +1447,7 @@
   }
   // Solo la vista de la página (la cabecera); el editor ya muestra ese documento.
   function mostrar(t) {
+    if (activa !== t) vuelta += 1;
     activa = t;
     pintarCabecera(t);
     pintarPestanas();
