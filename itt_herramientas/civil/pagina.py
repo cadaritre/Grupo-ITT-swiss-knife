@@ -9,7 +9,7 @@ from django.urls import reverse
 from .motor.dibujos import BLOQUES, CAPAS_PUNTOS, CAPAS_TIN
 from .motor.escala import ALTURAS_MM, ESCALAS_COMUNES
 from .motor.geodesia import ZONAS_MEXICO
-from .motor.puntos import ORDENES
+from .motor.puntos import COLUMNAS, ORDENES
 
 MARCA = "00000000-0000-0000-0000-000000000000"
 
@@ -58,6 +58,9 @@ MENUS = (
     {"clave": "plano", "nombre": "Plano", "icono": "grid-3x3", "acciones": (
         {"clave": "cuadricula", "nombre": "Cuadrícula UTM…", "icono": "grid-3x3"},
         {"clave": "lotes", "nombre": "Lotificar manzana…", "icono": "layout-grid"},
+        {"separador": True},
+        {"clave": "importar_kml", "nombre": "Importar KML o KMZ…", "icono": "earth"},
+        {"clave": "exportar_kml", "nombre": "Exportar KML o KMZ…", "icono": "file-output"},
     )},
     {"clave": "ejes", "nombre": "Perfiles", "icono": "chart-line", "acciones": (
         {"clave": "eje_espirales", "nombre": "Eje con espirales…", "icono": "route"},
@@ -88,10 +91,12 @@ def contexto_panel() -> dict:
         "escalas": ESCALAS_COMUNES,
         "alturas": [{"clave": k, "nombre": NOMBRES_ALTURA.get(k, k), "mm": v} for k, v in ALTURAS_MM.items() if k in NOMBRES_ALTURA],
         "ordenes": ORDENES,
+        "columnas": tuple(COLUMNAS.items()),
         "intervalos": ("0.1", "0.25", "0.5", "1", "2", "5", "10", "20"),
         "maestras": (2, 4, 5, 10),
         "decimales": (0, 1, 2, 3, 4),
-        "iconos": ("triangle-alert", "circle-alert"),
+        "decimales_geo": (4, 5, 6, 7, 8, 9, 10),
+        "iconos": ("triangle-alert", "circle-alert", "x", "trash-2", "plus"),
         "zonas": ZONAS_MEXICO,
     }
 
@@ -119,9 +124,12 @@ def contexto(plano) -> dict:
         "panel": reverse("herramientas:cad_panel_civil") + f"?v={panel()[1]}",
         "config": {
             "plano": str(plano.pk),
-            "urls": {"orden": reverse("herramientas:civil_orden", args=["__ORDEN__"]), "tarea": reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA})},
+            "urls": {"orden": reverse("herramientas:civil_orden", args=["__ORDEN__"]), "tarea": reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA}),
+                     "formatos": reverse("herramientas:civil_formatos")},
             "alturas_mm": dict(ALTURAS_MM),
             "capas": {"puntos": {k: CAPAS_PUNTOS[k].nombre for k in ("terreno", "proyecto")}, "tin": {k: c.nombre for k, c in CAPAS_TIN.items()}},
             "bloques": dict(BLOQUES),
+            "columnas": [[k, n] for k, n in COLUMNAS.items()],
+            "ordenes": dict(ORDENES),
         },
     }

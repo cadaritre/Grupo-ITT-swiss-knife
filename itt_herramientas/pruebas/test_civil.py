@@ -232,13 +232,16 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
                   "Insertar puntos", "Rumbo y distancia de lados", "Numerar vértices", "Memoria descriptiva", "Cuadrícula UTM", "UTM-GPS", "Zona UTM",
                   "Dibujar punto", "Editar punto", "Etiquetas de puntos", "Convertir puntos", "Etiquetar curvas", "Suavizar curvas",
                   "Curva masa", "Lotificar manzana", "Carretera", "Despalme", "Sobreelevación y ampliación en las curvas (SCT)", "C3R3", "T3S2R4", "T3S3", "Eje con espirales",
-                  "Seleccionar puntos en el plano", "Dentro de un polígono", "Unir curvas cortadas", "Unir y etiquetar", "Poner aquí"):
+                  "Seleccionar puntos en el plano", "Dentro de un polígono", "Unir curvas cortadas", "Unir y etiquetar", "Poner aquí",
+                  "Importar KML o KMZ", "Exportar KML o KMZ", "Formato guardado", "Guardar formato", "Cómo está escrito el archivo",
+                  "Con la superficie de proyecto (triangulación de proyecto)", "Delimitador", "Tratar delimitadores seguidos como uno"):
         assert nuevo in html, nuevo
     # la curva nunca se corta bajo su etiqueta; y lo que agrega un bloque siempre pregunta dónde va (sin «Debajo del plano» automático)
     for quitado in ("Cortar la curva bajo la etiqueta", "Debajo del plano", "A un lado del plano", "Junto al polígono"):
         assert quitado not in html, quitado
     cfg = json.loads(pagina.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
     assert cfg["capas"]["tin"]["terreno"] == "TRIANGULACION" and cfg["bloques"]["terreno"] == "PT_TERRENO"
+    assert cfg["urls"]["formatos"].endswith("/cad/civil/formatos/") and ["LAT", "Latitud"] in cfg["columnas"] and cfg["ordenes"]["PNEZD"]
     assert "__ORDEN__" in cfg["urls"]["orden"]
     html = cliente_de(supervisora).get(url("cad_plano", pk=p.pk)).content.decode()
     assert "civil-barra" not in html and "civil-panel" not in html
@@ -253,3 +256,169 @@ def editor_civil(tmp_path, settings):
     (base / "index.html").write_text("<!doctype html><title>x</title>")
     settings.HERRAMIENTAS_CAD_EDITOR_DIR = str(tmp_path / "editor")
     return base
+
+
+# -- Archivos de puntos con cualquier formato, KML y superficie de proyecto (motor 0.9) ----------------------------------------------
+
+def _b64(texto: str) -> str:
+    return base64.b64encode(texto.encode()).decode()
+
+
+def test_importar_puntos_con_delimitador_propio_y_columnas_en_el_orden_que_se_quiera(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+    texto = "Punto::Cota::Este::Norte::Nota\r\n1::2240,5::483250,125::2148870,5::BN\r\n2::2241,25::483260,5::2148880,25::TN\r\n"
+    fm = {"delimitador": "::", "decimal": ",", "saltar": 1, "columnas": ["P", "Z", "E", "N", "D"]}
+    d = mandar(cl, "importar_puntos", {"archivo": _b64(texto), "solo_vista": True, "formato": fm, "escala": {"zona": 14}}).json()["resultado"]
+    assert d["resumen"]["puntos"] == 2 and d["formato"]["delimitador"] == "::" and d["formato"]["columnas"] == ["P", "Z", "E", "N", "D"]
+    assert d["muestra"][0] == ["1", 483250.125, 2148870.5, 2240.5, "BN"] and d["tabla"][0]["campos"][1] == "2240,5"
+    # el mismo archivo sin decir nada de columnas: la hoja recibe los renglones para elegirlas
+    sin = mandar(cl, "importar_puntos", {"archivo": _b64("a;b;c\nx;y;z\n"), "solo_vista": True, "escala": {"zona": 14}}).json()["resultado"]
+    assert "orden de las columnas" in sin["error"] and sin["campos"] == 3 and sin["tabla"][1]["campos"] == ["x", "y", "z"]
+    # y la orden completa dibuja
+    r = mandar(cl, "importar_puntos", {"archivo": _b64(texto), "formato": fm, "escala": {"denominador": 500, "zona": 14}}).json()["resultado"]
+    doc = ezdxf.read(io.StringIO(base64.b64decode(r["dxf"]).decode()))
+    assert sorted(i.get_attrib_text("NUM") for i in doc.modelspace().query("INSERT")) == ["1", "2"]
+    # un delimitador que choca con el calificador o un decimal imposible se dicen con claridad
+    mal = mandar(cl, "importar_puntos", {"archivo": _b64(texto), "formato": {"delimitador": '"', "calificador": '"'}})
+    assert mal.status_code == 422 and "calificador" in mal.json()["error"]
+
+
+def test_exportar_puntos_con_formato_propio(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+    pts = [[483250.126, 2148870.5, 2240.5, "1", "BN, NORTE"], [483260.5, 2148880.25, 2241.0, "2", ""]]
+    fm = {"delimitador": ";", "decimal": ",", "columnas": ["P", "N", "E", "Z", "D"], "decimales": 2, "decimales_z": 1, "encabezado": True}
+    r = mandar(cl, "exportar_puntos", {"puntos": pts, "formato": fm}).json()["resultado"]
+    lineas = base64.b64decode(r["archivo"]).decode().splitlines()
+    assert lineas[0].split(";") == ["Punto", "Norte", "Este", "Elevacion", "Descripcion"]
+    assert lineas[1] == "1;2148870,50;483250,13;2240,5;BN, NORTE"
+
+
+def test_kml_sale_del_plano_y_vuelve_igual(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+    lote = {"vertices": [[X0, Y0], [X0 + 40, Y0], [X0 + 40, Y0 + 25], [X0, Y0 + 25]], "cerrada": True, "capa": "LOTES"}
+    r = mandar(cl, "exportar_kml", {"polilineas": [lote], "puntos": [[X0 + 5, Y0 + 5, 12.5, "7", "BN"]], "textos": [{"valor": "LOTE 9", "posicion": [X0 + 20, Y0 + 12], "altura": 3}],
+                                    "nombres": {"modo": "etiqueta"}, "formato": "kmz", "nombre": "Predio", "escala": {"zona": 14}}).json()["resultado"]
+    assert r["extension"] == "kmz" and r["resumen"]["poligonos"] == 1 and r["resumen"]["superficie"] == pytest.approx(1000)
+    vista = mandar(cl, "importar_kml", {"archivo": r["archivo"], "solo_vista": True, "escala": {"zona": 14}}).json()["resultado"]
+    assert (vista["resumen"]["poligonos"], vista["resumen"]["puntos"], vista["resumen"]["kmz"]) == (1, 1, True) and "dxf" not in vista
+    dentro = mandar(cl, "importar_kml", {"archivo": r["archivo"], "escala": {"zona": 14}, "puntos_como": "proyecto"}).json()["resultado"]
+    doc = ezdxf.read(io.StringIO(base64.b64decode(dentro["dxf"]).decode()))
+    poli, = [p for p in doc.modelspace().query("LWPOLYLINE") if p.closed]
+    assert sorted((round(x, 3), round(y, 3)) for x, y in poli.get_points("xy")) == sorted([(X0, Y0), (X0 + 40, Y0), (X0 + 40, Y0 + 25), (X0, Y0 + 25)])
+    ins, = doc.modelspace().query("INSERT")
+    assert ins.dxf.name == "PT_PROYECTO" and ins.get_attrib_text("DESC") == "7"
+    # sin zona del plano no se puede convertir, y un archivo que no es KML se dice
+    assert "zona" in mandar(cl, "importar_kml", {"archivo": r["archivo"]}).json()["error"].lower()
+    assert mandar(cl, "importar_kml", {"archivo": _b64("hola"), "escala": {"zona": 14}}).status_code == 422
+
+
+def test_perfil_secciones_y_curva_masa_leen_la_superficie_de_proyecto(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+
+    def plano(z):
+        return [{"handle": "A", "vertices": [[X0 - 50, Y0 - 50, z], [X0 + 150, Y0 - 50, z], [X0 + 150, Y0 + 50, z]]},
+                {"handle": "B", "vertices": [[X0 - 50, Y0 - 50, z], [X0 + 150, Y0 + 50, z], [X0 - 50, Y0 + 50, z]]}]
+
+    eje = {"vertices": [[X0, Y0], [X0 + 80, Y0]]}
+    base = {"caras": plano(100.0), "caras_proyecto": plano(99.0), "eje": eje, "intervalo": 20}
+    def resultado(d):
+        return cl.get(d["resultado"]["url"]).json() if "url" in (d.get("resultado") or {}) else d["resultado"]
+
+    p = resultado(mandar(cl, "perfil", base).json())
+    assert all(e[1] == pytest.approx(100) and e[2] == pytest.approx(99) for e in p["estaciones"])
+    s = resultado(mandar(cl, "secciones", {**base, "izquierda": 20, "derecha": 20}).json())
+    assert s["resumen"]["corte"] == pytest.approx(40 * 80) and s["resumen"]["terraplen"] == pytest.approx(0)
+    m = resultado(mandar(cl, "curva_masa", {**base, "izquierda": 20, "derecha": 20}).json())
+    assert m["resumen"]["corte"] == pytest.approx(40 * 80)
+    # rasante y superficie de proyecto no se mezclan
+    r = mandar(cl, "secciones", {**base, "rasante": [[0, 99], [80, 99]]})
+    assert r.status_code == 422 and "elige una" in r.json()["error"]
+
+
+# -- Formatos de puntos guardados por cuenta ---------------------------------------------------------------------------------------
+
+def formatos(cliente, uso, **extra):
+    return cliente.get(url("civil_formatos"), {"uso": uso, **extra})
+
+
+def guardar(cliente, uso, nombre, datos):
+    return cliente.post(url("civil_formatos") + f"?uso={uso}", json.dumps({"nombre": nombre, "datos": datos}), content_type="application/json")
+
+
+MI_ESTACION = {"delimitador": ";", "juntar": False, "calificador": '"', "decimal": ",", "columnas": ["P", "N", "E", "Z", "D"], "saltar": 1}
+
+
+def test_formatos_guardados_se_guardan_se_reemplazan_y_se_borran(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+    assert formatos(cl, "importar").json()["formatos"] == []
+    r = guardar(cl, "importar", "  Mi   estación ", MI_ESTACION)
+    assert r.status_code == 200 and r["Cache-Control"] == "private, no-store"
+    d = r.json()
+    assert d["guardado"]["nombre"] == "Mi estación" and d["guardado"]["datos"]["columnas"] == ["P", "N", "E", "Z", "D"] and d["guardado"]["datos"]["decimal"] == ","
+    # el mismo nombre (sin importar mayúsculas) lo reemplaza; no se duplica
+    guardar(cl, "importar", "MI ESTACIÓN", {**MI_ESTACION, "delimitador": "\t"})
+    lista = formatos(cl, "importar").json()["formatos"]
+    assert [f["nombre"] for f in lista] == ["MI ESTACIÓN"] and lista[0]["datos"]["delimitador"] == "\t"
+    # importar y exportar son listas distintas
+    assert formatos(cl, "exportar").json()["formatos"] == []
+    guardar(cl, "exportar", "Colector X", {"delimitador": ",", "columnas": ["P", "E", "N", "Z", "D"], "decimales": 2, "encabezado": True})
+    assert [f["nombre"] for f in formatos(cl, "exportar").json()["formatos"]] == ["Colector X"]
+    r = cl.delete(url("civil_formatos") + "?uso=importar&nombre=mi%20estaci%C3%B3n")
+    assert r.status_code == 200 and r.json()["formatos"] == []
+    assert cl.delete(url("civil_formatos") + "?uso=importar&nombre=ya%20no%20est%C3%A1").status_code == 404
+
+
+def test_formatos_guardados_se_validan(cliente_de, dibujante):
+    cl = cliente_de(dibujante)
+    for nombre, datos, texto in [("", MI_ESTACION, "nombre"), ("x" * 61, MI_ESTACION, "60"), ("A", {**MI_ESTACION, "columnas": ["P", "Z", "Z"]}, "dos veces"),
+                                 ("A", {**MI_ESTACION, "delimitador": "123456789"}, "8 caracteres"), ("A", {**MI_ESTACION, "decimal": ";"}, "decimal"),
+                                 ("A", {**MI_ESTACION, "saltar": 5000}, "saltan"), ("A", "no es un formato", "formato")]:
+        r = guardar(cl, "importar", nombre, datos)
+        assert r.status_code == 422 and texto in r.json()["error"], (nombre, r.json())
+    assert guardar(cl, "otro", "A", MI_ESTACION).status_code == 422
+    assert formatos(cl, "otro").status_code == 422
+    assert cl.post(url("civil_formatos") + "?uso=importar", b"{no es json", content_type="application/json").status_code == 422
+    assert cl.post(url("civil_formatos") + "?uso=importar", b"[1]", content_type="application/json").status_code == 422
+    assert cl.put(url("civil_formatos") + "?uso=importar", b"{}", content_type="application/json").status_code == 405
+    # solo se guarda lo que el motor entiende: nada de claves de más
+    d = guardar(cl, "importar", "Limpio", {**MI_ESTACION, "x": {"a": 1}, "__proto__": 1}).json()["guardado"]["datos"]
+    assert set(d) == {"delimitador", "juntar", "calificador", "decimal", "columnas", "saltar"}
+
+
+def test_formatos_guardados_tienen_tope_por_cuenta_y_uso(cliente_de, dibujante, otra, monkeypatch):
+    monkeypatch.setattr(servicio, "MAX_FORMATOS", 3)
+    cl = cliente_de(dibujante)
+    for k in range(3):
+        assert guardar(cl, "importar", f"F{k}", MI_ESTACION).status_code == 200
+    r = guardar(cl, "importar", "F3", MI_ESTACION)
+    assert r.status_code == 422 and "3 formatos" in r.json()["error"]
+    assert guardar(cl, "importar", "f0", {**MI_ESTACION, "saltar": 2}).status_code == 200        # reemplazar un existente no cuenta como uno nuevo
+    assert guardar(cl, "exportar", "F0", {"delimitador": ",", "columnas": ["P", "E", "N"]}).status_code == 200  # el tope es por uso
+    assert guardar(cliente_de(otra), "importar", "F3", MI_ESTACION).status_code == 200            # y por cuenta
+
+
+def test_formatos_guardados_son_de_la_cuenta_y_solo_de_quien_edita(cliente_de, dibujante, otra, supervisora):
+    guardar(cliente_de(dibujante), "importar", "Mi estación", MI_ESTACION)
+    assert formatos(cliente_de(otra), "importar").json()["formatos"] == []
+    assert cliente_de(otra).delete(url("civil_formatos") + "?uso=importar&nombre=Mi%20estaci%C3%B3n").status_code == 404
+    assert len(formatos(cliente_de(dibujante), "importar").json()["formatos"]) == 1
+    cs = cliente_de(supervisora)
+    assert formatos(cs, "importar").status_code in (302, 403)
+    assert guardar(cs, "importar", "X", MI_ESTACION).status_code in (302, 403)
+    from itt_herramientas.models import FormatoPuntos
+
+    assert not FormatoPuntos.objects.filter(nombre="X").exists()
+
+
+def test_los_formatos_se_borran_con_la_cuenta(dibujante, otra):
+    from itt_herramientas.models import FormatoPuntos
+
+    servicio.guardar_formato(dibujante.pk, "importar", "A", MI_ESTACION)
+    servicio.guardar_formato(dibujante.pk, "exportar", "B", {"delimitador": ",", "columnas": ["P", "E", "N"]})
+    servicio.guardar_formato(otra.pk, "importar", "A", MI_ESTACION)
+    assert servicio.al_eliminar_cuenta(dibujante.pk) == "Civil: se borraron 2 formatos de puntos guardados."
+    assert servicio.al_eliminar_cuenta(dibujante.pk) is None                                    # idempotente
+    assert list(FormatoPuntos.objects.values_list("cuenta_id", flat=True)) == [otra.pk]
+    from itt_herramientas.modulo import MODULO
+
+    assert "itt_herramientas.civil.servicio.al_eliminar_cuenta" in MODULO.al_eliminar_cuenta

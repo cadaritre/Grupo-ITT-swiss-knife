@@ -1,0 +1,8 @@
+{% load tv %}<div class="civil-superficies" data-civil-superficies>
+  <div class="civil-superficies__fila" role="status" aria-label="Superficies del plano">
+    <span class="civil-superficie" data-civil-sup="terreno"><b>Terreno</b><i>Leyendo…</i></span>
+    <span class="civil-superficie" data-civil-sup="proyecto"><b>Proyecto</b><i>Leyendo…</i></span>
+  </div>
+  {% if interruptor %}<div class="tv-campo tv-campo--casilla"><input type="checkbox" class="tv-interruptor" role="switch" id="civil-{{ pre }}-consup" name="con_superficie" value="1"><label for="civil-{{ pre }}-consup">Con la superficie de proyecto (triangulación de proyecto)</label></div>{% endif %}
+  <p class="tv-tenue civil-nota" data-civil-sup-uso></p>
+</div>

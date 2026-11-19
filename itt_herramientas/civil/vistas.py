@@ -6,7 +6,7 @@ con «Guardar» de la página.
 from __future__ import annotations
 
 from django.http import Http404, JsonResponse
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from tvplataforma.permisos import requiere_rol
 
 from ..comun.errores import ErrorUsuario
@@ -70,3 +70,32 @@ def panel(request):
     r["Cache-Control"] = "private, max-age=31536000, immutable" if request.GET.get("v") == huella else "private, no-cache"
     r["X-Content-Type-Options"] = "nosniff"
     return r
+
+
+@editar
+@require_http_methods(["GET", "POST", "DELETE"])
+def formatos(request):
+    """Los formatos de puntos que la cuenta guardó con nombre (`?uso=importar|exportar`). GET los lista; POST `{nombre, datos}` guarda o
+    reemplaza uno; DELETE `?nombre=` lo borra. Solo los de la propia cuenta, y solo quien puede editar planos."""
+    import json
+
+    uso = request.GET.get("uso", "")
+    try:
+        if request.method == "GET":
+            return _json({"formatos": servicio.formatos_de(request.user.pk, uso)})
+        if request.method == "DELETE":
+            if not servicio.borrar_formato(request.user.pk, uso, request.GET.get("nombre")):
+                raise Http404
+            return _json({"formatos": servicio.formatos_de(request.user.pk, uso)})
+        if int(request.META.get("CONTENT_LENGTH") or 0) > 16 * 1024:
+            raise ErrorUsuario("El formato es demasiado grande.")
+        try:
+            cuerpo = json.loads(request.body or b"{}")
+        except ValueError:
+            raise ErrorUsuario("Los datos llegaron dañados. Inténtalo de nuevo.") from None
+        if not isinstance(cuerpo, dict):
+            raise ErrorUsuario("Los datos llegaron dañados. Inténtalo de nuevo.")
+        guardado = servicio.guardar_formato(request.user.pk, uso, cuerpo.get("nombre"), cuerpo.get("datos"))
+        return _json({"guardado": guardado, "formatos": servicio.formatos_de(request.user.pk, uso)})
+    except ErrorUsuario as exc:
+        return _json({"error": str(exc)}, status=422)

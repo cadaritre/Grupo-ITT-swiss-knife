@@ -27,6 +27,7 @@ CAPAS_PERFIL = {
     "reticula": Capa("PERFIL_RETICULA", 8, descripcion="Retícula del perfil"),
     "terreno": Capa("PERFIL_TERRENO", 3, grosor_mm=0.35, descripcion="Terreno natural en el perfil"),
     "rasante": Capa("PERFIL_RASANTE", 1, grosor_mm=0.35, descripcion="Rasante de proyecto"),
+    "proyecto": Capa("PERFIL_PROYECTO", 6, grosor_mm=0.35, descripcion="Superficie de proyecto (su triangulación) en el perfil"),
     "textos": Capa("PERFIL_TEXTOS", 7, descripcion="Estaciones, elevaciones y datos del perfil"),
     "estaciones": Capa("EJE_ESTACIONES", 7, descripcion="Marcas de estación sobre el eje en planta"),
 }
@@ -199,12 +200,16 @@ def dibujar_perfil(
     estilo: str = "CIVIL",
     marcar_en_planta: bool = True,
     decimales: int = 2,
+    proyecto: Perfil | None = None,
 ) -> Dibujo:
     """Perfil dibujado con la esquina inferior izquierda de la retícula en `origen`.
 
     Horizontal a la escala del plano (1 m = 1 unidad); vertical exagerada `exageracion` veces. La
     retícula tiene líneas cada estación redonda y cada cota redonda; debajo, la tabla de
     elevaciones de terreno, de proyecto y el espesor (+ corte, − terraplén).
+
+    `proyecto`: el perfil de la superficie de proyecto (su triangulación), en su capa; sin rasante, la tabla toma de ahí la elevación de
+    proyecto y el espesor; con rasante, va en un renglón aparte.
     """
     esc = escala or Escala()
     d = Dibujo()
@@ -215,6 +220,8 @@ def dibujar_perfil(
     zs = [p.z for p in perfil.puntos if p.z is not None]
     if rasante:
         zs += [rasante.elevacion(p.estacion) for p in perfil.redondas]
+    if proyecto:
+        zs += [p.z for p in proyecto.puntos if p.z is not None]
     if not zs:
         raise ValueError("El eje no pasa por la triangulación.")
     zmin, zmax = min(zs), max(zs)
@@ -236,20 +243,24 @@ def dibujar_perfil(
         d.agregar(Linea(ret, inicio=(X(p.estacion), Y(datum), 0.0), fin=(X(p.estacion), Y(tope), 0.0)))
     if abs((e1 - e0) % perfil.intervalo) > 1e-6:
         d.agregar(Linea(ret, inicio=(X(e1), Y(datum), 0.0), fin=(X(e1), Y(tope), 0.0)))
-    # terreno (en tramos continuos)
-    tramo: list[tuple[float, float]] = []
-    for p in perfil.puntos + [PuntoPerfil(0, 0, 0, None)]:
-        if p.z is None:
-            if len(tramo) >= 2:
-                d.agregar(Polilinea(CAPAS_PERFIL["terreno"].nombre, vertices=tramo, datos={"TVCIVIL": [(1000, "perfil_terreno")]}))
-            tramo = []
-        else:
-            tramo.append((X(p.estacion), Y(p.z)))
+    # terreno y superficie de proyecto (en tramos continuos)
+    for pf, capa, clave in ((perfil, "terreno", "perfil_terreno"), (proyecto, "proyecto", "perfil_proyecto")):
+        if pf is None:
+            continue
+        tramo: list[tuple[float, float]] = []
+        for p in pf.puntos + [PuntoPerfil(0, 0, 0, None)]:
+            if p.z is None:
+                if len(tramo) >= 2:
+                    d.agregar(Polilinea(CAPAS_PERFIL[capa].nombre, vertices=tramo, datos={"TVCIVIL": [(1000, clave)]}))
+                tramo = []
+            else:
+                tramo.append((X(p.estacion), Y(p.z)))
     if rasante:
         pts = sorted({e0, e1, *(p.estacion for p in perfil.puntos)} | _estaciones_rasante(rasante, e0, e1))
         d.agregar(Polilinea(CAPAS_PERFIL["rasante"].nombre, vertices=[(X(e), Y(rasante.elevacion(e))) for e in pts], datos={"TVCIVIL": [(1000, "perfil_rasante")]}))
     # tabla bajo la retícula
-    filas = ["ESTACIÓN", "ELEV. TERRENO"] + (["ELEV. PROYECTO", "ESPESOR"] if rasante else [])
+    con_proyecto = bool(rasante) or proyecto is not None
+    filas = ["ESTACIÓN", "ELEV. TERRENO"] + (["ELEV. PROYECTO", "ESPESOR"] if con_proyecto else []) + (["SUP. PROYECTO"] if rasante and proyecto else [])
     alto = h * 2.2
     for k, nombre in enumerate(filas):
         yy = Y(datum) - alto * (k + 1)
@@ -257,9 +268,14 @@ def dibujar_perfil(
         d.agregar(Texto(txt, valor=nombre, posicion=(X(e0) - h, yy + alto / 2), altura=h, estilo=estilo, alineacion_h="derecha", alineacion_v="medio"))
     for p in perfil.redondas:
         valores = [formato_estacion(p.estacion), "—" if p.z is None else f"{p.z:.{decimales}f}"]
+        zp = proyecto.elevacion(p.estacion) if proyecto is not None else None
         if rasante:
             zr = rasante.elevacion(p.estacion)
             valores += [f"{zr:.{decimales}f}", "—" if p.z is None else f"{p.z - zr:+.{decimales}f}"]
+            if proyecto is not None:
+                valores.append("—" if zp is None else f"{zp:.{decimales}f}")
+        elif proyecto is not None:
+            valores += ["—" if zp is None else f"{zp:.{decimales}f}", "—" if p.z is None or zp is None else f"{p.z - zp:+.{decimales}f}"]
         for k, v in enumerate(valores):
             yy = Y(datum) - alto * (k + 1) + alto / 2
             d.agregar(Texto(txt, valor=v, posicion=(X(p.estacion), yy), altura=h * 0.8, rotacion=90.0, estilo=estilo, alineacion_h="centro", alineacion_v="medio"))

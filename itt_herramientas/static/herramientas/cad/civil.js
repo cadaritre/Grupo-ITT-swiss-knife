@@ -581,34 +581,153 @@
     return llenar;
   }
 
+  // -- Archivos de puntos: delimitador, columnas en cualquier orden y formatos guardados ----------------------------------------
+  // La hoja de importar muestra los primeros renglones como tabla y, sobre cada columna, una lista para decir qué es. Lo reconocido
+  // llena todo; lo que la persona elige se respeta. Los formatos con nombre se guardan en el servidor, por cuenta (cad/civil/formatos/).
+  const opcionesColumna = (conIgnorar) => (C.columnas || []).filter(([k]) => conIgnorar || k !== "-").map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join("");
+  const retardo = (fn, ms = 300) => { let t = null; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+  /** Lo que la persona eligió como delimitador: una de las opciones o el que escribió ("Otro…"). */
+  function delimDe(f) { const t = valor(f, "delimitador_tipo"); return t === "otro" ? f.elements.delimitador_otro.value : t; }
+  function ponerDelim(f, d) {
+    const sel = f.elements.delimitador_tipo;
+    const hay = [...sel.options].some((o) => o.value === d && o.value !== "otro");
+    sel.value = hay ? d : "otro";
+    f.elements.delimitador_otro.value = hay ? "" : d;
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  const decirDelim = (d) => ({ ",": "coma", ";": "punto y coma", "\t": "tabulador", " ": "espacios", "|": "barra" }[d] || `«${d}»`);
+  const columnasDe = (cols, n) => Array.from({ length: n }, (_, i) => (cols && cols[i]) || "-");
+
+  /** Formatos con nombre de esta hoja: la lista, guardar con nombre y borrar. `leer()` da el formato de la hoja; `aplicar(datos | null)` lo pone. */
+  function prepararFormatos(f, uso, { leer, aplicar }) {
+    const lista = f.querySelector("[data-civil-formato-lista]"), quitar = f.querySelector("[data-civil-formato-borrar]");
+    const fila = f.querySelector("[data-civil-formato-guardar]"), nombre = f.elements.nombre_formato;
+    let guardados = [], confirmarBorrado = null;
+    const pintar = (elegido = "") => {
+      lista.length = 1;
+      for (const g of guardados) lista.add(new Option(g.nombre, g.nombre));
+      lista.value = guardados.some((g) => g.nombre === elegido) ? elegido : "";
+      quitar.hidden = !lista.value;
+    };
+    async function llamar(metodo, extra = "", cuerpoJson = null) {
+      const r = await fetch(`${C.urls.formatos}?uso=${uso}${extra}`, { method: metodo, credentials: "same-origin",
+        headers: { "X-CSRFToken": csrf(), ...(cuerpoJson ? { "Content-Type": "application/json" } : {}) }, ...(cuerpoJson ? { body: JSON.stringify(cuerpoJson) } : {}) });
+      let d = {};
+      try { d = await r.json(); } catch (_) { /* nada */ }
+      if (!r.ok) throw new ErrorCivil(d.error || "No se pudo guardar el formato. Inténtalo de nuevo.");
+      return d;
+    }
+    const cerrarFila = () => { fila.hidden = true; };
+    lista.addEventListener("change", () => {
+      quitar.hidden = !lista.value; cerrarFila();
+      aplicar(guardados.find((g) => g.nombre === lista.value)?.datos || null);
+    });
+    f.querySelector("[data-civil-formato-nuevo]").addEventListener("click", () => {
+      fila.hidden = false; nombre.value = lista.value; nombre.focus();
+      fila.scrollIntoView({ block: "nearest" });
+    });
+    f.querySelector("[data-civil-formato-cancelar]").addEventListener("click", cerrarFila);
+    const guardar = async () => {
+      try {
+        const d = await llamar("POST", "", { nombre: nombre.value, datos: leer() });
+        guardados = d.formatos; pintar(d.guardado.nombre); cerrarFila();
+        avisar(`Formato «${d.guardado.nombre}» guardado`);
+      } catch (err) { avisar(err instanceof ErrorCivil ? err.message : "No se pudo guardar el formato.", "error"); if (!(err instanceof ErrorCivil)) console.error(err); }
+    };
+    f.querySelector("[data-civil-formato-confirmar]").addEventListener("click", guardar);
+    nombre.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); guardar(); } else if (ev.key === "Escape") { ev.stopPropagation(); cerrarFila(); } });
+    // borrar pide un segundo toque (sin diálogos del navegador)
+    quitar.addEventListener("click", async () => {
+      if (!confirmarBorrado) {
+        quitar.dataset.confirmar = "1"; quitar.setAttribute("data-tv-tooltip", "Toca otra vez para borrarlo");
+        confirmarBorrado = setTimeout(() => { confirmarBorrado = null; delete quitar.dataset.confirmar; quitar.setAttribute("data-tv-tooltip", "Borrar este formato guardado"); }, 4000);
+        return;
+      }
+      clearTimeout(confirmarBorrado); confirmarBorrado = null; delete quitar.dataset.confirmar;
+      const n = lista.value;
+      try { guardados = (await llamar("DELETE", `&nombre=${encodeURIComponent(n)}`)).formatos; pintar(""); aplicar(null); avisar(`Formato «${n}» borrado`); }
+      catch (err) { avisar(err instanceof ErrorCivil ? err.message : "No se pudo borrar el formato.", "error"); }
+    });
+    return async function cargar() {
+      cerrarFila();
+      try { guardados = (await llamar("GET")).formatos; pintar(lista.value); } catch (_) { /* sin la lista se puede trabajar igual */ }
+    };
+  }
+
   // -- Puntos: importar ---------------------------------------------------------------------------------------------------------
   function prepararImportar() {
     const f = document.querySelector('[data-civil-form="importar"]');
+    enlazarDependientes(f);
     const entrada = f.elements.archivo, vista = $("civil-imp-vista"), enviar = f.querySelector("[data-civil-enviar]");
-    let archivoB64 = null, nombreArchivo = "";
-    const opciones = () => ({ archivo: archivoB64, orden: valor(f, "orden"), separador: valor(f, "separador"), tipo: valor(f, "tipo"), prefijo: valor(f, "prefijo") || "",
-      decimales_z: parseInt(valor(f, "decimales_z"), 10), etiquetas: { numero: valor(f, "et_numero"), elevacion: valor(f, "et_elevacion"), descripcion: valor(f, "et_descripcion") } });
+    let archivoB64 = null, nombreArchivo = "", columnasManual = null, turno = 0, ultima = null, ultimaVista = null;
+    const formato = () => ({ delimitador: delimDe(f), juntar: !!valor(f, "juntar"), calificador: valor(f, "calificador"), decimal: valor(f, "decimal"),
+      saltar: parseInt(valor(f, "saltar"), 10) || 0, columnas: columnasManual ? columnasManual.slice() : [] });
+    const opciones = () => ({ archivo: archivoB64, tipo: valor(f, "tipo"), prefijo: valor(f, "prefijo") || "", decimales_z: parseInt(valor(f, "decimales_z"), 10),
+      numero_libre: est.libre || 1, formato: formato(), etiquetas: { numero: valor(f, "et_numero"), elevacion: valor(f, "et_elevacion"), descripcion: valor(f, "et_descripcion") } });
+
+    function pintarTabla(r) {
+      const n = Math.max(r.campos || 0, ...(r.tabla || []).map((t) => t.campos.length), 0);
+      if (!n) return "";
+      const cols = columnasDe(columnasManual || (r.formato && r.formato.columnas), n);
+      const cabeza = cols.map((c, i) => `<th><select data-civil-col="${i}" aria-label="Qué es la columna ${i + 1}" class="${c === "-" ? "civil-col--ignorada" : ""}">${opcionesColumna(true)}</select></th>`).join("");
+      const filas = r.tabla.slice(0, 8).map((t) => `<tr><td class="civil-mapa__linea">${t.linea}</td>${Array.from({ length: n }, (_, i) => `<td class="${cols[i] === "-" ? "civil-col--ignorada" : ""}">${esc(t.campos[i] ?? "")}</td>`).join("")}</tr>`).join("");
+      const orden = `<select data-civil-orden aria-label="Poner un orden común"><option value="">Poner un orden común…</option>${Object.entries(C.ordenes || {}).map(([k, e]) => `<option value="${esc(k)}">${esc(k)} · ${esc(e)}</option>`).join("")}</select>`;
+      return { n, cols, html: `<div class="civil-mapa__cabeza"><span class="civil-etiqueta">Qué es cada columna</span>${orden}</div>
+        <div class="tv-tabla-envoltura"><table class="tv-tabla civil-tabla civil-mapa"><thead><tr><th class="civil-mapa__linea">Línea</th>${cabeza}</tr></thead><tbody>${filas}</tbody></table></div>` };
+    }
     async function previa() {
       if (!archivoB64) return;
-      vista.hidden = false; vista.innerHTML = `<p class="tv-tenue">Leyendo…</p>`; enviar.disabled = true;
-      try {
-        const r = await calcular("importar_puntos", { ...opciones(), solo_vista: true });
-        const s = r.resumen;
-        const filas = r.muestra.slice(0, 6).map((p) => `<tr><td>${esc(p[0])}</td><td class="tv-num">${mil(p[1], 3)}</td><td class="tv-num">${mil(p[2], 3)}</td><td class="tv-num">${p[3] === null ? "—" : mil(p[3], 3)}</td><td>${esc(p[4])}</td></tr>`).join("");
-        const desc = r.descartados.length ? `<details class="civil-descartados"><summary>${r.descartados.length} renglones no se leyeron</summary><ul>${r.descartados.slice(0, 30).map((d) => `<li>Línea ${d.linea}: ${esc(d.motivo)}</li>`).join("")}</ul></details>` : "";
-        vista.innerHTML = `<p class="civil-vista__resumen"><strong>${s.puntos.toLocaleString("es-MX")} puntos</strong> · ${s.orden} (por ${esc(s.orden_de)}) · separados por ${esc(s.separador)}${s.coma_decimal ? " · coma decimal" : ""}</p>
-          ${Object.keys(s.repetidos).length ? `<p class="civil-aviso-linea">${icono("triangle-alert")} ${Object.keys(s.repetidos).length} números de punto se repiten.</p>` : ""}
-          <div class="tv-tabla-envoltura"><table class="tv-tabla civil-tabla"><thead><tr><th>Punto</th><th class="tv-num">Este (X)</th><th class="tv-num">Norte (Y)</th><th class="tv-num">Elevación</th><th>Descripción</th></tr></thead><tbody>${filas}</tbody></table></div>${desc}`;
-        enviar.disabled = false;
-        enviar.querySelector("span").textContent = `Importar ${s.puntos.toLocaleString("es-MX")} puntos`;
-      } catch (err) {
-        vista.innerHTML = `<p class="civil-aviso-linea civil-aviso-linea--error">${icono("circle-alert")} ${esc(err.message)}</p>`;
+      const mio = ++turno;
+      vista.hidden = false; if (!vista.innerHTML) vista.innerHTML = `<p class="tv-tenue">Leyendo…</p>`; enviar.disabled = true;
+      vista.dataset.leyendo = "1";
+      let r;
+      try { r = await calcular("importar_puntos", { ...opciones(), solo_vista: true }); }
+      catch (err) {
+        if (mio !== turno) return;
+        delete vista.dataset.leyendo;
+        // un cambio a medias (p. ej. dos columnas de elevación) no quita la tabla: sigue ahí para corregirlo
+        const t = ultimaVista ? pintarTabla(ultimaVista) : "";
+        vista.innerHTML = `<p class="civil-aviso-linea civil-aviso-linea--error">${icono("circle-alert")} ${esc(err.message)}</p>${t ? t.html : ""}`;
+        if (t) vista.querySelectorAll("[data-civil-col]").forEach((x) => { x.value = t.cols[+x.dataset.civilCol]; });
+        return;
       }
+      if (mio !== turno) return;                                         // llegó tarde: la persona ya cambió otra cosa
+      delete vista.dataset.leyendo;
+      ultima = r.formato || null; ultimaVista = r;
+      if (r.formato) { f.elements.juntar.checked = !!r.formato.juntar; }
+      const t = pintarTabla(r);
+      let cabeza = "";
+      if (r.error) cabeza = `<p class="civil-aviso-linea civil-aviso-linea--error">${icono("circle-alert")} ${esc(r.error)}</p>`;
+      else {
+        const s = r.resumen;
+        const hechas = [`<strong>${s.puntos.toLocaleString("es-MX")} puntos</strong>`, `${s.orden} (por ${esc(s.orden_de)})`, `delimitados por ${esc(s.separador)}`, s.coma_decimal ? "coma decimal" : ""].filter(Boolean).join(" · ");
+        const avisos = (r.avisos || []).filter((a) => !/renglones no se leyeron/.test(a)).map((a) => `<p class="civil-aviso-linea">${icono("triangle-alert")} ${esc(a)}</p>`).join("");
+        const geo = s.geograficas ? `<p class="civil-nota">Latitud y longitud: se convierten a la zona UTM del plano (<span>${esc(est.escala.zona)}${est.escala.hemisferio === "S" ? " sur" : " norte"}</span>).</p>` : "";
+        cabeza = `<p class="civil-vista__resumen">${hechas}</p>${avisos}${geo}`;
+      }
+      const desc = !r.error && r.descartados.length ? `<details class="civil-descartados"><summary>${r.descartados.length} renglones no se leyeron</summary><ul>${r.descartados.slice(0, 30).map((d) => `<li>Línea ${d.linea}: ${esc(d.motivo)}</li>`).join("")}</ul></details>` : "";
+      vista.innerHTML = `${cabeza}${t ? t.html : ""}${desc}`;
+      if (t) vista.querySelectorAll("[data-civil-col]").forEach((s) => { s.value = t.cols[+s.dataset.civilCol]; });
+      enviar.disabled = !!r.error;
+      enviar.querySelector("span").textContent = r.error ? "Importar" : `Importar ${r.resumen.puntos.toLocaleString("es-MX")} puntos`;
     }
+    const previaPronta = retardo(previa);
+    // qué es cada columna: la lista sobre cada una (o un orden común)
+    vista.addEventListener("change", (ev) => {
+      const col = ev.target.closest("[data-civil-col]"), orden = ev.target.closest("[data-civil-orden]");
+      if (col) columnasManual = [...vista.querySelectorAll("[data-civil-col]")].map((s) => s.value);
+      else if (orden && orden.value) { const n = vista.querySelectorAll("[data-civil-col]").length; columnasManual = columnasDe(orden.value.split(""), n); }
+      else return;
+      previa();
+    });
+    // delimitador, texto entre, decimal, renglones: se lee otra vez; las columnas elegidas se respetan
+    for (const n of ["delimitador_tipo", "calificador", "decimal", "juntar", "tipo", "prefijo"]) { const c = f.elements[n]; (c instanceof RadioNodeList ? [...c] : [c]).forEach((x) => x.addEventListener("change", previa)); }
+    for (const n of ["delimitador_otro", "saltar"]) f.elements[n].addEventListener("input", previaPronta);
     entrada.addEventListener("change", () => {
       const a = entrada.files[0];
       if (!a) return;
-      nombreArchivo = a.name;
+      nombreArchivo = a.name; if (!f.querySelector("[data-civil-formato-lista]").value) columnasManual = null; ultima = null; ultimaVista = null; vista.innerHTML = "";
       $("civil-imp-nombre").innerHTML = `<strong>${esc(a.name)}</strong><span class="tv-tenue">${(a.size / 1024).toFixed(0)} KB · cambiar</span>`;
       const lector = new FileReader();
       lector.onload = () => { archivoB64 = String(lector.result).split(",")[1] || ""; previa(); };
@@ -618,7 +737,20 @@
     zona.addEventListener("dragover", (ev) => { ev.preventDefault(); zona.dataset.encima = "1"; });
     zona.addEventListener("dragleave", () => { delete zona.dataset.encima; });
     zona.addEventListener("drop", (ev) => { ev.preventDefault(); delete zona.dataset.encima; if (ev.dataTransfer.files.length) { entrada.files = ev.dataTransfer.files; entrada.dispatchEvent(new Event("change")); } });
-    for (const n of ["orden", "separador"]) f.elements[n].addEventListener("change", previa);
+    const cargarFormatos = prepararFormatos(f, "importar", {
+      leer: () => { const fm = formato(); return { ...fm, columnas: columnasManual || [] }; },     // lo reconocido no se guarda: el formato vuelve a reconocer
+      aplicar: (fm) => {
+        const d = fm || { delimitador: "", juntar: false, calificador: '"', decimal: "", columnas: [], saltar: 0 };
+        ponerDelim(f, d.delimitador || ""); f.elements.calificador.value = d.calificador ?? '"'; f.elements.decimal.value = d.decimal || "";
+        f.elements.saltar.value = d.saltar || 0; f.elements.juntar.checked = !!d.juntar;
+        columnasManual = d.columnas && d.columnas.length ? d.columnas.slice() : null;
+        previa();
+      },
+    });
+    alAbrir.importar = async () => {
+      cargarFormatos();
+      try { est.libre = Number(sigNumero(await insercionesDe())); } catch (_) { est.libre = 1; }
+    };
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Dibujando los puntos…", async () => {
@@ -627,13 +759,87 @@
         await pedir({ op: "action", name: "zoom_extents" }).catch(() => {});
         cerrarHoja();
         avisar(`${r.resumen.puntos.toLocaleString("es-MX")} puntos importados`);
+        for (const a of (r.avisos || []).slice(0, 3)) avisar(a);
       });
     });
   }
 
   // -- Puntos: exportar ---------------------------------------------------------------------------------------------------------
+  const PUNTOS_DE_EJEMPLO = [[500000.123, 2000000.456, 100.5, "1", "TN"], [500010.5, 2000020.25, 101.75, "2", "ESQ, NE"], [500025, 2000040, 102, "3", ""]];
+  const texto64 = (b64) => new TextDecoder("utf-8").decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+  /** Hasta tres puntos de ese tipo del plano, para el ejemplo de la hoja (sin leerlos todos). */
+  async function muestraDe(cuales) {
+    if (cuales !== "terreno" && cuales !== "proyecto") return [];
+    const capa = C.capas.puntos[cuales];
+    try {
+      const r = await pedir({ op: "query", type: "INSERT", layer: capa, detail: "full", fields: ["handle", "block", "position", "attributes"], limit: 3 });
+      return (r.entities || []).filter((e) => Object.values(C.bloques).includes(e.block)).map(punto);
+    } catch (_) { return []; }
+  }
+
   function prepararExportar() {
     const f = document.querySelector('[data-civil-form="exportar"]');
+    const caja = f.querySelector("[data-civil-columnas]"), ejemplo = f.querySelector("[data-civil-ejemplo]"), enviar = f.querySelector("button[type=submit]");
+    enlazarDependientes(f);
+    const geo = f.querySelector("[data-civil-geo]");
+    let muestras = {}, turno = 0;
+    const fila = (c, k) => `<div class="civil-columna"><span class="civil-columna__n" aria-hidden="true">${k + 1}</span><select data-civil-col aria-label="Columna ${k + 1}">${opcionesColumna(false)}</select>
+      <button type="button" class="tv-boton tv-boton--fantasma tv-boton--icono" data-civil-columna-quitar data-tv-tooltip="Quitar la columna" aria-label="Quitar la columna ${k + 1}">${icono("x")}</button></div>`;
+    const columnas = () => [...caja.querySelectorAll("[data-civil-col]")].map((s) => s.value);
+    function ponerColumnas(cols) {
+      caja.innerHTML = cols.map(fila).join("");
+      caja.querySelectorAll("[data-civil-col]").forEach((s, i) => { s.value = cols[i]; });
+      renumerar();
+    }
+    function renumerar() {
+      const n = caja.children.length;
+      [...caja.children].forEach((d, i) => { d.querySelector(".civil-columna__n").textContent = i + 1; d.querySelector("[data-civil-columna-quitar]").disabled = n <= 1; });
+      const cols = columnas();
+      geo.hidden = !(cols.includes("LAT") || cols.includes("LON"));
+    }
+    const formato = () => ({ delimitador: delimDe(f), calificador: valor(f, "calificador"), decimal: valor(f, "decimal"), columnas: columnas(), encabezado: !!valor(f, "encabezado"),
+      decimales: parseInt(valor(f, "decimales"), 10), decimales_z: parseInt(valor(f, "decimales_z"), 10), decimales_geo: parseInt(valor(f, "decimales_geo"), 10) });
+    const abierta = () => { const d = f.closest("dialog"); return !!(d && d.open); };
+    async function verEjemplo() {
+      if (!abierta()) return;                                             // la hoja cerrada no pide nada al servidor
+      const mio = ++turno;
+      const cuales = valor(f, "cuales");
+      if (!(cuales in muestras)) muestras[cuales] = await muestraDe(cuales);
+      const pts = muestras[cuales].length ? muestras[cuales] : PUNTOS_DE_EJEMPLO;
+      try {
+        const r = await calcular("exportar_puntos", { puntos: pts, formato: formato() });
+        if (mio !== turno) return;
+        ejemplo.textContent = texto64(r.archivo).replace(/\r/g, "").trimEnd() + (muestras[cuales].length ? "" : "\n(con puntos de ejemplo)");
+        ejemplo.classList.remove("civil-texto--error"); enviar.disabled = false;
+      } catch (err) {
+        if (mio !== turno) return;
+        ejemplo.textContent = err.message; ejemplo.classList.add("civil-texto--error"); enviar.disabled = true;
+      }
+    }
+    const ejemploPronto = retardo(verEjemplo, 200);
+    f.addEventListener("change", (ev) => { if (ev.target.name === "cuales") muestras = {}; if (ev.target.closest("[data-civil-col]")) renumerar(); if (!ev.target.name || ev.target.name !== "nombre_formato") ejemploPronto(); });
+    f.elements.delimitador_otro.addEventListener("input", ejemploPronto);
+    f.querySelector("[data-civil-columna-agregar]").addEventListener("click", () => {
+      const usadas = columnas(), libre = ["P", "N", "E", "Z", "D"].find((c) => !usadas.includes(c)) || "D";
+      caja.insertAdjacentHTML("beforeend", fila(libre, caja.children.length));
+      caja.lastElementChild.querySelector("select").value = libre; renumerar(); ejemploPronto();
+    });
+    caja.addEventListener("click", (ev) => {
+      const q = ev.target.closest("[data-civil-columna-quitar]");
+      if (!q || caja.children.length <= 1) return;
+      q.closest(".civil-columna").remove(); renumerar(); ejemploPronto();
+    });
+    f.elements.orden.addEventListener("change", () => { const o = f.elements.orden.value; if (o) { ponerColumnas(o.split("")); f.elements.orden.value = ""; ejemploPronto(); } });
+    const aplicar = (fm) => {
+      const d = { delimitador: ",", calificador: '"', decimal: ".", columnas: ["P", "E", "N", "Z", "D"], encabezado: false, decimales: 3, decimales_z: 3, decimales_geo: 8, ...(fm || {}) };
+      ponerDelim(f, d.delimitador); f.elements.calificador.value = d.calificador; f.elements.decimal.value = d.decimal;
+      f.elements.encabezado.checked = !!d.encabezado;
+      for (const k of ["decimales", "decimales_z", "decimales_geo"]) f.elements[k].value = String(d[k]);
+      ponerColumnas(d.columnas); ejemploPronto();
+    };
+    const cargarFormatos = prepararFormatos(f, "exportar", { leer: formato, aplicar });
+    aplicar(null);
+    alAbrir.exportar = () => { muestras = {}; cargarFormatos(); ejemploPronto(); };
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Leyendo los puntos…", async () => {
@@ -645,11 +851,172 @@
           pts = e.map(punto);
         } else pts = await puntosDe(cuales);
         if (!pts.length) throw new ErrorCivil("No hay puntos de ese tipo en el plano.");
-        const r = await calcular("exportar_puntos", { puntos: pts, orden: valor(f, "orden"), separador: valor(f, "separador"), decimales: parseInt(valor(f, "decimales"), 10), encabezado: valor(f, "encabezado") });
-        descargar(r.archivo, `puntos ${cuales === "seleccion" ? "elegidos" : cuales} ${window.TVCad.estado().plano.nombre}.txt`, "text/plain");
+        const fm = formato();
+        const r = await calcular("exportar_puntos", { puntos: pts, formato: fm });
+        const ext = fm.delimitador === "," && fm.decimal !== "," ? "csv" : "txt";
+        descargar(r.archivo, `puntos ${cuales === "seleccion" ? "elegidos" : cuales} ${window.TVCad.estado().plano.nombre}.${ext}`, ext === "csv" ? "text/csv" : "text/plain");
         avisar(`${pts.length.toLocaleString("es-MX")} puntos exportados`);
       }, { soloLee: true });
     });
+  }
+
+  // -- Google Earth: importar KML o KMZ -----------------------------------------------------------------------------------------
+  function prepararImportarKml() {
+    const f = document.querySelector('[data-civil-form="importar_kml"]');
+    const entrada = f.elements.archivo, vista = $("civil-kml-vista"), enviar = f.querySelector("[data-civil-enviar]");
+    let archivoB64 = null, nombreArchivo = "", turno = 0;
+    const opciones = () => ({ archivo: archivoB64, capas_por: valor(f, "capas_por"), puntos_como: valor(f, "puntos_como"), nombres: !!valor(f, "nombres"), altitudes: !!valor(f, "altitudes"),
+      numero_libre: est.libre || 1 });
+    const cuenta = (n, uno, varios) => `<span class="civil-ficha"><b>${n.toLocaleString("es-MX")}</b> ${n === 1 ? uno : varios}</span>`;
+    async function previa() {
+      if (!archivoB64) return;
+      const mio = ++turno;
+      vista.hidden = false; vista.innerHTML = `<p class="tv-tenue">Leyendo…</p>`; enviar.disabled = true;
+      try {
+        const r = await calcular("importar_kml", { ...opciones(), solo_vista: true });
+        if (mio !== turno) return;
+        const s = r.resumen;
+        const fichas = [s.poligonos ? cuenta(s.poligonos, "polígono", "polígonos") : "", s.lineas ? cuenta(s.lineas, "línea", "líneas") : "", s.puntos ? cuenta(s.puntos, "punto", "puntos") : ""].join("");
+        const capas = s.capas.length ? `<p class="civil-nota"><strong>${s.capas.length === 1 ? "Capa" : "Capas"}:</strong> ${s.capas.slice(0, 12).map(esc).join(", ")}${s.capas.length > 12 ? `… y ${s.capas.length - 12} más` : ""}</p>` : "";
+        const avisos = (r.avisos || []).slice(0, 6).map((a) => `<p class="civil-aviso-linea">${icono("triangle-alert")} ${esc(a)}</p>`).join("");
+        vista.innerHTML = `<p class="civil-vista__resumen"><strong>${esc(s.nombre || nombreArchivo)}</strong> · ${s.kmz ? "KMZ" : "KML"}</p><div class="civil-fichas">${fichas}</div>${s.huecos ? `<p class="civil-nota">${s.huecos} hueco${s.huecos === 1 ? "" : "s"} en polígonos.</p>` : ""}${capas}${avisos}`;
+        enviar.disabled = false;
+        enviar.querySelector("span").textContent = `Importar ${(s.poligonos + s.lineas + s.puntos).toLocaleString("es-MX")} elementos`;
+      } catch (err) {
+        if (mio === turno) vista.innerHTML = `<p class="civil-aviso-linea civil-aviso-linea--error">${icono("circle-alert")} ${esc(err.message)}</p>`;
+      }
+    }
+    entrada.addEventListener("change", () => {
+      const a = entrada.files[0];
+      if (!a) return;
+      nombreArchivo = a.name;
+      $("civil-kml-nombre").innerHTML = `<strong>${esc(a.name)}</strong><span class="tv-tenue">${a.size >= 1048576 ? `${(a.size / 1048576).toFixed(1)} MB` : `${(a.size / 1024).toFixed(0)} KB`} · cambiar</span>`;
+      const lector = new FileReader();
+      lector.onload = () => { archivoB64 = String(lector.result).split(",")[1] || ""; previa(); };
+      lector.readAsDataURL(a);
+    });
+    const zona = f.querySelector(".civil-archivo");
+    zona.addEventListener("dragover", (ev) => { ev.preventDefault(); zona.dataset.encima = "1"; });
+    zona.addEventListener("dragleave", () => { delete zona.dataset.encima; });
+    zona.addEventListener("drop", (ev) => { ev.preventDefault(); delete zona.dataset.encima; if (ev.dataTransfer.files.length) { entrada.files = ev.dataTransfer.files; entrada.dispatchEvent(new Event("change")); } });
+    for (const n of ["capas_por", "puntos_como", "nombres", "altitudes"]) { const c = f.elements[n]; (c instanceof RadioNodeList ? [...c] : [c]).forEach((x) => x.addEventListener("change", previa)); }
+    alAbrir.importar_kml = async () => { try { est.libre = Number(sigNumero(await insercionesDe())); } catch (_) { est.libre = 1; } };
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      trabajo(f, "Dibujando…", async () => {
+        const r = await calcular("importar_kml", opciones());
+        await insertarDxf(r.dxf, nombreArchivo.replace(/\.[^.]+$/, "") + ".dxf");
+        await pedir({ op: "action", name: "zoom_extents" }).catch(() => {});
+        cerrarHoja();
+        const s = r.resumen;
+        avisar(`${(s.poligonos + s.lineas + s.puntos).toLocaleString("es-MX")} elementos importados`);
+        for (const a of (r.avisos || []).slice(0, 3)) avisar(a);
+      });
+    });
+  }
+
+  // -- Google Earth: exportar KML o KMZ -----------------------------------------------------------------------------------------
+  /** Textos (TEXT y MTEXT) dentro de una caja del plano: sus nombres posibles para los polígonos. */
+  async function textosEnCaja(caja) {
+    const salida = [];
+    for (const tipo of ["TEXT", "MTEXT"]) {
+      for (const e of await consultar({ type: tipo, detail: "full", bounds: caja })) {
+        const p = e.properties || {};
+        const alineado = e.type === "Text" && p.alignment_point && ((p.horizontal_alignment && p.horizontal_alignment !== "Left") || (p.vertical_alignment && p.vertical_alignment !== "Baseline"));
+        const pos = alineado ? p.alignment_point : p.insertion_point;
+        const valorT = String(e.value ?? p.value ?? "");
+        if (pos && valorT.trim()) salida.push({ valor: valorT, posicion: [pos.x, pos.y], altura: Number(p.height || e.height || 0) });
+      }
+    }
+    return salida;
+  }
+
+  function prepararExportarKml() {
+    const f = document.querySelector('[data-civil-form="exportar_kml"]');
+    const res = f.querySelector("[data-civil-resultado]");
+    const resumenElegidas = (n, cerradas) => `${n} polilínea${n === 1 ? "" : "s"} · ${cerradas} cerrada${cerradas === 1 ? "" : "s"}`;
+    prepararElecciones(f, null, { lineas: async (cuenta) => {
+      const e = await elegir({ mensaje: "Elige las polilíneas (las cerradas salen como polígonos)", tipos: ["Polyline", "LwPolyline", "Polyline3D", "Line"], sinResultados: true });
+      if (!e) return;
+      est.elegidos.exportar_kml.lineas = e.map((x) => ({ ...polilinea(x), capa: x.layer || "" }));
+      cuenta.textContent = resumenElegidas(e.length, est.elegidos.exportar_kml.lineas.filter((p) => p.cerrada).length);
+      cuenta.classList.add("civil-elegido");
+    } });
+    enlazarDependientes(f);
+    alAbrir.exportar_kml = () => { res.hidden = true; };
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      res.hidden = true;
+      trabajo(f, "Leyendo el plano…", async (decir) => {
+        let polis;
+        if (valor(f, "origen") === "cerradas") {
+          polis = (await consultar({ type: "LWPOLYLINE", detail: "full" })).map((x) => ({ ...polilinea(x), capa: x.layer || "" })).filter((p) => p.cerrada && !CAPAS_DE_RESULTADO.test(p.capa));
+        } else polis = ((est.elegidos.exportar_kml || {}).lineas || []);
+        const cuales = valor(f, "puntos");
+        const pts = [];
+        if (cuales === "terreno" || cuales === "ambos") pts.push(...(await puntosDe("terreno")));
+        if (cuales === "proyecto" || cuales === "ambos") pts.push(...(await puntosDe("proyecto")));
+        if (!polis.length && !pts.length) throw new ErrorCivil(valor(f, "origen") === "cerradas" ? "No hay polilíneas cerradas en el plano." : "Elige las polilíneas que vas a exportar.");
+        const nombres = valor(f, "nombres");
+        let textos = [];
+        const cerradas = polis.filter((p) => p.cerrada);
+        if (nombres === "etiqueta" && cerradas.length) {
+          decir("Buscando los nombres…");
+          const caja = unirCajas(cerradas.map((p) => [Math.min(...p.vertices.map((v) => v[0])), Math.min(...p.vertices.map((v) => v[1])), Math.max(...p.vertices.map((v) => v[0])), Math.max(...p.vertices.map((v) => v[1]))]));
+          textos = await textosEnCaja(caja);
+        }
+        decir("Convirtiendo a latitud y longitud…");
+        const r = await calcular("exportar_kml", {
+          polilineas: polis.map((p) => ({ vertices: p.vertices.map((v) => [v[0], v[1]]), combas: p.combas, cerrada: p.cerrada, capa: p.capa })), puntos: pts, textos,
+          nombres: { modo: nombres, prefijo: valor(f, "prefijo") || "", inicio: parseInt(valor(f, "inicio"), 10) || 1 }, formato: valor(f, "formato"), nombre: nombrePlano(),
+          estilo: { linea_color: valor(f, "linea_color"), linea_opacidad: numero(f, "linea_opacidad", 100), linea_ancho: numero(f, "linea_ancho", 2), relleno_color: valor(f, "relleno_color"), relleno_opacidad: numero(f, "relleno_opacidad", 25) } }, decir);
+        descargar(r.archivo, `${nombrePlano()}.${r.extension}`, r.tipo);
+        const s = r.resumen;
+        res.hidden = false;
+        res.innerHTML = `<dl class="civil-cifras"><div><dt>Polígonos</dt><dd>${s.poligonos.toLocaleString("es-MX")}</dd></div><div><dt>Líneas</dt><dd>${s.lineas.toLocaleString("es-MX")}</dd></div><div><dt>Puntos</dt><dd>${s.puntos.toLocaleString("es-MX")}</dd></div>${s.poligonos ? `<div><dt>Superficie</dt><dd>${mil(s.superficie, 2)} m²</dd></div>` : ""}</dl>${nombres === "etiqueta" && s.poligonos ? `<p class="civil-nota">${s.con_etiqueta} de ${s.poligonos} polígonos con el texto de adentro como nombre.</p>` : ""}`;
+        avisar(`${nombrePlano()}.${r.extension} descargado`);
+      }, { soloLee: true });
+    });
+  }
+
+  // -- Superficies: cuál se usa (Terreno o Proyecto) --------------------------------------------------------------------------------
+  /** Cuántos triángulos tiene cada triangulación del plano (sin leer sus vértices). */
+  async function contarCaras(tipo) { return (await consultar({ type: "3DFACE", layer: C.capas.tin[tipo], detail: "summary" })).length; }
+
+  /** La línea «Terreno · N triángulos / Proyecto · N triángulos» de una hoja y la frase de cuál superficie usa; con `con_superficie`, el interruptor. */
+  function prepararSuperficies(f, frase, { excluye = null } = {}) {
+    const caja = f.querySelector("[data-civil-superficies]");
+    const interruptor = f.elements.con_superficie, uso = caja.querySelector("[data-civil-sup-uso]");
+    let cuenta = null;
+    const pintarUso = () => { uso.textContent = frase(!!(interruptor && interruptor.checked), !!(f.elements.con_rasante && f.elements.con_rasante.checked)); };
+    if (interruptor) {
+      interruptor.addEventListener("change", () => {
+        if (interruptor.checked && excluye && f.elements[excluye].checked) { f.elements[excluye].checked = false; f.elements[excluye].dispatchEvent(new Event("change", { bubbles: true })); }
+        pintarUso();
+      });
+      if (excluye) f.elements[excluye].addEventListener("change", () => {
+        if (f.elements[excluye].checked && interruptor.checked) { interruptor.checked = false; interruptor.dispatchEvent(new Event("change", { bubbles: true })); }
+        pintarUso();
+      });
+    }
+    if (f.elements.con_rasante && !excluye) f.elements.con_rasante.addEventListener("change", pintarUso);
+    pintarUso();
+    return async function actualizar() {
+      pintarUso();
+      try { cuenta = { terreno: await contarCaras("terreno"), proyecto: await contarCaras("proyecto") }; } catch (_) { return; }
+      for (const t of ["terreno", "proyecto"]) {
+        const n = cuenta[t], chip = caja.querySelector(`[data-civil-sup="${t}"]`);
+        chip.classList.toggle("civil-superficie--vacia", n === 0);
+        chip.querySelector("i").textContent = n ? `${n.toLocaleString("es-MX")} triángulo${n === 1 ? "" : "s"}` : "Sin triangular";
+      }
+    };
+  }
+  /** Las caras de la superficie de proyecto cuando la hoja la pide (interruptor encendido); si no hay triangulación, dice qué hacer. */
+  async function carasProyectoSi(f) {
+    if (!valor(f, "con_superficie")) return null;
+    const caras = await carasDe("proyecto");
+    if (!caras.length) throw new ErrorCivil("No hay triangulación de proyecto. Importa los puntos de proyecto y triangúlalos como «Proyecto» (menú Triangulación).");
+    return caras;
   }
 
   function descargar(b64, nombre, tipo) {
@@ -1110,12 +1477,14 @@
   function prepararPerfil() {
     const f = document.querySelector('[data-civil-form="perfil"]');
     prepararElecciones(f); enlazarDependientes(f); prepararRasante(f);
+    alAbrir.perfil = prepararSuperficies(f, (sup, ras) => (sup ? `El perfil muestra el terreno y la superficie de proyecto (su triangulación)${ras ? " y, aparte, la rasante" : ""}, con el espesor entre las dos.` : ras ? "El perfil muestra el terreno (su triangulación) y la rasante que escribes." : "El perfil sigue el terreno (su triangulación)."));
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
         const datos = { ...datosEje(f), exageracion: numero(f, "exageracion", 10), rasante: rasante(f) };
         datos.esquina_superior = await lugarLibre("debajo");          // el lugar sugerido: la persona lo confirma o lo cambia al colocarlo
         datos.caras = await carasDe("terreno");
+        datos.caras_proyecto = await carasProyectoSi(f);
         decir("Calculando el perfil…");
         const r = await calcular("perfil", datos, decir);
         if (!(await colocarDxf(r.dxf, "perfil.dxf", { titulo: "El perfil", ancla: "abajo_izquierda" }))) return cancelado();
@@ -1159,17 +1528,19 @@
     const f = document.querySelector('[data-civil-form="masa"]');
     prepararElecciones(f); enlazarDependientes(f); prepararRasante(f);
     f.elements.con_rasante.checked = true; f.elements.con_rasante.dispatchEvent(new Event("change", { bubbles: true }));
+    alAbrir.masa = prepararSuperficies(f, (sup) => (sup ? "El proyecto sale de la superficie de proyecto (su triangulación): el corte y el terraplén son la diferencia con el terreno." : "El proyecto sale de la rasante y la sección que escribes, contra el terreno (su triangulación)."), { excluye: "con_rasante" });
     const res = f.querySelector("[data-civil-resultado]");
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       res.hidden = true;
       trabajo(f, "Leyendo la triangulación…", async (decir) => {
         const ras = rasante(f);
-        if (!ras) throw new ErrorCivil("La curva masa necesita la rasante de proyecto.");
+        if (!ras && !valor(f, "con_superficie")) throw new ErrorCivil("La curva masa necesita la rasante de proyecto o la superficie de proyecto.");
         const datos = { ...datosEje(f), izquierda: numero(f, "izquierda", 30), derecha: numero(f, "derecha", 30), rasante: ras, plantilla: plantillaDe(f),
           abundamiento: numero(f, "abundamiento", 1), acarreo_libre: numero(f, "acarreo_libre", 20), linea: valor(f, "linea_modo") === "dada" ? numero(f, "linea", 0) : "auto" };
         datos.esquina_superior = await lugarLibre("debajo");
         datos.caras = await carasDe("terreno");
+        datos.caras_proyecto = await carasProyectoSi(f);
         decir("Calculando la curva masa…");
         const r = await calcular("curva_masa", datos, decir);
         if (!(await colocarDxf(r.dxf, "curva-masa.dxf", { titulo: "La curva masa", ancla: "abajo_izquierda" }))) return cancelado();
@@ -1210,6 +1581,7 @@
   function prepararSecciones() {
     const f = document.querySelector('[data-civil-form="secciones"]');
     prepararElecciones(f); enlazarDependientes(f); prepararRasante(f);
+    alAbrir.secciones = prepararSuperficies(f, (sup, ras) => (sup ? "Las secciones comparan el terreno con la superficie de proyecto (su triangulación): el corte y el terraplén salen de la diferencia entre las dos." : ras ? "Las secciones comparan el terreno (su triangulación) con la rasante y la sección de proyecto que escribes." : "Las secciones son del terreno (su triangulación)."), { excluye: "con_rasante" });
     const res = f.querySelector("[data-civil-resultado]");
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
@@ -1218,6 +1590,7 @@
           abundamiento: numero(f, "abundamiento", 1), plantilla: plantillaDe(f) };
         datos.esquina_superior = await lugarLibre("lado");
         datos.caras = await carasDe("terreno");
+        datos.caras_proyecto = await carasProyectoSi(f);
         decir("Calculando las secciones…");
         const r = await calcular("secciones", datos, decir);
         if (!(await colocarDxf(r.dxf, "secciones.dxf", { titulo: "Las secciones" }))) return cancelado();
@@ -1807,6 +2180,7 @@
   // -- Volumen entre superficies -------------------------------------------------------------------------------------------------
   function prepararVolumen() {
     const f = document.querySelector('[data-civil-form="volumen"]');
+    alAbrir.volumen = prepararSuperficies(f, () => "El volumen compara la triangulación de Terreno con la de Proyecto: lo que el terreno tiene de más es corte; lo que le falta, terraplén.");
     const res = f.querySelector("[data-civil-resultado]");
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
@@ -1832,8 +2206,10 @@
   let barra = null;
   const ACCIONES = {
     escala: () => { llenarEscala(); abrirHoja("civil-hoja-escala"); },
-    importar: () => abrirHoja("civil-hoja-importar"),
-    exportar: () => abrirHoja("civil-hoja-exportar"),
+    importar: () => { abrirHoja("civil-hoja-importar"); alAbrir.importar(); },
+    exportar: () => { abrirHoja("civil-hoja-exportar"); alAbrir.exportar(); },
+    importar_kml: () => { abrirHoja("civil-hoja-importar-kml"); alAbrir.importar_kml(); },
+    exportar_kml: () => { abrirHoja("civil-hoja-exportar-kml"); alAbrir.exportar_kml(); },
     renumerar: () => abrirHoja("civil-hoja-renumerar"),
     revisar: () => abrirHoja("civil-hoja-revisar"),
     cuadro_curvas: () => abrirHoja("civil-hoja-cuadro-curvas"),
@@ -1851,7 +2227,7 @@
     numerar: () => abrirHoja("civil-hoja-numerar"),
     memoria: () => abrirHoja("civil-hoja-memoria"),
     cuadricula: () => abrirHoja("civil-hoja-cuadricula"),
-    masa: () => abrirHoja("civil-hoja-masa"),
+    masa: () => { abrirHoja("civil-hoja-masa"); alAbrir.masa(); },
     eje_espirales: () => abrirHoja("civil-hoja-eje-espirales"),
     lotes: () => abrirHoja("civil-hoja-lotes"),
     triangular: () => { abrirHoja("civil-hoja-triangular"); alAbrir.triangular(); },
@@ -1861,9 +2237,9 @@
     curvas: () => abrirHoja("civil-hoja-curvas"),
     actualizar_curvas: actualizarCurvas,
     cuadro: () => abrirHoja("civil-hoja-cuadro"),
-    perfil: () => abrirHoja("civil-hoja-perfil"),
-    secciones: () => abrirHoja("civil-hoja-secciones"),
-    volumen: () => abrirHoja("civil-hoja-volumen"),
+    perfil: () => { abrirHoja("civil-hoja-perfil"); alAbrir.perfil(); },
+    secciones: () => { abrirHoja("civil-hoja-secciones"); alAbrir.secciones(); },
+    volumen: () => { abrirHoja("civil-hoja-volumen"); alAbrir.volumen(); },
   };
   let llenarEscala = () => {};
   let alAbrirPuntoNuevo = async () => {};
@@ -1905,7 +2281,7 @@
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") barra.querySelectorAll(".civil-menu[open]").forEach((d) => d.removeAttribute("open")); });
     document.querySelectorAll("[data-civil-cuenta]").forEach((c) => { c.dataset.vacio = c.textContent; });
     llenarEscala = prepararEscala();
-    prepararImportar(); prepararExportar(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararUnirCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararEjeEspirales(); prepararPerfil(); prepararSecciones(); prepararVolumen();
+    prepararImportar(); prepararExportar(); prepararImportarKml(); prepararExportarKml(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararUnirCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararEjeEspirales(); prepararPerfil(); prepararSecciones(); prepararVolumen();
     pintarEscala();
     const editable = () => barra.toggleAttribute("data-solo-lectura", !window.TVCad.estado().editable);
     editable();

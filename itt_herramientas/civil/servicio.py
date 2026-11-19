@@ -86,6 +86,8 @@ def revisar(orden: str, datos: dict) -> None:
     for clave, minimo, mensaje in _REQUISITOS.get(orden, ()):
         if len(datos.get(clave) or []) < minimo:
             raise ErrorUsuario(mensaje)
+    if orden in ("secciones", "curva_masa") and datos.get("rasante") and datos.get("caras_proyecto"):
+        raise ErrorUsuario("El proyecto sale de la rasante o de la triangulación de proyecto: elige una.")
 
 
 def calcular(orden: str, datos: dict) -> dict:
@@ -155,3 +157,71 @@ def motor() -> dict:
     """Versión y commit del motor fijado (para el pie de la ayuda y el diagnóstico)."""
     d = json.loads((Path(__file__).parent / "motor" / "MOTOR.json").read_text(encoding="utf-8"))
     return {"version": d["version"], "commit": d["commit"][:9]}
+
+
+# -- Formatos de puntos guardados por cuenta ------------------------------------------------------------------------------------------
+
+USOS_FORMATO = ("importar", "exportar")
+#: Cuántos formatos guarda una cuenta por uso (importar / exportar): sobra para un despacho y evita que un guion llene la tabla.
+MAX_FORMATOS = 30
+
+
+def _usos(uso: str) -> str:
+    if uso not in USOS_FORMATO:
+        raise ErrorUsuario("Ese uso no existe.")
+    return uso
+
+
+def formatos_de(cuenta_id: int, uso: str) -> list[dict]:
+    from ..models import FormatoPuntos
+
+    return [{"nombre": f.nombre, "datos": f.datos} for f in FormatoPuntos.objects.filter(cuenta_id=cuenta_id, uso=_usos(uso)).order_by("nombre")]
+
+
+def guardar_formato(cuenta_id: int, uso: str, nombre, datos) -> dict:
+    """Guarda (o reemplaza, sin importar mayúsculas) el formato de la cuenta. `datos` pasa por el validador del motor: solo se guarda lo que
+    el motor entiende. Devuelve el formato guardado."""
+    from django.db import IntegrityError, transaction
+    from django.utils import timezone
+
+    from ..models import FormatoPuntos
+    from .motor.puntos import normalizar_formato
+
+    uso = _usos(uso)
+    nombre = " ".join(str(nombre or "").split())
+    if not nombre:
+        raise ErrorUsuario("Escribe un nombre para el formato.")
+    if len(nombre) > 60:
+        raise ErrorUsuario("El nombre es de 60 caracteres como máximo.")
+    try:
+        limpio = normalizar_formato(datos, uso)
+    except ValueError as exc:
+        raise ErrorUsuario(str(exc)) from None
+    try:
+        with transaction.atomic():
+            actual = FormatoPuntos.objects.select_for_update().filter(cuenta_id=cuenta_id, uso=uso, nombre__iexact=nombre).first()
+            if actual is None:
+                if FormatoPuntos.objects.filter(cuenta_id=cuenta_id, uso=uso).count() >= MAX_FORMATOS:
+                    raise ErrorUsuario(f"Ya tienes {MAX_FORMATOS} formatos guardados. Borra alguno para guardar otro.")
+                FormatoPuntos.objects.create(cuenta_id=cuenta_id, uso=uso, nombre=nombre, datos=limpio)
+            else:
+                actual.nombre, actual.datos, actual.actualizado = nombre, limpio, timezone.now()
+                actual.save(update_fields=["nombre", "datos", "actualizado"])
+    except IntegrityError:
+        raise ErrorUsuario("Ya hay un formato con ese nombre.") from None
+    return {"nombre": nombre, "datos": limpio}
+
+
+def borrar_formato(cuenta_id: int, uso: str, nombre) -> bool:
+    from ..models import FormatoPuntos
+
+    n, _ = FormatoPuntos.objects.filter(cuenta_id=cuenta_id, uso=_usos(uso), nombre__iexact=" ".join(str(nombre or "").split())).delete()
+    return bool(n)
+
+
+def al_eliminar_cuenta(cuenta_id: int) -> str | None:
+    """Contrato 1.8: los formatos de puntos son de la cuenta y se borran con ella. Idempotente."""
+    from ..models import FormatoPuntos
+
+    n, _ = FormatoPuntos.objects.filter(cuenta_id=cuenta_id).delete()
+    return f"Civil: se borraron {n} formato{'s' if n != 1 else ''} de puntos guardado{'s' if n != 1 else ''}." if n else None
