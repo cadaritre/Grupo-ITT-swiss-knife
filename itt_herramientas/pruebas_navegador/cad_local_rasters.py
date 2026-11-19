@@ -40,6 +40,19 @@ def patron(x0: int, y0: int, ancho: int, alto: int, spp: int = 3, alfa: bool = F
     return np.stack(canales, axis=-1).astype(np.uint8)
 
 
+def patron_nitidez(x0: int, y0: int, ancho: int, alto: int, spp: int = 3, alfa: bool = False) -> np.ndarray:
+    """Patrón para medir nitidez (mosaicos del CAD): gris = 28 + 100 · ajedrez de 1 px + 100 · ajedrez de 8 px. A resolución completa
+    se ve el ajedrez fino; en el nivel ½ (y en cualquier vista reducida) el fino se promedia y queda el de 8 px; en ⅛ y más gruesas,
+    gris parejo. Gris en los tres canales: el JPEG (4:2:0) lo conserva en la luminancia."""
+    xs = (np.arange(x0, x0 + ancho, dtype=np.uint32))[None, :]
+    ys = (np.arange(y0, y0 + alto, dtype=np.uint32))[:, None]
+    v = (28 + 100 * ((xs ^ ys) & 1) + 100 * (((xs >> 3) ^ (ys >> 3)) & 1)).astype(np.uint8)
+    canales = [v] * max(1, spp)
+    if alfa:
+        canales.append(np.full_like(v, 255))
+    return np.stack(canales, axis=-1)
+
+
 def lzw(datos: bytes) -> bytes:
     """LZW de TIFF (MSB primero, cambio de ancho «temprano»)."""
     salida = bytearray()
@@ -263,9 +276,10 @@ def geo_utm(x_esquina, y_esquina, pixel, epsg=32614, puntual=False):
 
 
 def tiff(ruta: Path, ancho: int, alto: int, *, mosaico=None, filas_tira=None, compresion="none", spp=3, alfa=False, planar=1,
-         predictor=1, grande=False, mm=False, vistas=0, geo=None, bits=8) -> Path:
+         predictor=1, grande=False, mm=False, vistas=0, geo=None, bits=8, nitidez=False) -> Path:
     canales = spp + (1 if alfa else 0)
-    completo = lambda x0, y0, w, h: patron(x0, y0, w, h, spp, alfa)  # noqa: E731
+    fuente = patron_nitidez if nitidez else patron
+    completo = lambda x0, y0, w, h: fuente(x0, y0, w, h, spp, alfa)  # noqa: E731
     e = EscritorTiff(ruta, grande=grande, mm=mm)
     e.nivel(ancho, alto, completo, mosaico=mosaico, filas_tira=filas_tira, spp=canales, alfa=alfa, compresion=compresion, planar=planar,
             predictor=predictor, geo=geo, bits=bits)
@@ -282,13 +296,15 @@ def mundo(ruta: Path, a, d, b, e, c, f) -> Path:
     return ruta
 
 
-def grande(carpeta: Path, gb: float, mosaico: int | None, tiras: int | None) -> Path:
-    """Un BigTIFF RGB de `gb` GB sin comprimir y sin vistas generales (lo peor: la pirámide se arma en la computadora)."""
-    lado = int(math.sqrt(gb * 1e9 / 3))
+def grande(carpeta: Path, gb: float, mosaico: int | None, tiras: int | None, *, nitidez=False, jpeg=False, vistas=0,
+           lado: int | None = None) -> Path:
+    """Un BigTIFF RGB de `gb` GB sin comprimir y sin vistas generales (lo peor: la pirámide se arma en la computadora); con `jpeg`,
+    en JPEG (YCbCr) con `vistas` vistas generales internas y `lado` píxeles por lado. `nitidez`: el patrón de nitidez."""
+    lado = lado or int(math.sqrt(gb * 1e9 / 3))
     ancho, alto = lado - lado % 512, lado - lado % 512
-    nombre = f"orto_{'mosaico' if mosaico else 'tiras'}_{ancho}x{alto}.tif"
-    ruta = tiff(carpeta / nombre, ancho, alto, mosaico=mosaico, filas_tira=tiras, grande=True,
-                geo=geo_utm(389000.0, 3169000.0 + alto * 0.05, 0.05))
+    nombre = f"orto_{'jpeg' if jpeg else ('mosaico' if mosaico else 'tiras')}_{ancho}x{alto}.tif"
+    ruta = tiff(carpeta / nombre, ancho, alto, mosaico=mosaico, filas_tira=tiras, grande=True, compresion="jpeg" if jpeg else "none",
+                vistas=vistas, geo=geo_utm(389000.0, 3169000.0 + alto * 0.05, 0.05), nitidez=nitidez)
     return ruta
 
 
@@ -350,12 +366,16 @@ def principal():
     g.add_argument("--gb", type=float, default=3.2)
     g.add_argument("--mosaico", type=int)
     g.add_argument("--tiras", type=int)
+    g.add_argument("--nitidez", action="store_true")
+    g.add_argument("--jpeg", action="store_true")
+    g.add_argument("--vistas", type=int, default=0)
+    g.add_argument("--lado", type=int)
     pc = sub.add_parser("pointcab")
     pc.add_argument("carpeta", type=Path)
     pc.add_argument("--imagenes", type=int, default=320)
     a = p.parse_args()
     if a.que == "grande":
-        print(grande(a.carpeta, a.gb, a.mosaico, a.tiras))
+        print(grande(a.carpeta, a.gb, a.mosaico, a.tiras, nitidez=a.nitidez, jpeg=a.jpeg, vistas=a.vistas, lado=a.lado))
     else:
         print(pointcab(a.carpeta, a.imagenes))
 

@@ -3,11 +3,17 @@
  * Mensajes (cada uno con `id`; responde `{id, ok, …}` o `{id, ok: false, error}`):
  *   {tipo: "iniciar", tiff}                         carga el lector TIFF (su dirección viene de la plantilla: nombres con huella).
  *   {tipo: "info", archivo}                         tamaño, formato, niveles y georreferencia; si conviene una pirámide local.
- *   {tipo: "region", archivo, rect, ancho, alto}    RGBA de la ventana `rect` [x0, y0, x1, y1] (píxeles del archivo) a ancho × alto.
- *                                                   `parcial: true` si salió de una vista más gruesa que la pedida (la pirámide
- *                                                   aún no está); `pendiente: true` si no hay nada razonable que leer todavía.
- *   {tipo: "piramide", archivo}                     arma la pirámide local (OPFS), avisa `{id, progreso, base?}` y termina `{id, ok}`.
- *                                                   Se puede cortar (`{tipo: "cancelar", objetivo}`) y se retoma donde quedó.
+ *   {tipo: "region", archivo, rect, ancho, alto, factor?}
+ *                                                   RGBA de la ventana `rect` [x0, y0, x1, y1] (píxeles del archivo) a ancho × alto.
+ *                                                   Con `factor` (un mosaico del editor: 2^nivel píxeles del archivo por píxel), solo
+ *                                                   de una fuente al menos así de fina y que cueste poco leer: si no la hay todavía
+ *                                                   (la pirámide no está), `pendiente: true`, nunca algo más borroso. Sin `factor`,
+ *                                                   `parcial: true` si salió de una vista más gruesa. `cancelada: true` si se cortó.
+ *   {tipo: "piramide", archivo, teselas?}           arma la pirámide local (OPFS), avisa `{id, progreso, teselas?}` y termina
+ *                                                   `{id, ok}`. Con `teselas` (la rejilla del editor y su nivel `desde`), cada aviso
+ *                                                   trae los mosaicos de los niveles `desde`…raíz que cambiaron, sacados de la vista
+ *                                                   general que se va llenando. Se puede cortar (`{tipo: "cancelar", objetivo}`) y se
+ *                                                   retoma donde quedó; `cancelar` corta también una `region` en curso.
  *   {tipo: "borrar_piramides"}                      borra todas las pirámides de este navegador.
  *
  * Nada sale de la computadora: el trabajador lee `File`s locales y escribe solo en el almacenamiento privado del navegador (OPFS).
@@ -25,7 +31,7 @@ const DIR = "tv-cad-piramides";
 const abiertos = new Map();       // clave → {tipo, tif?, ancho, alto, piramide?}
 const bloques = new Map();        // LRU de bloques TIFF decodificados: clave → {rgba, ancho, filas}
 let bytesBloques = 0;
-const MAX_BLOQUES = 192 * 1024 * 1024;
+const MAX_BLOQUES = 128 * 1024 * 1024; // por trabajador
 const cancelados = new Set();
 
 const claveDe = (f) => `${f.name}|${f.size}|${f.lastModified}`;
@@ -39,11 +45,15 @@ self.onmessage = async (ev) => {
       case "iniciar": importScripts(m.tiff); return responder(m.id, { ok: true });
       case "info": return responder(m.id, { ok: true, ...(await info(m.archivo)) });
       case "region": {
-        const r = await region(m.archivo, m.rect, m.ancho, m.alto);
+        const r = await region(m.archivo, m.rect, m.ancho, m.alto, m.factor, m.id);
+        cancelados.delete(m.id);
         return responder(m.id, { ok: true, ...r }, r.rgba ? [r.rgba.buffer] : []);
       }
-      case "piramide": return responder(m.id, { ok: true, ...(await piramide(m.archivo, m.id)) });
-      case "cancelar": cancelados.add(m.objetivo); return responder(m.id, { ok: true });
+      case "piramide": return responder(m.id, { ok: true, ...(await piramide(m.archivo, m.id, m.teselas)) });
+      case "cancelar":
+        if (cancelados.size > 4000) cancelados.clear();
+        cancelados.add(m.objetivo);
+        return; // sin respuesta: el id -1 no espera nada
       case "borrar_piramides": {
         const raiz = await navigator.storage.getDirectory();
         try { await raiz.removeEntry(DIR, { recursive: true }); } catch (_) { /* no había */ }
@@ -149,11 +159,14 @@ function fuentes(a) {
   return out.sort((x, y) => x.factor - y.factor);
 }
 
-async function region(archivo, rect, ancho, alto) {
+class Cancelada extends Error {}
+
+async function region(archivo, rect, ancho, alto, factor, id) {
   const a = await abrir(archivo);
   if (a.motivo) return { pendiente: true, motivo: a.motivo };
   const [x0, y0, x1, y1] = rect;
-  const necesario = Math.min((x1 - x0) / ancho, (y1 - y0) / alto);
+  const estricto = factor > 0;
+  const necesario = estricto ? factor : Math.min((x1 - x0) / ancho, (y1 - y0) / alto);
   const lista = fuentes(a);
   // La más gruesa que todavía da la resolución pedida; si leerla es demasiado, la siguiente más gruesa.
   let elegida = null, parcial = false;
@@ -163,7 +176,12 @@ async function region(archivo, rect, ancho, alto) {
   const pesado = (f) => (f.tipo === "tiff" || f.tipo === "imagen") && (costoDe(f) > LIMITE_LECTURA
     || (f.tipo === "tiff" && TVTiff.costo(f.nivel, x0 / f.factor, y0 / f.factor, x1 / f.factor, y1 / f.factor) > LIMITE_BYTES));
   elegida = finas.length ? finas[finas.length - 1] : lista[0];
-  if (elegida && pesado(elegida)) {
+  if (estricto) {
+    // Un mosaico: de la más gruesa que alcanza y se lee rápido; si no, todavía no (el editor dibuja su ancestro).
+    const buenas = finas.filter((f) => !pesado(f));
+    if (!buenas.length) return { pendiente: true };
+    elegida = buenas[buenas.length - 1];
+  } else if (elegida && pesado(elegida)) {
     const alternativa = lista.filter((f) => f.factor > elegida.factor && !pesado(f));
     if (!alternativa.length) return { pendiente: true };
     elegida = alternativa[0];
@@ -181,7 +199,7 @@ async function region(archivo, rect, ancho, alto) {
     ctx.drawImage(bmp, 0, 0, ancho, alto);
     bmp.close();
   } else if (elegida.tipo === "tiff") {
-    await dibujarTiff(a, elegida.nivel, rect, ctx, ancho, alto);
+    try { await dibujarTiff(a, elegida.nivel, rect, ctx, ancho, alto, id); } catch (err) { if (err instanceof Cancelada) return { cancelada: true }; throw err; }
   } else if (elegida.tipo === "piramide") {
     await dibujarPiramide(a, elegida.nivel, rect, ctx, ancho, alto);
   } else {
@@ -208,7 +226,7 @@ async function bloqueTiff(a, n, indice) {
   return b;
 }
 
-async function dibujarTiff(a, n, rect, ctx, ancho, alto) {
+async function dibujarTiff(a, n, rect, ctx, ancho, alto, id) {
   const f = n.factor;
   const [x0, y0, x1, y1] = rect.map((v) => v / f);
   const lx0 = Math.floor(x0), ly0 = Math.floor(y0), lx1 = Math.min(n.ancho, Math.ceil(x1)), ly1 = Math.min(n.alto, Math.ceil(y1));
@@ -216,8 +234,13 @@ async function dibujarTiff(a, n, rect, ctx, ancho, alto) {
   const tmp = new OffscreenCanvas(w, h);
   const tctx = tmp.getContext("2d");
   const lista = TVTiff.bloquesDe(n, lx0, ly0, lx1, ly1);
-  // Decodificar en paralelo (LZW y JPEG son lo caro).
-  const decod = await Promise.all(lista.map((b) => bloqueTiff(a, n, b.indice)));
+  // Decodificar en paralelo (LZW y JPEG son lo caro), de a 16 para poder cortar si el mosaico salió de la vista.
+  const decod = [];
+  for (let i = 0; i < lista.length; i += 16) {
+    if (id !== undefined && cancelados.has(id)) throw new Cancelada();
+    decod.push(...(await Promise.all(lista.slice(i, i + 16).map((b) => bloqueTiff(a, n, b.indice)))));
+  }
+  if (id !== undefined && cancelados.has(id)) throw new Cancelada();
   lista.forEach((b, k) => {
     const d = decod[k];
     tctx.putImageData(new ImageData(new Uint8ClampedArray(d.rgba.buffer, d.rgba.byteOffset, d.ancho * d.filas * 4), d.ancho, d.filas), b.x - lx0, b.y - ly0);
@@ -357,7 +380,24 @@ async function codificar(rgba, ancho, filas, conAlfa) {
 
 /** Pirámide local: nivel ×2 desde el original (por bandas, retomable), luego ×4, ×8… desde el nivel anterior (por mosaico,
  *  retomable) hasta que el lado mayor quepa en la vista general. La vista general se va llenando durante el primer paso. */
-async function piramide(archivo, id) {
+/** La rejilla de mosaicos del editor (local_raster.rs: Grid), para cortar los de la vista general. */
+function rejilla(t) {
+  const lado = (v, z) => Math.max(1, Math.ceil(v / 2 ** z));
+  const bloque = (z, c, r) => {
+    const lw = lado(t.ancho, z), lh = lado(t.alto, z), T = t.tile, g = t.gutter;
+    const x0 = Math.min(c * T, lw), y0 = Math.min(r * T, lh), x1 = Math.min((c + 1) * T, lw), y1 = Math.min((r + 1) * T, lh);
+    return [Math.max(0, x0 - g), Math.max(0, y0 - g), Math.min(lw, x1 + g), Math.min(lh, y1 + g)];
+  };
+  const archivoDe = (z, b) => [Math.min(t.ancho, b[0] * 2 ** z), Math.min(t.alto, b[1] * 2 ** z), Math.min(t.ancho, b[2] * 2 ** z), Math.min(t.alto, b[3] * 2 ** z)];
+  const lista = [];
+  for (let z = t.desde; z <= t.top; z++) {
+    const cols = Math.ceil(lado(t.ancho, z) / t.tile), filas = Math.ceil(lado(t.alto, z) / t.tile);
+    for (let r = 0; r < filas; r++) for (let c = 0; c < cols; c++) { const b = bloque(z, c, r); lista.push({ z, c, r, b, f: archivoDe(z, b) }); }
+  }
+  return lista;
+}
+
+async function piramide(archivo, id, teselas) {
   const a = await abrir(archivo);
   if (a.motivo) throw new Error(a.motivo);
   const conAlfa = !!a.alfa;
@@ -388,13 +428,30 @@ async function piramide(archivo, id) {
   const total = primero.filas + p.niveles.slice(1).reduce((s, n) => s + n.filas, 0);
   let hechas = primero.bandas + p.niveles.slice(1).filter((n) => n.lista).reduce((s, n) => s + n.filas, 0);
   let ultimoAviso = 0;
+  // Los mosaicos del editor que salen de la vista general, y las filas del archivo que cambiaron desde el último aviso (al retomar,
+  // todo: la vista guardada ya trae lo leído).
+  const mosaicos = teselas ? rejilla(teselas) : [];
+  let sucio = previa ? [0, a.alto] : null;
   const avisar = async (forzar) => {
     const ahora = Date.now();
     if (!forzar && ahora - ultimoAviso < 1500) return;
     ultimoAviso = ahora;
-    const datos = vctx.getImageData(0, 0, vw, vh).data;
-    const rgba = new Uint8Array(datos.buffer);
-    postMessage({ id, progreso: hechas / total, base: { rgba, ancho: vw, alto: vh } }, [rgba.buffer]);
+    const salen = [], transferir = [];
+    if (sucio) {
+      for (const m of mosaicos) {
+        if (m.f[3] <= sucio[0] || m.f[1] >= sucio[1]) continue;
+        const w = m.b[2] - m.b[0], h = m.b[3] - m.b[1];
+        const c = new OffscreenCanvas(w, h);
+        const x = c.getContext("2d", { willReadFrequently: true });
+        x.imageSmoothingQuality = "high";
+        x.drawImage(vista, m.f[0] / fv, m.f[1] / fv, (m.f[2] - m.f[0]) / fv, (m.f[3] - m.f[1]) / fv, 0, 0, w, h);
+        const rgba = new Uint8Array(x.getImageData(0, 0, w, h).data.buffer);
+        salen.push({ z: m.z, c: m.c, r: m.r, ancho: w, alto: h, rgba });
+        transferir.push(rgba.buffer);
+      }
+      sucio = null;
+    }
+    postMessage({ id, progreso: hechas / total, teselas: salen, vistaLista: !!primero.lista }, transferir);
   };
   let bmpImagen = null;
   try {
@@ -417,6 +474,8 @@ async function piramide(archivo, id) {
         const lb = new OffscreenCanvas(d.ancho, d.filas);
         lb.getContext("2d").putImageData(new ImageData(d.rgba, d.ancho, d.filas), 0, 0);
         vctx.drawImage(lb, 0, y0 / fv, a.ancho / fv, (y1 - y0) / fv);
+        // Las filas de la vista general que cambiaron (con un píxel de margen por el suavizado).
+        sucio = [Math.max(0, Math.min(sucio ? sucio[0] : y0, y0) - fv), Math.min(a.alto, Math.max(sucio ? sucio[1] : y1, y1) + fv)];
         primero.bandas = banda + 1;
         hechas++;
         if (banda % 8 === 7) {
@@ -429,6 +488,7 @@ async function piramide(archivo, id) {
       await escribirArchivo(dir, "vista.png", await vista.convertToBlob({ type: "image/png" }));
       p.vista = { factor: fv, ancho: vw, alto: vh };
       await guardarManifiesto(a);
+      sucio = [0, a.alto];
       await avisar(true);
     }
     for (let k = 1; k < p.niveles.length; k++) {

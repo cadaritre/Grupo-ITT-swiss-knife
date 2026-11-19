@@ -125,12 +125,12 @@ def ver(p, cx, cy, alto):
 
 def esperar_imagenes(p, n, timeout=LARGO):
     try:
-        esperar(p, f"window.TVCadLocal && TVCadLocal.estado().suministradas.filter(s => s.base).length >= {n}", timeout)
+        esperar(p, f"window.TVCadLocal && TVCadLocal.estado().suministradas.filter(s => s.raiz).length >= {n}", timeout)
     except AssertionError:
         if CAPTURAS:
             p.screenshot(path=f"{CAPTURAS}/fallo-imagenes.png")
         diag = p.evaluate("""async () => ({ local: window.TVCadLocal && (({resueltas, ...x}) => ({...x, resueltas: resueltas.length, malas: resueltas.filter(r => r.estado !== 'ruta').slice(0, 3)}))(TVCadLocal.estado()),
-          vistas: await TVCad.pedir({op: 'image_views'}).catch(e => String(e)),
+          vistas: await TVCad.pedir({op: 'image_tiles'}).catch(e => String(e)),
           refs: await TVCad.pedir({op: 'references'}).then(r => ({images: r.images.slice(0, 3), supplied_bytes: r.supplied_bytes})).catch(e => String(e)) })""")
         raise AssertionError(f"imágenes sin dar: {json.dumps(diag)[:3000]}")
 
@@ -189,9 +189,9 @@ def test_carpeta_vinculada_imagenes_y_xref_sin_subir_nada(cad, navegar, ana, fac
         p.wait_for_timeout(700)
         p.screenshot(path=f"{CAPTURAS}/cad-local-panel-chromium-1280.png")
         p.locator("#cad-referencias [data-tv-cerrar]").first.click()
-    # Acercarse a una fachada: detalle a la resolución de la pantalla, solo de lo visible.
+    # Acercarse a una fachada: el nivel de la pantalla, solo de lo visible.
     ver(p, 389000.0 + 2.0, 3169000.0 + 1.5, 2.0)
-    esperar(p, "TVCadLocal.estado().suministradas.some(s => s.detalle || (s.base && s.base[0] >= 512))", LARGO)
+    esperar(p, "TVCadLocal.estado().suministradas.some(s => s.completa && s.nivel === 0 && s.teselas > 1)", LARGO)
     # Recargar: el navegador recuerda la carpeta; con el permiso vigente se vuelve a usar sola (Chromium de pruebas lo mantiene).
     p.reload()
     listo(p)
@@ -323,7 +323,7 @@ def test_geotiff_en_mosaicos_por_partes(cad, navegar, ana, tmp_path):
     esperar_imagenes(p, 1)
     # El patrón: rojo = columna mod 256. Columna 128 (x = 389 012.85) es rojo 128 ± JPEG del lector, no aplica: Deflate es exacto.
     ver(p, 389012.85, 3169000.0 - 10.05, 4.0)
-    esperar(p, "TVCadLocal.estado().suministradas.some(s => s.detalle)", LARGO)
+    esperar(p, "TVCadLocal.estado().suministradas.some(s => s.completa && s.nivel === 0)", LARGO)
     p.wait_for_timeout(800)
     c = color_en(p, 389012.85, 3169000.0 - 10.05)
     assert abs(c[0] - 128) <= 12 and abs(c[1] - 100) <= 12, c
