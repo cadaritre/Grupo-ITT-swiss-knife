@@ -14,7 +14,7 @@
 (function (global) {
   "use strict";
 
-  const UTILES = /\.(tif|tiff|tifw|tfw|jpg|jpeg|jpgw|jgw|jpegw|png|pngw|pgw|wld|bmp|bpw|gif|gfw|webp|dwg|dxf|pdf)$/i;
+  const UTILES = /\.(tif|tiff|tifw|tfw|jpg|jpeg|jpgw|jgw|jpegw|png|pngw|pgw|wld|bmp|bpw|gif|gfw|webp|dwg|dxf|dwt|pdf)$/i;
   const MAX_ARCHIVOS = 200000;
   const MAX_PROFUNDIDAD = 16;
 

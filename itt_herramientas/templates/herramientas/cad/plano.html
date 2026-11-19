@@ -201,6 +201,7 @@
 {% endif %}
 {% if tactil and editor_listo %}{% include "herramientas/cad/tactil.html" %}{% endif %}
 {% if editor_listo %}{% include "herramientas/cad/local.html" %}{% endif %}
+{% if editor_listo and config.plantillas %}{% include "herramientas/cad/plantilla.html" %}{% endif %}
 <div id="cad-iconos" hidden><span data-cad-icono="x">{% icono "x" %}</span><span data-cad-icono="lock">{% icono "lock" %}</span><span data-cad-icono="circle-check">{% icono "circle-check" %}</span><span data-cad-icono="triangle-alert">{% icono "triangle-alert" %}</span><span data-cad-icono="eye">{% icono "eye" %}</span><span data-cad-icono="download">{% icono "download" %}</span><span data-cad-icono="rotate-ccw">{% icono "rotate-ccw" %}</span></div>
 {% csrf_token %}
 {% endblock %}
@@ -217,6 +218,7 @@
 <script src="{% static 'herramientas/cad/local/local.js' %}"></script>
 {% if civil %}<script src="{% static 'herramientas/cad/local/satelite-geo.js' %}"></script>
 <script src="{% static 'herramientas/cad/local/satelite.js' %}"></script>{% endif %}{% endif %}
+{% if editor_listo and config.plantillas %}<script src="{% static 'herramientas/cad/plantillas.js' %}"></script>{% endif %}
 {% if tactil and editor_listo %}<script src="{% static 'herramientas/cad/campo.js' %}"></script>
 <script src="{% static 'herramientas/cad/tactil.js' %}"></script>{% endif %}
 {% block extensiones_cad %}{% if civil %}{% include "herramientas/cad/civil.html" %}{% endif %}{% endblock %}

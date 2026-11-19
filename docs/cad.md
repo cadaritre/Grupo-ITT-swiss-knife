@@ -213,6 +213,53 @@ y Duplicar, Eliminar y Renombrar responden JSON con `Accept: application/json`. 
 documento dado; tv-v2026.45-12 agrega `documents`, `file_tabs` y el documento en `openCadStudioSaveFile` (contrato en
 `docs/tresvizo-documentos.md` del fork). `window.TVCadPestanas` (lista, abrir, activar, guardarTodo) es para las pruebas.
 
+## Presentaciones desde plantilla (18-11-2026)
+
+Pedido del dueño: «En AutoCAD se le puede dar clic derecho en la pestaña de layout e importar una plantilla, y eso siempre uso yo para mi
+marco de planos.» Es el «Desde plantilla…» de AutoCAD (LAYOUT › Plantilla), con su «Guardar como plantilla…» (LAYOUT › Guardar como).
+
+- **Dónde.** Clic derecho en una pestaña de presentación del editor: «Desde plantilla…» y «Guardar como plantilla…»; en la pestaña Model y
+  en «+»: «Presentación nueva» y «Desde plantilla…»; también la orden `LAYOUT` → `Plantilla` (o `T`) y Insertar › Presentación ›
+  «Layout from Template…» de la barra de menús. Solo en la pestaña que se puede editar (esta página tiene su bloqueo) y en la computadora:
+  en solo lectura, en una versión anterior, en el teléfono y en el modo táctil no aparecen (la página manda `layout_templates {menu}`).
+- **Elegir la plantilla** (hoja «Desde plantilla»):
+  - **Mis plantillas**: las que esta cuenta marcó con la estrella o guardó con «Guardar como plantilla…», la usada más reciente primero.
+    Para el marco de siempre son dos toques: el marco y «Insertar» (con una sola presentación ya va marcada). La marca es de la cuenta
+    (`PlantillaCad`); el plano sigue siendo de la biblioteca de todos. Un plano en la papelera no sale; al restaurarlo vuelve.
+  - **De la biblioteca**: la misma búsqueda, carpetas de proyecto o cliente y páginas que «Abrir otro plano» (`/cad/elegir/`), con la
+    estrella para agregar o quitar de «Mis plantillas». «Plantillas» va primero entre las carpetas.
+  - **De esta computadora**: un archivo DWT, DWG o DXF elegido o soltado, o un dibujo de la carpeta del proyecto vinculada (la de
+    «Referencias»). Se lee en el navegador y se le da al editor: **nunca se sube** (hasta 200 MB, por la memoria del editor). Para tenerlo
+    en la biblioteca, se sube en «Planos».
+- **Elegir las presentaciones**: el editor lee la plantilla en su trabajador (`layout_list`) y la hoja muestra cada presentación con su
+  vista previa (el SVG que hace el editor; la página solo deja pasar `rect` y `path`), su papel («ISO A1 · 841 × 594 mm») y sus ventanas;
+  se marcan una o varias («Todas») e «Insertar 2 presentaciones».
+- **Qué hace el editor** (`layout_import`, parche 80; contrato en `docs/tresvizo-plantillas.md` del fork), como AutoCAD:
+  - trae cada presentación con su configuración de página (papel, área, escala, estilo de trazado, desfase, giro), todo su espacio papel
+    (el marco y el rótulo con sus atributos, textos, ventanas con su vista, escala, capas inutilizadas y bloqueo) y lo que usa: bloques
+    (también los anidados), capas, tipos de línea, estilos de texto, de cota y de directriz, imágenes y referencias externas (como
+    referencias);
+  - **nombres**: una presentación que se llama como una del plano entra como «A1 Marco (2)» (la regla de Copiar de AutoCAD); un bloque,
+    estilo o capa que el plano ya tiene se queda como está (se usa el del plano, como INSERT, y el aviso lo dice: «Este plano ya tenía
+    MARCO: se usó lo suyo»); los bloques anónimos de la plantilla nunca toman los del plano;
+  - **un solo paso de deshacer**, el plano queda «Sin guardar» y se muestra la primera presentación insertada; el espacio modelo de la
+    plantilla no se trae: las ventanas muestran el espacio modelo **de este plano** con la vista de la plantilla y la persona las ajusta
+    después, como en AutoCAD.
+- **Guardar como plantilla…**: un nombre (el de la presentación) y «Guardar plantilla». El editor escribe un DWG con esa presentación sola y
+  lo que usa, sin espacio modelo (`layout_template_save`, el escritor DWG del editor: LibreDWG y ezdxf lo leen en las pruebas del fork), y
+  queda como plano nuevo de la biblioteca en el proyecto «Plantillas» (`POST /cad/plantillas/guardar/`, rol de edición), marcado en «Mis
+  plantillas» de quien lo guardó. Su versión dice «Plantilla de presentación».
+- **Servidor**: `GET /cad/plantillas/` (la lista de la cuenta), `POST /cad/plantillas/<id>/` (`{"en": true|false}` marca o quita;
+  `{"usada": true}` la sube en la lista) y `POST /cad/plantillas/guardar/`; `/cad/elegir/` dice de cada plano si es plantilla de quien
+  pregunta y la dirección de su archivo. Tope: 60 plantillas por cuenta. Al eliminar una cuenta se borra su lista (los planos se quedan).
+  Migración `0019_cad_plantillas` (tras `0018_formatos_puntos_civil`).
+- **Editor**: hace falta la compilación con el parche 80 del fork (rama `tv-plantillas-layout`); con una anterior la hoja no se abre
+  porque el editor no ofrece las opciones. Probado con la compilación local `tv-v2026.45-cf` (servida como la versión fijada).
+- **Página**: `static/herramientas/cad/plantillas.js` (el gancho `openCadStudioLayoutTemplate` del editor, la hoja y el menú),
+  `templates/herramientas/cad/plantilla.html`; `window.TVCadPlantillas` es para las pruebas. Pruebas: `pruebas/test_cad_plantillas.py` y
+  `pruebas_navegador/test_cad_plantillas_navegador.py` (Chromium y WebKit: el menú de la pestaña, las tres fuentes, que nada local se
+  sube, permisos y bloqueo, pestañas).
+
 ## Modo táctil (teléfono y tableta) — detrás de `TV_CAD_TACTIL`
 
 Apagado por omisión (`settings.TV_CAD_TACTIL` o la variable de entorno del mismo nombre: «1»). Apagado, nada cambia: la página del plano es

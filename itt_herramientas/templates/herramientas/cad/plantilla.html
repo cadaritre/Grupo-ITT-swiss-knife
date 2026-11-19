@@ -1,0 +1,54 @@
+{% load tv %}{# «Desde plantilla…» y «Guardar como plantilla…» (static/herramientas/cad/plantillas.js; docs/cad.md, «Presentaciones desde plantilla»). #}
+{% hoja_inferior "cad-plantilla" titulo="Desde plantilla" %}
+<div class="cad-plantilla" id="cad-plantilla-origen">
+  <div class="tv-segmentado cad-plantilla__fuentes" role="tablist" aria-label="De dónde viene la plantilla">
+    <label><input type="radio" name="cad-plantilla-fuente" value="mias" checked><span>Mis plantillas</span></label>
+    <label><input type="radio" name="cad-plantilla-fuente" value="biblioteca"><span>De la biblioteca</span></label>
+    <label><input type="radio" name="cad-plantilla-fuente" value="computadora"><span>De esta computadora</span></label>
+  </div>
+  <section data-fuente="mias">
+    <ul class="cad-elegir__lista" id="cad-plantilla-mias" aria-live="polite"></ul>
+    <p class="tv-tenue cad-plantilla__vacio" id="cad-plantilla-mias-vacio" hidden>Aún no tienes plantillas. Haz clic derecho en la pestaña de una presentación y elige «Guardar como plantilla…», o marca con la estrella un plano de la biblioteca.</p>
+  </section>
+  <section data-fuente="biblioteca" hidden>
+    <form class="cad-elegir__buscar" id="cad-plantilla-form" role="search" aria-label="Buscar planos">
+      <div class="cad-buscador">{% icono "search" %}<label for="cad-plantilla-q" class="tv-solo-lectores">Buscar</label><input id="cad-plantilla-q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar por nombre, proyecto o persona"></div>
+    </form>
+    <div class="cad-elegir__carpetas" id="cad-plantilla-carpetas" role="group" aria-label="Proyecto o cliente" hidden></div>
+    <ul class="cad-elegir__lista" id="cad-plantilla-lista" aria-live="polite"></ul>
+    <div class="cad-plantilla__mas"><button type="button" class="tv-boton tv-boton--secundario" id="cad-plantilla-mas" hidden>Ver más</button></div>
+  </section>
+  <section data-fuente="computadora" hidden>
+    <label class="cad-plantilla__soltar" id="cad-plantilla-soltar">
+      <input type="file" id="cad-plantilla-archivo" accept=".dwt,.dwg,.dxf" class="tv-solo-lectores">
+      {% icono "file-up" %}<strong>Elegir un archivo DWT, DWG o DXF</strong><span class="tv-tenue">o suéltalo aquí</span>
+    </label>
+    <div id="cad-plantilla-carpeta" hidden>
+      <h3 class="cad-plantilla__subtitulo">En la carpeta del proyecto</h3>
+      <ul class="cad-elegir__lista" id="cad-plantilla-carpeta-lista"></ul>
+    </div>
+    <p class="tv-tenue cad-hoja-nota">El archivo se lee en esta computadora y no se sube. Si quieres tenerlo en la biblioteca, súbelo en «Planos».</p>
+  </section>
+</div>
+<div class="cad-plantilla" id="cad-plantilla-presentaciones" hidden>
+  <div class="cad-plantilla__cabeza">
+    <button type="button" class="tv-boton tv-boton--fantasma tv-boton--icono" id="cad-plantilla-atras" data-tv-tooltip="Elegir otra plantilla">{% icono "arrow-left" etiqueta="Elegir otra plantilla" %}</button>
+    <h3 class="cad-plantilla__subtitulo" id="cad-plantilla-de"></h3>
+    <button type="button" class="tv-boton tv-boton--fantasma" id="cad-plantilla-todas">Todas</button>
+  </div>
+  <ul class="cad-plantilla__lista" id="cad-plantilla-capas"></ul>
+  <p class="tv-tenue cad-hoja-nota">Se traen con su marco, rótulo, ventanas y configuración de página. Las ventanas muestran el espacio modelo de este plano con la vista de la plantilla: ajústalas después. Los bloques y estilos que este plano ya tiene se quedan como están.</p>
+</div>
+<p class="tv-tenue cad-elegir__estado" id="cad-plantilla-estado" role="status"></p>
+<div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="button" class="tv-boton" id="cad-plantilla-insertar" hidden disabled>{% icono "layout-template" %}<span id="cad-plantilla-insertar-texto">Insertar</span></button></div>
+{% endhoja_inferior %}
+
+{% hoja_inferior "cad-plantilla-guardar" titulo="Guardar como plantilla" %}
+<form class="tv-formulario" id="cad-plantilla-guardar-form">
+  <div class="tv-campo"><label for="cad-plantilla-nombre">Nombre de la plantilla</label><input id="cad-plantilla-nombre" type="text" maxlength="150" required autocomplete="off"></div>
+  <p class="tv-tenue cad-hoja-nota" id="cad-plantilla-guardar-nota">Se guarda en la biblioteca, en el proyecto «Plantillas», solo con esta presentación y lo que usa (bloques, capas y estilos). La encuentras en «Mis plantillas».</p>
+  <p class="tv-tenue cad-elegir__estado" id="cad-plantilla-guardar-estado" role="status"></p>
+  <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton" id="cad-plantilla-guardar-ir">{% icono "save" %}<span>Guardar plantilla</span></button></div>
+</form>
+{% endhoja_inferior %}
+<div id="cad-plantilla-iconos" hidden><span data-cad-icono="star">{% icono "star" %}</span><span data-cad-icono="star-off">{% icono "star-off" %}</span></div>

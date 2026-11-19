@@ -283,6 +283,34 @@ html.cad-completa:not(.cad-tactil) .cad-pestanas { margin: 0 0 0; }
 .cad-elegir__formato[data-formato="dxf"] { background: var(--tv-estado-exito-fondo); color: var(--tv-estado-exito-texto); }
 .cad-elegir__estado { margin: 0 0 var(--tv-espacio-2); font-size: var(--tv-texto-sm); }
 
+/* «Desde plantilla…» y «Guardar como plantilla…» (plantillas.js) */
+.cad-plantilla__fuentes { margin: 0 0 var(--tv-espacio-3); width: 100%; }
+.cad-plantilla__fuentes label { flex: 1 1 0; text-align: center; }
+.cad-plantilla__fila { display: flex; align-items: center; }
+.cad-plantilla__fila .cad-elegir__plano { flex: 1 1 auto; min-width: 0; }
+.cad-plantilla__estrella { flex: none; margin-right: var(--tv-espacio-2); }
+.cad-plantilla__estrella[aria-pressed="true"] svg { color: var(--tv-estado-aviso-texto, var(--tv-primario)); fill: currentColor; }
+.cad-plantilla__vacio { margin: var(--tv-espacio-3) 0; }
+.cad-plantilla__mas { display: flex; justify-content: center; }
+.cad-plantilla__soltar { display: grid; justify-items: center; gap: var(--tv-espacio-1); padding: var(--tv-espacio-5) var(--tv-espacio-3); margin: 0 0 var(--tv-espacio-3);
+  border: 2px dashed var(--tv-separador); border-radius: var(--tv-radio-grande); color: var(--tv-texto); text-align: center; cursor: pointer; }
+.cad-plantilla__soltar:hover, .cad-plantilla__soltar[data-encima], .cad-plantilla__soltar:focus-within { border-color: var(--tv-primario);
+  background: color-mix(in srgb, var(--tv-primario) 6%, transparent); }
+.cad-plantilla__soltar svg { width: 28px; height: 28px; color: var(--tv-primario); }
+.cad-plantilla__subtitulo { margin: 0 0 var(--tv-espacio-2); font-size: var(--tv-texto-base, 1rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-plantilla__cabeza { display: flex; align-items: center; gap: var(--tv-espacio-2); margin: 0 0 var(--tv-espacio-2); }
+.cad-plantilla__cabeza .cad-plantilla__subtitulo { flex: 1 1 auto; margin: 0; min-width: 0; }
+.cad-plantilla__lista { list-style: none; margin: 0 0 var(--tv-espacio-2); padding: 0; max-height: min(50vh, 28rem); overflow: auto; border: 1px solid var(--tv-separador);
+  border-radius: var(--tv-radio-grande); }
+.cad-plantilla__lista li + li { border-top: 1px solid var(--tv-separador); }
+.cad-plantilla__presentacion { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: var(--tv-espacio-3);
+  padding: var(--tv-espacio-2) var(--tv-espacio-3); cursor: pointer; min-height: 64px; }
+.cad-plantilla__presentacion:hover { background: color-mix(in srgb, var(--tv-primario) 6%, transparent); }
+.cad-plantilla__presentacion input { width: 18px; height: 18px; }
+.cad-plantilla__vista { display: grid; place-items: center; width: 76px; height: 52px; border-radius: 4px; background: var(--tv-superficie-2, var(--tv-superficie));
+  color: var(--tv-texto); overflow: hidden; }
+.cad-plantilla__vista svg { width: 100%; height: 100%; }
+
 /* Carpeta del proyecto en esta computadora y «Referencias externas» (local/local.js) */
 .cad-local-boton .tv-insignia { margin-left: var(--tv-espacio-1); }
 .cad-local { display: grid; gap: var(--tv-espacio-3); }
