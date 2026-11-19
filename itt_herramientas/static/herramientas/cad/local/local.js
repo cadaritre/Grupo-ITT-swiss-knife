@@ -92,10 +92,20 @@
       return { id, promesa: new Promise((ok, mal) => { pendientes.set(id, { ok, mal, progreso }); h.w.postMessage({ ...msg, id }, transferir || []); }) };
     }
     return {
+      // Una pirámide local ocupa su trabajador entero mientras se arma: las lecturas de mosaicos van a los demás (si hay más de uno),
+      // así nunca le quitan turnos.
       pedir(msg, { progreso, hilo } = {}) {
         if (!hilos.length) for (let i = 0; i < n; i++) crear();
-        const h = hilo !== undefined ? hilos[hilo % hilos.length] : hilos.reduce((a, b) => (b.ocupados < a.ocupados ? b : a));
-        return enviar(h, msg, null, progreso);
+        const libres = hilos.length > 1 ? hilos.filter((x) => !x.armando) : hilos;
+        const lista = libres.length ? libres : hilos;
+        const h = hilo !== undefined ? lista[hilo % lista.length] : lista.reduce((a, b) => (b.ocupados < a.ocupados ? b : a));
+        const r = enviar(h, msg, null, progreso);
+        if (msg.tipo === "piramide") {
+          h.armando = (h.armando || 0) + 1;
+          const fin = () => { h.armando--; };
+          r.promesa.then(fin, fin);
+        }
+        return r;
       },
       cancelar(id) {
         for (const h of hilos) h.w.postMessage({ tipo: "cancelar", objetivo: id, id: -1 });
@@ -307,6 +317,16 @@
         return [Math.max(0, x0 - g), Math.max(0, y0 - g), Math.min(lw, x1 + g), Math.min(lh, y1 + g)];
       },
       archivo(z, b) { const k = 2 ** z; return [Math.min(W, b[0] * k), Math.min(H, b[1] * k), Math.min(W, b[2] * k), Math.min(H, b[3] * k)]; },
+      // Los mosaicos del nivel z que cubren el rectángulo del archivo (como Grid::range del editor).
+      visibles(z, r) {
+        const k = 2 ** z * T, cols = Math.ceil(lado(W, z) / T), filas = Math.ceil(lado(H, z) / T);
+        const out = new Set();
+        if (!r || !(r[2] > r[0] && r[3] > r[1])) return out;
+        const c0 = Math.min(cols - 1, Math.floor(Math.max(0, r[0]) / k)), c1 = Math.min(cols - 1, Math.max(1, Math.ceil(r[2] / k)) - 1);
+        const f0 = Math.min(filas - 1, Math.floor(Math.max(0, r[1]) / k)), f1 = Math.min(filas - 1, Math.max(1, Math.ceil(r[3] / k)) - 1);
+        for (let f = f0; f <= f1; f++) for (let c = c0; c <= c1; c++) out.add(`${z}/${c}/${f}`);
+        return out;
+      },
       // El nivel más fino que sale entero de la vista general de la pirámide local.
       nivelVista() { let z = 0; while (z < set.top && Math.max(lado(W, z), lado(H, z)) > VISTA_LADO) z++; return z; },
     };
@@ -326,9 +346,12 @@
     ciclo = setTimeout(async () => {
       ciclo = null;
       enPaso = true;
-      try { await paso(); } catch (err) { console.warn("CAD: imágenes", err); setTimeout(() => planear(), 500); } finally {
+      let espera = null;
+      try { espera = await paso(); } catch (err) { console.warn("CAD: imágenes", err); espera = 500; } finally {
         enPaso = false;
-        if (otraVez) { otraVez = false; planear(true); }
+        // Lo que pidió una vuelta mientras corría esta va enseguida; si no, la siguiente a su tiempo (nunca un bucle sin pausa: cada
+        // vuelta despierta al editor, y sin pausa le quita la CPU al dibujo y a la pirámide local).
+        if (otraVez) { otraVez = false; planear(true); } else if (espera !== null && espera !== undefined) planear(espera === 0, espera);
       }
     }, pronto ? 0 : ms);
   }
@@ -338,7 +361,10 @@
     for (let i = entregas.length - 1; i >= 0; i--) if (entregas[i].st === st) entregas.splice(i, 1);
   }
 
+  // Para el diagnóstico (TVCadLocal.estado().contadores): pasos, ataduras, lecturas por nivel y mosaicos dados.
+  const contadores = { pasos: 0, aperturas: 0, lecturas: {}, entregados: 0, vistas: 0 };
   async function paso() {
+    contadores.pasos++;
     const st = e;
     // Sin nada resuelto (sin carpeta y sin imágenes insertadas desde esta computadora) no hay nada que pedir.
     const algo = st && (st.indice || [...st.res.values()].some((x) => x.entrada));
@@ -349,6 +375,7 @@
     if (st !== e || (st.documento && v.document_id && v.document_id !== st.documento)) { setTimeout(() => planear(true), 0); return; }
     const doc = st.documento || v.document_id;
     st.vista = v;
+    contadores.vistas += v.views.length;
     // Mientras la vista se mueve, solo lo que se ve (y la raíz): el anillo y los niveles vecinos se leen cuando se detiene, así los
     // trabajadores no compiten con el dibujo durante un arrastre o un acercamiento seguidos.
     const ahoraMov = performance.now();
@@ -373,6 +400,7 @@
         // Atar la ruta, en este documento, a este archivo; el editor empieza vacío y pide la raíz.
         const w = editor();
         if (w && w.ocs_image_tiles_open) {
+          contadores.aperturas++;
           const motivo = w.ocs_image_tiles_open(doc, f.path, ident, info.ancho, info.alto);
           if (motivo) console.warn("CAD: el editor no tomó la imagen", f.path, motivo); else { st.abiertas.set(f.path, ident); abrio = true; }
         }
@@ -382,9 +410,19 @@
       const g = rejilla(info, f.set);
       if (info.piramide === "falta" && !st.piramides.has(f.path)) piramide(st, f.path, f.set);
       const pir = st.piramides.get(f.path);
-      // Mientras se arma la vista general, los niveles que salen de ella llegan con su progreso.
-      const desdeVista = pir && pir.corriendo && !pir.vistaLista ? g.nivelVista() : Infinity;
-      const quiere = moviendose ? f.want.filter(([z]) => z === f.level || z === f.set.top).slice(0, 24) : f.want;
+      // Mientras se arma la pirámide local, ella va primero: los niveles que salen de su vista general llegan con su progreso, y del
+      // archivo completo solo se leen los mosaicos que se ven de los niveles ½ y completo (los baratos: pocos bloques del archivo). Los
+      // niveles intermedios esperan a la pirámide: mientras tanto el editor dibuja el nivel ya armado más cercano. Sin anillo ni niveles
+      // vecinos hasta que termine.
+      const armando = pir && pir.corriendo;
+      const desdeVista = armando && !pir.vistaLista ? g.nivelVista() : Infinity;
+      let quiere = moviendose ? f.want.filter(([z]) => z === f.level || z === f.set.top).slice(0, 24) : f.want;
+      if (armando) {
+        const vis = g.visibles(f.level, f.file_rect);
+        const nv = g.nivelVista();
+        quiere = quiere.filter(([z, c, rr]) => z === f.set.top
+          || (vis.has(`${z}/${c}/${rr}`) && (z <= 1 || (z >= nv && pir.vistaLista))));
+      }
       quiere.forEach(([z, c, rr], i) => {
         const clave = claveDe(doc, f.path, ident, z, c, rr);
         deseados.add(clave);
@@ -402,10 +440,11 @@
     }
     // Sin nada pendiente, se mira menos seguido (la vista quieta no pide nada).
     const ocupado = abrio || trabajos.size || pedidos.length || entregas.length;
-    planear(abrio, ocupado ? 90 : 250);
+    return abrio ? 0 : (ocupado ? 90 : 250);
   }
 
   async function leer(st, doc, ruta, ident, archivo, g, z, c, r, clave) {
+    contadores.lecturas[z] = (contadores.lecturas[z] || 0) + 1;
     const b = g.bloque(z, c, r);
     const rect = g.archivo(z, b);
     // Los mosaicos de una misma fila y nivel van al mismo trabajador: comparten sus bloques del TIFF (tiras anchas).
@@ -440,6 +479,7 @@
         const x = entregas.shift();
         // Lo que llega tarde de una pestaña cerrada o de un archivo que ya no es el de esa ruta se descarta (el editor también).
         if (!w || !w.ocs_image_tile || !planos.has(x.st.plano) || x.st.abiertas.get(x.ruta) !== x.ident) continue;
+        contadores.entregados++;
         const motivo = w.ocs_image_tile(x.doc, x.ruta, x.ident, x.z, x.c, x.r, x.ancho, x.alto, x.rgba);
         if (motivo && motivo !== "Stale") console.warn("CAD: el editor no tomó el mosaico", x.ruta, x.z, x.c, x.r, motivo);
       }
@@ -921,7 +961,7 @@
       // el nivel que la vista necesita y si ya están todos los que se ven.
       suministradas: ((e.vista && e.vista.views) || []).filter((f) => f.set).map((f) => ({ ruta: f.path, ident: f.set.ident,
         raiz: f.set.root, teselas: f.set.tiles, bytes: f.set.bytes, nivel: f.level, completa: !!f.complete, faltan: f.want.length })),
-      leyendo: trabajos.size, porEntregar: entregas.length,
+      leyendo: trabajos.size, porEntregar: entregas.length, contadores: JSON.parse(JSON.stringify(contadores)),
       piramides: [...e.piramides.entries()].map(([ruta, p]) => ({ ruta, progreso: p.progreso, corriendo: !!p.corriendo, segundos: p.segundos || null, error: p.error || null })),
       editorBytes: (e.vista && e.vista.tiles_bytes) || 0,
       planos: [...planos.values()].map((st) => ({ plano: st.plano, documento: st.documento, raices: st.raices.length, guardadas: st.guardadas.length,
