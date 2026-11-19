@@ -249,6 +249,42 @@ def test_telefono_abre_para_ver_y_la_biblioteca_cabe(sin_tactil, navegar, crear_
     assert not _errores_propios(n, motor), n.errores
 
 
+@pytest.mark.parametrize("motor", MOTORES)
+def test_un_plano_grande_se_anuncia_en_el_telefono_antes_de_bajar_el_editor(sin_tactil, navegar, crear_usuario, roles, motor):
+    """docs/cad.md, «Planos grandes»: en un equipo táctil, un plano que no cabe en la memoria que ese navegador deja a una pestaña se
+    dice antes de bajar el editor y el plano (el marco sigue en about:blank), con «Descargar el plano» e «Intentar abrirlo aquí». En la
+    computadora el mismo plano abre sin aviso. El tamaño se finge en la base: el aviso solo lee el tamaño del plano."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Plano maestro", "Agrícola Norte", "dwg")
+    Plano.objects.filter(pk=p0.pk).update(bytes=48 * 1048576)
+    n = navegar(ana, motor, ancho=375, alto=812, movil=True)
+    # Un teléfono Android de 4 GB (WebKit no tiene `deviceMemory`, como Safari en el iPhone).
+    n.contexto.add_init_script("try { Object.defineProperty(navigator, 'deviceMemory', { get: () => 4 }); } catch (e) {}")
+    p = n.ir(f"/cad/{p0.pk}/")
+    expect(p.locator("#cad-grande")).to_be_visible()
+    expect(p.locator("#cad-grande-texto")).to_contain_text("Pesa 48 MB")
+    assert p.locator("#cad-editor").get_attribute("src") == "about:blank"
+    necesaria, tope = p.evaluate("[TVCadMemoria.necesariaMB(48 * 1048576, 'dwg'), TVCadMemoria.topeMB()]")
+    assert necesaria > tope
+    assert p.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
+    if CAPTURAS:
+        p.screenshot(path=f"{CAPTURAS}/cad-grande-telefono-{motor}-375.png")
+    p.locator("#cad-grande-intentar").click()
+    expect(p.locator("#cad-grande")).to_be_hidden()
+    esperar_estado(p, "lectura")
+    # En la computadora: sin aviso, y la carga dice cuánto lleva («Abriendo el plano… N %»).
+    c = navegar(ana, motor)
+    c.contexto.add_init_script("""addEventListener('DOMContentLoaded', () => { window.__textos = [];
+        const t = document.getElementById('cad-carga-texto');
+        if (t) new MutationObserver(() => window.__textos.push(t.textContent)).observe(t, {childList: true, characterData: true, subtree: true}); });""")
+    q = c.ir(f"/cad/{p0.pk}/")
+    esperar_estado(q, "guardado")
+    assert q.locator("#cad-grande").is_hidden()
+    textos = q.evaluate("window.__textos")
+    assert any(t.startswith("Abriendo el plano… ") and t.endswith(" %") for t in textos), textos
+    assert not _errores_propios(n, motor) and not _errores_propios(c, motor), (n.errores, c.errores)
+
+
 def test_tvcad_da_la_barra_y_el_estado_a_las_extensiones(cad, navegar, crear_usuario, roles):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     p0 = servicio.crear_vacio(ana, "Extensiones", "", "dxf")

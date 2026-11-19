@@ -404,6 +404,68 @@ Lo que sigue viajando en cada apertura (lo que debe ir al servidor): la página 
 la pregunta de versión (304), tomar y soltar el bloqueo, `perfil.css` (los colores del perfil, red primero) y, si el navegador la busca, la
 versión del service worker (304; WebKit pide `sw.js` entero, ~6 KB, y también el manifiesto). Por minuto: un latido.
 
+## Planos grandes (18-11-2026)
+
+Pedido del dueño: «La prueba de fuego es el plano que está en la plataforma, de aprox. 45 MB, y no lo puede abrir OpenCAD». Un plano maestro
+de un cliente: DWG de AutoCAD 2018 de 48.7 MB, ~518 000 entidades en ~1 300 bloques (nueve de cada diez, líneas), ~780 000 primitivas con
+los bloques expandidos. No se abría ni en Chrome de Windows ni en el iPhone.
+
+**La causa** (medida, con el editor de producción tv-v2026.45-12 y aparte en nativo): no era la lectura del DWG (0.44 s, completa, sin
+errores) ni la página. El editor dibuja el espacio modelo desde un solo juego de líneas con todos los bloques expandidos, sin importar la
+vista; para este plano armarlo pedía ~5 GB (las letras como cuadros de 336 bytes por letra, cada punto dos veces, un índice con una entrada
+por segmento) y el editor web tiene 4 GB: la memoria del editor llegaba a 3.9 GB en 6–9 s y se detenía (`unreachable`). En Chromium el
+`open` nunca respondía; en WebKit respondía y el editor moría al dibujar. La página esperaba sin decir nada.
+
+**El arreglo, en el editor** (parches 90–92 del fork, `TRESVIZO.md`):
+- El índice de lo que se toca y se engancha (selección, referencias a objetos) guarda tramos de hasta 32 segmentos o puntos y los resuelve
+  junto al cursor: ~1/30 de su tamaño, los mismos resultados.
+- Pasando de 150 000 primitivas expandidas, el espacio modelo se arma **para la vista**: una zona de tres vistas de ancho alrededor de lo
+  que se ve, con nivel de detalle (lo que mide menos de 2 píxeles no se arma, el texto de menos de 3 píxeles de alto tampoco, los puntos de
+  las curvas a medio píxel) y un tope de 384 MB por zona: si no cabe, se vuelve a armar con esos umbrales al doble. Mover la
+  vista dentro de la zona no arma nada; al salir de ella o acercar más del doble, se arma la siguiente. **La vista completa de un plano así
+  muestra menos detalle que de cerca, como un mapa**; al acercar aparece todo. La extensión (ZOOM Extensión, el encuadre al abrir) sale de
+  las entidades, nunca de armar el plano entero. Los planos normales se dibujan exactamente como antes.
+- «Abriendo el plano… N %»: la descarga (hasta 35 %), lo que el editor lleva leído (`open_progress`, 35–95 %) y la primera vista.
+
+**Medido** (Mac, Chromium con agente de Windows y la GPU, y WebKit; la memoria es la del editor, WebAssembly):
+
+| Plano | Antes · Chromium | Antes · WebKit | Después · Chromium | Después · WebKit |
+| --- | --- | --- | --- | --- |
+| Real, 48.7 MB DWG: abrir | no abre (3.9 GB a los 8.5 s, se detiene) | abre en 6.2 s y muere al dibujar | abre en 15 s; al armar la primera vista la memoria llega a ~3.8 GB y se detiene (**pendiente**, abajo) | abre en 9.9 s (3.76 GB), acercar/alejar, guardar el DWG en 1.6 s |
+| Sintético, 25.5 MB DWG (`plano_grande.py`): abrir | — | — | 8.8 s, 1.15 GB | 6.8 s, 1.15 GB |
+| Sintético: mover la vista (mediana / p95 por cuadro) | — | — | 31 / 77 ms | 17 / 61 ms |
+| Sintético: editar (una línea), guardar DWG, reabrir | — | — | 0.09 s, 1.4 s, 18 s | 0.07 s, 1.2 s, 14 s |
+
+**Lo que falta (paso intermedio, dicho como tal).** Con el plano real, Chromium (Chrome y Edge en Windows y Mac) todavía no pasa de la
+primera vista: el documento ocupa 1.14 GB en el editor y armar la primera zona lleva la memoria a ~3.8 GB, aunque lo que la zona guarda se
+mide en ~0.5 GB (`[mem]` en la consola del navegador, parche 91); WebKit lo aguanta y Chromium no. Falta encontrar ese gasto de trabajo con
+un perfil de memoria del editor web y quitarlo; el sintético de la misma clase ya abre, se mueve, se edita y se guarda en los dos. Hasta
+entonces, en la computadora ese plano abre en Safari; el aviso del teléfono no cambia.
+
+**Teléfono.** Un teléfono deja a una pestaña mucha menos memoria que una computadora y, si el editor pasa de ella, el navegador cierra la
+página sin aviso. La página estima lo que el editor necesitará **antes de bajar el editor y el plano** (`editor.js`, `MEMORIA_EDITOR`): 300
+MB y 40 MB por MB de DWG o 10 por MB de DXF (medido: el editor solo ~270 MB, un DWG denso de 25.5 MB 1 153 MB, un DXF de 22 MB 371 MB; se
+toma un poco más). Con pantalla táctil (el dedo como puntero principal), si pasa de 1 000 MB (en Android, 1 000 MB por cada 4 GB que diga
+`navigator.deviceMemory`, que la especificación tapa en 8: a lo más 2 000 MB) aparece «Este plano es demasiado grande para este teléfono.» con «Pesa N MB y abrirlo necesita más
+memoria de la que el navegador de este equipo deja usar: se cerraría sin avisar. Ábrelo en una computadora o descárgalo.», «Descargar el
+plano» e «Intentar abrirlo aquí». Con ese tope caben en el iPhone los DWG de hasta ~17 MB y los DXF de hasta ~70 MB; el plano de 48.7 MB, no
+(necesitaría ~2.2 GB). **El tope del teléfono no se pudo medir aquí** (sin teléfonos ni simuladores, regla de la máquina): 1 000 MB es lo
+conservador para un iPhone o iPad de 4 GB, donde iOS deja a una pestaña algo más de 1.5 GB y el navegador, la página y la GPU toman lo suyo.
+Si en un equipo concreto sobra, «Intentar abrirlo aquí» lo intenta.
+
+**Borradores de recuperación de un plano grande.** Un borrador es el plano entero: el editor lo reescribe (segundos y memoria en uno grande)
+y se sube todo (con gzip un DWG baja ~14 %; el real, de 48.7 a 42.0 MB). Cada 2 minutos serían ~1.3 GB por hora de cambios. **Decisión:** el
+intervalo crece con el tamaño: 2 minutos hasta 10 MB, luego 2 minutos por cada 10 MB, a lo más 15 (el real: cada ~10 minutos, ~4 MB por
+minuto de cambios como mucho); al pasar la app a segundo plano sale si el anterior ya tiene la mitad del intervalo. Lo que se puede perder
+en el peor caso son esos minutos. Se pesó guardarlos solo en este navegador (IndexedDB): no protege si se cambia de equipo, el costo de
+reescribir el plano sigue igual y obliga a otra copia del plano de un cliente en el equipo; un borrador por partes no sirve, porque un DWG
+cambia por secciones comprimidas y el editor lo reescribe entero.
+
+Pruebas: `test_cad.py::test_un_plano_grande_se_anuncia_antes_de_abrirlo_en_un_telefono` y
+`test_cad_navegador.py::test_un_plano_grande_se_anuncia_en_el_telefono_antes_de_bajar_el_editor` (Chromium y WebKit: el aviso antes de bajar
+el editor, «Intentar abrirlo aquí» y, en la computadora, el avance en %); en el fork, `tresvizo/pruebas/plano_grande_web.py` (abrir, mover,
+editar, guardar y reabrir el sintético con topes de tiempo y memoria) y `bounded::tests`, `piece_tests`.
+
 ## Espacio, archivos que faltan y autoría
 
 - **Espacio:** CAD tiene su propia reserva de 20 GB, aparte de los 12 GB de Herramientas (Portal, `docs/arquitectura.md` §9.1 y §13). La
