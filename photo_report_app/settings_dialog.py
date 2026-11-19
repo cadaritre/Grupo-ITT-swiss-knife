@@ -64,7 +64,7 @@ QUOTE_TEXT_FIELD_LABELS = {
     "document": "Nombre del documento", "no_number": "Texto cuando no hay folio", "page": "Página",
     "date": "Fecha", "name_company": "Nombre / empresa", "contact": "Contacto", "email": "Correo",
     "phone": "Teléfono", "location": "Localización", "concept": "Concepto / descripción", "unit": "Unidad",
-    "quantity": "Cantidad", "unit_price": "Precio unitario", "amount": "Importe", "continued": "Continuación",
+    "quantity": "Cantidad", "unit_price": "Precio unitario", "amount": "Importe",
     "no_description": "Sin descripción", "subtotal": "Subtotal", "vat": "IVA / VAT", "total": "Total",
     "advance": "Anticipo", "notes": "Notas", "currency": "Moneda", "payment_terms": "Forma de pago",
     "validity": "Vigencia", "days": "Días", "bank_clabe": "Banco / CLABE", "account": "Cuenta",
