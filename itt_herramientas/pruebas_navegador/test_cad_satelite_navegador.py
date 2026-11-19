@@ -350,7 +350,7 @@ def test_imagen_satelital_desde_la_polilinea(cad, navegar, crear_usuario, roles,
     # En la pantalla del editor: cada marca en su lugar del plano; la de fuera del polígono, recortada.
     for k, rojo in (("p1", True), ("p2", True), ("fuera", False)):
         ver(p, *MARCAS[k], 12.0)
-        esperar(p, "TVCadLocal.estado().suministradas.some(s => s.base)", LARGO)
+        esperar(p, "TVCadLocal.estado().suministradas.some(s => s.raiz && s.completa)   /* lo que la vista necesita ya está en el editor (mosaicos, parche 60) */", LARGO)
         p.wait_for_timeout(1200)
         r_, g_, b_ = color_en(p, *MARCAS[k])
         assert (r_ > 170 and g_ < 100 and b_ < 100) == rojo, (k, (r_, g_, b_))

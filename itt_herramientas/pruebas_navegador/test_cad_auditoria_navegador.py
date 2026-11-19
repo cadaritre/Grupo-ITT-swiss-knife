@@ -20,7 +20,7 @@ def test_b7_la_espera_del_zip_termina_si_la_tarea_no_responde(navegar, crear_usu
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
     for i in range(2):
         servicio.crear_vacio(ana, f"Predio {i}", "", "dwg")
-    n = navegar(ana, motor)
+    n = navegar(ana, motor, sin_service_worker=True)   # `route` no ve lo que pasa por el service worker en WebKit
     p = n.ir("/cad/")
     # los scripts de la página ya corrieron: base.js define window.tvAviso al cargar; envolverlo antes lo dejaba sin efecto (base.js lo
     # reemplazaba) y la prueba no veía el aviso, aunque la página sí lo daba: la falla intermitente en WebKit

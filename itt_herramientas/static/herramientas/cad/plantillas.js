@@ -105,6 +105,8 @@
     catch (err) { menuEnviado = null; console.warn("CAD: el editor no tomó el menú de plantillas", err.message, err.respuesta || ""); }
   }
   window.TVCad.on("cargado", (d) => { editable = !!d.editable; menuEnviado = null; enganchar(); menu(); });
+  // Las hojas llegan aparte: si el plano ya se abrió antes, lo mismo que al cargarse.
+  setTimeout(() => { if (window.TVCad.estaListo() && menuEnviado === null) { editable = !!window.TVCad.estado().editable; enganchar(); menu(); } }, 0);
   document.addEventListener("tvcad:editable", (ev) => { editable = !!(ev.detail && ev.detail.editable); menu(); });
   new MutationObserver(() => menu()).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
