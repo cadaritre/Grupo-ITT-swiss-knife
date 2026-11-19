@@ -452,3 +452,90 @@ def test_safari_y_firefox_eligen_la_carpeta_para_la_sesion(cad, navegar, ana, fa
     muestras = [f.read_bytes()[200:264] for f in sorted(carpeta.rglob("*.jpg"))[:20]]
     assert sin_subir(red, inicio, muestras, ["Proyecto_Demo"]) < 64 * 1024
     assert not _errores_propios(n, "webkit"), n.errores
+
+
+# -- El aviso de la carpeta se puede ocultar (dueño, 19-11: «que el aviso de la referencia se pueda quitar en el teléfono») ----------
+
+def _dxf_con_imagenes(destino: Path, rutas: list[str]) -> Path:
+    """Un DXF con un IMAGE por ruta (40 × 30 m, uno junto al otro), como lo deja AutoCAD con rutas absolutas de Windows."""
+    import ezdxf
+
+    d = ezdxf.new("R2018", setup=False)
+    d.header["$INSUNITS"] = 6
+    m = d.modelspace()
+    for i, ruta in enumerate(rutas):
+        definicion = d.add_image_def(filename=ruta, size_in_pixel=(80, 60))
+        m.add_image(definicion, insert=(389000.0 + 50 * i, 3169000.0), size_in_units=(40.0, 30.0), rotation=0)
+    d.saveas(destino)
+    return destino
+
+
+def _faltan(p, n):
+    esperar(p, f"window.TVCadLocal && TVCadLocal.estado().faltan === {n}", LARGO)
+
+
+@pytest.mark.parametrize("motor", ["chromium", "webkit"])
+def test_el_aviso_de_la_carpeta_se_oculta_y_vuelve_si_falta_otra(cad, navegar, ana, tmp_path, motor):
+    p0 = plano_de(ana, _dxf_con_imagenes(tmp_path / "uno.dxf", ["C:\\Obra\\Fotos\\f001.png"]), "Con aviso")
+    n = navegar(ana, motor)
+    p = n.ir(f"/cad/{p0.pk}/")
+    listo(p)
+    aviso = p.locator("#cad-aviso-local")
+    expect(aviso).to_be_visible(timeout=LARGO)
+    # En la computadora: el aviso completo, con «Vincular la carpeta del proyecto» y la × para ocultarlo.
+    expect(p.locator("#cad-aviso-local-texto")).to_have_text("Este plano usa un archivo (imágenes o dibujos) que están en una carpeta de tu computadora.")
+    expect(p.locator("#cad-aviso-local-vincular")).to_be_visible()
+    assert "cad-aviso--compacto" not in (aviso.get_attribute("class") or "")
+    p.locator("#cad-aviso-local-cerrar").click()
+    expect(aviso).to_be_hidden()
+    # «Referencias» sigue ahí, con lo que falta: la carpeta se puede vincular después.
+    expect(p.locator("#cad-local-boton-cuenta")).to_have_text("1")
+
+    # Recargar: sigue oculto (este dispositivo, esta cuenta y este plano).
+    p.reload()
+    listo(p)
+    _faltan(p, 1)
+    p.wait_for_timeout(500)
+    expect(aviso).to_be_hidden()
+    expect(p.locator("#cad-boton-referencias")).to_be_visible()
+
+    # Una versión nueva con otra imagen que falta: el aviso vuelve, con las dos.
+    temporal = servicio.carpeta_temporal() / f"aviso-{p0.pk}.dxf"
+    _dxf_con_imagenes(temporal, ["C:\\Obra\\Fotos\\f001.png", "C:\\Obra\\Fotos\\f002.png"])
+    p0.refresh_from_db()
+    servicio._nueva_version(p0, temporal, "dxf", ana, "otra imagen")
+    p.reload()
+    listo(p)
+    _faltan(p, 2)
+    expect(aviso).to_be_visible(timeout=LARGO)
+    expect(p.locator("#cad-aviso-local-texto")).to_contain_text("2 archivos")
+    assert not _errores_propios(n, motor), n.errores
+
+
+@pytest.mark.parametrize("motor", ["chromium", "webkit"])
+def test_en_el_telefono_el_aviso_es_una_linea_sin_vincular_y_se_cierra(cad, navegar, ana, tmp_path, settings, motor):
+    from .test_cad_tactil_navegador import abrir as abrir_tactil
+
+    settings.TV_CAD_TACTIL = True
+    p0 = plano_de(ana, _dxf_con_imagenes(tmp_path / "uno.dxf", ["C:\\Obra\\Fotos\\f001.png"]), "En el teléfono")
+    n, p = abrir_tactil(navegar, ana, motor, p0=p0)
+    aviso = p.locator("#cad-aviso-local")
+    expect(aviso).to_be_visible(timeout=LARGO)
+    # Aquí no se pueden vincular carpetas: una línea que lo dice, sin «Vincular» ni «Permitir», con la ×.
+    expect(p.locator("#cad-aviso-local-texto")).to_have_text("La imagen de este plano está en una computadora; aquí ves su marco.")
+    expect(p.locator("#cad-aviso-local-vincular")).to_be_hidden()
+    expect(p.locator("#cad-aviso-local-permitir")).to_be_hidden()
+    assert "cad-aviso--compacto" in (aviso.get_attribute("class") or "")
+    caja = aviso.bounding_box()
+    assert caja["height"] <= 60, caja                                     # una franja corta, no la banda grande de antes
+    if CAPTURAS:
+        p.screenshot(path=f"{CAPTURAS}/cad-aviso-local-telefono-{motor}.png")
+    p.locator("#cad-aviso-local-cerrar").click()
+    expect(aviso).to_be_hidden()
+
+    p.reload()
+    esperar(p, "window.TVCadTactil && TVCadTactil.listo()", LARGO)
+    _faltan(p, 1)
+    p.wait_for_timeout(500)
+    expect(aviso).to_be_hidden()
+    assert not _errores_propios(n, motor), n.errores

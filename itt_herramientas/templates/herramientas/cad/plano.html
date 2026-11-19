@@ -55,7 +55,8 @@
     <div class="cad-aviso__acciones"><a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_fuentes' %}">Revisar fuentes</a></div></div>
   {% if editor_listo %}<div class="cad-aviso" data-tipo="info" id="cad-aviso-local" hidden>{% icono "folder-open" %}<p id="cad-aviso-local-texto"></p>
     <div class="cad-aviso__acciones"><button type="button" class="tv-boton tv-boton--secundario" id="cad-aviso-local-vincular">{% icono "folder-plus" %}<span>Vincular la carpeta del proyecto</span></button>
-    <button type="button" class="tv-boton tv-boton--secundario" id="cad-aviso-local-permitir" hidden>{% icono "folder-check" %}<span>Permitir el acceso</span></button></div></div>{% endif %}
+    <button type="button" class="tv-boton tv-boton--secundario" id="cad-aviso-local-permitir" hidden>{% icono "folder-check" %}<span>Permitir el acceso</span></button></div>
+    <button type="button" class="tv-boton tv-boton--fantasma tv-boton--icono cad-aviso__cerrar" id="cad-aviso-local-cerrar" data-tv-tooltip="Ocultar el aviso">{% icono "x" etiqueta="Ocultar el aviso" %}</button></div>{% endif %}
   <div class="cad-aviso" data-tipo="error" id="cad-aviso-sesion" role="alert" hidden>{% icono "log-in" %}<p>Tu sesión terminó. Entra de nuevo en otra pestaña y vuelve aquí para guardar: tus cambios siguen en el editor.</p>
     <div class="cad-aviso__acciones"><a class="tv-boton" href="{% url 'herramientas:cad' %}" target="_blank" rel="noopener" id="cad-entrar">{% icono "log-in" %}<span>Entrar de nuevo</span></a>
     <button type="button" class="tv-boton tv-boton--secundario" data-cad-descargar-cambios hidden>{% icono "download" %}<span>Descargar mis cambios</span></button></div></div>

@@ -719,6 +719,16 @@ quedan en la computadora. El servidor guarda solo el DWG, con las rutas tal como
   trabajadores: ningún cuerpo lleva bytes de la carpeta ni sus nombres) y el contador de bytes.
 - **Sin la carpeta** (otra computadora, otra cuenta): cada imagen se ve como su marco con el nombre del archivo (parche 19 del editor) y
   arriba del plano un aviso con una sola acción, «Vincular la carpeta del proyecto».
+  - **El aviso se oculta** con su × («Ocultar el aviso»; pedido del dueño, 19-11, en el iPhone): se recuerda en este dispositivo por cuenta
+    y plano, con las rutas que faltaban (`localStorage tv.cad.aviso-local`, hasta 200 planos; sin almacenamiento, solo en esa visita).
+    Vuelve solo si falta **otra** ruta (p. ej. una versión nueva con otra imagen). «Referencias» y los marcos siguen igual: la carpeta se
+    vincula después desde ahí.
+  - **Donde aquí no se vinculan carpetas** (el modo táctil; un equipo solo táctil sin `showDirectoryPicker`, como Safari de iOS, que dice
+    tener `<input webkitdirectory>` pero no deja elegir carpetas) el aviso es una línea compacta, sin «Vincular»: «La imagen de este plano
+    está en una computadora; aquí ves su marco.» (o «Las imágenes…, sus marcos»), con la ×. Se decide por lo que el navegador puede
+    (`showDirectoryPicker`, o `webkitdirectory` con un ratón o trackpad: `any-pointer: fine`), no por el agente de usuario. En un
+    teléfono angosto ocupa a lo más dos líneas. Lo prueban `test_el_aviso_de_la_carpeta_se_oculta_y_vuelve_si_falta_otra` y
+    `test_en_el_telefono_el_aviso_es_una_linea_sin_vincular_y_se_cierra` (Chromium y WebKit).
 - **Panel «Referencias externas»**: cada imagen y cada dibujo referido con «Encontrada», «Encontrada por nombre», «Varias con ese nombre»
   o «No encontrada», el archivo que se usó, su tamaño y sus píxeles; «Volver a buscar», «Agregar otra carpeta», «Desvincular». Por
   imagen: «Enviar atrás», «Ocultar»/«Mostrar», «Transparencia», «Recortar» (dos esquinas en el dibujo, IMAGECLIP del editor) y «Quitar

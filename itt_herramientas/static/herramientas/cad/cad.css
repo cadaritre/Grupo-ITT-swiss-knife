@@ -110,6 +110,12 @@
 .cad-aviso > p { flex: 1 1 14rem; margin: 0; font-size: var(--tv-texto-sm); font-weight: 500; }
 .cad-aviso__acciones { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2); }
 .cad-aviso__acciones form { margin: 0; }
+/* «Ocultar el aviso» (la carpeta del proyecto): al final de la fila. Compacto donde aquí no se vinculan carpetas (teléfono, modo táctil):
+   una línea con el ícono, el texto y la ×, sin empujar el dibujo; dos como mucho en un teléfono angosto. */
+.cad-aviso__cerrar { flex: none; margin-inline-start: auto; }
+.cad-aviso--compacto { flex-wrap: nowrap; gap: var(--tv-espacio-2); padding-block: 2px; }
+.cad-aviso--compacto > p { flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.cad-aviso--compacto .cad-aviso__acciones { display: none; }
 
 /* Barra de las extensiones (TVCad.barra()): vacía y oculta hasta que una extensión la llena */
 .cad-extensiones { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2); margin: 0 0 var(--tv-espacio-2); padding: var(--tv-espacio-1) var(--tv-espacio-2);

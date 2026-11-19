@@ -33,6 +33,7 @@ html.cad-tactil #cad-avisos { position: fixed; z-index: 30; top: calc(var(--tt-z
   margin: 0; max-height: 45dvh; overflow: auto; pointer-events: none; display: grid; gap: 6px; }
 html.cad-tactil #cad-avisos > * { pointer-events: auto; margin: 0; box-shadow: var(--tt-sombra); }
 html.cad-tactil #cad-avisos .cad-aviso { padding: 8px 10px; font-size: var(--tv-texto-sm); }
+html.cad-tactil #cad-avisos .cad-aviso--compacto { padding: 2px 2px 2px 10px; }
 html.cad-tactil .tv-avisos { bottom: calc(var(--tt-abajo-alto, 70px) + 12px); }
 
 html.cad-tactil .tt { position: fixed; inset: 0; z-index: 10; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr);

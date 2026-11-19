@@ -50,6 +50,7 @@
       xrefsDadas: new Set(),
       vueltasXref: 0,
       avisoCrs: false,
+      ocultas: new Set(),      // rutas del aviso que la persona ocultó (también se guardan en localStorage, si se puede)
     };
     planos.set(id, st);
     st.cargadas = cargarGuardadas(st).catch((err) => console.warn("CAD: carpeta del proyecto", err));
@@ -824,7 +825,7 @@
     }
     const imp = $("cad-local-imprimir-aviso");
     if (imp) imp.hidden = !e.refs.images.length;
-    const faltan = contarFaltan();
+    const faltan = faltantes().length;
     const ins = $("cad-local-boton-cuenta");
     if (ins) { ins.hidden = !faltan; ins.textContent = String(faltan); }
   }
@@ -835,27 +836,56 @@
     if (el && p) el.textContent = el.textContent.replace(/preparando la vista general… \d+ %/, `preparando la vista general… ${Math.round(100 * p.progreso)} %`);
   }
 
-  function contarFaltan() {
+  function faltantes() {
     const rutas = new Set([...e.refs.images.map((x) => x.path), ...e.refs.xrefs.filter((x) => !["loaded", "recovered"].includes(x.status)).map((x) => x.path)]);
-    let n = 0;
-    for (const r of rutas) if (!(e.res.get(r) || {}).entrada) n++;
-    return n;
+    return [...rutas].filter((r) => !(e.res.get(r) || {}).entrada);
+  }
+
+  // Vincular una carpeta aquí: con `showDirectoryPicker` (Chrome, Edge) o, con un ratón o trackpad, la carpeta de <input webkitdirectory>
+  // (Safari y Firefox de escritorio). Safari de iOS dice tener `webkitdirectory` pero no deja elegir carpetas (y no tiene
+  // `showDirectoryPicker`), así que un equipo solo táctil sin `showDirectoryPicker` no lo ofrece; el modo táctil, tampoco.
+  const conCarpetas = (() => {
+    const entrada = "webkitdirectory" in document.createElement("input");
+    return () => !document.documentElement.classList.contains("cad-tactil")
+      && (C.soportaRecordar() || (entrada && matchMedia("(any-pointer: fine)").matches));
+  })();
+
+  // «Ocultar el aviso»: se recuerda en este dispositivo por cuenta y plano, con las rutas que faltaban. Vuelve solo si falta otra.
+  const LLAVE_OCULTO = "tv.cad.aviso-local";
+  const leerOcultos = () => { try { return JSON.parse(localStorage.getItem(LLAVE_OCULTO) || "{}") || {}; } catch (_) { return {}; } };
+  function ocultado(st, rutas) {
+    const x = leerOcultos()[st.clave], guardadas = new Set((x && Array.isArray(x.rutas) && x.rutas) || []);
+    return rutas.every((r) => guardadas.has(r) || st.ocultas.has(r));
+  }
+  function ocultarAviso() {
+    const st = e, todos = leerOcultos();
+    for (const r of faltantes()) st.ocultas.add(r);
+    todos[st.clave] = { rutas: [...new Set([...((todos[st.clave] || {}).rutas || []), ...st.ocultas])].slice(-2000), t: Date.now() };
+    // A lo más 200 planos recordados: salen los ocultados hace más tiempo.
+    const claves = Object.keys(todos).sort((a, b) => (todos[b].t || 0) - (todos[a].t || 0));
+    for (const k of claves.slice(200)) delete todos[k];
+    try { localStorage.setItem(LLAVE_OCULTO, JSON.stringify(todos)); } catch (_) { /* sin almacenamiento: se oculta solo en esta visita */ }
+    pintarAviso();
   }
 
   function pintarAviso() {
     const av = $("cad-aviso-local");
     if (!av) return;
     // Solo lo que falta: una imagen insertada desde esta computadora, o ya encontrada, no pide carpeta.
-    const n = contarFaltan();
-    if (!n) { av.hidden = true; return; }
-    if (!e.raices.length) {
-      av.hidden = false;
-      $("cad-aviso-local-texto").textContent = e.guardadas.length
-        ? `Este plano usa ${n === 1 ? "un archivo" : `${n.toLocaleString("es-MX")} archivos`} de la carpeta del proyecto. El navegador pide permiso para leerla.`
-        : `Este plano usa ${n === 1 ? "un archivo" : `${n.toLocaleString("es-MX")} archivos`} (imágenes o dibujos) que están en una carpeta de tu computadora.`;
-      $("cad-aviso-local-vincular").hidden = !!e.guardadas.length;
-      $("cad-aviso-local-permitir").hidden = !e.guardadas.length;
-    } else av.hidden = true;
+    const rutas = faltantes(), n = rutas.length;
+    if (!n || e.raices.length) { av.hidden = true; return; }
+    if (ocultado(e, rutas)) { av.hidden = true; return; }
+    av.hidden = false;
+    const aqui = conCarpetas();
+    av.classList.toggle("cad-aviso--compacto", !aqui);
+    const archivos = n === 1 ? "un archivo" : `${n.toLocaleString("es-MX")} archivos`;
+    $("cad-aviso-local-texto").textContent = !aqui
+      ? (n === 1 ? "La imagen de este plano está en una computadora; aquí ves su marco." : "Las imágenes de este plano están en una computadora; aquí ves sus marcos.")
+      : e.guardadas.length
+        ? `Este plano usa ${archivos} de la carpeta del proyecto. El navegador pide permiso para leerla.`
+        : `Este plano usa ${archivos} (imágenes o dibujos) que están en una carpeta de tu computadora.`;
+    $("cad-aviso-local-vincular").hidden = !aqui || !!e.guardadas.length;
+    $("cad-aviso-local-permitir").hidden = !aqui || !e.guardadas.length;
   }
 
   // ── Arranque ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -866,6 +896,9 @@
     clic("cad-local-otra", () => vincular({ agregar: true }));
     clic("cad-local-permitir", permitir);
     clic("cad-aviso-local-permitir", permitir);
+    clic("cad-aviso-local-cerrar", async () => ocultarAviso());
+    // Entrar o salir del modo táctil cambia lo que el aviso ofrece.
+    new MutationObserver(() => pintarAviso()).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     clic("cad-local-desvincular", desvincular);
     clic("cad-local-buscar", async () => { if (e.raices.length) await usar(e, e.raices); });
     clic("cad-local-insertar-boton", elegirParaInsertar);
@@ -956,6 +989,7 @@
       documento: e.documento,
       raices: e.raices.map((r) => r.nombre || (r.handle && r.handle.name)),
       permisoPendiente: e.permisoPendiente,
+      faltan: faltantes().length,
       resueltas: [...e.res.entries()].map(([ruta, r]) => ({ ruta, estado: r.estado, archivo: r.entrada && r.entrada.ruta, error: r.error || null })),
       // Lo que el editor tiene de cada imagen de la vista: atada a qué archivo, si ya está su raíz (la imagen entera), cuántos mosaicos,
       // el nivel que la vista necesita y si ya están todos los que se ven.
