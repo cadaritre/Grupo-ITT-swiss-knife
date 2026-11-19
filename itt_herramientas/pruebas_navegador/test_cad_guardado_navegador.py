@@ -32,7 +32,10 @@ from .test_pwa_navegador import esperar
 
 pytestmark = [pytest.mark.navegador, pytest.mark.django_db(transaction=True)]
 DATOS = os.environ.get("ITT_DATOS_CAD", "")
-ANTERIOR = "tv-v2026.45-11"
+#: La pareja del cambio de versión: la anterior y la nueva (por omisión, la fijada). Con `ITT_CAD_ANTERIOR` y `ITT_CAD_NUEVA` se mide otra
+#: pareja preparada en el mismo `TV_CAD_EDITOR_PRUEBAS`, p. ej. la -12 publicada y una compilación local con sus parches desde la -12.
+ANTERIOR = os.environ.get("ITT_CAD_ANTERIOR", "tv-v2026.45-11")
+NUEVA = os.environ.get("ITT_CAD_NUEVA", "")
 KB = 1024
 
 
@@ -186,6 +189,8 @@ def test_se_guarda_al_abrir_y_despues_no_viaja_nada_del_editor(sin_tactil_produc
 
 @pytest.mark.parametrize("motor", ["chromium", "webkit"])
 def test_version_nueva_baja_solo_los_parches(sin_tactil_produccion, proxy, playwright_, sesion_de, crear_usuario, roles, tmp_path, monkeypatch, motor):
+    if NUEVA:
+        monkeypatch.setattr(cad_editor, "version", lambda: NUEVA)
     nueva = cad_editor.version()
     if not (EDITOR / ANTERIOR / "index.html").is_file():
         pytest.skip(f"Prepara la versión anterior: preparar.py editor --anterior {ANTERIOR} --destino {EDITOR}")

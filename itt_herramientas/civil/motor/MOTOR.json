@@ -1,7 +1,7 @@
 {
  "_nota": "Copia fijada de tvcivil. No se edita aquí: se cambia en el repositorio del motor y se vuelve a copiar con actualizar_motor.py.",
  "repo": "cadaritre/TresVizo-Civil",
- "commit": "283e6396b9e8ab7a8e8d411f27aa637e17b38ddf",
+ "commit": "cbfb6bd093010715b8a74a4ec2e3660e57dbeb4f",
  "version": "0.10.0",
  "archivos": {
   "__init__.py": "0cb17328cada424f3716f7abee60243ba961578c45fdf5813f902e9c5a545117",

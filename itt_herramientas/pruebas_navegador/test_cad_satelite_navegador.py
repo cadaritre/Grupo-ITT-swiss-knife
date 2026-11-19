@@ -28,6 +28,7 @@ from pyproj import Transformer
 from itt_herramientas.cad import servicio
 
 from .test_cad_local_navegador import Red, carpeta_opfs, color_en, listo, ver
+from . import cinta
 from .test_cad_navegador import LARGO, _errores_propios, _persona, cad, navegar  # noqa: F401 (fixtures)
 from .test_pwa_navegador import esperar
 
@@ -184,7 +185,7 @@ def preparar(p):
 
 
 def abrir_hoja(p):
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]') && !!window.TVCivil", LARGO)
+    esperar(p, cinta.CIVIL_LISTO + " && !!window.TVCivil", LARGO)           # Civil listo: en la cinta del editor o en su barra
     p.locator("#cad-menu > summary").click()
     p.locator("#cad-menu-imagen-satelite").click()
     esperar(p, "document.getElementById('civil-hoja-satelite').open", LARGO)

@@ -60,7 +60,10 @@ def test_el_editor_ocupa_el_alto_y_la_pantalla_completa_deja_civil_y_guardar(cad
     n = navegar(ana, motor, ancho=w, alto=h)                    # ventana angosta con ratón: en un teléfono táctil (sin el modo táctil) solo se ve
     p = n.ir(f"/cad/{p0.pk}/")
     esperar_estado(p, "guardado")
-    expect(p.locator("#cad-extensiones")).to_be_visible(timeout=LARGO)          # la barra de Civil
+    esperar(p, "!!document.documentElement.dataset.civil", LARGO)
+    en_cinta = p.evaluate("document.documentElement.dataset.civil") == "cinta"     # Civil en la cinta del editor (sin barra encima)
+    if not en_cinta:
+        expect(p.locator("#cad-extensiones")).to_be_visible(timeout=LARGO)      # la barra de Civil
     # Normal: el editor llega hasta abajo de la ventana (no una caja fija).
     p.evaluate("window.scrollTo(0, 0)")
     p.wait_for_timeout(900)
@@ -75,8 +78,11 @@ def test_el_editor_ocupa_el_alto_y_la_pantalla_completa_deja_civil_y_guardar(cad
     p.wait_for_timeout(600)
     m = medidas(p)
     assert not (m["lateral"] and m["lateral"]["visible"]) and not (m["cabecera"] and m["cabecera"]["visible"]) and not m["autoria"]["visible"], m
-    assert m["guardar"]["visible"] and m["versiones"]["visible"] and m["civil"]["visible"], m
-    assert m["civil"]["bottom"] <= m["editor"]["top"] + 1, m
+    assert m["guardar"]["visible"] and m["versiones"]["visible"], m
+    if en_cinta:
+        assert not (m["civil"] and m["civil"]["visible"]), m                    # Civil va dentro del editor
+    else:
+        assert m["civil"]["visible"] and m["civil"]["bottom"] <= m["editor"]["top"] + 1, m
     assert abs(m["editor"]["bottom"] - m["alto"]) <= 2 and m["editor"]["width"] >= m["ancho"] - 2, m
     assert m["editor"]["top"] < 200, m                                          # la tira y Civil ocupan poco
     expect(p.locator("#cad-completa")).to_contain_text("Salir de pantalla completa")

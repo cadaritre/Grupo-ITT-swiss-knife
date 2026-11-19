@@ -17,6 +17,7 @@ from pyproj import Transformer
 from itt_herramientas.cad import servicio
 from itt_herramientas.models import FormatoPuntos
 
+from . import cinta
 from .test_cad_navegador import LARGO, _persona, cad, esperar_estado, navegar  # noqa: F401 (fixtures)
 from .test_civil_navegador import (X0, Y0, MOTORES, archivo_pnezd, cuenta, elegir_en_dibujo, enfocar, esperar_aviso, esperar_libre, menu, pedir,  # noqa: F401
                                    poner_aqui)
@@ -33,7 +34,7 @@ def abrir_plano(navegar, crear_usuario, roles, motor, nombre):
     p = n.ir(f"/cad/{plano.pk}/")
     esperar_estado(p, "guardado")
     esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    cinta.esperar_civil(p)                                                   # Civil listo: en la cinta del editor o en su barra
     p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
     return ana, plano, n, p
 
@@ -42,7 +43,7 @@ def preparar_pagina(n, plano):
     p = n.ir(f"/cad/{plano.pk}/")
     esperar_estado(p, "guardado")
     esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    cinta.esperar_civil(p)                                                   # Civil listo: en la cinta del editor o en su barra
     p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
     return p
 
@@ -399,7 +400,10 @@ def test_triangulacion_de_proyecto_de_punta_a_punta(cad, navegar, crear_usuario,
     esperar(p, "!document.getElementById('civil-hoja-perfil').open", LARGO * 3)
     assert cuenta(p, None, "PERFIL_PROYECTO") >= 1 and cuenta(p, None, "PERFIL_TERRENO") >= 1
     textos = [(e.get("value") or (e.get("properties") or {}).get("value") or "") for e in entidades(p, layer="PERFIL_TEXTOS")]
-    assert "ELEV. PROYECTO" in textos and "ESPESOR" in textos and "+0.95" in textos and "+0.45" in textos, textos[:12]   # 0+000 está en x = 10 m (0.95) y 0+100 en x = 110 m (0.45)
+    # la guitarra contra la superficie de proyecto (motor 0.10): 0+000 está en x = 10 m (proyecto 99.05, 0.95 de corte) y 0+100 en
+    # x = 110 m (99.55, 0.45); el corte va en su renglón (el motor comprueba en qué renglón cae cada valor) y no hay terraplén
+    assert {"ELEV. PROYECTO", "ESPESOR CORTE", "ESPESOR TERRAPLÉN", "99.05", "99.55", "0.95", "0.45"} <= set(textos), textos[:12]
+    assert "ELEV. RASANTE" not in textos and not any(t.startswith("-") for t in textos), textos[:12]
 
     # secciones: el interruptor de proyecto apaga la rasante (son una cosa o la otra) y el corte sale de las dos superficies
     pedir(p, {"op": "set_properties", "collection": "layers", "name": "EJE_ESTACIONES", "updates": [{"path": "/flags/off", "value": True}]})
