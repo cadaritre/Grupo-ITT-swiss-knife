@@ -272,6 +272,47 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
     assert "civil-barra" not in html and "civil-panel" not in html
 
 
+def test_la_pestana_civil_de_la_cinta_sale_de_los_menus(cliente_de, dibujante, editor_civil):
+    """La pestaña «Civil» del editor se arma de `MENUS` (civil/pagina.py, `cinta()`): cada acción con un comando válido y único, su icono
+    SVG y su hoja en civil.js; llega en el panel de Civil y civil-cinta.js carga antes que civil.js."""
+    import re
+
+    from itt_herramientas.civil import pagina as civil_pagina
+
+    c = civil_pagina.cinta()
+    assert c["prefijo"] == "CV"
+    assert [g["clave"] for g in c["grupos"]] == [m["clave"] for m in civil_pagina.MENUS]
+    acciones = [c["escala"]] + [a for g in c["grupos"] for a in g["acciones"]]
+    por_comando = {}
+    for a in acciones:
+        assert re.fullmatch(r"CV[A-Z0-9_]{1,30}", a["comando"]), a["comando"]
+        assert a["icono"].startswith("<svg") and 'stroke="currentColor"' in a["icono"], a["clave"]
+        assert a["nombre"] and not a["nombre"].endswith("…"), a["nombre"]
+        por_comando.setdefault(a["comando"], set()).add(a["clave"])
+    assert all(len(v) == 1 for v in por_comando.values()), {k: v for k, v in por_comando.items() if len(v) > 1}
+    for comando in ("CVTRIANGULAR", "CVCURVAS", "CVSECCIONES", "CVIMPORTARPUNTOS", "CVCUADRO", "CVPERFIL", "CVVOLUMEN", "CVIMAGEN", "CVREFERENCIAS"):
+        assert comando in por_comando, comando
+    grandes = {a["clave"] for a in acciones if a["grande"]}
+    assert {"importar", "triangular", "curvas", "cuadro", "perfil", "secciones", "volumen", "imagen"} <= grandes, grandes
+    assert {a["clave"] for a in acciones if a["solo_lee"]} >= {"exportar", "reporte", "localizar", "memoria", "referencias", "escala"}
+    # por omisión, «CV» + la clave sin guiones bajos: lo que se agregue a MENUS tiene su comando sin tocar nada más
+    assert civil_pagina.comando({"clave": "imagen_satelital"}) == "CVIMAGENSATELITAL"
+    # cada acción tiene su hoja o su orden en civil.js
+    js = (Path(__file__).resolve().parents[1] / "static" / "herramientas" / "cad" / "civil.js").read_text(encoding="utf-8")
+    bloque = js.split("const ACCIONES = {")[1].split("\n  };")[0]
+    for a in acciones:
+        assert re.search(rf"\b{a['clave']}:", bloque), f"civil.js no abre «{a['clave']}»"
+    p = cad_servicio.crear_vacio(dibujante, "Predio", "", "dxf")
+    pagina = cliente_de(dibujante).get(url("cad_plano", pk=p.pk)).content.decode()
+    assert pagina.index("herramientas/cad/civil-cinta.js") < pagina.index("herramientas/cad/civil-panel.js")
+    panel = pagina.split('id="civil-panel" hidden data-url="')[1].split('"')[0].replace("&amp;", "&")
+    html = cliente_de(dibujante).get(panel).content.decode()
+    datos = json.loads(html.split('id="civil-cinta" type="application/json">')[1].split("</script>")[0])
+    assert datos == json.loads(json.dumps(c))
+    # la barra de respaldo (editor sin pestañas propias) también trae el grupo de imágenes
+    assert 'data-civil-menu="imagenes"' in html and 'data-civil="referencias"' in html
+
+
 @pytest.fixture
 def editor_civil(tmp_path, settings):
     from itt_herramientas.cad import editor

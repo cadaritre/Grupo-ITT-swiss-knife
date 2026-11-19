@@ -87,7 +87,10 @@ La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` d
 | `TVCad.barra()` | el elemento `#cad-extensiones` (`role="toolbar"`), ya visible |
 | `TVCad.ocupar()` / `soltar()` / `ocupado()` | una extensión avisa que trabaja con el editor (espera una elección en el dibujo, inserta un resultado): mientras tanto no se guarda el borrador de recuperación y «Guardar» pide esperar, porque el editor rechaza guardar a media operación |
 | `TVCad.vistaDe(state)` / `await TVCad.vista()` | pantalla ↔ mundo del editor: `{cx, cy, k, w, h, ox, oy, aMarco, deMarco, aPagina, dePagina}` desde `state.camera` y el área de dibujo (`state.viewport_rect` y `screen_scale` desde tv-v2026.45-8; sin ellos, el lienzo del editor, exacto con el lienzo solo). **Compartida**: la usan el modo táctil (`deEstado`) y Civil (la vista previa al colocar), así nunca difieren |
-| `TVCad.on(evento, fn)` / `off` | `listo`, `cargado`, `cambio` (`{sucio}`), `guardado` (`{revision, formato}`) |
+| `TVCad.on(evento, fn)` / `off` | `listo`, `cargado`, `cambio` (`{sucio}`), `guardado` (`{revision, formato}`), `pestana`, `editable` (`{editable}`: se tomó o se perdió el control del plano activo) |
+
+Una extensión también puede ir **dentro de la cinta del editor**, como pestaña propia con sus comandos (Civil lo hace: docs/civil.md, «En la
+cinta del editor»; contrato del editor en el fork, `docs/tresvizo-cinta.md`). Entonces no usa `#cad-extensiones`.
 
 `pedir` rechaza con `TVCad.ErrorEditor` y su `codigo`: `no_listo` (aún no abre el plano), `sin_canal`, `tiempo` o `rechazada` (respuesta
 `ok: false`, completa en `error.respuesta`). Guardar sigue siendo de la página: un cambio por el canal marca el plano «Sin guardar».
@@ -139,6 +142,7 @@ Chromium con el agente de Windows y WebKit):
 | Un diálogo o paleta del editor | lo cierra el editor (uno por Esc, como en AutoCAD) |
 | Nuestra cabecera, un botón, la barra de Civil | se reenvía al editor: cancela la orden o deselecciona, y el foco vuelve al dibujo |
 | Una hoja nuestra abierta (Versiones, Guardar todo, Abrir otro plano…) | la cierra; el siguiente Esc es del editor |
+| Una hoja de Civil abierta como paleta junto al dibujo, con el foco en ella o en el dibujo | la cierra (`cad/editor/arranque.js` pregunta a la página); el siguiente Esc es del editor |
 | El menú «Más acciones» abierto | lo cierra |
 | Un campo de texto de la página (renombrar, buscar, Civil) | es del campo |
 | «Pantalla completa» (con el botón, el atajo o F11) | igual que arriba; en Chromium Esc está bloqueado para el navegador, que solo sale con Esc sostenida |
@@ -395,7 +399,7 @@ desde que el editor lo guarda en (d)). Notas:
   secciones comprimidas y el editor reescribe el archivo entero al guardar, así que un parche no sería más chico que el gzip y sería frágil.
 - **Latido** cada 60 s (antes 30) y bloqueo de 150 s (antes 90), como un navegador deja latir una pestaña en segundo plano; quien solo mira
   y quien vigila un plano ajeno usan `estado?ligero=1` (sin la lista de versiones).
-- **La página**: el panel de Civil (~16 KB comprimidas, igual para todos) llega aparte una vez por versión (docs/civil.md); la página sin
+- **La página**: el panel de Civil (~20 KB comprimidas, igual para todos) llega aparte una vez por versión (docs/civil.md); la página sin
   conexión se vuelve a guardar solo cuando cambia su huella (`tactil.pagina`, en la configuración de la página del plano); el editor nuevo
   se baja **antes** de abrir el marco y solo lo que cambió, y la primera descarga usa lo que el navegador ya trajo al abrir el plano
   (Chromium; WebKit no lo reusa).

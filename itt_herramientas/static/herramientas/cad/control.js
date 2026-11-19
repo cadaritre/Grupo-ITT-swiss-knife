@@ -45,7 +45,8 @@
  *   TVCad.on(evento, fn) / off(...)    eventos: "listo" (estado), "cambio" ({ sucio }), "guardado" ({ revision, formato }),
  *                                      "cargado" (estado; también al reabrir el plano, p. ej. tras tomar el control o restaurar),
  *                                      "pestana" ({ accion: "abierta" | "cerrada", plano: { id, nombre }, documento }: cualquier pestaña,
- *                                      también las de atrás; "abierta" llega cuando su plano terminó de abrir en el editor).
+ *                                      también las de atrás; "abierta" llega cuando su plano terminó de abrir en el editor),
+ *                                      "editable" ({ editable }: esta página tomó o perdió el control del plano de la pestaña activa).
  *
  * Con varios planos en la ventana (pestañas, editor.js), todo esto es del plano de la pestaña activa: `estado().plano`, el `document_id`
  * que completa `pedir` y los eventos; al cambiar de pestaña llega otra vez "cargado" con el plano nuevo.
@@ -106,7 +107,7 @@
     if (estado.plano) { estado.plano.revision = d.revision; estado.plano.formato = d.formato; }
     emitir("guardado", { revision: d.revision, formato: d.formato });
   });
-  document.addEventListener("tvcad:editable", (ev) => { estado.editable = !!(ev.detail && ev.detail.editable); });
+  document.addEventListener("tvcad:editable", (ev) => { estado.editable = !!(ev.detail && ev.detail.editable); emitir("editable", { editable: estado.editable }); });
 
   // Registro corto de lo que las extensiones y el modo táctil le piden al editor (las últimas 60 peticiones que no son lecturas de estado,
   // con la revisión que devolvió), y de cuándo el plano pasó a «Sin guardar»: para encontrar qué cambió un plano que solo se miró.
@@ -125,7 +126,8 @@
     } catch (err) {
       throw new ErrorEditor("tiempo", "El editor no respondió a tiempo.", undefined);
     }
-    if (!["state", "snap", "query", "measure", "layers", "layouts", "extents", "references", "image_views"].includes(peticion.op)) {
+    if (!["state", "snap", "query", "measure", "layers", "layouts", "extents", "references", "image_views", "events", "ribbon_items", "ribbon_state",
+      "ribbon_define"].includes(peticion.op)) {
       anotar({ op: peticion.op, cmd: peticion.cmd || peticion.name || peticion.action || "", ok: !(respuesta && respuesta.ok === false), revision: respuesta && respuesta.revision });
     }
     if (respuesta && respuesta.ok === false) throw new ErrorEditor("rechazada", respuesta.error || respuesta.code || "El editor rechazó la petición.", respuesta);

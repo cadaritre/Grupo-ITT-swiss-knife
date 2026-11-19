@@ -284,7 +284,7 @@
     if (hoja && hoja.open) hoja.close();
     window.TVCad.ocupar();
     try { return await fn(); }
-    finally { window.TVCad.soltar(); ocultarChip(); cancelarPick = null; if (hoja) { hoja.showModal(); hojaAbierta = hoja; } }
+    finally { window.TVCad.soltar(); ocultarChip(); cancelarPick = null; if (hoja) { mostrarHoja(hoja); hojaAbierta = hoja; } }
   }
 
   /** Capas que dibuja Civil como resultado: nunca sirven como eje, límite o polígono (las marcas de estación tocan el eje). */
@@ -466,7 +466,7 @@
     const enviar = form && form.querySelector("button[type=submit]");
     const estado = form && form.querySelector(".civil-estado");
     const decir = (t) => { if (estado) { estado.hidden = !t; estado.textContent = t || ""; } };
-    barra.setAttribute("aria-busy", "true");
+    ocupada(true);
     if (enviar) { enviar.setAttribute("aria-busy", "true"); enviar.disabled = true; }
     decir(texto);
     try { return await fn(decir); }
@@ -477,16 +477,27 @@
     } finally {
       est.ocupado = false;
       window.TVCad.soltar();
-      barra.removeAttribute("aria-busy");
+      ocupada(false);
       if (enviar) { enviar.removeAttribute("aria-busy"); enviar.disabled = false; }
       decir("");                                                       // el estado de trabajo nunca se queda en la hoja
     }
   }
 
+  /** Ocupada: la barra (si la hay) y la página lo dicen (`<html data-civil-ocupado>`), también con Civil en la cinta del editor. */
+  function ocupada(si) {
+    if (barra) barra.toggleAttribute("aria-busy", si);
+    document.documentElement.toggleAttribute("data-civil-ocupado", si);
+  }
+  /** Una hoja de Civil: en la cinta del editor, paleta acoplada al área de dibujo (civil-cinta.js); con la barra, hoja modal. */
+  function mostrarHoja(h) {
+    if (window.TVCivilCinta && window.TVCivilCinta.activa()) window.TVCivilCinta.mostrar(h);
+    else h.showModal();
+  }
   function abrirHoja(id) {
     const h = $(id);
     document.querySelectorAll(".civil-menu[open]").forEach((d) => d.removeAttribute("open"));
-    h.showModal(); hojaAbierta = h;
+    if (hojaAbierta && hojaAbierta !== h && hojaAbierta.open) hojaAbierta.close();
+    mostrarHoja(h); hojaAbierta = h;
     return h;
   }
   const cerrarHoja = () => { if (hojaAbierta && hojaAbierta.open) hojaAbierta.close(); hojaAbierta = null; };
@@ -522,6 +533,7 @@
   // -- Escala ---------------------------------------------------------------------------------------------------------------------
   function pintarEscala() {
     const t = $("civil-escala-texto"); if (t) t.textContent = `1:${est.escala.denominador}`;
+    if (window.TVCivilCinta) window.TVCivilCinta.escala(`1:${est.escala.denominador} · Zona ${est.escala.zona}${est.escala.hemisferio === "S" ? "S" : "N"}`);
     const z = `zona ${est.escala.zona} ${est.escala.hemisferio === "S" ? "sur" : "norte"}`;
     document.querySelectorAll("[data-civil-zona-texto]").forEach((n) => { n.textContent = z; });
   }
@@ -2428,7 +2440,23 @@
     perfil: () => { abrirHoja("civil-hoja-perfil"); alAbrir.perfil(); },
     secciones: () => { abrirHoja("civil-hoja-secciones"); alAbrir.secciones(); },
     volumen: () => { abrirHoja("civil-hoja-volumen"); alAbrir.volumen(); },
+    // Imágenes de la carpeta del proyecto (cad/local/local.js): los mismos botones de la página, sin tocar lo de adentro.
+    imagen: () => { const b = $("cad-menu-insertar-imagen"); if (b) b.click(); else avisar("Para insertar imágenes, toma el control del plano.", "error"); },
+    referencias: () => { const b = $("cad-boton-referencias"); if (b) b.click(); },
   };
+  /** Las acciones que otro módulo de la página agrega a Civil (su entrada va en `MENUS`; p. ej. «Imagen satelital»). */
+  function registrarAccion(clave, fn) {
+    if (typeof fn !== "function" || !clave) throw new TypeError("registrarAccion(clave, fn)");
+    ACCIONES[clave] = fn;
+    if (window.TVCivilCinta) window.TVCivilCinta.refrescar();
+  }
+  const tieneAccion = (clave) => typeof ACCIONES[clave] === "function";
+  function accion(clave) {
+    const fn = ACCIONES[clave];
+    if (!fn) return false;
+    Promise.resolve().then(fn).catch((err) => { console.error(err); avisar("Algo salió mal. Inténtalo de nuevo.", "error"); });
+    return true;
+  }
   let llenarEscala = () => {};
   let alAbrirPuntoNuevo = async () => {};
 
@@ -2442,7 +2470,8 @@
     lista.style.setProperty("--civil-menu-y", `${Math.round(b.bottom + 4)}px`);
   }
 
-  function montar() {
+  /** La barra «Civil» encima del editor: solo cuando el editor no tiene pestañas propias en su cinta (compilación anterior a la -13). */
+  function montarBarra() {
     barra = window.TVCad.barra();
     if (!barra) return;
     barra.classList.add("civil-barra");
@@ -2454,8 +2483,7 @@
       if (!b) return;
       ev.preventDefault();
       const d = b.closest("details"); if (d) d.removeAttribute("open");
-      const accion = ACCIONES[b.dataset.civil];
-      if (accion) accion();
+      accion(b.dataset.civil);
     });
     // un menú abierto a la vez; Esc y clic fuera lo cierran
     barra.addEventListener("toggle", (ev) => {
@@ -2467,16 +2495,26 @@
     window.addEventListener("resize", () => barra.querySelectorAll(".civil-menu[open]").forEach(colocarMenu));
     document.addEventListener("click", (ev) => { if (!ev.target.closest(".civil-menu")) barra.querySelectorAll(".civil-menu[open]").forEach((d) => d.removeAttribute("open")); });
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") barra.querySelectorAll(".civil-menu[open]").forEach((d) => d.removeAttribute("open")); });
+    const editable = () => barra.toggleAttribute("data-solo-lectura", !window.TVCad.estado().editable);
+    editable();
+    window.TVCad.on("cargado", editable);
+    document.documentElement.dataset.civil = "barra";
+  }
+
+  async function montar() {
     document.querySelectorAll("[data-civil-cuenta]").forEach((c) => { c.dataset.vacio = c.textContent; });
     llenarEscala = prepararEscala();
     prepararImportar(); prepararExportar(); prepararImportarKml(); prepararExportarKml(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararUnirCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararEjeEspirales(); prepararPerfil(); prepararSecciones(); prepararVolumen();
     pintarEscala();
-    const editable = () => barra.toggleAttribute("data-solo-lectura", !window.TVCad.estado().editable);
-    editable();
-    window.TVCad.on("cargado", () => { editable(); detectarEscala(); });
+    // Civil en la cinta del editor, como una pestaña más (civil-cinta.js); sin esa operación en el editor, la barra de siempre.
+    const enCinta = window.TVCivilCinta ? await window.TVCivilCinta.montar({ accion, tiene: tieneAccion, ocupado: () => est.ocupado }) : false;
+    if (!enCinta) montarBarra();
+    window.TVCad.on("cargado", () => detectarEscala());
     detectarEscala();
+    document.dispatchEvent(new CustomEvent("tvcivil:listo", { detail: { cinta: enCinta } }));
   }
 
   window.TVCad.listo.then(montar);
-  window.TVCivil = Object.freeze({ version: 1, insertarDxf, calcular, consultar, enUnPaso, lugarLibre });
+  window.TVCivil = Object.freeze({ version: 2, insertarDxf, calcular, consultar, enUnPaso, lugarLibre, accion, tieneAccion, registrarAccion,
+    abrirHoja, ocupado: () => est.ocupado });
 })();

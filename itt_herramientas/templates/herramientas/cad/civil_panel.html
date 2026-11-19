@@ -698,4 +698,6 @@
 </form>
 {% endhoja_inferior %}
 
+{# La pestaña «Civil» de la cinta del editor (civil/pagina.py, `cinta()`; la arma civil-cinta.js). #}
+{{ civil.cinta|json_script:"civil-cinta" }}
 <div id="civil-iconos" hidden>{% for n in civil.iconos %}<span data-civil-icono="{{ n }}">{% icono n %}</span>{% endfor %}</div>

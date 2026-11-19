@@ -190,3 +190,18 @@
 .civil-superficies .civil-nota:empty { display: none; }
 .civil-opciones label[hidden] { display: none; }
 .civil-opciones--filas label { padding-block: var(--tv-espacio-1, 4px); }
+/* Civil en la cinta del editor (civil-cinta.js): cada hoja es una paleta del editor, acoplada a la derecha del área de dibujo y sin tapar
+   la cinta; no bloquea el dibujo (se puede acercar y mover mientras está abierta). Se aparta mientras la persona usa la cinta. */
+.tv-hoja.civil-hoja--paleta[open] { position: fixed; inset: auto; left: var(--civil-paleta-x, auto); top: var(--civil-paleta-y, 0px); right: auto; bottom: auto; margin: 0;
+  width: var(--civil-paleta-w, 420px); max-width: var(--civil-paleta-w, 420px); max-height: var(--civil-paleta-h, 70vh); z-index: 30;
+  border: 1px solid var(--tv-borde); border-radius: var(--tv-radio-grande); box-shadow: var(--tv-sombra-3);
+  animation: civil-paleta 140ms ease-out; transition: opacity 120ms ease-out; }
+.civil-hoja--paleta[data-colocando] { visibility: hidden; }
+.civil-hoja--paleta[data-apartada] { opacity: 0; pointer-events: none; }
+.civil-hoja--paleta .tv-hoja__asa { display: none; }
+.civil-hoja--paleta .tv-hoja__cuerpo { padding: var(--tv-espacio-3) var(--tv-espacio-4) var(--tv-espacio-4); }
+.civil-hoja--paleta .tv-hoja__cabecera { position: sticky; top: 0; z-index: 1; margin: calc(-1 * var(--tv-espacio-3)) calc(-1 * var(--tv-espacio-4)) var(--tv-espacio-3);
+  padding: var(--tv-espacio-2) var(--tv-espacio-2) var(--tv-espacio-2) var(--tv-espacio-4); background: var(--tv-superficie); border-bottom: 1px solid var(--tv-separador); }
+.civil-hoja--paleta .tv-hoja__cabecera h2 { font-size: 1rem; }
+@keyframes civil-paleta { from { opacity: 0; transform: translateX(8px); } }
+@media (prefers-reduced-motion: reduce) { .tv-hoja.civil-hoja--paleta[open] { animation: none; transition: none; } }

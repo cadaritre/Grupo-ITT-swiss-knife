@@ -17,6 +17,7 @@ import pytest
 from itt_herramientas.cad import servicio
 from itt_herramientas.models import VersionPlano
 
+from . import cinta
 from .test_cad_navegador import CAPTURAS, LARGO, _persona, cad, esperar_estado, navegar  # noqa: F401 (fixtures)
 from .test_pwa_navegador import esperar
 
@@ -73,12 +74,8 @@ def apagar(p, *capas):
 
 
 def menu(p, clave, accion):
-    p.locator(f'[data-civil-menu="{clave}"] > summary').click()
-    try:
-        p.locator(f'[data-civil-menu="{clave}"] [data-civil="{accion}"]').click(timeout=15000)
-    except Exception:
-        p.screenshot(path=os.path.expanduser(f"~/.tresvizo/agentes/G/salida/depurar-menu-{clave}.png"))
-        raise
+    """Abre la acción como la persona: su botón en la pestaña «Civil» de la cinta del editor (o, con la barra de respaldo, su menú)."""
+    cinta.accion(p, accion)
 
 
 def esperar_aviso(p, texto, timeout=LARGO):
@@ -107,7 +104,7 @@ def poner_aqui(p, timeout=LARGO * 2):
 
 
 def esperar_libre(p, timeout=LARGO * 2):
-    esperar(p, "!document.querySelector('.civil-barra[aria-busy]')", timeout)
+    esperar(p, cinta.libre(p), timeout)
 
 
 def cerrar_aviso_gpu(p):
@@ -214,19 +211,20 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
         n.pagina.on("console", lambda m: print("consola:", m.type, m.text[:500], flush=True) if m.type in ("error", "warning") else None)
     p = n.ir(f"/cad/{plano.pk}/")
     esperar_estado(p, "guardado")
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    esperar(p, cinta.CIVIL_LISTO, LARGO)
     foto(p, "00-barra", 1280)
-    p.locator('[data-civil-menu="puntos"] > summary').click()
-    foto(p, "01-menu-puntos", 1280)
-    p.keyboard.press("Escape")
-    # a 1280 px la barra entera cabe sin desplazarse, y cada menú se abre bajo su botón
-    assert p.evaluate("(() => { const b = document.querySelector('.civil-barra'); return b.scrollWidth <= b.clientWidth + 1; })()")
-    p.locator('[data-civil-menu="volumenes"] > summary').click()
-    boton = p.locator('[data-civil-menu="volumenes"] > summary').bounding_box()
-    lista = p.locator('[data-civil-menu="volumenes"] .civil-menu__lista').bounding_box()
-    assert lista["y"] >= boton["y"] + boton["height"] - 1 and lista["y"] < boton["y"] + boton["height"] + 12, (boton, lista)
-    assert boton["x"] - lista["width"] <= lista["x"] <= boton["x"] + 1 and lista["x"] + lista["width"] <= 1280, (boton, lista)
-    p.keyboard.press("Escape")
+    if not cinta.en_cinta(p):
+        # la barra de respaldo (editor sin pestañas propias): a 1280 px cabe entera sin desplazarse, y cada menú se abre bajo su botón
+        p.locator('[data-civil-menu="puntos"] > summary').click()
+        foto(p, "01-menu-puntos", 1280)
+        p.keyboard.press("Escape")
+        assert p.evaluate("(() => { const b = document.querySelector('.civil-barra'); return b.scrollWidth <= b.clientWidth + 1; })()")
+        p.locator('[data-civil-menu="volumenes"] > summary').click()
+        boton = p.locator('[data-civil-menu="volumenes"] > summary').bounding_box()
+        lista = p.locator('[data-civil-menu="volumenes"] .civil-menu__lista').bounding_box()
+        assert lista["y"] >= boton["y"] + boton["height"] - 1 and lista["y"] < boton["y"] + boton["height"] + 12, (boton, lista)
+        assert boton["x"] - lista["width"] <= lista["x"] <= boton["x"] + 1 and lista["x"] + lista["width"] <= 1280, (boton, lista)
+        p.keyboard.press("Escape")
 
     # 1. Importar 5 000 puntos PNEZD
     archivo = tmp_path / "levantamiento.txt"
@@ -521,12 +519,15 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
 
     # 7c. Escala 1:500 con «Ajustar los puntos ya dibujados»: los 5 005 puntos se vuelven a dibujar a la mitad, con sus rótulos
     esperar_libre(p)
-    p.locator("[data-civil=escala]").click()
+    menu(p, None, "escala")
     p.locator("#civil-escala-den").select_option("500")
     p.locator('[data-civil-form="escala"] button[type=submit]').click()
     esperar(p, "!document.getElementById('civil-hoja-escala').open", LARGO * 3)
     esperar_libre(p)
-    assert p.locator("#civil-escala-texto").inner_text() == "1:500"
+    if cinta.en_cinta(p):                                                   # el botón de la escala en la cinta dice la nueva
+        esperar(p, "TVCad.pedir({op: 'ribbon_items'}).then(r => r.commands.find(c => c.command === 'CVESCALA').label.startsWith('1:500 '))", LARGO)
+    else:
+        assert p.locator("#civil-escala-texto").inner_text() == "1:500"
     assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 5000 and cuenta(p, "INSERT", "PUNTOS_PROYECTO") == 5
     e = pedir(p, {"op": "query", "type": "INSERT", "layer": "PUNTOS_PROYECTO", "limit": 1, "detail": "full"})["entities"][0]
     escala_x = e.get("properties", {}).get("x_scale") or (e.get("properties", {}).get("scale") or {}).get("x")
@@ -549,7 +550,7 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     assert cuenta(p, "3DFACE", "TRIANGULACION") == caras
     ins = pedir(p, {"op": "query", "type": "INSERT", "layer": "PUNTOS_TERRENO", "limit": 1, "detail": "full", "fields": ["attributes"]})["entities"][0]
     assert ins["attributes"]["DESC"] == "TN"
-    esperar(p, "document.getElementById('civil-escala-texto').textContent === '1:500'", LARGO)   # la escala viaja con el plano
+    esperar(p, "document.documentElement.dataset.civil === 'cinta' ? TVCad.pedir({op: 'ribbon_items'}).then(r => r.commands.find(c => c.command === 'CVESCALA').label.startsWith('1:500 ')) : document.getElementById('civil-escala-texto').textContent === '1:500'", LARGO)   # la escala viaja con el plano
     assert not n.dialogos and not n.errores, (n.dialogos, n.errores)
     print(f"\n{motor}: importar 5000 puntos {importar_s:.1f} s · triangular {triangular_s:.1f} s")
 
@@ -562,7 +563,7 @@ def test_civil_v11(cad, navegar, crear_usuario, roles, motor, tmp_path):
     n = navegar(ana, motor)
     p = n.ir(f"/cad/{plano.pk}/")
     esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    esperar(p, cinta.CIVIL_LISTO, LARGO)
     p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
     # puntos y triangulación
     archivo = tmp_path / "puntos.txt"
@@ -689,7 +690,7 @@ def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_pa
     n = navegar(ana, motor)
     p = n.ir(f"/cad/{plano.pk}/")
     esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    esperar(p, cinta.CIVIL_LISTO, LARGO)
     p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
     archivo = tmp_path / "puntos.txt"
     archivo.write_bytes(archivo_pnezd(200, lado=120.0))
@@ -803,7 +804,7 @@ def test_civil_carretera_curva_masa_y_lotes(cad, navegar, crear_usuario, roles, 
     n = navegar(ana, motor)
     p = n.ir(f"/cad/{plano.pk}/")
     esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    esperar(p, cinta.CIVIL_LISTO, LARGO)
     p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
     archivo = tmp_path / "puntos.txt"
     archivo.write_bytes(archivo_pnezd(600, lado=300.0))
@@ -946,12 +947,12 @@ def test_civil_seleccion_de_puntos_curvas_continuas_y_colocar(cad, navegar, crea
         n.pagina.on("console", lambda m: print("consola:", m.type, m.text[:800], flush=True) if m.type in ("error", "warning") else None)
     p = n.ir(f"/cad/{plano.pk}/")
     esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    esperar(p, cinta.CIVIL_LISTO, LARGO)
     p.evaluate("() => { window.__avisos = []; const a = window.tvAviso; window.tvAviso = (t, k) => { window.__avisos.push([t, k || '']); return a(t, k); }; }")
     if completa:                                                            # «Pantalla completa» de H: la barra de Civil se queda
         p.locator("#cad-completa").click()
         esperar(p, "document.documentElement.classList.contains('cad-completa')", LARGO)
-        esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]') && document.querySelector('.civil-barra').getBoundingClientRect().height > 0", LARGO)
+        esperar(p, cinta.CIVIL_LISTO + " && (document.documentElement.dataset.civil === 'cinta' || document.querySelector('.civil-barra').getBoundingClientRect().height > 0)", LARGO)
         p.wait_for_timeout(1500)                                            # el editor toma el tamaño nuevo
     archivo = tmp_path / "puntos.txt"
     archivo.write_bytes(archivo_pnezd(300, lado=120.0))
@@ -1129,7 +1130,7 @@ def test_sin_elegir_en_el_dibujo_usa_la_seleccion_y_lo_dice(cad, navegar, crear_
     n = navegar(ana, motor)
     p = n.ir(f"/cad/{plano.pk}/")
     esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    esperar(p, cinta.CIVIL_LISTO, LARGO)
     lote = pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0, Y0], [X0, Y0 + 100], [X0 + 100, Y0 + 100], [X0 + 100, Y0]], "closed": True}]})["result"]["handles"][0]
     # Se simula el editor oficial: user_select y getpoint responden gui_required
     p.evaluate("""() => { const m = document.getElementById('cad-editor').contentWindow.ocsControl; const req = m.request.bind(m);
@@ -1166,13 +1167,17 @@ def test_capturas_civil(cad, navegar, crear_usuario, roles, tema, ancho, tmp_pat
         assert p.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
         foto(p, "00-telefono", ancho, tema)
         return
-    esperar(p, "!!document.querySelector('.civil-barra [data-civil-menu]')", LARGO)
+    esperar(p, cinta.CIVIL_LISTO, LARGO)
     cerrar_aviso_gpu(p)
     foto(p, "00-barra", ancho, tema)
-    for clave, nombre in (("puntos", "01-menu-puntos"), ("terreno", "01-menu-triangulacion"), ("ejes", "01-menu-perfiles")):
-        p.locator(f'[data-civil-menu="{clave}"] > summary').click()
-        foto(p, nombre, ancho, tema)
-        p.keyboard.press("Escape")
+    if cinta.en_cinta(p):
+        cinta.mostrar_pestana(p)
+        foto(p, "01-cinta-civil", ancho, tema)
+    else:
+        for clave, nombre in (("puntos", "01-menu-puntos"), ("terreno", "01-menu-triangulacion"), ("ejes", "01-menu-perfiles")):
+            p.locator(f'[data-civil-menu="{clave}"] > summary').click()
+            foto(p, nombre, ancho, tema)
+            p.keyboard.press("Escape")
     archivo = tmp_path / "levantamiento.txt"
     archivo.write_bytes(archivo_pnezd(400, lado=150.0))
     menu(p, "puntos", "importar")
@@ -1199,7 +1204,7 @@ def test_capturas_civil(cad, navegar, crear_usuario, roles, tema, ancho, tmp_pat
         p.locator(f"#{hoja} input[name=con_rasante]").evaluate_all("cs => cs.forEach(c => { c.checked = true; c.dispatchEvent(new Event('change', {bubbles: true})); })")
         foto(p, nombre, ancho, tema)
         p.locator(f"#{hoja} [data-tv-cerrar]").first.click()
-    p.locator("[data-civil=escala]").click()
+    menu(p, None, "escala")
     foto(p, "13-escala", ancho, tema)
     p.locator("#civil-hoja-escala [data-tv-cerrar]").first.click()
     menu(p, "terreno", "triangular")

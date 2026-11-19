@@ -1,5 +1,6 @@
-{% load static %}{# Civil (docs/civil.md), solo si se puede editar. Su barra y sus hojas (civil_panel.html, ~16 KB comprimidas) no viajan con cada página del plano: llegan aparte una vez por versión, con su huella en la dirección, y en el teléfono con el CAD descargado salen de su caché (docs/cad.md, «Datos móviles»). #}
+{% load static %}{# Civil (docs/civil.md), solo si se puede editar. Su barra y sus hojas (civil_panel.html, ~20 KB comprimidas) no viajan con cada página del plano: llegan aparte una vez por versión, con su huella en la dirección, y en el teléfono con el CAD descargado salen de su caché (docs/cad.md, «Datos móviles»). #}
 <link rel="stylesheet" href="{% static 'herramientas/cad/civil.css' %}">
 <div id="civil-panel" hidden data-url="{{ civil.panel }}" data-js="{% static 'herramientas/cad/civil.js' %}"></div>
 {{ civil.config|json_script:"civil-config" }}
+<script src="{% static 'herramientas/cad/civil-cinta.js' %}"></script>
 <script src="{% static 'herramientas/cad/civil-panel.js' %}"></script>

@@ -1,5 +1,5 @@
 /* Civil: su barra y sus hojas (templates/herramientas/cad/civil_panel.html) no vienen en el HTML de cada página del plano. Son iguales para
- * todas las cuentas y todos los planos (~16 KB comprimidas, más de la mitad de la página): llegan aparte, con su huella en la dirección
+ * todas las cuentas y todos los planos (~20 KB comprimidas, más de la mitad de la página): llegan aparte, con su huella en la dirección
  * (`/cad/panel-civil/?v=<huella>`, se guardan un año y, en el teléfono con el CAD descargado, salen de su caché), se ponen en la página y
  * después se carga civil.js, que las usa como siempre (docs/cad.md, «Datos móviles»).
  */
