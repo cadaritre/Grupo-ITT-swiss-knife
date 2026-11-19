@@ -87,10 +87,15 @@ MENUS = (
         {"separador": True},
         {"clave": "masa", "nombre": "Curva masa…", "icono": "chart-spline", "comando": "CVCURVAMASA"},
     )},
-    # Imágenes del plano: las de la carpeta del proyecto (cad/local/). Otra fuente de imágenes se agrega aquí como cualquier acción.
-    {"clave": "imagenes", "nombre": "Imágenes", "icono": "image", "acciones": (
+    # Imágenes del plano: las de la carpeta del proyecto (cad/local/) y la satelital de un área (cad/local/satelite.js, que registra su acción
+    # con `TVCivil.registrarAccion`; docs/cad.md, «Imagen satelital»). Otra fuente de imágenes se agrega aquí como cualquier acción.
+    # `solo_cinta`: la barra de respaldo de la página no lleva este grupo (no cabría a 1280 px); sus acciones también están en el plano
+    # («Más acciones» y el botón «Referencias»).
+    {"clave": "imagenes", "nombre": "Imágenes", "icono": "image", "solo_cinta": True, "acciones": (
         {"clave": "imagen", "nombre": "Insertar imagen georreferenciada…", "corto": "Imagen georreferenciada", "icono": "image-plus", "comando": "CVIMAGEN", "grande": True,
          "descripcion": "Coloca una imagen u ortofoto de la carpeta del proyecto con su archivo de mundo o GeoTIFF. Nada se sube."},
+        {"clave": "satelite", "nombre": "Imagen satelital…", "corto": "Imagen satelital", "icono": "satellite", "comando": "CVSATELITE", "grande": True,
+         "descripcion": "La imagen satelital del área de una polilínea cerrada o de dos esquinas, a la calidad que elijas; se guarda en la computadora."},
         {"clave": "referencias", "nombre": "Referencias externas…", "corto": "Referencias", "icono": "folder-open", "comando": "CVREFERENCIAS", "solo_lee": True,
          "descripcion": "Imágenes y dibujos de referencia del plano y la carpeta del proyecto en esta computadora."},
     )},

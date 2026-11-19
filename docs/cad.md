@@ -47,6 +47,15 @@ Lo que se encontró en v2026.45 y cómo queda:
 La CSP de `/cad/editor/` (`cad/editor/__init__.py`, igual que en `tools.caddy` del Portal) deja `connect-src`, `img-src` y `font-src` en
 `'self'`: cualquier otra llamada a terceros se bloquea. Las fuentes Noto vienen dentro del paquete.
 
+**Una sola excepción, de la página del plano (no del editor): la imagen satelital.** Con la clave del proveedor configurada, la página
+`/cad/<id>/` de quien puede dibujar lleva en `connect-src` el origen del servicio de teselas y nada más
+(`https://ibasemaps-api.arcgis.com`; `cad/satelite.py`, `poner_csp`: la CSP del armazón con `TV_CSP_EXTRA` más ese origen). Las teselas se
+piden desde la página con `fetch` (no desde el trabajador, que en producción llega sin CSP propia: así la que manda es esta), en `cors`,
+sin cookies (`credentials: "omit"`) y con `referrerPolicy: "origin"`, porque la clave se restringe a nuestro sitio por el Referer y la
+página va con `Referrer-Policy: same-origin` (Caddy). `img-src` no cambia: las teselas llegan como bytes al trabajador, nunca como `<img>`.
+Sin clave, o para supervisión, o en una versión anterior, la CSP es la de siempre. Lo prueban `test_cad_satelite.py` (la cabecera) y
+`test_cad_satelite_navegador.py` (otro origen se bloquea).
+
 ## La página del editor
 
 - Abre la versión vigente (o una anterior con `?version=n`, o el borrador) por el canal de control (`op: open`) o por `ocs:open` (con puente).
@@ -689,6 +698,81 @@ SwiftShader de las pruebas marca 30–60 cuadros por segundo. Los archivos de pr
 | Desvincular | `ocs_image_release` de cada ruta de ese plano (las demás pestañas conservan lo suyo); `ocs_local_reset()` suelta todo |
 
 Dar píxeles o dibujos no es una edición: no deja paso de deshacer ni marca «Sin guardar».
+
+## Imagen satelital (Civil → Imágenes, 18-11-2026)
+
+Dónde: «Más acciones» → «Imagen satelital…» del plano, y el grupo «Imágenes» de la cinta «Civil» del editor (`MENUS` de
+`civil/pagina.py`, clave `satelite`, grupo `imagenes` con `solo_cinta`: la barra de Civil de la página no lo lleva porque con nueve
+menús ya no cabe a 1280 px). Para quien puede dibujar, en la versión vigente.
+
+Como «Importar imagen de Google Earth» de CivilCAD: la persona elige el área (una polilínea cerrada o dos esquinas) y la calidad, y la imagen
+queda en el plano como un IMAGE georreferenciado, guardada en su computadora. Código: `static/herramientas/cad/local/satelite.js` (la hoja y
+el trabajo), `satelite-trabajador.js` (mosaico y reproyección), `satelite-geo.js` (la geometría), `cad/satelite.py` (proveedor, clave y CSP),
+la hoja `civil-hoja-satelite` de `civil_panel.html` y el gancho `insertarArchivo` de `local.js`.
+
+### Proveedor y términos (revisados el 18-11-2026)
+
+| Proveedor | ¿Deja guardar la imagen en un archivo del proyecto? | Dónde lo dice |
+| --- | --- | --- |
+| **Google** (Maps Platform: Map Tiles, Static Maps; Google Earth y Earth Pro) | **No.** | Términos de Google Maps Platform §3.2.3(a) (no exportar, extraer, guardar ni bajar teselas en lote fuera de los servicios), §3.2.3(b) (no guardar en caché salvo lo que permitan los términos de cada servicio; los de Map Tiles API no lo permiten) y §3.2.3(c) (no crear contenido a partir de él, p. ej. calcar del satélite). Términos de servicio específicos §8.2 (Google Earth: no bajar ni exportar). Para Earth Pro, las «Geo Guidelines» de Google (sin numeración): exportar imágenes solo para usos no comerciales, y no usar su salida para crear otro contenido |
+| **Mapbox** Satellite (Static Images, teselas) | **No.** | Mapbox Product Terms (20-10-2026) §1.9(v) (no exportar, bajar, guardar en caché ni almacenar), §2.8.1 (caché de hasta 30 días en el mismo dispositivo, sin distribuirla como imagen estática), §1.7 y §1.7.3 (las copias impresas o digitales estáticas solo con derechos de impresión, que se limitan a Mapbox Streets) y §1.6 (calcar el satélite solo para uso no comercial u OpenStreetMap) |
+| **Esri** World Imagery por **ArcGIS Location Platform** | **Sí, como imagen estática final.** | ArcGIS Location Platform Agreement (E204, 21-11-2025) §3.1(d)(6)(B): el resultado puede usarse en formato estático (PDF, GIF, JPEG, HTML) en forma final inalterable; §3.1(d)(4): atribución pegada al resultado del servicio de mapas base; §3.1(d)(1) y (d)(2): no redistribuir y una petición sirve a una sola persona; §3.1(a)(3): no quitar avisos; §3.2: términos de los proveedores de datos |
+| Esri World Imagery con una cuenta de ArcGIS Online | Solo fuera de línea en aplicaciones de ArcGIS («World Imagery (for Export)») | Descripción de la capa y resumen de términos de Esri: no descargar ni alojar contenido de Esri fuera de sus paquetes |
+| INEGI (ortofotos) | Su licencia de libre uso lo permitiría, pero su servicio WMS no se puede usar desde el navegador (cortafuegos que rechaza las peticiones, sin CORS) y sus ortofotos son más viejas y gruesas | — |
+| Bing Maps | Las cuentas gratuitas se retiraron (pasó a Azure Maps, con suscripción de Azure) | — |
+
+**Decisión:** Esri World Imagery por ArcGIS Location Platform, en su nivel gratuito (2 000 000 teselas de mapa base al mes; después,
+US$0.15 por cada 1 000). En México tiene 30 cm (Vantor «Vivid Advanced», más de mil zonas urbanas) a 60 cm–1.2 m (Vivid Standard) y, en
+algunas ciudades, 15 cm. **Cómo cumplimos el §3.1(d):** se guarda una sola imagen estática por petición de la persona (JPEG en forma final,
+no las teselas: estas se descartan al armar el mosaico y nunca se guardan), se usa para ver el plano, cada persona baja la suya, nada se
+redistribuye desde nuestro servidor (nunca la ve), y la atribución va en la imagen, en un archivo junto a ella y, si se recorta, en el
+plano. Topes por imagen (abajo) para que sea una imagen de un proyecto y no una descarga masiva.
+
+**Respaldo:** el servicio es configurable (`HERRAMIENTAS_CAD_SATELITE_SERVICIO`): cualquier MapServer de teselas de ArcGIS cuyos términos lo
+permitan (p. ej. el de un gobierno estatal o un ArcGIS Enterprise propio) funciona igual, con su origen en la CSP. Y siempre queda la
+ortofoto propia (dron) con «Insertar imagen georreferenciada».
+
+**Clave:** una clave de API de ArcGIS Location Platform con el privilegio de mapas base, restringida por Referer a
+`https://tools.tresvizo.com`. Es pública en el navegador por diseño (así la usa Esri); la restricción de Referer y el nivel gratuito la
+acotan. Va como ajuste del servidor `HERRAMIENTAS_CAD_SATELITE_CLAVE` (en el Portal, desde los secretos, como la de Drive), **nunca en el
+repositorio**. Sin ella la hoja dice «La imagen satelital aún no está activada en este servidor».
+
+### Lo que hace
+
+- **Área:** la polilínea cerrada (sus arcos en cuerdas) o dos esquinas, más un margen (10 m por omisión). Se pasa de la zona UTM del plano
+  (la de «Escala y textos» de Civil) a geográficas con las series de Krüger (GRS80, error < 0.1 mm).
+- **Calidad:** «Máxima disponible» (el nivel más fino con imagen en al menos el 95 % del área, según el mapa de teselas del proveedor), 15
+  y 30 cm, 60 cm, 1.2 y 2.4 m por píxel, u otra en cm. Antes de bajar nada dice el tamaño en píxeles, el tamaño en el terreno, las teselas y
+  su nivel, lo que se baja y lo que pesa el archivo, y el tiempo. Si el proveedor no llega a esa calidad ahí, lo dice; donde falta una
+  tesela del nivel, usa la de un nivel más bajo (hasta 4).
+- **Topes:** 40 millones de píxeles (≈ 6 300 × 6 300) y 12 000 por lado: una imagen mayor no cabe en la memoria del navegador al armarla
+  y codificarla; y 2 500 teselas por imagen. La hoja dice qué calidad sí cabe o que se divida el área.
+- **Bajar:** del navegador al proveedor, 8 a la vez, con reintentos; «Detener» (o cerrar la hoja) corta todo y no deja nada.
+- **Armar:** en un trabajador, por bandas de 256 filas (memoria acotada a unas filas de teselas): cada píxel de salida, en la cuadrícula
+  UTM, toma su lugar exacto en Mercator (malla de nodos exactos cada 32 px, interpolada: error < 0.005 px) con interpolación bilineal. Así
+  la imagen queda en la cuadrícula del plano, sin giro, y cae sobre los puntos levantados. JPEG de calidad 0.9 con la atribución abajo a
+  la derecha.
+- **Guardar (nunca en el servidor):** con la carpeta del proyecto vinculada (Chrome y Edge), se pide **una vez** el permiso de escritura y
+  se guardan en `Satelital\` el JPEG, su archivo de mundo `.jgw` (centro del píxel superior izquierdo, convención de ESRI), el `.prj` de la
+  zona y un `.txt` con la atribución y los datos (zona, esquinas, píxel, nivel, fecha); un nombre que ya existe toma « (2)». Sin carpeta,
+  o en Safari y Firefox, se descargan el JPEG, el `.jgw` y el `.txt`, y la imagen se inserta para la sesión (la hoja ofrece vincular la
+  carpeta).
+- **Insertar:** por el camino de «Insertar imagen georreferenciada» (`TVCadLocal.insertarArchivo`, `image_attach` con el archivo de
+  mundo): IMAGE estándar con su IMAGEDEF y la ruta relativa (`Satelital\nombre.jpg`), en la capa «Imagen satelital», debajo del dibujo
+  si se pide. **Recorte a la polilínea:** polígono del IMAGE (`set_properties` de `clip_boundary`, la ruta del editor ya lo dibuja) y la
+  atribución como MTEXT bajo el área; todo en un `batch` con `bindings`: **un solo paso de deshacer**. Si el editor no aceptara el
+  polígono, el lote se deshace entero y se recorta al rectángulo de la polilínea (`image_set` con `clip_rect`), y se dice.
+
+### Pruebas
+
+- `pruebas/test_cad_satelite.py`: UTM ↔ geográficas contra pyproj en las zonas 11 a 16 y al sur (< 0.1 mm), Web Mercator contra EPSG:3857,
+  el nivel por calidad, el plan (esquinas en múltiplos del píxel, teselas que cubren las esquinas, topes), la malla (< 0.005 px), el
+  archivo de mundo y el `.prj` (pyproj lo lee como EPSG:32613 / 32719); la clave solo a quien dibuja y la CSP con solo el proveedor.
+- `pruebas_navegador/test_cad_satelite_navegador.py`, con el editor real y un proveedor falso en otro origen que pinta marcas rojas en la
+  latitud y longitud de puntos UTM conocidos: estimación contra resultado, cada marca en su píxel del JPEG (centroide a menos de medio
+  píxel) y en su lugar en la pantalla del editor, la de fuera del polígono recortada, el IMAGE con su esquina y vectores, la carpeta
+  (Chromium) o la descarga (WebKit), un paso de deshacer, nada de las teselas ni de la imagen en las peticiones a nuestro servidor, otro
+  origen bloqueado por la CSP, los topes y «Detener».
 
 ## Fuentes SHX
 

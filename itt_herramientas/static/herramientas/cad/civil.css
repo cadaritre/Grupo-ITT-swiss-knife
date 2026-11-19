@@ -205,3 +205,12 @@
 .civil-hoja--paleta .tv-hoja__cabecera h2 { font-size: 1rem; }
 @keyframes civil-paleta { from { opacity: 0; transform: translateX(8px); } }
 @media (prefers-reduced-motion: reduce) { .tv-hoja.civil-hoja--paleta[open] { animation: none; transition: none; } }
+/* Imagen satelital (cad/local/satelite.js) */
+.civil-sat__botones { display: flex; flex-wrap: wrap; gap: var(--tv-espacio-2); justify-content: flex-end; }
+.civil-sat__plan { display: grid; gap: 2px; padding: var(--tv-espacio-2) var(--tv-espacio-3); border-radius: var(--tv-radio); background: var(--tv-estado-info-fondo); font-size: var(--tv-texto-sm); }
+.civil-sat__plan:empty { display: none; }
+.civil-sat__plan strong { font-variant-numeric: tabular-nums; }
+.civil-sat__plan [data-tipo="aviso"] { color: var(--tv-estado-aviso-texto); }
+.civil-sat__plan [data-tipo="error"] { color: var(--tv-estado-error-texto); font-weight: 600; }
+.civil-sat__donde { display: grid; gap: var(--tv-espacio-2); justify-items: start; }
+.civil-sat__progreso { width: 100%; }

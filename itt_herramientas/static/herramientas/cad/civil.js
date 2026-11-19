@@ -2516,5 +2516,7 @@
 
   window.TVCad.listo.then(montar);
   window.TVCivil = Object.freeze({ version: 2, insertarDxf, calcular, consultar, enUnPaso, lugarLibre, accion, tieneAccion, registrarAccion,
-    abrirHoja, ocupado: () => est.ocupado });
+    abrirHoja, ocupado: () => est.ocupado,
+    // para las hojas de otros módulos (cad/local/satelite.js): elegir y señalar como Civil, con su hoja y su zona UTM
+    elegir, senalar, polilinea, avisar, ErrorCivil, zona: () => zona(), escala: () => ({ ...est.escala }) });
 })();
