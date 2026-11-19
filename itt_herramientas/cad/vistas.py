@@ -269,6 +269,11 @@ def plano(request, pk):
         "pestanas": {"max": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_MAX", PESTANAS_MAX)),
                      "bytes": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_BYTES", PESTANAS_BYTES)), "pestana": reverse("herramientas:cad_pestana", args=[MARCA]),
                      "elegir": reverse("herramientas:cad_elegir"), "desde_editor": reverse("herramientas:cad_desde_editor")} if v is None else None,
+        # «Desde plantilla…» y «Guardar como plantilla…» (clic derecho en una pestaña de presentación del editor; docs/cad.md,
+        # «Presentaciones desde plantilla»): para quien puede editar, en la versión vigente.
+        "plantillas": {"mias": reverse("herramientas:cad_plantillas"), "guardar": reverse("herramientas:cad_plantilla_guardar"),
+                       "marcar": reverse("herramientas:cad_plantilla_marcar", args=[MARCA]), "elegir": reverse("herramientas:cad_elegir"),
+                       "max_bytes": servicio.limites()["bytes"]} if puede and v is None else None,
         # Carpeta del proyecto en esta computadora (static/herramientas/cad/local/): la cuenta separa las carpetas guardadas en el
         # navegador; las direcciones de los trabajadores van con su huella de estáticos. Nada de la carpeta llega al servidor.
         "local": {"cuenta": usuario.pk, "trabajador": static("herramientas/cad/local/trabajador.js"),
@@ -307,11 +312,13 @@ def elegir(request):
     filas = list(pagina.object_list)
     _marcar_edicion(filas)
     usuario = request.user
+    marcadas = servicio.ids_plantilla(usuario.pk, filas)
     return _json({
         "total": pagina.paginator.count, "pagina": pagina.number, "paginas": pagina.paginator.num_pages,
         "planos": [{"id": str(p.pk), "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "bytes": p.bytes,
                     "actualizado": p.actualizado.isoformat(), "modificado_por": p.modificado_por_nombre, "en_edicion_por": p.en_edicion_por,
-                    "disponible": p.disponible} for p in filas],
+                    "disponible": p.disponible, "plantilla": str(p.pk) in marcadas,
+                    "archivo": reverse("herramientas:cad_archivo", args=[p.pk])} for p in filas],
         "proyectos": servicio.sugerencias_proyecto(usuario.pk, perfiles.clave_activa(usuario)) if request.GET.get("pagina") in (None, "", "1") else None,
     })
 
@@ -329,6 +336,54 @@ def desde_editor(request):
     def trabajo(temporal):
         nuevo = servicio.crear(request.user, temporal, nombre, proyecto, origen={"tipo": "editor"})
         return _json({"id": str(nuevo.pk), "nombre": nuevo.nombre, "url": reverse("herramientas:cad_plano", args=[nuevo.pk])}, status=201)
+    return _con_cuerpo(request, trabajo)
+
+
+# -- «Desde plantilla…» y «Guardar como plantilla…» (LAYOUT › Plantilla del editor; docs/cad.md, «Presentaciones desde plantilla») -----
+
+def _fila_plantilla(p: Plano) -> dict:
+    return {"id": str(p.pk), "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "bytes": p.bytes,
+            "actualizado": p.actualizado.isoformat(), "disponible": servicio.archivo_disponible(servicio.version_vigente(p)),
+            "plantilla": True, "archivo": reverse("herramientas:cad_archivo", args=[p.pk])}
+
+
+@ver
+@require_GET
+def plantillas(request):
+    """«Mis plantillas»: los planos que esta cuenta marcó (o guardó con «Guardar como plantilla…»), la usada más reciente primero."""
+    return _json({"plantillas": [_fila_plantilla(p) for p in servicio.mis_plantillas(request.user.pk)]})
+
+
+@ver
+@require_POST
+def plantilla_marcar(request, pk):
+    """Pone (`{"en": true}`) o quita (`false`) un plano de «Mis plantillas». `{"usada": true}`: se insertó desde ella (sube en la lista)."""
+    p = _plano(pk)
+    try:
+        datos = _cuerpo_json(request)
+        if datos.get("usada"):
+            servicio.plantilla_usada(request.user.pk, p)
+            return _json({"ok": True})
+        en = servicio.marcar_plantilla(request.user.pk, p, bool(datos.get("en")))
+    except ErrorUsuario as exc:
+        return _error(str(exc))
+    return _json({"ok": True, "plantilla": en})
+
+
+@editar
+@require_POST
+def plantilla_guardar(request):
+    """«Guardar como plantilla…»: la presentación que el editor escribió (solo ella y lo que usa) queda como plano nuevo en el proyecto
+    «Plantillas» y en «Mis plantillas». Cabeceras X-TV-Nombre (URL-encoded) y X-TV-Plano (el plano del que salió, opcional)."""
+    from urllib.parse import unquote
+
+    nombre = unquote(request.headers.get("X-TV-Nombre", "")).strip()[:150]
+    de = request.headers.get("X-TV-Plano", "")
+    de = de if re.fullmatch(r"[0-9a-f-]{36}", de or "") else ""
+
+    def trabajo(temporal):
+        nuevo = servicio.guardar_plantilla(request.user, temporal, nombre, de)
+        return _json({"id": str(nuevo.pk), "nombre": nuevo.nombre, "plantilla": _fila_plantilla(nuevo)}, status=201)
     return _con_cuerpo(request, trabajo)
 
 

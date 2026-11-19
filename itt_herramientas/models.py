@@ -645,6 +645,21 @@ class BorradorPlano(models.Model):
         constraints = [models.UniqueConstraint(fields=["plano", "cuenta_id"], name="herramientas_borradorplano_unico")]
 
 
+class PlantillaCad(models.Model):
+    """«Mis plantillas» de CAD: un plano de la biblioteca que una persona marcó para insertar sus presentaciones (su marco y su rótulo)
+    con «Desde plantilla…». La marca es de la cuenta; el plano sigue siendo de la biblioteca compartida (lo ven todos). «Guardar como
+    plantilla…» crea el plano en el proyecto «Plantillas» y lo marca aquí. `usada`: la última vez que se insertó desde ella (orden).
+    """
+
+    cuenta_id = models.BigIntegerField(db_index=True)
+    plano = models.ForeignKey(Plano, on_delete=models.CASCADE, related_name="plantillas")
+    creada = models.DateTimeField(default=timezone.now)
+    usada = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["cuenta_id", "plano"], name="herramientas_plantillacad_unica")]
+
+
 class FuenteCad(models.Model):
     """Una fuente SHX de la empresa para CAD (txt, romans, simplex, isocp, bigfonts…), subida por quien administra desde su AutoCAD.
 

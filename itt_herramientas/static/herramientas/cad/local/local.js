@@ -121,8 +121,10 @@
     st.raices = raices;
     st.usarAlVolver = false; st.permisoPendiente = false;
     if (st === e) pintarCarpeta("indexando");
-    const { indice } = await C.indexar(raices, (n) => { if (st === e) pintarCarpeta("indexando", n); });
+    const { indice, entradas } = await C.indexar(raices, (n) => { if (st === e) pintarCarpeta("indexando", n); });
     st.indice = indice;
+    // Los dibujos de la carpeta (DWG, DXF, DWT), para «Desde plantilla…» → «De esta computadora» (plantillas.js).
+    st.dibujos = entradas.filter((x) => /\.(dwg|dxf|dwt)$/i.test(x.nombre));
     st.res.clear();
     for (const [, p] of st.piramides) if (p.id && p.corriendo) pool.cancelar(p.id);
     st.piramides.clear();
@@ -870,5 +872,8 @@
         permisoPendiente: st.permisoPendiente, resueltas: st.res.size })),
     }),
     usar: (raices) => usar(e, raices), refrescar: () => refrescar(e), vincular,
+    // Los dibujos de la carpeta vinculada al plano a la vista ([{ruta, nombre}]) y el archivo de uno: se leen aquí, nunca se suben.
+    dibujos: () => (e.dibujos || []).map((x) => ({ ruta: x.ruta, nombre: x.nombre })),
+    archivo: async (ruta) => { const x = (e.dibujos || []).find((d) => d.ruta === ruta); return x ? C.archivoDe(x) : null; },
   });
 })();

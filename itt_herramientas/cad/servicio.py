@@ -30,7 +30,7 @@ from tvplataforma import ajustes, permisos
 
 from ..comun import autoria
 from ..comun.errores import ErrorUsuario
-from ..models import BorradorPlano, Plano, VersionPlano
+from ..models import BorradorPlano, PlantillaCad, Plano, VersionPlano
 
 log = logging.getLogger("itt_herramientas.cad")
 
@@ -464,7 +464,8 @@ def crear(usuario, temporal: Path, nombre: str, proyecto: str = "", origen: dict
 
 def _nota_origen(origen: dict) -> str:
     return {"subida": "Subido", "nuevo": "Plano nuevo", "copia": "Copia", "convertidor": "Desde el convertidor",
-            "triangulacion": "Desde triangulación", "croquis": "Desde el croquis de ubicación", "editor": "Hecho en el editor"}.get((origen or {}).get("tipo", ""), "")
+            "triangulacion": "Desde triangulación", "croquis": "Desde el croquis de ubicación", "editor": "Hecho en el editor",
+            "plantilla": "Plantilla de presentación"}.get((origen or {}).get("tipo", ""), "")
 
 
 def crear_desde_ruta(usuario, origen_ruta: Path, nombre: str, proyecto: str = "", origen: dict | None = None) -> Plano:
@@ -786,10 +787,12 @@ def limpiar() -> int:
 
 
 def al_eliminar_cuenta(cuenta_id: int) -> str | None:
-    """Contrato 1.8: se sueltan los planos que la persona tenía abiertos para editar y se borran sus borradores de recuperación.
+    """Contrato 1.8: se sueltan los planos que la persona tenía abiertos para editar, se borran sus borradores de recuperación y su
+    lista «Mis plantillas» (solo la marca).
 
     Los planos (y sus versiones) son de la empresa: se quedan, con la foto de su autor. Idempotente.
     """
+    PlantillaCad.objects.filter(cuenta_id=cuenta_id).delete()                 # su lista «Mis plantillas» (los planos se quedan)
     soltados = Plano.objects.filter(bloqueo_cuenta_id=cuenta_id).update(bloqueo_cuenta_id=None, bloqueo_nombre="", bloqueo_sesion="", bloqueo_latido=None)
     borradores = list(BorradorPlano.objects.filter(cuenta_id=cuenta_id).select_related("plano"))
     for b in borradores:
@@ -832,3 +835,51 @@ def sugerencias_proyecto(cuenta_id: int, perfil: str = "grupo_itt") -> list[str]
             vistos.add(k)
             salida.append(nombre)
     return salida[:500]
+
+
+# -- «Mis plantillas» (LAYOUT › Plantilla del editor) --------------------------------------------------------------------------
+
+PROYECTO_PLANTILLAS = "Plantillas"
+PLANTILLAS_MAX = 60
+
+
+def mis_plantillas(cuenta_id: int) -> list[Plano]:
+    """Los planos que la cuenta marcó como plantilla, la usada más reciente primero; los de la papelera no salen (vuelven al restaurar)."""
+    marcas = (PlantillaCad.objects.filter(cuenta_id=cuenta_id, plano__eliminado__isnull=True).select_related("plano")
+              .order_by(F("usada").desc(nulls_last=True), "-creada")[:PLANTILLAS_MAX])
+    return [m.plano for m in marcas]
+
+
+def ids_plantilla(cuenta_id: int, planos) -> set[str]:
+    """De `planos`, los que la cuenta tiene en «Mis plantillas» (para la estrella de la hoja)."""
+    return {str(pk) for pk in PlantillaCad.objects.filter(cuenta_id=cuenta_id, plano__in=list(planos)).values_list("plano_id", flat=True)}
+
+
+def marcar_plantilla(cuenta_id: int, plano: Plano, en: bool) -> bool:
+    """Pone o quita el plano de «Mis plantillas» de la cuenta. Idempotente; devuelve si quedó marcado."""
+    if not en:
+        PlantillaCad.objects.filter(cuenta_id=cuenta_id, plano=plano).delete()
+        return False
+    if (not PlantillaCad.objects.filter(cuenta_id=cuenta_id, plano=plano).exists()
+            and PlantillaCad.objects.filter(cuenta_id=cuenta_id).count() >= PLANTILLAS_MAX):
+        raise ErrorUsuario(f"Ya tienes {PLANTILLAS_MAX} plantillas. Quita alguna para agregar otra.")
+    PlantillaCad.objects.get_or_create(cuenta_id=cuenta_id, plano=plano)
+    return True
+
+
+def plantilla_usada(cuenta_id: int, plano: Plano) -> None:
+    """Se insertaron presentaciones desde esta plantilla: sube al principio de la lista (si es de la cuenta)."""
+    PlantillaCad.objects.filter(cuenta_id=cuenta_id, plano=plano).update(usada=timezone.now())
+
+
+def guardar_plantilla(usuario, temporal: Path, nombre: str, de_plano: str = "") -> Plano:
+    """«Guardar como plantilla…»: un plano nuevo en el proyecto «Plantillas» con la presentación (y solo lo que usa), marcado en
+    «Mis plantillas» de quien la guardó."""
+    origen = {"tipo": "plantilla"}
+    if de_plano:
+        origen["id"] = de_plano
+    if PlantillaCad.objects.filter(cuenta_id=usuario.pk).count() >= PLANTILLAS_MAX:
+        raise ErrorUsuario(f"Ya tienes {PLANTILLAS_MAX} plantillas. Quita alguna para guardar otra.")
+    p = crear(usuario, temporal, nombre or "Plantilla", PROYECTO_PLANTILLAS, origen)
+    PlantillaCad.objects.get_or_create(cuenta_id=usuario.pk, plano=p)
+    return p
