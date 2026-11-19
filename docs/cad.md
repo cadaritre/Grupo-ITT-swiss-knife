@@ -607,18 +607,42 @@ por segmento) y el editor web tiene 4 GB: la memoria del editor llegaba a 3.9 GB
 
 **Medido** (Mac, Chromium con agente de Windows y la GPU, y WebKit; la memoria es la del editor, WebAssembly):
 
-| Plano | Antes · Chromium | Antes · WebKit | Después · Chromium | Después · WebKit |
+| Plano | Antes · Chromium | Antes · WebKit | Con 90–92 · Chromium | Con 90–92 · WebKit |
 | --- | --- | --- | --- | --- |
-| Real, 48.7 MB DWG: abrir | no abre (3.9 GB a los 8.5 s, se detiene) | abre en 6.2 s y muere al dibujar | abre en 15 s; al armar la primera vista la memoria llega a ~3.8 GB y se detiene (**pendiente**, abajo) | abre en 9.9 s (3.76 GB), acercar/alejar, guardar el DWG en 1.6 s |
+| Real, 48.7 MB DWG: abrir | no abre (3.9 GB a los 8.5 s, se detiene) | abre en 6.2 s y muere al dibujar | abre en 15 s; al armar la primera vista la memoria llega a ~3.8 GB y se detiene | abre en 9.9 s (3.76 GB), acercar/alejar, guardar el DWG en 1.6 s |
 | Sintético, 25.5 MB DWG (`plano_grande.py`): abrir | — | — | 8.8 s, 1.15 GB | 6.8 s, 1.15 GB |
 | Sintético: mover la vista (mediana / p95 por cuadro) | — | — | 31 / 77 ms | 17 / 61 ms |
 | Sintético: editar (una línea), guardar DWG, reabrir | — | — | 0.09 s, 1.4 s, 18 s | 0.07 s, 1.2 s, 14 s |
 
-**Lo que falta (paso intermedio, dicho como tal).** Con el plano real, Chromium (Chrome y Edge en Windows y Mac) todavía no pasa de la
-primera vista: el documento ocupa 1.14 GB en el editor y armar la primera zona lleva la memoria a ~3.8 GB, aunque lo que la zona guarda se
-mide en ~0.5 GB (`[mem]` en la consola del navegador, parche 91); WebKit lo aguanta y Chromium no. Falta encontrar ese gasto de trabajo con
-un perfil de memoria del editor web y quitarlo; el sintético de la misma clase ya abre, se mueve, se edita y se guarda en los dos. Hasta
-entonces, en la computadora ese plano abre en Safari; el aviso del teléfono no cambia.
+**Lo que faltaba (19-11-2026, parches 94–97 del fork).** Con los parches 90–92 el plano real todavía detenía a Chromium al armar sus
+vistas: cada vista pedía de golpe ~2.3 GB de trabajo, fuera del tope de 384 MB. Se midió dónde (parche 94: un contador de memoria por
+fase, solo en compilaciones de medición, nunca en la de producción), y eran dos cosas:
+- **Los tipos de línea con texto** (un lindero de kilómetros con un texto en su patrón, dentro de un bloque) se recorrían enteros, un trazo por guion, aunque
+  la vista mostrara un pedazo. Ahora se recorren para la vista: solo los guiones y letras de la zona, en el mismo lugar que si se
+  recorriera todo; si a ese zoom el patrón mide menos de 4 píxeles, la línea se ve continua, como se vería de todos modos.
+- **El detalle de las curvas al acercar.** Cuando la vista se queda quieta el editor afina las curvas que se ven; a una referencia de
+  bloque la volvía a armar entera, y el bloque maestro de este plano son ~780 000 primitivas: ~2 GB de golpe en cada vista. Ahora en un
+  plano así se afinan solo las curvas del bloque que están en pantalla (curvas de nivel, splines, polilíneas punteadas con arcos,
+  sombreados con bordes curvos; los arcos y círculos sólidos ya se dibujan exactos), dentro del mismo tope. Una referencia chica (hasta
+  20 000 primitivas) se sigue armando entera, como antes.
+
+**Medido después** (misma Mac, Chromium con agente de Windows y la GPU, y WebKit; la memoria del editor solo crece, así que la del final
+es el pico de toda la corrida: abrir, mover, recorrer el plano en 16 paradas a cuatro escalas, editar, guardar y reabrir):
+
+| Plano | Chromium | WebKit |
+| --- | --- | --- |
+| Real, 48.7 MB DWG: abrir y primera vista | 13.7 s, 1 450 MB | 9.4 s, 1 392 MB |
+| Real: mover la vista (mediana / p95 por cuadro) | 16.5 / 23.8 ms | 20 / 32 ms |
+| Real: cada parada del recorrido (mediana / la más lenta) | 0.36 / 1.38 s | 0.31 / 1.02 s |
+| Real: editar, guardar DWG (43.6 MB), reabrir | 0.44 s, 3.6 s, 11.2 s | 0.13 s, 4.5 s, 9.2 s |
+| Real: pico de toda la corrida | **2 070 MB** | 2 063 MB |
+| Sintético, 25.3 MB DWG, con la compilación anterior | abre y se detiene a 4 094 MB | — |
+| Sintético, después: abrir, pico de toda la corrida | 6.5 s, 2 148 MB | 5.4 s, 2 135 MB |
+
+El sintético (`plano_grande.py`) lleva ahora los linderos con tipo de línea de texto: con la compilación anterior repite la falla en
+Chromium y con la nueva pasa en los dos motores; es la prueba permanente (`plano_grande_web.py`). Ya no hace falta abrir ese plano en
+Safari. Se evaluó la memoria de 64 bits de WebAssembly (más de 4 GB, solo Chrome y Edge): no hace falta (el plano queda en ~2.1 GB de
+4 GB) y la cadena de compilación actual no la produce (objetivo de Rust de nivel 3, wasm-bindgen sin soporte, Safari no la tiene).
 
 **Teléfono.** Un teléfono deja a una pestaña mucha menos memoria que una computadora y, si el editor pasa de ella, el navegador cierra la
 página sin aviso. La página estima lo que el editor necesitará **antes de bajar el editor y el plano** (`editor.js`, `MEMORIA_EDITOR`): 300
