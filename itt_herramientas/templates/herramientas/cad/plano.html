@@ -130,7 +130,7 @@
 {% hoja_inferior "cad-renombrar" titulo="Renombrar" %}
 <form method="post" action="{% url 'herramientas:cad_renombrar' p.pk %}" class="tv-formulario" id="cad-form-renombrar" data-tv-una-vez>{% csrf_token %}
   <div class="tv-campo"><label for="cad-ren-nombre">Nombre</label><input id="cad-ren-nombre" name="nombre" type="text" maxlength="150" required value="{{ p.nombre }}" autocomplete="off"></div>
-  <div class="tv-campo"><label for="cad-ren-proyecto">Proyecto o cliente</label><input id="cad-ren-proyecto" name="proyecto" type="text" maxlength="160" value="{{ p.proyecto }}" autocomplete="off" spellcheck="false" data-cad-proyectos></div>
+  {% if config.carpetas %}<div class="cad-ren-lugar"><p class="tv-tenue" id="cad-ren-ubicacion">En {{ config.ubicacion }}</p><button type="button" class="tv-boton tv-boton--secundario" id="cad-ren-mover">{% icono "folder-input" %}<span>Mover a…</span></button></div>{% endif %}
   <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton">{% icono "check" %}<span>Guardar</span></button></div>
 </form>
 {% endhoja_inferior %}
@@ -200,12 +200,15 @@
   </div>
 </dialog>
 {% hoja_inferior "cad-elegir" titulo="Abrir otro plano" %}
-<form class="cad-elegir__buscar" id="cad-elegir-form" role="search" aria-label="Buscar planos">
+<div class="cad-explorar"><div class="cad-explorar__arbol cad-arbol" id="cad-elegir-arbol"></div><div class="cad-explorar__lado">
+<form class="cad-elegir__buscar cad-elegir__buscar--con-alcance" id="cad-elegir-form" role="search" aria-label="Buscar planos">
   <div class="cad-buscador">{% icono "search" %}<label for="cad-elegir-q" class="tv-solo-lectores">Buscar</label><input id="cad-elegir-q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar por nombre, proyecto o persona"></div>
+  <label for="cad-elegir-en" class="tv-solo-lectores">Dónde buscar</label><select id="cad-elegir-en" class="cad-elegir__alcance"><option value="todo" selected>En todos los planos</option><option value="carpeta">En esta carpeta</option></select>
 </form>
-<div class="cad-elegir__carpetas" id="cad-elegir-carpetas" role="group" aria-label="Proyecto o cliente" hidden></div>
+<nav class="cad-elegir__migas" id="cad-elegir-migas" aria-label="Ubicación"></nav>
 <ul class="cad-elegir__lista" id="cad-elegir-lista" aria-live="polite"></ul>
 <p class="tv-tenue cad-elegir__estado" id="cad-elegir-estado" role="status"></p>
+</div></div>
 <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" id="cad-elegir-mas" hidden>Ver más</button><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cerrar</button></div>
 <p class="tv-tenue cad-hoja-nota">Cada plano se abre en su pestaña, con su propio Guardar y sus versiones. Hasta {{ config.pestanas.max }} a la vez.</p>
 {% endhoja_inferior %}

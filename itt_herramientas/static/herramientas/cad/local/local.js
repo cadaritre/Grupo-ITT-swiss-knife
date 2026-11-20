@@ -29,6 +29,8 @@
   const cfg = config.local;
   if (!cfg || !$("cad-editor")) return;
   const C = window.TVCarpeta;
+  const MARCA_PLANO = "00000000-0000-0000-0000-000000000000";
+  const csrfToken = () => { const x = document.querySelector("input[name=csrfmiddlewaretoken]"); return x ? x.value : ""; };
 
   // Un estado por plano abierto (pestaña); `e` es el de la pestaña activa.
   const planos = new Map();
@@ -48,6 +50,7 @@
       abiertas: new Map(),     // ruta → ident con que se ató en el editor (ocs_image_tiles_open)
       vista: null,             // la última respuesta de image_tiles
       xrefsDadas: new Set(),
+      bib: new Map(),          // ruta de una referencia → dónde está en la biblioteca ({id, ubicacion, sha256, …} o {id: null})
       vueltasXref: 0,
       avisoCrs: false,
       ocultas: new Set(),      // rutas del aviso que la persona ocultó (también se guardan en localStorage, si se puede)
@@ -243,6 +246,7 @@
     try { r = await pedir(st.documento ? { op: "references", document_id: st.documento } : { op: "references" }); } catch (_) { return; }
     if (st.documento && r.document_id && r.document_id !== st.documento) return;
     st.refs = r;
+    await resolverEnBiblioteca(st);
     const rutas = new Set();
     for (const im of r.images) rutas.add(im.path);
     for (const x of r.xrefs) rutas.add(x.path);
@@ -284,6 +288,45 @@
     return r.pidiendoInfo;
   }
 
+  // ── Referencias desde la biblioteca ─────────────────────────────────────────────────────────────────────────────────────────
+  // Un dibujo referido que está en la biblioteca (misma carpeta, ruta relativa o el proyecto, como lo buscaría AutoCAD; el servidor lo
+  // resuelve: cad/carpetas.py) se toma de ahí ANTES que de la carpeta de esta computadora, en solo lectura como toda referencia. Sin gastar
+  // datos: la respuesta trae el SHA-256 de su versión vigente, así que si el teléfono tiene ese plano «Disponible sin conexión» y es el
+  // mismo, no se baja nada; dos pestañas que usan el mismo dibujo lo bajan una vez.
+  const enMemoria = new Map();       // `${id}:${sha256}` → bytes (hasta 128 MB entre todos)
+  const MEMORIA_MAX = 128 * 1024 * 1024;
+  async function resolverEnBiblioteca(st) {
+    if (!cfg.referencias) return;
+    const rutas = [...new Set(st.refs.xrefs.map((x) => x.path).filter((p) => p && !st.bib.has(p)))];
+    if (!rutas.length) return;
+    const bases = [...new Set([...st.bib.values()].filter((b) => b.id && b.carpeta).map((b) => b.carpeta))];
+    try {
+      const r = await fetch(cfg.referencias.replace(MARCA_PLANO, st.plano), { method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-CSRFToken": csrfToken() }, body: JSON.stringify({ rutas, bases }) });
+      if (!r.ok) return;
+      for (const b of (await r.json()).referencias || []) st.bib.set(b.ruta, b);
+    } catch (_) { /* sin conexión: se buscan en la carpeta de esta computadora */ }
+  }
+  async function bytesDeBiblioteca(b) {
+    const clave = `${b.id}:${b.sha256}`;
+    if (enMemoria.has(clave)) return enMemoria.get(clave);
+    let bytes = null;
+    const campo = window.TVCadCampo;
+    const copia = campo && campo.copiaVigente ? await campo.copiaVigente(b.id).catch(() => null) : null;
+    if (copia && copia.sha256 === b.sha256) bytes = new Uint8Array(copia.bytes);
+    else {
+      const r = await fetch(b.archivo, { credentials: "same-origin", cache: "no-store" });
+      if (!r.ok) return null;
+      bytes = new Uint8Array(await r.arrayBuffer());
+      // El teléfono tenía otra versión de ese plano: queda la vigente (la próxima vez no se baja).
+      if (copia && campo.actualizarCopia) campo.actualizarCopia(b.id, { bytes: bytes.buffer.slice(0), revision: Number(r.headers.get("X-TV-Revision")) || b.revision, formato: b.formato }).catch(() => {});
+    }
+    let total = [...enMemoria.values()].reduce((s, x) => s + x.byteLength, 0) + bytes.byteLength;
+    for (const k of enMemoria.keys()) { if (total <= MEMORIA_MAX) break; total -= enMemoria.get(k).byteLength; enMemoria.delete(k); }
+    if (bytes.byteLength <= MEMORIA_MAX) enMemoria.set(clave, bytes);
+    return bytes;
+  }
+
   // Los dibujos de referencia van al documento de su plano: otra pestaña que nombre el mismo «base.dwg» (de otro proyecto) no se toca.
   async function darXrefs(st) {
     const w = editor();
@@ -291,10 +334,16 @@
     let dio = false;
     for (const x of st.refs.xrefs) {
       if (["loaded", "recovered"].includes(x.status) || st.xrefsDadas.has(x.path)) continue;
-      const archivo = await archivoDe(st, x.path);
-      if (!archivo || !planos.has(st.plano)) continue;
+      const b = st.bib.get(x.path);
+      let bytes = null;
+      if (b && b.id) { try { bytes = await bytesDeBiblioteca(b); } catch (_) { bytes = null; } }
+      if (!bytes) {
+        const archivo = await archivoDe(st, x.path);
+        if (archivo) bytes = new Uint8Array(await archivo.arrayBuffer());
+      }
+      if (!bytes || !planos.has(st.plano)) continue;
       st.xrefsDadas.add(x.path);
-      w.ocs_xref_supply(x.path, new Uint8Array(await archivo.arrayBuffer()), st.documento);
+      w.ocs_xref_supply(x.path, bytes, st.documento);
       dio = true;
     }
     // Las anidadas aparecen al cargar su padre: otra vuelta (hasta 4 niveles).
@@ -732,7 +781,7 @@
     const det = document.createElement("span");
     det.className = "tv-tenue cad-local__detalle";
     const partes = [];
-    if (r.entrada) partes.push(r.entrada.ruta);
+    if (r.entrada) partes.push(tipo === "xref" ? `Esta computadora: ${r.entrada.ruta}` : r.entrada.ruta);
     else partes.push(ruta);
     if (r.archivo) partes.push(tamano(r.archivo.size));
     if (r.info) partes.push(`${r.info.ancho.toLocaleString("es-MX")} × ${r.info.alto.toLocaleString("es-MX")} px`);
@@ -817,7 +866,11 @@
     }
     if (e.refs.xrefs.length) {
       titulo(`Referencias a dibujos (${e.refs.xrefs.length})`);
-      for (const x of e.refs.xrefs) lista.append(fila(x.path, "xref", { loaded: "abierta (solo lectura)", recovered: "abierta con reparaciones", failed: "no se pudo leer", not_found: "", unloaded: "descargada en el plano" }[x.status] || ""));
+      for (const x of e.refs.xrefs) {
+        const estado = { loaded: "abierta (solo lectura)", recovered: "abierta con reparaciones", failed: "no se pudo leer", not_found: "", unloaded: "descargada en el plano" }[x.status] || "";
+        const b = e.bib.get(x.path);
+        lista.append(b && b.id ? filaBiblioteca(x.path, b, estado) : fila(x.path, "xref", estado));
+      }
     }
     if (!lista.childElementCount) {
       const li = document.createElement("li"); li.className = "tv-tenue"; li.textContent = "Este plano no tiene imágenes ni referencias a otros dibujos.";
@@ -838,7 +891,7 @@
 
   function faltantes() {
     const rutas = new Set([...e.refs.images.map((x) => x.path), ...e.refs.xrefs.filter((x) => !["loaded", "recovered"].includes(x.status)).map((x) => x.path)]);
-    return [...rutas].filter((r) => !(e.res.get(r) || {}).entrada);
+    return [...rutas].filter((r) => !(e.res.get(r) || {}).entrada && !(e.bib.get(r) || {}).id);
   }
 
   // Vincular una carpeta aquí: con `showDirectoryPicker` (Chrome, Edge) o, con un ratón o trackpad, la carpeta de <input webkitdirectory>
@@ -866,6 +919,25 @@
     for (const k of claves.slice(200)) delete todos[k];
     try { localStorage.setItem(LLAVE_OCULTO, JSON.stringify(todos)); } catch (_) { /* sin almacenamiento: se oculta solo en esta visita */ }
     pintarAviso();
+  }
+
+  // Una referencia que se tomó de la biblioteca: de dónde («Biblioteca: Proyecto › Carpeta»), qué plano y qué versión.
+  function filaBiblioteca(ruta, b, estado) {
+    const li = document.createElement("li");
+    li.className = "cad-local__fila";
+    li.dataset.ruta = ruta;
+    li.dataset.origen = "biblioteca";
+    const titulo = document.createElement("div");
+    titulo.className = "cad-local__nombre";
+    const n = document.createElement("strong"); n.textContent = nombreDe(ruta);
+    const ins = document.createElement("span"); ins.className = "tv-insignia tv-insignia--exito"; ins.textContent = "En la biblioteca";
+    titulo.append(n, " ", ins);
+    const det = document.createElement("span");
+    det.className = "tv-tenue cad-local__detalle";
+    det.textContent = [`Biblioteca: ${b.ubicacion}`, `${b.nombre}.${b.formato}`, `versión ${b.revision}`, tamano(b.bytes),
+      b.varias ? `hay ${b.varias} con ese nombre en el proyecto; se usó el más cercano` : "", estado].filter(Boolean).join(" · ");
+    li.append(titulo, det);
+    return li;
   }
 
   function pintarAviso() {
@@ -956,7 +1028,7 @@
   function documentoDe(st, documento) {
     if (!documento || st.documento === documento) return;
     st.documento = documento;
-    st.xrefsDadas.clear(); st.vueltasXref = 0;
+    st.xrefsDadas.clear(); st.vueltasXref = 0; st.bib.clear();
   }
 
   // ── Para «Imagen satelital» (satelite.js) ─────────────────────────────────────────────────────────────────────────────────────
@@ -991,6 +1063,7 @@
       permisoPendiente: e.permisoPendiente,
       faltan: faltantes().length,
       resueltas: [...e.res.entries()].map(([ruta, r]) => ({ ruta, estado: r.estado, archivo: r.entrada && r.entrada.ruta, error: r.error || null })),
+      biblioteca: [...e.bib.values()].map((b) => ({ ruta: b.ruta, id: b.id, ubicacion: b.ubicacion || null, como: b.como || null })),
       // Lo que el editor tiene de cada imagen de la vista: atada a qué archivo, si ya está su raíz (la imagen entera), cuántos mosaicos,
       // el nivel que la vista necesita y si ya están todos los que se ven.
       suministradas: ((e.vista && e.vista.views) || []).filter((f) => f.set).map((f) => ({ ruta: f.path, ident: f.set.ident,

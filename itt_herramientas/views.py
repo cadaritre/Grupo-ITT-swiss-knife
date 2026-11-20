@@ -500,8 +500,12 @@ def buscar(request):
         from .cad import servicio as cad
 
         if cad.puede_ver(request.user):
-            from .models import Plano
+            from .models import CarpetaCad, Plano
 
+            # Proyectos y carpetas de CAD: abren su carpeta en «Planos».
+            for c in CarpetaCad.objects.filter(Q(nombre__icontains=q) | Q(cliente__icontains=q), eliminada__isnull=True).order_by("nombre")[:5]:
+                resultados.append({"titulo": c.nombre, "subtitulo": "Carpeta de planos" if c.padre_id else " · ".join(x for x in ("Proyecto de planos", c.cliente) if x),
+                                   "url": reverse("herramientas:cad_carpeta", args=[c.pk])})
             for p in Plano.objects.filter(Q(nombre__icontains=q) | Q(proyecto__icontains=q), eliminado__isnull=True).order_by("-actualizado")[:10]:
                 resultados.append({"titulo": p.nombre, "subtitulo": " · ".join(x for x in (f"Plano {p.formato.upper()}", p.proyecto) if x),
                                    "url": reverse("herramientas:cad_plano", args=[p.pk])})

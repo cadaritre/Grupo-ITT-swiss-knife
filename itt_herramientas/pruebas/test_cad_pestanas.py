@@ -116,13 +116,16 @@ def test_abrir_otro_plano_busca_en_la_biblioteca(cliente_de, ana, beto, sara):
     sur = servicio.crear_vacio(beto, "Levantamiento Sur", "Constructora Sur", "dxf")
     servicio.crear_vacio(ana, "Otro", "Agrícola Norte", "dwg")
     c = cliente_de(ana)
+    # La raíz: los proyectos como carpetas (con cuántos planos tienen), carpeta por carpeta como en «Planos».
     d = c.get(url("cad_elegir")).json()
-    assert d["total"] == 3 and {p["nombre"] for p in d["planos"]} == {"Levantamiento Norte", "Levantamiento Sur", "Otro"}
-    assert set(d["proyectos"]) >= {"Agrícola Norte", "Constructora Sur"}
-    d = c.get(url("cad_elegir"), {"q": "sur"}).json()
-    assert [p["nombre"] for p in d["planos"]] == ["Levantamiento Sur"]
-    d = c.get(url("cad_elegir"), {"proyecto": "Agrícola Norte"}).json()
-    assert d["total"] == 2
+    assert d["total"] == 0 and {x["nombre"]: x["total"] for x in d["carpetas"]} == {"Agrícola Norte": 2, "Constructora Sur": 1}
+    norte = next(x["id"] for x in d["carpetas"] if x["nombre"] == "Agrícola Norte")
+    d = c.get(url("cad_elegir"), {"carpeta": norte}).json()
+    assert d["total"] == 2 and d["migas"] == [{"id": norte, "nombre": "Agrícola Norte"}] and d["carpetas"] == []
+    # Buscar en todos los planos (con dónde está cada uno) o solo en esta carpeta
+    d = c.get(url("cad_elegir"), {"q": "sur", "en": "todo", "carpeta": norte}).json()
+    assert [(p["nombre"], p["ubicacion"]) for p in d["planos"]] == [("Levantamiento Sur", "Constructora Sur")]
+    assert c.get(url("cad_elegir"), {"q": "sur", "carpeta": norte}).json()["total"] == 0
     # Quién lo está editando
     assert bloqueo(cliente_de(beto), sur, "tomar", "sesion-de-beto-0001").json()["mio"]
     d = c.get(url("cad_elegir"), {"q": "sur"}).json()

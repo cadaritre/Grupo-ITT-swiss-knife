@@ -581,6 +581,39 @@ class EnvioDrive(models.Model):
         constraints = [models.UniqueConstraint(fields=["cuenta_id", "categoria", "nombre", "sha256"], name="herramientas_enviodrive_unico")]
 
 
+class CarpetaCad(ConAutor):
+    """Un proyecto o una carpeta de la biblioteca de CAD (docs/cad.md, «Proyectos y carpetas»).
+
+    Un proyecto es una carpeta de arriba (`padre` vacío) y lleva el cliente; las carpetas se anidan sin un tope fijo (dentro de
+    `cad.carpetas.PROFUNDIDAD_MAX`). Cada plano vive en un solo lugar (`Plano.carpeta`; vacío = la raíz de «Planos»). Como los planos, son
+    de la empresa: una sola biblioteca para los dos perfiles. Eliminar manda la carpeta a la papelera con todo lo que tiene, marcado con el
+    mismo `lote_papelera`, y restaurarla trae ese lote entero.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cuenta_id = models.BigIntegerField(null=True, blank=True)                 # quien la creó (vacío: la migración de las etiquetas)
+    padre = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="hijas")
+    nombre = models.CharField(max_length=150)
+    cliente = models.CharField(max_length=160, blank=True)                    # del proyecto (las de arriba)
+    creada = models.DateTimeField(default=timezone.now)
+    actualizada = models.DateTimeField(default=timezone.now)
+    eliminada = models.DateTimeField(null=True, blank=True, db_index=True)
+    eliminada_por_id = models.BigIntegerField(null=True, blank=True)
+    eliminada_por_nombre = models.CharField(max_length=150, blank=True)
+    lote_papelera = models.UUIDField(null=True, blank=True, db_index=True)    # lo que se eliminó junto (la carpeta y lo que tenía)
+    etiqueta = models.CharField(max_length=160, blank=True)                   # la etiqueta «Proyecto o cliente» de la que salió (migración 0020)
+
+    class Meta:
+        ordering = ["nombre"]
+        constraints = [
+            models.UniqueConstraint(Lower("nombre"), "padre", condition=Q(eliminada__isnull=True, padre__isnull=False), name="herramientas_carpetacad_nombre"),
+            models.UniqueConstraint(Lower("nombre"), condition=Q(eliminada__isnull=True, padre__isnull=True), name="herramientas_carpetacad_proyecto"),
+        ]
+
+    def __str__(self):
+        return self.nombre
+
+
 class Plano(ConAutor):
     """Un plano de la biblioteca compartida de CAD (DWG o DXF). Todo el equipo con la herramienta ve todos los planos.
 
@@ -597,7 +630,10 @@ class Plano(ConAutor):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     cuenta_id = models.BigIntegerField(db_index=True)
     nombre = models.CharField(max_length=150)                                # sin extensión
-    proyecto = models.CharField(max_length=160, blank=True, db_index=True)  # proyecto o cliente
+    # El proyecto (la carpeta de arriba) en el que está, por nombre: lo pone `cad.carpetas` al crear, mover o renombrar; se muestra y se busca.
+    proyecto = models.CharField(max_length=160, blank=True, db_index=True)
+    carpeta = models.ForeignKey(CarpetaCad, null=True, blank=True, on_delete=models.PROTECT, related_name="planos")   # vacía: la raíz
+    lote_papelera = models.UUIDField(null=True, blank=True, db_index=True)  # se eliminó con su carpeta (el lote de esa carpeta)
     formato = models.CharField(max_length=3, choices=Formato.choices)        # el de la versión vigente
     bytes = models.BigIntegerField(default=0)                                # tamaño de la versión vigente
     revision = models.PositiveIntegerField(default=1)                        # número de la versión vigente

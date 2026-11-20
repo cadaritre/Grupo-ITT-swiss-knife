@@ -1,4 +1,6 @@
-"""Destino de subida `herramientas.cad_plano`: un DWG o DXF que entra a la biblioteca de planos como plano nuevo."""
+"""Destino de subida `herramientas.cad_plano`: un DWG o DXF que entra a la biblioteca de planos como plano nuevo, en la carpeta que dice
+su metadato `carpeta` (vacío: la raíz). Al soltar una carpeta de la computadora, la página crea antes sus subcarpetas (`cad_carpetas_rutas`)
+y cada archivo lleva la suya. `proyecto` es la etiqueta de antes (un proyecto con ese nombre), para una página abierta antes del cambio."""
 from __future__ import annotations
 
 import uuid
@@ -15,7 +17,7 @@ def _limite() -> int:
     return servicio.limites()["bytes"]
 
 
-@destino_subida("herramientas.cad_plano", rol=[("herramientas", "cad"), ("herramientas", "admin")], max_bytes=_limite, meta={"proyecto": None})
+@destino_subida("herramientas.cad_plano", rol=[("herramientas", "cad"), ("herramientas", "admin")], max_bytes=_limite, meta={"proyecto": None, "carpeta": None})
 def recibir(archivo, metadatos, usuario):
     extension = archivo.nombre.rsplit(".", 1)[-1].lower() if "." in archivo.nombre else ""
     if extension not in servicio.FORMATOS:
@@ -30,7 +32,9 @@ def recibir(archivo, metadatos, usuario):
     temporal = servicio.carpeta_temporal() / f"subida-{uuid.uuid4().hex}.tmp"
     archivo.mover_a(temporal)
     try:
-        p = servicio.crear(usuario, temporal, archivo.nombre, metadatos.get("proyecto") or "", {"tipo": "subida", "nombre": archivo.nombre})
+        carpeta = (metadatos.get("carpeta") or "").strip() or None
+        p = servicio.crear(usuario, temporal, archivo.nombre, "" if carpeta else (metadatos.get("proyecto") or ""),
+                           {"tipo": "subida", "nombre": archivo.nombre}, carpeta=carpeta)
     except ErrorUsuario as exc:
         raise ErrorDeSubida(str(exc)) from exc
     finally:

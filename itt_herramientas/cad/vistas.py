@@ -17,6 +17,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.db.models.functions import Lower
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
@@ -28,14 +29,17 @@ from tvplataforma.permisos import requiere_rol
 
 from ..comun import condicional, perfiles, zips
 from ..comun.errores import ErrorUsuario
-from ..models import Plano, VersionPlano
+from ..models import CarpetaCad, Plano, VersionPlano
 from ..civil import pagina as civil_pagina
-from . import editor, fuentes, guardado, nativo, registro, salidas, satelite, servicio, tactil
+from . import carpetas, editor, fuentes, guardado, nativo, registro, salidas, satelite, servicio, tactil
 
 ver = requiere_rol("herramientas", "cad", "admin", "supervision")
 editar = requiere_rol("herramientas", "cad", "admin")
 POR_PAGINA = 25
-ORDENES = {"recientes": "Modificados recientemente", "nombre": "Nombre", "proyecto": "Proyecto o cliente", "tamano": "Tamaño"}
+#: Planos por página dentro de una carpeta (las carpetas van todas, antes).
+POR_PAGINA_CARPETA = 50
+ORDENES = {"nombre": "Nombre", "recientes": "Fecha de modificación", "tipo": "Tipo", "tamano": "Tamaño"}
+ALCANCES = {"carpeta": "En esta carpeta", "todo": "En todos los planos"}
 MARCA = "00000000-0000-0000-0000-000000000000"
 
 
@@ -86,11 +90,16 @@ def _cuerpo_json(request) -> dict:
 # -- Lista -------------------------------------------------------------------------------------------------------------------------
 
 class Filtros:
-    def __init__(self, g):
+    """Búsqueda y filtros de la biblioteca. Sin búsqueda ni filtros se ve una carpeta; con ellos, lo que coincide en la carpeta y las suyas
+    (`en=carpeta`, lo normal dentro de una carpeta) o en toda la biblioteca (`en=todo`)."""
+
+    def __init__(self, g, orden_por_omision: str = "nombre"):
         self.q = " ".join(str(g.get("q", "")).split())[:80]
         self.formato = g.get("formato", "") if g.get("formato") in servicio.FORMATOS else ""
         self.proyecto = servicio.proyecto_limpio(g.get("proyecto", ""))
-        self.orden = g.get("orden", "") if g.get("orden") in ORDENES else "recientes"
+        self.orden = g.get("orden", "") if g.get("orden") in ORDENES else orden_por_omision
+        self.orden_por_omision = orden_por_omision
+        self.en = g.get("en", "") if g.get("en") in ALCANCES else "carpeta"
         autor = str(g.get("autor", "")).strip()
         self.autor = _entero(autor)
         self.avisos = []
@@ -111,7 +120,14 @@ class Filtros:
 
     @property
     def avanzados(self) -> bool:
-        return bool(self.formato or self.autor is not None or self.desde or self.hasta or self.orden != "recientes")
+        return bool(self.formato or self.autor is not None or self.desde or self.hasta)
+
+    def coincide_carpeta(self, nombre: str, cliente: str = "") -> bool:
+        """Una carpeta sale en la búsqueda si su nombre (o el cliente del proyecto) tiene el texto; con filtros de planos, no sale."""
+        if not self.q or self.formato or self.autor is not None or self.desde or self.hasta:
+            return False
+        k = self.q.casefold()
+        return k in nombre.casefold() or k in (cliente or "").casefold()
 
     def aplicar(self, consulta):
         if self.q:
@@ -128,8 +144,15 @@ class Filtros:
             consulta = consulta.filter(actualizado__gte=timezone.make_aware(timezone.datetime.combine(self.desde, timezone.datetime.min.time()), zona))
         if self.hasta:
             consulta = consulta.filter(actualizado__lt=timezone.make_aware(timezone.datetime.combine(self.hasta + timedelta(days=1), timezone.datetime.min.time()), zona))
-        orden = {"recientes": ("-actualizado",), "nombre": ("nombre", "-actualizado"), "proyecto": ("proyecto", "nombre"), "tamano": ("-bytes", "nombre")}[self.orden]
+        orden = {"recientes": ("-actualizado",), "nombre": (Lower("nombre"), "-actualizado"), "tipo": ("formato", Lower("nombre")),
+                 "tamano": ("-bytes", Lower("nombre"))}[self.orden]
         return consulta.order_by(*orden, "pk")
+
+    def ordenar_carpetas(self, nodos: list) -> list:
+        """Las carpetas, siempre antes que los planos: por nombre, o la modificada más reciente primero."""
+        if self.orden == "recientes":
+            return sorted(nodos, key=lambda n: n.actualizada or timezone.now(), reverse=True)
+        return sorted(nodos, key=lambda n: n.nombre.casefold())
 
 
 def _autores() -> list[dict]:
@@ -149,25 +172,71 @@ def _marcar_edicion(planos) -> None:
         p.disponible = servicio.archivo_disponible(vigentes.get((p.pk, p.revision)))
 
 
+def _marcar_ubicacion(planos, arbol) -> None:
+    for p in planos:
+        p.ubicacion = arbol.ubicacion(p.carpeta_id, "Planos")
+
+
 @ver
 @require_GET
-def lista(request):
+def lista(request, pk=None):
+    """«Planos»: el árbol de proyectos y carpetas a la izquierda y, a la derecha, lo que hay en la carpeta abierta (`pk`; sin él, la raíz),
+    con sus migas. Con búsqueda o filtros, lo que coincide en esta carpeta y las suyas, o en toda la biblioteca."""
     request.tv_seccion = "cad"
+    usuario = request.user
+    arbol = carpetas.Arbol()
+    actual = arbol.get(pk) if pk else None
+    if pk and actual is None:
+        if CarpetaCad.objects.filter(pk=pk, eliminada__isnull=False).exists():
+            messages.error(request, "Esa carpeta está en la papelera.")
+            return redirect("herramientas:cad_papelera" if servicio.puede_editar(usuario) else "herramientas:cad")
+        raise Http404
     filtros = Filtros(request.GET)
+    busqueda = filtros.activos
     base = Plano.objects.filter(eliminado__isnull=True)
-    pagina = Paginator(filtros.aplicar(base), POR_PAGINA).get_page(request.GET.get("pagina"))
+    if busqueda:
+        alcance = arbol.debajo(actual.id) if actual and filtros.en == "carpeta" else None
+        consulta = base.filter(carpeta_id__in=alcance) if alcance is not None else base
+        nodos = [arbol.nodos[i] for i in (alcance or arbol.nodos)]
+        if actual and filtros.en == "carpeta":
+            nodos = [n for n in nodos if n.id != actual.id]
+        subcarpetas = filtros.ordenar_carpetas([n for n in nodos if filtros.coincide_carpeta(n.nombre, n.cliente)])[:100]
+    else:
+        consulta = base.filter(carpeta_id=actual.id) if actual else base.filter(carpeta__isnull=True)
+        subcarpetas = filtros.ordenar_carpetas(actual.hijas if actual else arbol.raices)
+    pagina = Paginator(filtros.aplicar(consulta), POR_PAGINA_CARPETA).get_page(request.GET.get("pagina"))
     filas = list(pagina.object_list)
     _marcar_edicion(filas)
-    usuario = request.user
-    papelera = servicio.papelera(usuario).count() if servicio.puede_editar(usuario) else 0
+    if busqueda:
+        _marcar_ubicacion(filas, arbol)
+        for n in subcarpetas:
+            n.ubicacion = arbol.ubicacion(n.padre, "Planos")
+    papelera = (servicio.papelera(usuario).count() + len(carpetas.papelera(usuario))) if servicio.puede_editar(usuario) else 0
+    migas = arbol.ruta(actual.id) if actual else []
+    proyecto = migas[0] if migas else None
     return _privado(render(request, "herramientas/cad/lista.html", {
-        "filtros": filtros, "pagina": pagina, "filas": filas, "hay_planos": filtros.activos or base.exists(),
-        "autores": _autores(), "proyectos": servicio.sugerencias_proyecto(usuario.pk, perfiles.clave_activa(usuario)), "ordenes": ORDENES,
+        "filtros": filtros, "pagina": pagina, "filas": filas, "subcarpetas": subcarpetas, "busqueda": busqueda,
+        "hay_planos": busqueda or arbol.total > 0 or bool(arbol.nodos), "actual": actual, "migas": migas, "proyecto": proyecto,
+        "vacia": not busqueda and not filas and not subcarpetas,
+        "titulo_nueva": "Nueva carpeta" if actual else "Nuevo proyecto",
+        "arbol": {"carpetas": arbol.como_lista(), "raiz": arbol.en_raiz, "total": arbol.total, "actual": actual.id if actual else None,
+                  "ruta": [n.id for n in migas]},
+        "autores": _autores(), "ordenes": ORDENES, "alcances": ALCANCES,
+        "clientes": servicio.sugerencias_proyecto(usuario.pk, perfiles.clave_activa(usuario)) if servicio.puede_editar(usuario) else [],
         "puede_editar": servicio.puede_editar(usuario), "es_admin": servicio.es_admin(usuario), "papelera": papelera,
         "limite_bytes": servicio.limites()["bytes"], "limite_mb": servicio.limites()["bytes"] // (1024 * 1024), "maximo_zip": zips.MAXIMO,
         "drive": _drive_disponible(usuario), "espacio": servicio.espacio(),
-        # Declara el campo para que la subida lo mande; el navegador lo llena con lo que se escriba en «Proyecto o cliente».
-        "meta_subida": {"proyecto": ""}, "tactil": tactil.activo()}))
+        # La subida va a la carpeta abierta; al soltar una carpeta de la computadora, cada archivo lleva la suya (lista.js).
+        "meta_subida": {"carpeta": actual.id if actual else "", "proyecto": ""}, "tactil": tactil.activo(),
+        "urls_carpetas": {"nueva": reverse("herramientas:cad_carpeta_nueva"), "rutas": reverse("herramientas:cad_carpetas_rutas"),
+                          "mover": reverse("herramientas:cad_mover"), "lista": reverse("herramientas:cad_carpetas"),
+                          "carpeta": reverse("herramientas:cad_carpeta", args=[MARCA]), "raiz": reverse("herramientas:cad"),
+                          "renombrar": reverse("herramientas:cad_carpeta_renombrar", args=[MARCA]),
+                          "eliminar": reverse("herramientas:cad_carpeta_eliminar", args=[MARCA]),
+                          "zip": reverse("herramientas:cad_carpeta_zip", args=[MARCA]),
+                          "planos": reverse("herramientas:cad_carpeta_planos", args=[MARCA]),
+                          "eliminar_plano": reverse("herramientas:cad_eliminar", args=[MARCA]),
+                          "renombrar_plano": reverse("herramientas:cad_renombrar", args=[MARCA])}}))
 
 
 def _drive_disponible(usuario) -> bool:
@@ -180,11 +249,12 @@ def _drive_disponible(usuario) -> bool:
 @require_POST
 def nuevo(request):
     formato = request.POST.get("formato", "dwg")
+    carpeta = request.POST.get("carpeta", "") or None
     try:
-        p = servicio.crear_vacio(request.user, request.POST.get("nombre", ""), request.POST.get("proyecto", ""), formato)
+        p = servicio.crear_vacio(request.user, request.POST.get("nombre", ""), request.POST.get("proyecto", ""), formato, carpeta=carpeta)
     except ErrorUsuario as exc:
         messages.error(request, str(exc))
-        return redirect("herramientas:cad")
+        return redirect("herramientas:cad_carpeta", pk=carpeta) if carpetas.carpeta_activa(carpeta) else redirect("herramientas:cad")
     return redirect("herramientas:cad_plano", pk=p.pk)
 
 
@@ -213,6 +283,7 @@ def _urls(p: Plano) -> dict:
     nombres = ("archivo", "estado", "bloqueo", "guardar", "copia", "borrador", "borrador_descartar", "renombrar", "imprimir", "convertir", "drive",
                "duplicar", "eliminar")
     urls = {n: reverse(f"herramientas:cad_{n}", args=[p.pk]) for n in nombres}
+    urls["referencias"] = reverse("herramientas:cad_referencias", args=[p.pk])
     urls["restaurar_version"] = reverse("herramientas:cad_restaurar_version", args=[p.pk, 0]).replace("/0/", "/{n}/")
     urls["plano"] = reverse("herramientas:cad_plano", args=[p.pk])
     urls["lista"] = reverse("herramientas:cad")
@@ -234,8 +305,11 @@ def _datos_plano(request, p: Plano, v: VersionPlano | None = None) -> dict:
     usuario = request.user
     puede = servicio.puede_editar(usuario)
     borrador = servicio.borrador_de(p, usuario.pk) if puede and v is None else None
+    arbol = carpetas.Arbol(conteos=False) if p.carpeta_id else None
     return {
         "id": str(p.pk), "nombre": p.nombre, "formato": p.formato, "revision": p.revision, "proyecto": p.proyecto,
+        # Dónde está en la biblioteca (las referencias externas se buscan primero ahí: `urls.referencias`).
+        "carpeta": str(p.carpeta_id) if p.carpeta_id else None, "ubicacion": arbol.ubicacion(p.carpeta_id, "Planos") if arbol else "Planos",
         "version": v.numero if v else None, "version_formato": v.formato if v else p.formato,
         "puede_editar": puede and v is None, "puede_eliminar": servicio.puede_eliminar(usuario, p), "rol_lectura": not puede,
         "borrador": {"actualizado": borrador.actualizado.isoformat(), "revision_base": borrador.revision_base, "bytes": borrador.bytes,
@@ -274,6 +348,9 @@ def plano(request, pk):
         "pestanas": {"max": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_MAX", PESTANAS_MAX)),
                      "bytes": int(getattr(settings, "HERRAMIENTAS_CAD_PESTANAS_BYTES", PESTANAS_BYTES)), "pestana": reverse("herramientas:cad_pestana", args=[MARCA]),
                      "elegir": reverse("herramientas:cad_elegir"), "desde_editor": reverse("herramientas:cad_desde_editor")} if v is None else None,
+        # El árbol de la biblioteca para las hojas («Abrir otro plano», «Desde plantilla», «Mover a…»): arbol.js se carga al usarlas.
+        "carpetas": {"lista": reverse("herramientas:cad_carpetas"), "nueva": reverse("herramientas:cad_carpeta_nueva"), "mover": reverse("herramientas:cad_mover"),
+                     "arbol_js": static("herramientas/cad/arbol.js")} if v is None else None,
         # «Desde plantilla…» y «Guardar como plantilla…» (clic derecho en una pestaña de presentación del editor; docs/cad.md,
         # «Presentaciones desde plantilla»): para quien puede editar, en la versión vigente.
         # (la biblioteca se elige con `pestanas.elegir` y el tope es `limite_bytes`: no se repiten en cada página)
@@ -284,7 +361,9 @@ def plano(request, pk):
         # Carpeta del proyecto en esta computadora (static/herramientas/cad/local/): la cuenta separa las carpetas guardadas en el
         # navegador; las direcciones de los trabajadores van con su huella de estáticos. Nada de la carpeta llega al servidor.
         "local": {"cuenta": usuario.pk, "trabajador": static("herramientas/cad/local/trabajador.js"),
-                  "tiff": static("herramientas/cad/local/tiff.js")},
+                  "tiff": static("herramientas/cad/local/tiff.js"),
+                  # Referencias externas: primero en la biblioteca (misma carpeta, ruta relativa, el proyecto), luego en la computadora.
+                  "referencias": reverse("herramientas:cad_referencias", args=[MARCA])},
         # Imagen satelital (Civil → Imágenes): quien puede dibujar, en la versión vigente. Las teselas van del navegador al proveedor.
         "satelite": satelite.config_de_pagina() if puede and v is None and editor.disponible() and not sin_archivo else None,
     }
@@ -312,23 +391,48 @@ def pestana(request, pk):
     return _json({"plano": _datos_plano(request, p), "versiones": _versiones(p)})
 
 
+def _fila_elegir(p: Plano, marcadas: set, arbol=None) -> dict:
+    fila = {"id": str(p.pk), "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "bytes": p.bytes,
+            "actualizado": p.actualizado.isoformat(), "modificado_por": p.modificado_por_nombre, "en_edicion_por": p.en_edicion_por,
+            "disponible": p.disponible, "plantilla": str(p.pk) in marcadas, "archivo": reverse("herramientas:cad_archivo", args=[p.pk]),
+            "carpeta": str(p.carpeta_id) if p.carpeta_id else None}
+    if arbol is not None:
+        fila["ubicacion"] = arbol.ubicacion(p.carpeta_id, "Planos")
+    return fila
+
+
 @ver
 @require_GET
 def elegir(request):
-    """«Abrir otro plano»: la misma biblioteca que la lista (búsqueda, proyecto o cliente, orden), en JSON, para la hoja del editor."""
+    """Elegir un plano de la biblioteca («Abrir otro plano», «Desde plantilla › De la biblioteca», Civil): la misma carpeta y las mismas
+    migas que «Planos», en JSON. `carpeta` (vacía: la raíz) da sus carpetas y sus planos; con `q`, lo que coincide en ella y las suyas
+    (`en=carpeta`) o en toda la biblioteca (`en=todo`), con la ubicación de cada uno."""
     filtros = Filtros(request.GET)
-    pagina = Paginator(filtros.aplicar(Plano.objects.filter(eliminado__isnull=True)), POR_PAGINA).get_page(request.GET.get("pagina"))
+    arbol = carpetas.Arbol()
+    actual = arbol.get(request.GET.get("carpeta")) if request.GET.get("carpeta") else None
+    base = Plano.objects.filter(eliminado__isnull=True)
+    busqueda = filtros.activos
+    if busqueda:
+        alcance = arbol.debajo(actual.id) if actual and filtros.en == "carpeta" else None
+        consulta = base.filter(carpeta_id__in=alcance) if alcance is not None else base
+        nodos = [arbol.nodos[i] for i in (alcance or arbol.nodos) if not (actual and filtros.en == "carpeta" and i == actual.id)]
+        subcarpetas = filtros.ordenar_carpetas([n for n in nodos if filtros.coincide_carpeta(n.nombre, n.cliente)])[:50]
+    else:
+        consulta = base.filter(carpeta_id=actual.id) if actual else base.filter(carpeta__isnull=True)
+        subcarpetas = filtros.ordenar_carpetas(actual.hijas if actual else arbol.raices)
+    pagina = Paginator(filtros.aplicar(consulta), POR_PAGINA_CARPETA).get_page(request.GET.get("pagina"))
     filas = list(pagina.object_list)
     _marcar_edicion(filas)
     usuario = request.user
     marcadas = servicio.ids_plantilla(usuario.pk, filas)
+    primera = request.GET.get("pagina") in (None, "", "1")
     return _json({
-        "total": pagina.paginator.count, "pagina": pagina.number, "paginas": pagina.paginator.num_pages,
-        "planos": [{"id": str(p.pk), "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "bytes": p.bytes,
-                    "actualizado": p.actualizado.isoformat(), "modificado_por": p.modificado_por_nombre, "en_edicion_por": p.en_edicion_por,
-                    "disponible": p.disponible, "plantilla": str(p.pk) in marcadas,
-                    "archivo": reverse("herramientas:cad_archivo", args=[p.pk])} for p in filas],
-        "proyectos": servicio.sugerencias_proyecto(usuario.pk, perfiles.clave_activa(usuario)) if request.GET.get("pagina") in (None, "", "1") else None,
+        "total": pagina.paginator.count, "pagina": pagina.number, "paginas": pagina.paginator.num_pages, "busqueda": busqueda,
+        "carpeta": actual.id if actual else None,
+        "migas": [{"id": n.id, "nombre": n.nombre} for n in arbol.ruta(actual.id)] if actual else [],
+        "carpetas": [{"id": n.id, "nombre": n.nombre, "cliente": n.cliente, "total": n.total, "hijas": len(n.hijas),
+                      **({"ubicacion": arbol.ubicacion(n.padre, "Planos")} if busqueda else {})} for n in subcarpetas] if primera else [],
+        "planos": [_fila_elegir(p, marcadas, arbol if busqueda else None) for p in filas],
     })
 
 
@@ -341,17 +445,22 @@ def desde_editor(request):
 
     nombre = unquote(request.headers.get("X-TV-Nombre", ""))[:150]
     proyecto = unquote(request.headers.get("X-TV-Proyecto", ""))[:160]
+    # La carpeta del plano que estaba a la vista (la página la manda): el dibujo nuevo queda junto a él.
+    carpeta = request.headers.get("X-TV-Carpeta", "")
+    carpeta = carpetas.carpeta_activa(carpeta) if carpeta else None
 
     def trabajo(temporal):
-        nuevo = servicio.crear(request.user, temporal, nombre, proyecto, origen={"tipo": "editor"})
+        nuevo = servicio.crear(request.user, temporal, nombre, "" if carpeta else proyecto, origen={"tipo": "editor"}, carpeta=carpeta)
         return _json({"id": str(nuevo.pk), "nombre": nuevo.nombre, "url": reverse("herramientas:cad_plano", args=[nuevo.pk])}, status=201)
     return _con_cuerpo(request, trabajo)
 
 
 # -- «Desde plantilla…» y «Guardar como plantilla…» (LAYOUT › Plantilla del editor; docs/cad.md, «Presentaciones desde plantilla») -----
 
-def _fila_plantilla(p: Plano) -> dict:
+def _fila_plantilla(p: Plano, arbol=None) -> dict:
+    arbol = arbol or carpetas.Arbol(conteos=False)
     return {"id": str(p.pk), "nombre": p.nombre, "proyecto": p.proyecto, "formato": p.formato, "bytes": p.bytes,
+            "ubicacion": arbol.ubicacion(p.carpeta_id, "Planos"),
             "actualizado": p.actualizado.isoformat(), "disponible": servicio.archivo_disponible(servicio.version_vigente(p)),
             "plantilla": True, "archivo": reverse("herramientas:cad_archivo", args=[p.pk])}
 
@@ -389,7 +498,8 @@ def plantillas_hojas(request):
 @require_GET
 def plantillas(request):
     """«Mis plantillas»: los planos que esta cuenta marcó (o guardó con «Guardar como plantilla…»), la usada más reciente primero."""
-    return _json({"plantillas": [_fila_plantilla(p) for p in servicio.mis_plantillas(request.user.pk)]})
+    arbol = carpetas.Arbol(conteos=False)
+    return _json({"plantillas": [_fila_plantilla(p, arbol) for p in servicio.mis_plantillas(request.user.pk)]})
 
 
 @ver
@@ -587,7 +697,7 @@ def restaurar_version(request, pk, numero):
 @editar
 @require_POST
 def renombrar(request, pk):
-    p = servicio.renombrar(_plano(pk), request.POST.get("nombre", ""), request.POST.get("proyecto", ""))
+    p = servicio.renombrar(_plano(pk), request.POST.get("nombre", ""), request.POST.get("proyecto") if "proyecto" in request.POST else None)
     if request.headers.get("Accept", "").startswith("application/json"):
         return _json({"nombre": p.nombre, "proyecto": p.proyecto})
     messages.success(request, "Cambios guardados.")
@@ -639,8 +749,16 @@ def papelera(request):
     for p in planos:
         p.vence = servicio.vence_en(p)
         p.pk_texto = p.pk.hex
-    return _privado(render(request, "herramientas/cad/papelera.html", {"planos": planos, "es_admin": servicio.es_admin(request.user),
-                                                                       "dias": servicio.PAPELERA_DIAS}))
+    lista_carpetas = carpetas.papelera(request.user)
+    for c in lista_carpetas:
+        c.pk_texto = c.pk.hex
+    arbol = carpetas.Arbol(conteos=False)
+    for x in [*planos, *lista_carpetas]:
+        padre = x.carpeta_id if isinstance(x, Plano) else x.padre_id
+        x.estaba = arbol.ubicacion(padre, "Planos") if padre in arbol or not padre else "una carpeta eliminada"
+    elementos = sorted([*planos, *lista_carpetas], key=lambda x: x.eliminado if isinstance(x, Plano) else x.eliminada, reverse=True)
+    return _privado(render(request, "herramientas/cad/papelera.html", {"planos": planos, "carpetas": lista_carpetas, "elementos": elementos,
+                                                                       "es_admin": servicio.es_admin(request.user), "dias": servicio.PAPELERA_DIAS}))
 
 
 @editar
@@ -648,11 +766,11 @@ def papelera(request):
 def restaurar(request, pk):
     p = _plano(pk, eliminado=True)
     try:
-        servicio.restaurar(p, request.user)
+        a_raiz = servicio.restaurar(p, request.user)
     except servicio.SinPermiso as exc:
         messages.error(request, str(exc))
         return redirect("herramientas:cad_papelera")
-    messages.success(request, f"«{p.nombre}» volvió a la biblioteca.")
+    messages.success(request, f"«{p.nombre}» volvió a la biblioteca." + (" Su carpeta ya no está: quedó en la raíz de Planos." if a_raiz else ""))
     return redirect("herramientas:cad_papelera")
 
 
@@ -673,7 +791,7 @@ def vaciar(request):
         messages.error(request, "Escribe «vaciar» para confirmar.")
         return redirect("herramientas:cad_papelera")
     n = servicio.vaciar_papelera()
-    messages.success(request, f"Papelera vacía: se eliminaron {n} plano{'s' if n != 1 else ''} para siempre.")
+    messages.success(request, "Papelera vacía." if not n else f"Papelera vacía: se eliminaron {n} elemento{'s' if n != 1 else ''} para siempre.")
     return redirect("herramientas:cad_papelera")
 
 

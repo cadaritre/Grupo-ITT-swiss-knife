@@ -29,7 +29,7 @@
   const enTactil = () => document.documentElement.classList.contains("cad-tactil");
 
   // -- Pestañas: un plano cada una --------------------------------------------------------------------------------------------
-  const CAMPOS = ["id", "nombre", "formato", "revision", "proyecto", "version", "version_formato", "puede_editar", "puede_eliminar",
+  const CAMPOS = ["id", "nombre", "formato", "revision", "proyecto", "carpeta", "ubicacion", "version", "version_formato", "puede_editar", "puede_eliminar",
     "rol_lectura", "borrador", "urls", "modificado_por", "actualizado", "autor", "creado", "bytes"];
   const pestanas = [];
   let activa = null;
@@ -700,7 +700,9 @@
       const revision = (await documentosDelEditor()).find((d) => d.id === t.documento);
       const bytes = buffer || (await bytesDelEditor(t));
       const { cuerpo, cabeceras: codificacion } = await comprimir(bytes);
-      const r = await pedir(P.desde_editor, { metodo: "POST", cuerpo, cabeceras: { "Content-Type": "application/octet-stream", "X-TV-Nombre": encodeURIComponent(t.e.nombre), ...codificacion } });
+      // Queda en la carpeta del plano con que se abrió la página (lo normal: un dibujo nuevo del mismo proyecto).
+      const r = await pedir(P.desde_editor, { metodo: "POST", cuerpo, cabeceras: { "Content-Type": "application/octet-stream", "X-TV-Nombre": encodeURIComponent(t.e.nombre),
+        ...(C.carpeta ? { "X-TV-Carpeta": C.carpeta } : {}), ...codificacion } });
       const d = await datos(r);
       if (!r.ok) throw new Error(d.error || "No se pudo guardar en la biblioteca.");
       await convertirEn(t, d.id, revision ? revision.revision || 0 : 0);
@@ -1220,7 +1222,10 @@
     if (conv) { const otro = t.e.formato === "dwg" ? "dxf" : "dwg"; conv.dataset.formato = otro; conv.hidden = ajena; conv.querySelector("span").textContent = `Descargar como ${otro.toUpperCase()}`; }
     const drive = $("cad-drive"); if (drive) drive.hidden = ajena;
     const ren = $("cad-form-renombrar");
-    if (ren) { ren.action = u.renombrar || ""; $("cad-ren-nombre").value = t.e.nombre; $("cad-ren-proyecto").value = t.cfg.proyecto || ""; }
+    if (ren) {
+      ren.action = u.renombrar || ""; $("cad-ren-nombre").value = t.e.nombre;
+      const donde = $("cad-ren-ubicacion"); if (donde) donde.textContent = `En ${t.cfg.ubicacion || "Planos"}`;
+    }
     for (const b of document.querySelectorAll('[data-tv-abrir="cad-renombrar"]')) b.hidden = ajena || !t.cfg.puede_editar;
     const dup = $("cad-form-duplicar"); if (dup) { dup.action = u.duplicar || ""; dup.hidden = ajena; }
     const eli = $("cad-form-eliminar"); if (eli) { eli.action = u.eliminar || ""; $("cad-eliminar-titulo").textContent = `¿Eliminar «${t.e.nombre}»?`; }
@@ -1571,67 +1576,72 @@
     guardarPestanas();
   }
 
-  // -- «Abrir otro plano»: la biblioteca en una hoja (búsqueda, proyecto o cliente, en edición por quién) ------------------------
-  const hojaElegir = $("cad-elegir");
-  const elegir = { q: "", proyecto: "", pagina: 1, paginas: 1, n: 0 };
-  async function cargarElegir(mas) {
-    const lista = $("cad-elegir-lista"), estado = $("cad-elegir-estado");
-    if (!mas) elegir.pagina = 1;
-    const n = ++elegir.n;
-    const qs = new URLSearchParams({ q: elegir.q, proyecto: elegir.proyecto, pagina: String(elegir.pagina) });
-    estado.textContent = "Buscando…";
-    let d;
-    try { const r = await pedir(`${P.elegir}?${qs}`); d = await datos(r); if (!r.ok) throw new Error(d.error || "No se pudo leer la biblioteca."); }
-    catch (err) { if (n === elegir.n) estado.textContent = err instanceof TypeError ? "Sin conexión." : err.message; return; }
-    if (n !== elegir.n) return;
-    elegir.paginas = d.paginas;
-    if (d.proyectos) pintarCarpetas(d.proyectos);
-    const filas = d.planos.map((x) => {
-      const li = document.createElement("li");
-      const b = document.createElement("button"); b.type = "button"; b.className = "cad-elegir__plano"; b.dataset.id = x.id;
-      b.disabled = !x.disponible;
-      const fmt = document.createElement("span"); fmt.className = "itt-formato cad-elegir__formato"; fmt.dataset.formato = x.formato; fmt.textContent = x.formato.toUpperCase();
-      const texto = document.createElement("span"); texto.className = "cad-elegir__texto";
-      const fuerte = document.createElement("strong"); fuerte.textContent = x.nombre;
-      const meta = document.createElement("span"); meta.className = "tv-tenue";
-      meta.textContent = [x.proyecto, `Modificado ${fechaLarga(x.actualizado)}${x.modificado_por ? ` por ${x.modificado_por}` : ""}`, tamano(x.bytes)].filter(Boolean).join(" · ");
-      texto.append(fuerte, meta);
-      b.append(fmt, texto);
-      const abierto = pestanas.some((t) => t.cfg.id === x.id);
-      const insignia = abierto ? ["Abierto", "tv-insignia--exito"] : !x.disponible ? ["Archivo no disponible", "tv-insignia--error"] : x.en_edicion_por ? [x.en_edicion_por, "tv-insignia--aviso"] : null;
-      if (insignia) { const i = document.createElement("span"); i.className = `tv-insignia ${insignia[1]}`; i.textContent = insignia[0]; b.append(i); }
-      b.addEventListener("click", async () => { hojaElegir.close(); await abrirPestana(x.id); });
-      li.append(b);
-      return li;
+  // -- El árbol de la biblioteca (arbol.js), solo cuando se usa: la página del plano no lo carga al abrir -----------------------
+  let arbolJs = null;
+  window.TVCadArbolCargar = () => {
+    if (window.TVCadArbol) return Promise.resolve(window.TVCadArbol);
+    if (!arbolJs) arbolJs = new Promise((ok, mal) => {
+      const s = document.createElement("script"); s.src = C.carpetas.arbol_js;
+      s.onload = () => ok(window.TVCadArbol); s.onerror = () => { arbolJs = null; mal(new Error("No se pudo cargar la biblioteca. Revisa la conexión.")); };
+      document.head.append(s);
     });
-    if (mas) lista.append(...filas); else lista.replaceChildren(...filas);
-    estado.textContent = d.total ? (d.total === 1 ? "1 plano" : `${d.total} planos`) : "Ningún plano coincide.";
-    $("cad-elegir-mas").hidden = elegir.pagina >= elegir.paginas;
+    return arbolJs;
+  };
+
+  // -- «Mover a…» desde la hoja Renombrar: el plano activo a otra carpeta de la biblioteca (su bloqueo y su pestaña siguen igual) --
+  const moverB = $("cad-ren-mover");
+  if (moverB && C.carpetas) moverB.addEventListener("click", async () => {
+    const t = activa;
+    try {
+      const A = await window.TVCadArbolCargar();
+      $("cad-renombrar").close();
+      const destino = await A.moverA({ titulo: `Mover «${t.e.nombre}» a…`, actual: t.cfg.carpeta || "", url: C.carpetas.lista, nueva: C.carpetas.nueva });
+      if (destino === undefined) return;
+      const r = await pedir(C.carpetas.mover, { metodo: "POST", json: { planos: [t.cfg.id], carpetas: [], destino } });
+      const d = await datos(r);
+      if (!r.ok) throw new Error(d.error || "No se pudo mover el plano.");
+      t.cfg.carpeta = d.destino.id; t.cfg.ubicacion = d.destino.ubicacion; t.cfg.proyecto = d.destino.proyecto;
+      pintarCabecera(t);
+      avisar(d.mensaje);
+    } catch (err) { avisar(err instanceof TypeError ? "Sin conexión: inténtalo de nuevo." : err.message, "error"); }
+  });
+
+  // -- «Abrir otro plano»: la biblioteca en una hoja, carpeta por carpeta (las mismas migas y el mismo árbol que «Planos») -------
+  const hojaElegir = $("cad-elegir");
+  let explorador = null;
+  function filaElegir(x) {
+    const li = document.createElement("li");
+    const b = document.createElement("button"); b.type = "button"; b.className = "cad-elegir__plano"; b.dataset.id = x.id;
+    b.disabled = !x.disponible;
+    const fmt = document.createElement("span"); fmt.className = "itt-formato cad-elegir__formato"; fmt.dataset.formato = x.formato; fmt.textContent = x.formato.toUpperCase();
+    const texto = document.createElement("span"); texto.className = "cad-elegir__texto";
+    const fuerte = document.createElement("strong"); fuerte.textContent = x.nombre;
+    const meta = document.createElement("span"); meta.className = "tv-tenue";
+    meta.textContent = [x.ubicacion ? `En ${x.ubicacion}` : "", `Modificado ${fechaLarga(x.actualizado)}${x.modificado_por ? ` por ${x.modificado_por}` : ""}`, tamano(x.bytes)].filter(Boolean).join(" · ");
+    texto.append(fuerte, meta);
+    b.append(fmt, texto);
+    const abierto = pestanas.some((t) => t.cfg.id === x.id);
+    const insignia = abierto ? ["Abierto", "tv-insignia--exito"] : !x.disponible ? ["Archivo no disponible", "tv-insignia--error"] : x.en_edicion_por ? [x.en_edicion_por, "tv-insignia--aviso"] : null;
+    if (insignia) { const i = document.createElement("span"); i.className = `tv-insignia ${insignia[1]}`; i.textContent = insignia[0]; b.append(i); }
+    b.addEventListener("click", async () => { hojaElegir.close(); await abrirPestana(x.id); });
+    li.append(b);
+    return li;
   }
-  function pintarCarpetas(proyectos) {
-    const caja = $("cad-elegir-carpetas");
-    caja.hidden = !proyectos.length;
-    const chipDe = (texto, valor) => {
-      const b = document.createElement("button"); b.type = "button"; b.className = "cad-elegir__carpeta"; b.textContent = texto;
-      b.setAttribute("aria-pressed", String(elegir.proyecto === valor));
-      b.addEventListener("click", () => { elegir.proyecto = valor; for (const x of caja.children) x.setAttribute("aria-pressed", String(x === b)); cargarElegir(false); });
-      return b;
-    };
-    caja.replaceChildren(chipDe("Todos", ""), ...proyectos.slice(0, 24).map((p) => chipDe(p, p)));
-  }
-  function abrirElegir() {
+  async function abrirElegir() {
     if (!hojaElegir) return;
     if (menu) menu.open = false;
     if (pestanas.length >= P.max) { avisar(`Ya tienes ${P.max} planos abiertos, el máximo en una ventana. Cierra uno para abrir otro.`, "error"); return; }
+    let A;
+    try { A = await window.TVCadArbolCargar(); } catch (err) { avisar(err.message, "error"); return; }
+    if (!explorador) explorador = A.explorador({ url: P.elegir, urlCarpetas: C.carpetas.lista, arbol: $("cad-elegir-arbol"), migas: $("cad-elegir-migas"),
+      lista: $("cad-elegir-lista"), mas: $("cad-elegir-mas"), q: $("cad-elegir-q"), alcance: $("cad-elegir-en"), clave: "elegir",
+      decir: (t) => { $("cad-elegir-estado").textContent = t; }, filaPlano: filaElegir });
     hojaElegir.showModal();
     $("cad-elegir-q").focus();
-    cargarElegir(false);
+    // Se empieza en la carpeta del plano a la vista: lo normal es abrir otro plano del mismo proyecto.
+    explorador.abrir((activa && !activa.ajena && activa.cfg.carpeta) || "");
   }
   if (P && hojaElegir) {
-    let espera_ = 0;
-    $("cad-elegir-q").addEventListener("input", (ev) => { clearTimeout(espera_); espera_ = setTimeout(() => { elegir.q = ev.target.value.trim(); cargarElegir(false); }, 250); });
-    $("cad-elegir-form").addEventListener("submit", (ev) => { ev.preventDefault(); elegir.q = $("cad-elegir-q").value.trim(); cargarElegir(false); });
-    $("cad-elegir-mas").addEventListener("click", () => { elegir.pagina += 1; cargarElegir(true); });
     if ($("cad-abrir-otro")) $("cad-abrir-otro").addEventListener("click", abrirElegir);
     if ($("cad-menu-abrir-otro")) $("cad-menu-abrir-otro").addEventListener("click", abrirElegir);
   }

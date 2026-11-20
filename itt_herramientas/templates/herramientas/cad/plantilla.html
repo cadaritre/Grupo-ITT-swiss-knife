@@ -11,12 +11,15 @@
     <p class="tv-tenue cad-plantilla__vacio" id="cad-plantilla-mias-vacio" hidden>Aún no tienes plantillas. Haz clic derecho en la pestaña de una presentación y elige «Guardar como plantilla…», o marca con la estrella un plano de la biblioteca.</p>
   </section>
   <section data-fuente="biblioteca" hidden>
-    <form class="cad-elegir__buscar" id="cad-plantilla-form" role="search" aria-label="Buscar planos">
+    <div class="cad-explorar"><div class="cad-explorar__arbol cad-arbol" id="cad-plantilla-arbol"></div><div class="cad-explorar__lado">
+    <form class="cad-elegir__buscar cad-elegir__buscar--con-alcance" id="cad-plantilla-form" role="search" aria-label="Buscar planos">
       <div class="cad-buscador">{% icono "search" %}<label for="cad-plantilla-q" class="tv-solo-lectores">Buscar</label><input id="cad-plantilla-q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar por nombre, proyecto o persona"></div>
+      <label for="cad-plantilla-en" class="tv-solo-lectores">Dónde buscar</label><select id="cad-plantilla-en" class="cad-elegir__alcance"><option value="todo" selected>En todos los planos</option><option value="carpeta">En esta carpeta</option></select>
     </form>
-    <div class="cad-elegir__carpetas" id="cad-plantilla-carpetas" role="group" aria-label="Proyecto o cliente" hidden></div>
+    <nav class="cad-elegir__migas" id="cad-plantilla-migas" aria-label="Ubicación"></nav>
     <ul class="cad-elegir__lista" id="cad-plantilla-lista" aria-live="polite"></ul>
     <div class="cad-plantilla__mas"><button type="button" class="tv-boton tv-boton--secundario" id="cad-plantilla-mas" hidden>Ver más</button></div>
+    </div></div>
   </section>
   <section data-fuente="computadora" hidden>
     <label class="cad-plantilla__soltar" id="cad-plantilla-soltar">

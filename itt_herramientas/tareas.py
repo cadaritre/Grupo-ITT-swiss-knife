@@ -214,6 +214,19 @@ def armar_zip(token, cuenta_id, elementos, tipo, supervision=False):
     return {**resultado, "url": url, "etiqueta": "Descargar ZIP"}
 
 
+@tarea("herramientas")
+def armar_zip_carpeta(token, cuenta_id, carpeta_id):
+    """ZIP de una carpeta de CAD con sus subcarpetas (la versión vigente de cada plano)."""
+    from django.urls import reverse
+    from tvplataforma.middleware import urlconf_de
+
+    from .cad import carpetas
+
+    resultado = carpetas.armar_zip(token, cuenta_id, carpeta_id)
+    url = reverse("herramientas:zip_descargar", args=[token], urlconf=urlconf_de("herramientas"))
+    return {**resultado, "url": url, "etiqueta": "Descargar ZIP"}
+
+
 # -- CAD: impresión a PDF y conversión con el motor nativo, en su propia cola («cad», un trabajador con su propio tope de memoria) ---------
 
 @tarea("cad")

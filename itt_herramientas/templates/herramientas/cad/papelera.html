@@ -3,29 +3,39 @@
 {% block titulo_pagina %}Papelera de planos{% endblock %}
 {% block cabeza %}{{ block.super }}<link rel="stylesheet" href="{% static 'herramientas/cad/cad.css' %}">{% endblock %}
 {% block titulo_h1 %}<nav class="tv-migas" aria-label="Migas"><a href="{% url 'herramientas:cad' %}">Planos</a><span aria-current="page">Papelera</span></nav>
-<h1>Papelera</h1><p class="tv-subtitulo">Los planos eliminados se borran para siempre a los {{ dias }} días.</p>{% endblock %}
-{% block acciones_pagina %}{% if es_admin and planos %}<button type="button" class="tv-boton tv-boton--peligro" data-tv-abrir="cad-vaciar">{% icono "trash-2" %}<span>Vaciar papelera</span></button>{% endif %}{% endblock %}
+<h1>Papelera</h1><p class="tv-subtitulo">Los planos y carpetas eliminados se borran para siempre a los {{ dias }} días. Una carpeta se restaura con todo lo que tenía.</p>{% endblock %}
+{% block acciones_pagina %}{% if es_admin and elementos %}<button type="button" class="tv-boton tv-boton--peligro" data-tv-abrir="cad-vaciar">{% icono "trash-2" %}<span>Vaciar papelera</span></button>{% endif %}{% endblock %}
 {% block cuerpo %}
-{% if planos %}
-<ul class="cad-planos cad-planos--papelera">{% for p in planos %}
-  <li class="cad-plano">
+{% if elementos %}
+<ul class="cad-planos cad-planos--papelera" id="cad-papelera">{% for x in elementos %}
+  {% if x.formato %}<li class="cad-plano" data-id="{{ x.pk }}">
     <span class="cad-plano__abrir cad-plano__abrir--fijo">
-      <span class="itt-formato cad-formato" data-formato="{{ p.formato }}">{{ p.formato|upper }}</span>
-      <span class="cad-plano__texto"><strong>{{ p.nombre }}</strong>
-        <span class="cad-plano__meta">{% if p.proyecto %}<span class="cad-plano__proyecto">{{ p.proyecto }}</span>{% endif %}<span>Eliminado <time datetime="{{ p.eliminado|date:'c' }}">{{ p.eliminado|date:"j M Y, H:i"|lower }}</time>{% if p.eliminado_por_nombre %} por {{ p.eliminado_por_nombre }}{% endif %} · se borra el {{ p.vence|date:"j M"|lower }}</span></span></span>
+      <span class="itt-formato cad-formato" data-formato="{{ x.formato }}">{{ x.formato|upper }}</span>
+      <span class="cad-plano__texto"><strong>{{ x.nombre }}</strong>
+        <span class="cad-plano__meta"><span class="cad-plano__ubicacion">Estaba en {{ x.estaba }}</span><span>Eliminado <time datetime="{{ x.eliminado|date:'c' }}">{{ x.eliminado|date:"j M Y, H:i"|lower }}</time>{% if x.eliminado_por_nombre %} por {{ x.eliminado_por_nombre }}{% endif %} · se borra el {{ x.vence|date:"j M"|lower }}</span></span></span>
     </span>
     <span class="cad-plano__lado">
-      <form method="post" action="{% url 'herramientas:cad_restaurar' p.pk %}">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--secundario">{% icono "archive-restore" %}<span>Restaurar</span></button></form>
-      {% if es_admin %}{% url 'herramientas:cad_destruir' p.pk as u_destruir %}{% confirmar_accion id="cad-destruir-"|add:p.pk_texto accion=u_destruir abrir="Eliminar para siempre" titulo="¿Eliminar «"|add:p.nombre|add:"» para siempre?" texto="Se borran el plano y todas sus versiones. No se puede deshacer." aceptar="Eliminar para siempre" icono="x" clase="tv-boton tv-boton--fantasma" %}{% endif %}
+      <form method="post" action="{% url 'herramientas:cad_restaurar' x.pk %}">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--secundario">{% icono "archive-restore" %}<span>Restaurar</span></button></form>
+      {% if es_admin %}{% url 'herramientas:cad_destruir' x.pk as u_destruir %}{% confirmar_accion id="cad-destruir-"|add:x.pk_texto accion=u_destruir abrir="Eliminar para siempre" titulo="¿Eliminar «"|add:x.nombre|add:"» para siempre?" texto="Se borran el plano y todas sus versiones. No se puede deshacer." aceptar="Eliminar para siempre" icono="x" clase="tv-boton tv-boton--fantasma" %}{% endif %}
     </span>
-  </li>{% endfor %}
+  </li>{% else %}<li class="cad-plano cad-carpeta" data-carpeta="{{ x.pk }}">
+    <span class="cad-plano__abrir cad-plano__abrir--fijo">
+      <span class="cad-carpeta__icono">{% if x.padre_id %}{% icono "folder" %}{% else %}{% icono "folder-kanban" %}{% endif %}</span>
+      <span class="cad-plano__texto"><strong>{{ x.nombre }}</strong>
+        <span class="cad-plano__meta"><span class="cad-plano__ubicacion">Estaba en {{ x.estaba }}</span><span>{% if x.padre_id %}Carpeta{% else %}Proyecto{% endif %} con {{ x.n_planos }} plano{{ x.n_planos|pluralize }}{% if x.n_carpetas %} y {{ x.n_carpetas }} carpeta{{ x.n_carpetas|pluralize }}{% endif %} · eliminada <time datetime="{{ x.eliminada|date:'c' }}">{{ x.eliminada|date:"j M Y, H:i"|lower }}</time>{% if x.eliminada_por_nombre %} por {{ x.eliminada_por_nombre }}{% endif %} · se borra el {{ x.vence|date:"j M"|lower }}</span></span></span>
+    </span>
+    <span class="cad-plano__lado">
+      <form method="post" action="{% url 'herramientas:cad_carpeta_restaurar' x.pk %}">{% csrf_token %}<button type="submit" class="tv-boton tv-boton--secundario">{% icono "archive-restore" %}<span>Restaurar</span></button></form>
+      {% if es_admin %}{% url 'herramientas:cad_carpeta_destruir' x.pk as u_destruir %}{% confirmar_accion id="cad-destruir-"|add:x.pk_texto accion=u_destruir abrir="Eliminar para siempre" titulo="¿Eliminar «"|add:x.nombre|add:"» para siempre?" texto="Se borran la carpeta, sus planos y todas sus versiones. No se puede deshacer." aceptar="Eliminar para siempre" icono="x" clase="tv-boton tv-boton--fantasma" %}{% endif %}
+    </span>
+  </li>{% endif %}{% endfor %}
 </ul>
 {% if es_admin %}
 <dialog id="cad-vaciar" class="tv-hoja tv-hoja--confirmar" aria-labelledby="cad-vaciar-titulo">
   <form method="post" action="{% url 'herramientas:cad_vaciar' %}" class="tv-hoja__cuerpo">{% csrf_token %}
     <div class="tv-hoja__asa" aria-hidden="true"></div>
     <h2 id="cad-vaciar-titulo">¿Vaciar la papelera?</h2>
-    <p>Se borran para siempre {{ planos|length }} plano{{ planos|length|pluralize }} con todas sus versiones. No se puede deshacer.</p>
+    <p>Se borran para siempre {% if carpetas %}{{ carpetas|length }} carpeta{{ carpetas|length|pluralize }} con lo que tienen{% if planos %} y {% endif %}{% endif %}{% if planos %}{{ planos|length }} plano{{ planos|length|pluralize }}{% endif %}, con todas sus versiones. No se puede deshacer.</p>
     <div class="tv-campo"><label for="cad-vaciar-texto">Escribe «vaciar» para confirmar</label><input id="cad-vaciar-texto" name="confirmacion" autocomplete="off" autocapitalize="off" data-tv-coincide="vaciar" data-tv-boton="cad-vaciar-ir"></div>
     <div class="tv-hoja__acciones"><button type="button" class="tv-boton tv-boton--secundario" data-tv-cerrar>Cancelar</button><button type="submit" class="tv-boton tv-boton--peligro" id="cad-vaciar-ir" disabled>{% icono "trash-2" %}<span>Vaciar papelera</span></button></div>
   </form>

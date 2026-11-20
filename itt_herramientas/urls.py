@@ -5,6 +5,7 @@ from .convertidor import vistas as convertidor
 from .cad import guardado as cad_guardado
 from .cad import tactil as cad_tactil
 from .cad import vistas as cad
+from .cad import vistas_carpetas as cad_carpetas
 from .civil import vistas as civil
 from .cotizaciones import vistas as cotizaciones
 from .croquis import vistas as croquis
@@ -94,6 +95,17 @@ urlpatterns = [
     path("triangulacion/<uuid:pk>/vista.png", triangulacion.vista, name="triangulacion_vista"),
     path("triangulacion/<uuid:pk>/vector.json", triangulacion.vector, name="triangulacion_vector"),
     path("cad/", cad.lista, name="cad"),
+    path("cad/carpetas/", cad_carpetas.lista, name="cad_carpetas"),
+    path("cad/carpetas/nueva/", cad_carpetas.nueva, name="cad_carpeta_nueva"),
+    path("cad/carpetas/rutas/", cad_carpetas.rutas, name="cad_carpetas_rutas"),
+    path("cad/mover/", cad_carpetas.mover, name="cad_mover"),
+    path("cad/carpetas/<uuid:pk>/", cad.lista, name="cad_carpeta"),
+    path("cad/carpetas/<uuid:pk>/renombrar/", cad_carpetas.renombrar, name="cad_carpeta_renombrar"),
+    path("cad/carpetas/<uuid:pk>/eliminar/", cad_carpetas.eliminar, name="cad_carpeta_eliminar"),
+    path("cad/carpetas/<uuid:pk>/restaurar/", cad_carpetas.restaurar, name="cad_carpeta_restaurar"),
+    path("cad/carpetas/<uuid:pk>/destruir/", cad_carpetas.destruir, name="cad_carpeta_destruir"),
+    path("cad/carpetas/<uuid:pk>/zip/", cad_carpetas.zip_carpeta, name="cad_carpeta_zip"),
+    path("cad/carpetas/<uuid:pk>/planos/", cad_carpetas.planos, name="cad_carpeta_planos"),
     path("cad/nuevo/", cad.nuevo, name="cad_nuevo"),
     path("cad/papelera/", cad.papelera, name="cad_papelera"),
     path("cad/elegir/", cad.elegir, name="cad_elegir"),
@@ -122,6 +134,7 @@ urlpatterns = [
     path("cad/civil/<str:orden>/", civil.orden, name="civil_orden"),
     path("cad/<uuid:pk>/", cad.plano, name="cad_plano"),
     path("cad/<uuid:pk>/archivo/", cad.archivo, name="cad_archivo"),
+    path("cad/<uuid:pk>/referencias/", cad_carpetas.referencias, name="cad_referencias"),
     path("cad/<uuid:pk>/estado/", cad.estado, name="cad_estado"),
     path("cad/<uuid:pk>/pestana/", cad.pestana, name="cad_pestana"),
     path("cad/<uuid:pk>/bloqueo/", cad.bloqueo, name="cad_bloqueo"),
