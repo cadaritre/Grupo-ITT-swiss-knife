@@ -29,6 +29,7 @@ __all__ = [
     "Insercion",
     "Sombreado",
     "Entidad",
+    "Enlace",
     "Dibujo",
     "POR_CAPA",
 ]
@@ -53,6 +54,16 @@ class EstiloTexto:
     nombre: str
     fuente: str = "romans.shx"
     factor_ancho: float = 1.0
+
+
+@dataclass(frozen=True)
+class Enlace:
+    """Valor XDATA (código 1005) que apunta a otra entidad del mismo `Dibujo`, por su posición en `Dibujo.entidades`.
+
+    Al escribir el DXF se cambia por el handle que la entidad recibe ahí. Debe apuntar a una entidad anterior.
+    """
+
+    indice: int
 
 
 @dataclass
@@ -102,6 +113,7 @@ class Texto(_Base):
     estilo: str = "Standard"
     alineacion_h: AlineacionH = "izquierda"
     alineacion_v: AlineacionV = "base"
+    elevacion: float = 0.0  # Z del punto de inserción
     tipo: str = "texto"
 
 
@@ -174,6 +186,7 @@ class Dibujo:
     estilos: dict[str, EstiloTexto] = field(default_factory=dict)
     bloques: dict[str, Bloque] = field(default_factory=dict)
     entidades: list[Entidad] = field(default_factory=list)
+    variables: dict[str, int | float] = field(default_factory=dict)  # variables del encabezado del dibujo (PDMODE, PDSIZE…), sin «$»
 
     def capa(self, capa: Capa) -> str:
         self.capas.setdefault(capa.nombre, capa)
@@ -196,7 +209,12 @@ class Dibujo:
             self.estilo(s)
         for b in otro.bloques.values():
             self.bloques.setdefault(b.nombre, b)
-        self.entidades.extend(otro.entidades)
+        base = len(self.entidades)
+        for e in otro.entidades:
+            if base:
+                e = _reubicar_enlaces(e, base)
+            self.entidades.append(e)
+        self.variables.update(otro.variables)
         return self
 
     def caja(self) -> tuple[float, float, float, float] | None:
@@ -230,7 +248,15 @@ class Dibujo:
                 for b in self.bloques.values()
             ],
             "entidades": [asdict(e) for e in self.entidades],
+            "variables": dict(self.variables),
         }
+
+
+def _reubicar_enlaces(e, base: int):
+    """Una entidad de otro `Dibujo` que se agrega después de `base` entidades: sus enlaces siguen apuntando a lo mismo."""
+    if e.datos and any(isinstance(v, Enlace) for vs in e.datos.values() for _, v in vs):
+        e.datos = {app: [(c, Enlace(v.indice + base) if isinstance(v, Enlace) else v) for c, v in vs] for app, vs in e.datos.items()}
+    return e
 
 
 def _puntos_xy(e) -> list[tuple[float, float]]:

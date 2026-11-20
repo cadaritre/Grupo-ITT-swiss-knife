@@ -1,14 +1,14 @@
-"""Dibujo de puntos (bloque con atributos) y de la triangulación (caras 3D) con las convenciones de Civil."""
+"""Dibujo de puntos (entidad POINT con rótulos TEXT) y de la triangulación (caras 3D) con las convenciones de Civil."""
 
 from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from .entidades import Bloque, Capa, Cara3D, DefAtributo, Dibujo, EstiloTexto, Insercion, Linea, PuntoCad
+from .entidades import Bloque, Capa, Cara3D, DefAtributo, Dibujo, Enlace, EstiloTexto, Insercion, Linea, PuntoCad, Texto
 from .escala import ALTURAS_MM, Escala
 from .puntos import PROYECTO, TERRENO, Punto
 
-__all__ = ["CAPAS_PUNTOS", "CAPAS_TIN", "BLOQUES", "bloque_punto", "dibujar_puntos", "dibujar_tin", "APP"]
+__all__ = ["CAPAS_PUNTOS", "CAPAS_TIN", "BLOQUES", "bloque_punto", "agregar_punto", "dibujar_puntos", "dibujar_tin", "APP"]
 
 APP = "TVCIVIL"
 
@@ -27,7 +27,7 @@ BLOQUES = {TERRENO: "PT_TERRENO", PROYECTO: "PT_PROYECTO"}
 
 
 def bloque_punto(tipo: str, estilo: str = "CIVIL") -> Bloque:
-    """Bloque del punto dibujado en mm de papel (se inserta a escala E/1000): símbolo en cruz con círculo y tres atributos.
+    """Bloque del punto del modelo anterior (solo para leer y convertir dibujos viejos y para las pruebas) dibujado en mm de papel (se inserta a escala E/1000): símbolo en cruz con círculo y tres atributos.
 
     Número arriba a la derecha, elevación a la derecha y descripción abajo a la derecha, cada uno en su capa.
     """
@@ -48,6 +48,70 @@ def bloque_punto(tipo: str, estilo: str = "CIVIL") -> Bloque:
     return Bloque(BLOQUES[tipo], ents, atributos)
 
 
+ROLES = {"NUM": "num", "ELEV": "elev", "DESC": "desc"}
+CAPA_DE_ROL = {"num": "numero", "elev": "elevacion", "desc": "descripcion"}
+PDMODE = 34  # cruz con círculo: el símbolo de siempre, ahora como estilo de punto del dibujo
+
+
+def tamano_marcador(escala: Escala) -> float:
+    """PDSIZE: el símbolo mide lo mismo en el papel a cualquier escala (unidades de dibujo)."""
+    return escala.altura("punto_simbolo")
+
+
+def variables_de_puntos(escala: Escala) -> dict[str, float]:
+    return {"PDMODE": PDMODE, "PDSIZE": tamano_marcador(escala)}
+
+
+def posiciones_rotulos(escala: Escala) -> dict[str, tuple[float, float, float]]:
+    """(dx, dy, altura) de cada rótulo respecto del punto, en unidades de dibujo: número arriba a la derecha, elevación a la derecha y
+    descripción abajo a la derecha (las mismas posiciones que tenían los atributos del bloque)."""
+    f = escala.altura("punto_simbolo") / escala.alturas_mm["punto_simbolo"]  # unidades de dibujo por mm de papel
+    x = escala.alturas_mm["punto_simbolo"] / 2 * 1.6 * f
+    hn, he, hd = (escala.alturas_mm[k] for k in ("punto_numero", "punto_elevacion", "punto_descripcion"))
+    return {
+        "num": (x, he * 0.9 * f, hn * f),
+        "elev": (x, -he * 0.45 * f, he * f),
+        "desc": (x, (-he * 0.45 - hd * 1.5) * f, hd * f),
+    }
+
+
+def agregar_punto(d: Dibujo, escala: Escala, tipo: str, x: float, y: float, z: float, numero: str, elevacion: str, descripcion: str, estilo: str = "CIVIL",
+                  rotulos: dict | None = None, ver_numero: bool = True) -> int:
+    """Un punto: la entidad POINT en (x, y, z) y un TEXT por cada rótulo con valor (número, elevación, descripción).
+
+    XDATA del punto: [punto, número, tipo]. XDATA de cada rótulo: [rotulo, número, tipo, rol, enlace al punto].
+    `rotulos` (opcional) trae, por rol («num», «elev», «desc»), la posición, la altura y la rotación que ya tenía el rótulo
+    ({"posicion": (x, y), "altura": h, "rotacion": grados}); lo que no trae sale en su lugar de siempre. El número del punto va siempre en
+    el XDATA; con `ver_numero` en falso no se dibuja su rótulo. Devuelve el índice del punto.
+    """
+    if tipo not in CAPAS_PUNTOS or tipo not in BLOQUES:
+        raise ValueError(f"Tipo de punto desconocido: {tipo}")
+    d.capa(CAPAS_PUNTOS[tipo])
+    d.variables.update(variables_de_puntos(escala))
+    d.estilo(EstiloTexto(estilo, "romans.shx", 0.85))
+    indice = len(d.entidades)
+    d.agregar(PuntoCad(CAPAS_PUNTOS[tipo].nombre, posicion=(float(x), float(y), float(z)), datos={APP: [(1000, "punto"), (1000, numero), (1000, tipo)]}))
+    pos = posiciones_rotulos(escala)
+    valores = {"num": numero if ver_numero else "", "elev": elevacion, "desc": descripcion}
+    for rol, valor in valores.items():
+        if not valor:
+            continue
+        dx, dy, h = pos[rol]
+        capa = CAPAS_PUNTOS[CAPA_DE_ROL[rol]]
+        d.capa(capa)
+        px, py, rot = float(x) + dx, float(y) + dy, 0.0
+        if rotulos and rol in rotulos:
+            r = rotulos[rol]
+            if r.get("posicion"):
+                px, py = float(r["posicion"][0]), float(r["posicion"][1])
+            if r.get("altura") and r["altura"] > 0:
+                h = float(r["altura"])
+            rot = float(r.get("rotacion") or 0.0)
+        d.agregar(Texto(capa.nombre, valor=str(valor), posicion=(px, py), altura=h, rotacion=rot, estilo=estilo, elevacion=float(z),
+                        datos={APP: [(1000, "rotulo"), (1000, numero), (1000, tipo), (1000, rol), (1005, Enlace(indice))]}))
+    return indice
+
+
 def dibujar_puntos(
     puntos: Iterable[Punto],
     escala: Escala | None = None,
@@ -57,30 +121,22 @@ def dibujar_puntos(
     descripcion: bool = True,
     estilo: str = "CIVIL",
 ) -> Dibujo:
-    """Un bloque PT_TERRENO o PT_PROYECTO por punto, en la Z del punto, a la escala del plano.
+    """Un POINT por punto, en su X, Y, Z, y un TEXT por rótulo (número, elevación, descripción), a la escala del plano.
 
-    Un campo apagado queda con el atributo vacío (se puede volver a llenar). XDATA: [punto, número, tipo].
+    El marcador lo da el dibujo (PDMODE 34, PDSIZE por la escala), no un bloque. Un rótulo apagado no se dibuja.
     """
     esc = escala or Escala()
-    f = float(esc.denominador) / 1000.0 * esc.unidades_por_metro
     d = Dibujo()
     d.estilo(EstiloTexto(estilo, "romans.shx", 0.85))
+    d.variables.update(variables_de_puntos(esc))
     for k in ("numero", "elevacion", "descripcion"):
         d.capa(CAPAS_PUNTOS[k])
     for p in puntos:
         if p.tipo not in BLOQUES:
             raise ValueError(f"Tipo de punto desconocido: {p.tipo}")
-        if BLOQUES[p.tipo] not in d.bloques:
-            d.bloques[BLOQUES[p.tipo]] = bloque_punto(p.tipo, estilo)
-            d.capa(CAPAS_PUNTOS[p.tipo])
         z = 0.0 if p.z is None else float(p.z)
-        attrs = {
-            "NUM": p.numero if numero else "",
-            "ELEV": (f"{p.z:.{decimales_z}f}" if p.z is not None else "") if elevacion else "",
-            "DESC": p.descripcion if descripcion else "",
-        }
-        d.agregar(Insercion(CAPAS_PUNTOS[p.tipo].nombre, bloque=BLOQUES[p.tipo], posicion=(float(p.x), float(p.y), z), escala=f,
-                            atributos=attrs, datos={APP: [(1000, "punto"), (1000, p.numero), (1000, p.tipo)]}))
+        agregar_punto(d, esc, p.tipo, p.x, p.y, z, p.numero, (f"{p.z:.{decimales_z}f}" if p.z is not None else "") if elevacion else "",
+                      p.descripcion if descripcion else "", estilo, ver_numero=numero)
     return d
 
 

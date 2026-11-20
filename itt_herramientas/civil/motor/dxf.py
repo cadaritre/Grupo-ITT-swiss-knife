@@ -10,6 +10,7 @@ from .entidades import (
     Bloque,
     Cara3D,
     Dibujo,
+    Enlace,
     Insercion,
     Linea,
     Polilinea,
@@ -40,13 +41,14 @@ def _attrs(e, extra=None):
     return a
 
 
-def _xdata(doc, entidad, datos):
+def _xdata(doc, entidad, datos, handles=None):
     if not datos:
         return
     for app, valores in datos.items():
         if app not in doc.appids:
             doc.appids.add(app)
-        entidad.set_xdata(app, list(valores))
+        valores = [(c, handles[v.indice] if isinstance(v, Enlace) else v) for c, v in valores]
+        entidad.set_xdata(app, valores)
 
 
 def _texto_alineado(espacio, t: Texto):
@@ -54,13 +56,13 @@ def _texto_alineado(espacio, t: Texto):
     h, v = _H[t.alineacion_h], _V[t.alineacion_v]
     ent.dxf.halign = h
     ent.dxf.valign = v
-    ent.dxf.insert = (t.posicion[0], t.posicion[1])
+    ent.dxf.insert = (t.posicion[0], t.posicion[1], t.elevacion)
     if h or v:
-        ent.dxf.align_point = (t.posicion[0], t.posicion[1])
+        ent.dxf.align_point = (t.posicion[0], t.posicion[1], t.elevacion)
     return ent
 
 
-def _entidad(doc, espacio, e):
+def _entidad(doc, espacio, e, handles=None):
     if isinstance(e, Linea):
         ent = espacio.add_line(e.inicio, e.fin, dxfattribs=_attrs(e))
     elif isinstance(e, Polilinea):
@@ -96,7 +98,7 @@ def _entidad(doc, espacio, e):
         ent.paths.add_polyline_path(e.contorno, is_closed=True)
     else:
         raise TypeError(f"Entidad no soportada: {type(e).__name__}")
-    _xdata(doc, ent, getattr(e, "datos", None))
+    _xdata(doc, ent, getattr(e, "datos", None), handles)
     return ent
 
 
@@ -137,9 +139,12 @@ def a_documento(dibujo: Dibujo, version: str = "R2018"):
         st.dxf.width = s.factor_ancho
     for b in dibujo.bloques.values():
         _bloque(doc, b)
+    for nombre, valor in dibujo.variables.items():
+        doc.header["$" + nombre.upper()] = valor
     msp = doc.modelspace()
+    handles: list[str] = []
     for e in dibujo.entidades:
-        _entidad(doc, msp, e)
+        handles.append(_entidad(doc, msp, e, handles).dxf.handle)
     return doc
 
 

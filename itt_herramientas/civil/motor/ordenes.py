@@ -30,7 +30,7 @@ from .cuadro_curvas import curvas_de_polilineas, dibujar_cuadro_curvas
 from .anotacion import CAPAS_ANOTACION, CAPAS_RETICULA, anotar_lados, cuadricula_utm, intervalo_reticula, numerar_vertices
 from .curvas import CAPAS_CURVAS, Curva, ancho_etiqueta, curvas_de_nivel, dibujar_curvas, etiquetar, suavizar, texto_etiqueta, unir_cortadas
 from .curvas import _en as _en_curva
-from .dibujos import APP, BLOQUES, CAPAS_PUNTOS, bloque_punto, dibujar_puntos, dibujar_tin
+from .dibujos import APP, BLOQUES, CAPAS_PUNTOS, agregar_punto, dibujar_puntos, dibujar_tin, variables_de_puntos
 from .edicion_tin import ErrorEdicion, agregar, invertir, normalizar_cara, insertar_puntos, quitar_dentro, quitar_fuera, quitar_largos, revisar
 from .eje import Eje, EjePI, TramoEspiral, formato_estacion, leer_estacion
 from .estaciones import estacion_de_punto, lista_estaciones
@@ -76,6 +76,11 @@ def _escala(d: dict) -> Escala:
 
 def _dxf(d: Dibujo) -> str:
     return base64.b64encode(dxf_mod.a_bytes(d)).decode("ascii")
+
+
+def _variables(d: Dibujo) -> dict:
+    """Las variables del encabezado que el dibujo pide (PDMODE, PDSIZE): la página las pone en el plano, que no las trae de la copia."""
+    return {k.lower(): v for k, v in d.variables.items()}
 
 
 def _caras(lista) -> list:
@@ -217,7 +222,9 @@ def importar_puntos(d: dict) -> dict:
     }
     if not d.get("solo_vista"):
         e = d.get("etiquetas") or {}
-        salida["dxf"] = _dxf(dibujar_puntos(pts, _escala(d), int(d.get("decimales_z", 3)), e.get("numero", True), e.get("elevacion", True), e.get("descripcion", True)))
+        dib = dibujar_puntos(pts, _escala(d), int(d.get("decimales_z", 3)), e.get("numero", True), e.get("elevacion", True), e.get("descripcion", True))
+        salida["dxf"] = _dxf(dib)
+        salida["variables"] = _variables(dib)
     return salida
 
 
@@ -274,6 +281,7 @@ def importar_kml(d: dict) -> dict:
             e = d.get("etiquetas") or {}
             dib.unir(dibujar_puntos(r.puntos_civil, _escala(d), int(d.get("decimales_z", 3)), e.get("numero", True), e.get("elevacion", True), e.get("descripcion", True)))
         salida["dxf"] = _dxf(dib)
+        salida["variables"] = _variables(dib)
     return salida
 
 
@@ -400,8 +408,9 @@ def _orden_natural(texto: str):
 def redibujar_puntos(d: dict) -> dict:
     """Vuelve a dibujar puntos que ya están en el plano, a la escala de `escala` y, con `renumerar`, con números nuevos.
 
-    Cada punto: {"x", "y", "z", "tipo", "atributos": {"NUM", "ELEV", "DESC"}}. Los atributos se conservan tal como están
-    (un rótulo apagado sigue vacío; la elevación, con sus decimales). `renumerar`: {"inicio", "incremento", "prefijo",
+    Cada punto: {"x", "y", "z", "tipo", "numero"?, "atributos": {"NUM", "ELEV", "DESC"}}. Los rótulos se conservan tal como están
+    (un rótulo apagado, vacío, sigue sin dibujarse; la elevación, con sus decimales). «numero» es el número del punto cuando su rótulo
+    está apagado; sin él, es el del atributo NUM. `renumerar`: {"inicio", "incremento", "prefijo",
     "orden": "numero" | "oeste_este" | "norte_sur" | "como_estan"}. Devuelve el DXF; la página borra los anteriores.
     """
     lista = d.get("puntos") or []
@@ -414,14 +423,15 @@ def redibujar_puntos(d: dict) -> dict:
             tipo = q.get("tipo", TERRENO)
             if tipo not in BLOQUES:
                 raise ErrorOrden("Elige terreno o proyecto.")
-            pts.append({"x": float(q["x"]), "y": float(q["y"]), "z": float(q.get("z") or 0.0), "tipo": tipo,
+            # «numero» es quién es el punto (va en el XDATA); «atributos.NUM» es lo que dice su rótulo (vacío: el rótulo está apagado)
+            pts.append({"x": float(q["x"]), "y": float(q["y"]), "z": float(q.get("z") or 0.0), "tipo": tipo, "id": str(q["numero"]) if "numero" in q else None,
                         "NUM": str(a.get("NUM", "")), "ELEV": str(a.get("ELEV", "")), "DESC": str(a.get("DESC", ""))})
         except (KeyError, TypeError, ValueError, AttributeError):
             raise ErrorOrden("Un punto del plano no se pudo leer.") from None
     r = d.get("renumerar")
     if r:
         orden = r.get("orden", "numero")
-        claves = {"numero": lambda p: _orden_natural(p["NUM"]), "oeste_este": lambda p: (p["x"], -p["y"]), "norte_sur": lambda p: (-p["y"], p["x"])}
+        claves = {"numero": lambda p: _orden_natural(p["NUM"] if p["id"] is None else p["id"]), "oeste_este": lambda p: (p["x"], -p["y"]), "norte_sur": lambda p: (-p["y"], p["x"])}
         if orden in claves:
             pts.sort(key=claves[orden])
         elif orden != "como_estan":
@@ -429,22 +439,52 @@ def redibujar_puntos(d: dict) -> dict:
         inicio, inc = int(_num(r, "inicio", 1, minimo=0)), int(_num(r, "incremento", 1, minimo=1, maximo=1000))
         prefijo = str(r.get("prefijo", ""))[:8]
         for k, p in enumerate(pts):
-            p["NUM"] = f"{prefijo}{inicio + k * inc}"
+            nuevo = f"{prefijo}{inicio + k * inc}"
+            p["NUM"], p["id"] = (nuevo if p["NUM"] or p["id"] is None else ""), nuevo   # un rótulo de número apagado sigue apagado
     esc = _escala(d)
-    f = float(esc.denominador) / 1000.0 * esc.unidades_por_metro
-    # lo mismo que dibujar_puntos (bloque en mm de papel, inserción a E/1000, XDATA), con los atributos tal como estaban
+    # lo mismo que dibujar_puntos (POINT y TEXT por rótulo, XDATA), con los rótulos tal como estaban: uno vacío no se dibuja
     dib = Dibujo()
     dib.estilo(EstiloTexto("CIVIL", "romans.shx", 0.85))
-    for k in ("numero", "elevacion", "descripcion"):
-        dib.capa(CAPAS_PUNTOS[k])
     for p in pts:
-        if BLOQUES[p["tipo"]] not in dib.bloques:
-            dib.bloques[BLOQUES[p["tipo"]]] = bloque_punto(p["tipo"])
-            dib.capa(CAPAS_PUNTOS[p["tipo"]])
-        dib.agregar(Insercion(CAPAS_PUNTOS[p["tipo"]].nombre, bloque=BLOQUES[p["tipo"]], posicion=(p["x"], p["y"], p["z"]), escala=f,
-                              atributos={"NUM": p["NUM"], "ELEV": p["ELEV"], "DESC": p["DESC"]},
-                              datos={APP: [(1000, "punto"), (1000, p["NUM"]), (1000, p["tipo"])]}))
-    return {"dxf": _dxf(dib), "resumen": {"puntos": len(pts), "renumerados": bool(r)}, "avisos": []}
+        agregar_punto(dib, esc, p["tipo"], p["x"], p["y"], p["z"], p["NUM"] if p["id"] is None else p["id"], p["ELEV"], p["DESC"], ver_numero=bool(p["NUM"]))
+    return {"dxf": _dxf(dib), "variables": _variables(dib), "resumen": {"puntos": len(pts), "renumerados": bool(r)}, "avisos": []}
+
+
+def convertir_puntos(d: dict) -> dict:
+    """Puntos del modelo anterior (bloque PT_TERRENO o PT_PROYECTO con atributos) a entidad punto con rótulos de texto.
+
+    Cada punto: {"handle", "x", "y", "z", "tipo", "atributos": {"NUM", "ELEV", "DESC"}, "escala_insercion"?}. Se conservan el número, la
+    elevación tal como estaba escrita (con sus decimales), la descripción y la visibilidad de cada rótulo (un atributo vacío no vuelve a
+    dibujarse). La escala de cada punto es la de su inserción (E/1000), o la del plano. Devuelve el DXF, los `borrar` (los bloques
+    viejos) y los nombres de los `bloques` que quedan sin uso cuando se borran todos los puntos viejos.
+    """
+    lista = d.get("puntos") or []
+    if not lista:
+        raise ErrorOrden("No hay puntos de bloque para convertir.")
+    plano = _escala(d)
+    dib = Dibujo()
+    dib.estilo(EstiloTexto("CIVIL", "romans.shx", 0.85))
+    borrar, cuenta = [], {}
+    for q in lista:
+        try:
+            a = q.get("atributos") or {}
+            tipo = q.get("tipo", TERRENO)
+            if tipo not in BLOQUES:
+                raise ErrorOrden("Elige terreno o proyecto.")
+            den = float(q["escala_insercion"]) * 1000.0 if q.get("escala_insercion") else None
+            esc = Escala(round(den, 6), plano.alturas_mm, plano.unidades_por_metro) if den and den > 0 and den != float(plano.denominador) else plano
+            agregar_punto(dib, esc, tipo, float(q["x"]), float(q["y"]), float(q.get("z") or 0.0), str(a.get("NUM", "")), str(a.get("ELEV", "")), str(a.get("DESC", "")))
+            cuenta[esc.denominador] = cuenta.get(esc.denominador, 0) + 1
+            if q.get("handle"):
+                borrar.append(q["handle"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise ErrorOrden("Un punto del plano no se pudo leer.") from None
+    # el tamaño del marcador es uno solo para todo el dibujo: el de la escala que más puntos tenía
+    dominante = max(cuenta, key=cuenta.get)
+    dib.variables.update(variables_de_puntos(Escala(dominante, plano.alturas_mm, plano.unidades_por_metro)))
+    avisos = [f"Los puntos estaban a {len(cuenta)} escalas distintas; el marcador toma la de la mayoría (1:{dominante:g})."] if len(cuenta) > 1 else []
+    return {"dxf": _dxf(dib), "variables": _variables(dib), "borrar": borrar, "bloques": sorted(BLOQUES.values()),
+            "resumen": {"convertidos": len(lista), "escala": dominante}, "avisos": avisos}
 
 
 # --- triangulación ---------------------------------------------------------------------------------
@@ -1439,6 +1479,7 @@ ORDENES: dict[str, Callable[[dict], dict]] = {
     "importar_kml": importar_kml,
     "exportar_kml": exportar_kml,
     "redibujar_puntos": redibujar_puntos,
+    "convertir_puntos_a_entidad": convertir_puntos,
     "triangular": triangular,
     "invertir": invertir_triangulos,
     "quitar_triangulos": quitar_triangulos,

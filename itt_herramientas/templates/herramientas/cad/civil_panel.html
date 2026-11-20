@@ -19,6 +19,12 @@
   <button type="button" class="tv-boton tv-boton--fantasma" id="civil-pick-cancelar">Cancelar</button>
 </div>
 
+<div class="civil-oferta" id="civil-oferta" role="status" hidden>
+  {% icono "map-pin-check" %}<span id="civil-oferta-texto"></span>
+  <button type="button" class="tv-boton tv-boton--secundario" id="civil-oferta-convertir">Convertir</button>
+  <button type="button" class="tv-boton tv-boton--fantasma" id="civil-oferta-cerrar">Ahora no</button>
+</div>
+
 {# -- Escala ------------------------------------------------------------------------------------------------------------------- #}
 {% hoja_inferior "civil-hoja-escala" titulo="Escala y textos" %}
 <form class="tv-formulario civil-form" data-civil-form="escala">

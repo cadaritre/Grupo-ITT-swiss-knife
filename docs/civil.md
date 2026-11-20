@@ -13,7 +13,7 @@ Código: `itt_herramientas/civil/` (servidor y motor fijado), `templates/herrami
 
 | Grupo de la cinta (menú de la barra) | Acciones |
 | --- | --- |
-| Puntos | Importar (cualquier delimitador y cualquier orden de columnas, con vista previa en tabla y formatos guardados; terreno o proyecto) · Exportar (los mismos formatos) · Dibujar punto (señalado o por coordenadas, con el siguiente número libre) · Editar punto (número, elevación, descripción, posición) · Etiquetas de puntos (mostrar u ocultar número, elevación y descripción —capa por rótulo— y reescribir los decimales de la elevación) · Convertir puntos (terreno ↔ proyecto, conservando sus datos) · Renumerar (desde N, de cuánto en cuánto, prefijo; por número actual, de oeste a este o de norte a sur) · Localizar punto (por número: la vista va a él y queda seleccionado) · Reporte de puntos (PDF o Word, con latitud y longitud si se pide) |
+| Puntos | Importar (cualquier delimitador y cualquier orden de columnas, con vista previa en tabla y formatos guardados; terreno o proyecto) · Exportar (los mismos formatos) · Dibujar punto (señalado o por coordenadas, con el siguiente número libre) · Editar punto (número, elevación, descripción, posición) · Etiquetas de puntos (mostrar u ocultar número, elevación y descripción —capa por rótulo— y reescribir los decimales de la elevación) · Convertir puntos (terreno ↔ proyecto, conservando sus datos) · Convertir puntos a entidad punto (los bloques de un plano anterior pasan a POINT con rótulos de texto, en un solo paso de deshacer) · Renumerar (desde N, de cuánto en cuánto, prefijo; por número actual, de oeste a este o de norte a sur) · Localizar punto (por número: la vista va a él y queda seleccionado) · Reporte de puntos (PDF o Word, con latitud y longitud si se pide) |
 | Triangulación | Triangular (todos los puntos de la superficie, los que se seleccionan en el plano —clic, ventana o captura— o los que caen dentro de un polígono, con la cuenta antes de correr; líneas de quiebre, límite, islas, arista máxima, sin los puntos de ciertas descripciones —ARBOL, POSTE, BAR*—; reemplaza la anterior) · Invertir triángulos · Borrar triángulos (los que elija, fuera de un límite, dentro de un polígono, lados largos) · Agregar triángulo · Insertar puntos (seleccionados en el plano o dentro de un polígono; parten su triángulo o lado y los vecinos se ajustan a Delaunay) · Revisar triangulación (repetidos, encimados, sin superficie, lados con más de dos triángulos, muy delgados: marcados en rojo y seleccionados) |
 | Curvas | Curvas de nivel (intervalo, maestras, suavizado sin cruces, etiquetas) · Actualizar curvas (desde los triángulos que hay en el dibujo) · Etiquetar curvas (donde se señala o a lo largo; la curva nunca se corta: la etiqueta lleva fondo) · Suavizar curvas (las elegidas, sin tocar a las demás) · Unir curvas cortadas (las que partieron las versiones anteriores bajo sus etiquetas) |
 | Cuadros | Cuadro de construcción (rumbos N 45°30'15" E, lados curvos, ha-a-ca; formatos normal, RAN —coordenadas UTM y geográficas— y UTM-GPS —además factor de escala y convergencia por vértice y la superficie sobre el terreno—; también «Descargar DXF», el antiguo IT-10) · Cuadro de curvas · Rumbo y distancia de lados · Numerar vértices · Memoria descriptiva (PDF o Word, con colindancias lado por lado) |
@@ -82,10 +82,10 @@ página (civil.js) ──TVCad.pedir──▶ editor (lee entidades: records, qu
                        dibujo temporal (open) + entities_copy_to ──▶ plano
 ```
 
-- **El dibujo es la fuente de verdad.** Puntos (bloques `PT_TERRENO` / `PT_PROYECTO` con atributos NUM, ELEV y DESC), triangulación (3DFACE
+- **El dibujo es la fuente de verdad.** Puntos (entidades POINT con rótulos TEXT: ver «Puntos: entidad POINT y rótulos de texto»), triangulación (3DFACE
   en `TRIANGULACION` / `TRIANGULACION_PROYECTO`), curvas y tablas son entidades normales del DWG/DXF con XDATA `TVCIVIL`. Editar el dibujo
   y luego «Actualizar curvas» funciona, y todo sobrevive a guardar y volver a abrir.
-- **Leer:** los puntos con `query` y proyección (`fields: handle, block, position, attributes`); las caras con `records` y
+- **Leer:** los puntos con `query` (los POINT de las capas de puntos y los TEXT de las capas de rótulos) y el XDATA `TVCIVIL` de todos de una vez con `xdata_get` (5 000 puntos con sus 15 000 rótulos, ≈ 1.5 s); los bloques de un plano anterior también. Las caras con `records` y
   `paths: /first_corner…/third_corner` (≈ 360 bytes por cara en lugar de ≈ 1 kB).
 - **Calcular:** en el servidor. Las órdenes ligeras (puntos, cuadros, invertir, borrar o agregar triángulos) responden en la misma petición;
   las pesadas (triangular, revisar, curvas, perfil, secciones, volumen) van a la cola `herramientas` de tareas (hasta 3 min, ≤ 768 MB). Las tareas
@@ -103,6 +103,7 @@ página (civil.js) ──TVCad.pedir──▶ editor (lee entidades: records, qu
 | Importar, triangular la primera vez, curvas la primera vez, cuadro, perfil, secciones, volumen | 1 | 1 |
 | Volver a dibujar el perfil o las secciones de un eje con otras opciones (lo nuevo se copia y se borra lo anterior) | 2 | 2 |
 | Invertir triángulos (dos `set_properties` en un `batch`) | 1 | 2 |
+| Editar, renumerar, convertir de tipo o cambiar los decimales de puntos; convertir los bloques viejos a entidad punto (la copia y el borrado de lo anterior en un `batch`, con `source_document_id`, parches 110 y 111) | 1 | 2 (copia y borrado uno tras otro) |
 | Borrar triángulos | 1 | 1 |
 | Volver a triangular, actualizar curvas (lo nuevo se copia y después se borra lo anterior) | 2 | 2 |
 
@@ -151,10 +152,29 @@ puente que sigue la curvatura; las etiquetas viejas sobre las curvas unidas se r
 
 ### Escala
 
-La escala viaja con el plano: los bloques de punto se dibujan en mm de papel y se insertan a escala E/1000, así que al abrir un plano Civil
-la lee de sus puntos. Las alturas propias (mm por tipo de texto) se guardan en el navegador por plano. Cambiar la escala con «Ajustar los
+La escala viaja con el plano: el marcador de los puntos es el estilo de punto del dibujo (`PDMODE` 34, cruz con círculo) con `PDSIZE` = 1.2 mm de papel por
+la escala, y los rótulos van a su altura por escala; al abrir un plano Civil la lee del `PDSIZE`. (Los planos anteriores la traían en la escala E/1000 de sus bloques.) Las alturas propias (mm por tipo de texto) se guardan en el navegador por plano. Cambiar la escala con «Ajustar los
 puntos ya dibujados» vuelve a dibujar los puntos a la nueva escala (orden `redibujar_puntos`): los rótulos quedan tal como estaban, también
 los apagados y los decimales de la elevación. «Renumerar puntos» usa la misma orden.
+
+## Puntos: entidad POINT y rótulos de texto
+
+Cada punto es una entidad **POINT** real en (X, Y, Z) en la capa de puntos de terreno (`PUNTOS_TERRENO`) o de proyecto (`PUNTOS_PROYECTO`), con
+XDATA `TVCIVIL` `[punto, número, tipo]`. Su número, elevación y descripción son entidades **TEXT** (estilo `CIVIL`, a su altura por escala, en la Z del
+punto), cada una en su capa (`PUNTOS_NUMERO`, `PUNTOS_ELEVACION`, `PUNTOS_DESCRIPCION`) con XDATA `[rotulo, número, tipo, rol, handle del punto]`
+(rol: `num`, `elev` o `desc`); el editor traduce ese handle a la copia del punto cuando el resultado se copia al plano (parche 111), y si se pierde Civil
+encuentra el rótulo por tipo, número, rol y cercanía. Un rótulo apagado o vacío no se dibuja; apagar su capa oculta todos los de ese rol.
+El marcador lo pone el dibujo (`PDMODE` 34 y `PDSIZE`), que Civil escribe en el encabezado al dibujar puntos; se guarda en DWG y DXF.
+
+- **Explotar no daña nada:** POINT y TEXT ya son primitivas. **Mover** solo el punto deja sus rótulos donde estaban, como en CivilCAD; **«Editar punto»**
+  mueve el punto y sus rótulos juntos (los dibuja de nuevo y borra los anteriores, en un solo paso de deshacer).
+- **AutoCAD y otros programas** ven puntos (POINT con su Z) y textos (TEXT); no hace falta Civil para consultarlos.
+- **Planos anteriores (bloques):** se siguen leyendo en todas las acciones (el bloque `PT_TERRENO` / `PT_PROYECTO` con atributos NUM, ELEV y DESC). Al abrir
+  un plano que los tiene, un renglón sobre el lienzo (sin bloquear nada) ofrece convertirlos; «Ahora no» lo quita en ese plano. **Convertir puntos a
+  entidad punto** (menú Puntos, `CVPUNTOSAENTIDAD`) los pasa todos al modelo nuevo conservando número, elevación tal como estaba escrita, descripción y qué
+  rótulos estaban apagados, en **un solo paso de deshacer**, y quita las definiciones de bloque que ya nadie usa. El tamaño del marcador toma la escala de
+  los bloques (la de la mayoría, con aviso, si había varias).
+- Con un editor anterior al parche 110 la copia y el borrado van uno tras otro (dos pasos de deshacer); Civil lo pregunta una vez sin tocar el plano.
 
 ## Archivos de puntos: delimitador, columnas y formatos guardados
 

@@ -59,6 +59,11 @@ def pedir(p, peticion, ms=120000):
     return p.evaluate("([q, t]) => TVCad.pedir(q, {tiempoMs: t})", [peticion, ms])
 
 
+def puntos_civil(p, tipo=None):
+    """Los puntos de Civil del plano como los lee la página (los dos modelos): x, y, z, tipo, numero, atributos y rótulos."""
+    return p.evaluate("t => TVCivil.leerPuntos({tipo: t})", tipo)
+
+
 def cuenta(p, tipo=None, capa=None):
     q = {"op": "query", "limit": 1, "detail": "summary"}
     if tipo:
@@ -238,16 +243,17 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     p.locator('[data-civil-form="importar"] [data-civil-enviar]').click()
     esperar(p, "!document.getElementById('civil-hoja-importar').open", LARGO * 2)
     importar_s = time.monotonic() - t
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 5000
-    ins = pedir(p, {"op": "query", "type": "INSERT", "layer": "PUNTOS_TERRENO", "limit": 1, "detail": "full", "fields": ["position", "attributes"]})["entities"][0]
-    assert ins["position"][0] > 389000 and ins["attributes"]["DESC"] == "TN"
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 5000 and cuenta(p, "INSERT") == 0          # entidades POINT, no bloques
+    ins = puntos_civil(p, "terreno")[0]
+    assert ins["x"] > 389000 and ins["atributos"]["DESC"] == "TN" and not ins["legado"] and cuenta(p, "Text", "PUNTOS_NUMERO") == 5000
+    assert pedir(p, {"op": "sysvar", "get": ["pdmode", "pdsize"]})["result"]["values"] == {"pdmode": 34, "pdsize": pytest.approx(1.2)}
     esperar_estado(p, "sucio")
     foto(p, "03-puntos-dibujados", 1280)
     # deshacer quita la importación entera y rehacer la devuelve (un solo paso)
     pedir(p, {"op": "undo"})
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 0
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 0 and cuenta(p, "Text", "PUNTOS_NUMERO") == 0
     pedir(p, {"op": "redo"})
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 5000
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 5000
 
     # 2. Triangular
     menu(p, "terreno", "triangular")
@@ -499,10 +505,10 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     p.locator('[data-civil-form="renumerar"] button[type=submit]').click()
     esperar(p, "!document.getElementById('civil-hoja-renumerar').open", LARGO)
     esperar_libre(p)
-    pl = pedir(p, {"op": "query", "type": "INSERT", "layer": "PUNTOS_PROYECTO", "detail": "full", "fields": ["position", "attributes"]})["entities"]
-    numeros = {e["attributes"]["NUM"]: round(e["position"][0] - X0) for e in pl}
+    pl = puntos_civil(p, "proyecto")
+    numeros = {e["numero"]: round(e["x"] - X0) for e in pl}
     assert sorted(numeros) == ["PL-101", "PL-102", "PL-103", "PL-104", "PL-105"] and numeros["PL-101"] == 100 and numeros["PL-105"] == 200, numeros
-    assert {e["attributes"]["DESC"] for e in pl} == {"PLAT"}
+    assert {e["atributos"]["DESC"] for e in pl} == {"PLAT"} and all(set(e["rotulos"]) == {"num", "elev", "desc"} for e in pl)
     menu(p, "terreno", "triangular")
     p.locator('[data-civil-form="triangular"] input[name=tipo][value=proyecto]').check()
     p.locator('[data-civil-form="triangular"] button[type=submit]').click()
@@ -528,10 +534,9 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
         esperar(p, "TVCad.pedir({op: 'ribbon_items'}).then(r => r.commands.find(c => c.command === 'CVESCALA').label.startsWith('1:500 '))", LARGO)
     else:
         assert p.locator("#civil-escala-texto").inner_text() == "1:500"
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 5000 and cuenta(p, "INSERT", "PUNTOS_PROYECTO") == 5
-    e = pedir(p, {"op": "query", "type": "INSERT", "layer": "PUNTOS_PROYECTO", "limit": 1, "detail": "full"})["entities"][0]
-    escala_x = e.get("properties", {}).get("x_scale") or (e.get("properties", {}).get("scale") or {}).get("x")
-    assert escala_x == pytest.approx(0.5) and e["attributes"]["NUM"].startswith("PL-"), e
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 5000 and cuenta(p, "Point", "PUNTOS_PROYECTO") == 5
+    e = puntos_civil(p, "proyecto")[0]
+    assert pedir(p, {"op": "sysvar", "get": ["pdsize"]})["result"]["values"]["pdsize"] == pytest.approx(0.6) and e["numero"].startswith("PL-"), e   # 1.2 mm de papel a 1:500
 
     # 8. Guardar en DWG y volver a abrir: todo sigue ahí (cuando Civil terminó de dibujar la línea de ceros)
     esperar_libre(p)
@@ -546,10 +551,10 @@ def test_flujo_civil_completo(cad, navegar, crear_usuario, roles, motor, tmp_pat
     p = n.ir(f"/cad/{plano.pk}/")
     esperar_estado(p, "guardado")
     esperar(p, "window.TVCad && TVCad.estaListo()", LARGO)
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 5000
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 5000
     assert cuenta(p, "3DFACE", "TRIANGULACION") == caras
-    ins = pedir(p, {"op": "query", "type": "INSERT", "layer": "PUNTOS_TERRENO", "limit": 1, "detail": "full", "fields": ["attributes"]})["entities"][0]
-    assert ins["attributes"]["DESC"] == "TN"
+    ins = puntos_civil(p, "terreno")[0]
+    assert ins["atributos"]["DESC"] == "TN" and pedir(p, {"op": "sysvar", "get": ["pdmode"]})["result"]["values"]["pdmode"] == 34   # el marcador viaja en el DWG
     esperar(p, "document.documentElement.dataset.civil === 'cinta' ? TVCad.pedir({op: 'ribbon_items'}).then(r => r.commands.find(c => c.command === 'CVESCALA').label.startsWith('1:500 ')) : document.getElementById('civil-escala-texto').textContent === '1:500'", LARGO)   # la escala viaja con el plano
     assert not n.dialogos and not n.errores, (n.dialogos, n.errores)
     print(f"\n{motor}: importar 5000 puntos {importar_s:.1f} s · triangular {triangular_s:.1f} s")
@@ -585,8 +590,7 @@ def test_civil_v11(cad, navegar, crear_usuario, roles, motor, tmp_path):
     p.locator('[data-civil-form="localizar"] button[type=submit]').click()
     esperar_aviso(p, "Punto 7:")
     sel = pedir(p, {"op": "state"})["selection"]
-    ins = pedir(p, {"op": "query", "handles": sel, "detail": "full"})["entities"][0]
-    assert len(sel) == 1 and ins["attributes"]["NUM"] == "7"
+    assert len(sel) == 1 and [q["numero"] for q in puntos_civil(p) if q["handle"] == sel[0]] == ["7"]
 
     # un lote: cuadro RAN, rumbo y distancia, numerar vértices y memoria, eligiendo el lote con el ratón
     lote = pedir(p, {"op": "entities_create", "entities": [{"type": "LwPolyline", "vertices": [[X0 + 40, Y0 + 40], [X0 + 40, Y0 + 110], [X0 + 120, Y0 + 110], [X0 + 120, Y0 + 40]], "closed": True, "layer": "LOTE"}]})["result"]["handles"][0]
@@ -701,10 +705,7 @@ def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_pa
     esperar(p, "!document.getElementById('civil-hoja-importar').open", LARGO)
 
     def punto(num):
-        for e in pedir(p, {"op": "query", "type": "INSERT", "detail": "full", "fields": ["handle", "layer", "position", "attributes"], "limit": 10000})["entities"]:
-            if e["attributes"].get("NUM") == num:
-                return e
-        return None
+        return next((e for e in puntos_civil(p) if e["numero"] == num), None)
 
     # dibujar un punto por coordenadas: el número sugerido es el siguiente libre
     menu(p, "puntos", "punto_nuevo")
@@ -718,7 +719,7 @@ def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_pa
     p.locator('[data-civil-form="punto_nuevo"] button[type=submit]').click()
     esperar_aviso(p, "Punto 201 dibujado")
     e = punto("201")
-    assert e["attributes"] == {"NUM": "201", "ELEV": "123.457", "DESC": "MOJONERA"} and abs(e["position"][2] - 123.4567) < 1e-6
+    assert e["atributos"] == {"NUM": "201", "ELEV": "123.457", "DESC": "MOJONERA"} and abs(e["z"] - 123.4567) < 1e-6 and not e["legado"]
     p.locator("#civil-hoja-punto-nuevo [data-tv-cerrar]").first.click()
 
     # editarlo eligiéndolo en el dibujo
@@ -733,7 +734,8 @@ def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_pa
     foto(p, "25-punto-editar", 1280)
     p.locator('[data-civil-form="punto_editar"] button[type=submit]').click()
     esperar_aviso(p, "Punto 201 actualizado")
-    assert punto("201")["attributes"] == {"NUM": "201", "ELEV": "123.46", "DESC": "MOJONERA 2"} and cuenta(p, "INSERT", "PUNTOS_TERRENO") == 201
+    assert punto("201")["atributos"] == {"NUM": "201", "ELEV": "123.46", "DESC": "MOJONERA 2"} and cuenta(p, "Point", "PUNTOS_TERRENO") == 201
+    assert cuenta(p, "Text", "PUNTOS_NUMERO") == 201                      # el punto y sus rótulos cambiaron juntos: no quedaron rótulos de más
 
     # convertirlo a proyecto
     mapa = enfocar(p, (X0 + 55, Y0 + 55, X0 + 65, Y0 + 65))
@@ -742,7 +744,7 @@ def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_pa
     elegir_en_dibujo(p, [(X0 + 60, Y0 + 60)], mapa)
     esperar_aviso(p, "pasó a proyecto")
     e = punto("201")
-    assert e["layer"] == "PUNTOS_PROYECTO" and e["attributes"]["DESC"] == "MOJONERA 2" and cuenta(p, "INSERT", "PUNTOS_TERRENO") == 200
+    assert e["tipo"] == "proyecto" and e["atributos"]["DESC"] == "MOJONERA 2" and cuenta(p, "Point", "PUNTOS_TERRENO") == 200
 
     # etiquetas: ocultar la descripción y escribir las elevaciones con un decimal
     menu(p, "puntos", "etiquetas_puntos")
@@ -753,7 +755,7 @@ def test_civil_puntos_y_curvas(cad, navegar, crear_usuario, roles, motor, tmp_pa
     esperar_aviso(p, "Etiquetas aplicadas")
     capas = {c["name"]: c for c in pedir(p, {"op": "layers"})["layers"]}
     assert capas["PUNTOS_DESCRIPCION"]["off"] is True and capas["PUNTOS_NUMERO"]["off"] is False, capas["PUNTOS_DESCRIPCION"]
-    assert punto("201")["attributes"]["ELEV"] == "123.5" and cuenta(p, "INSERT", None) == 201
+    assert punto("201")["atributos"]["ELEV"] == "123.5" and cuenta(p, "Point", None) == 201
 
     # curvas, y etiquetarlas donde se señala
     menu(p, "terreno", "triangular")

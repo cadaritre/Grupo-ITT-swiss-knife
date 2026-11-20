@@ -36,6 +36,14 @@
   background: var(--tv-superficie); color: var(--tv-texto); border: 1px solid var(--tv-primario); box-shadow: var(--tv-sombra-3); font-weight: 500; font-size: var(--tv-texto-sm);
   animation: civil-aparece 160ms ease-out; }
 .civil-pick[hidden] { display: none; }
+/* Oferta de convertir los puntos de un plano anterior: un renglón abajo del lienzo, sin bloquear nada */
+.civil-oferta { position: absolute; left: 50%; bottom: var(--tv-espacio-3); transform: translateX(-50%); z-index: 19; display: flex; align-items: center; gap: var(--tv-espacio-2);
+  max-width: calc(100% - 2 * var(--tv-espacio-3)); padding: var(--tv-espacio-1) var(--tv-espacio-1) var(--tv-espacio-1) var(--tv-espacio-3); border-radius: 999px;
+  background: var(--tv-superficie); color: var(--tv-texto); border: 1px solid var(--tv-borde); box-shadow: var(--tv-sombra-3); font-size: var(--tv-texto-sm); }
+.civil-oferta[hidden] { display: none; }
+.civil-oferta > .tv-icono { flex: none; color: var(--tv-primario); }
+.civil-oferta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.civil-oferta > .tv-boton { flex: none; white-space: nowrap; }
 .civil-pick > .tv-icono { flex: none; color: var(--tv-primario); }
 .civil-pick > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .civil-pick > .tv-boton { flex: none; white-space: nowrap; }
