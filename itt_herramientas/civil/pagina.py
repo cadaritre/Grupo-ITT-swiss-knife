@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from django.urls import reverse
 
-from .motor.dibujos import BLOQUES, CAPAS_PUNTOS, CAPAS_TIN
+from .motor.dibujos import BLOQUES, CAPA_DE_ROL, CAPAS_PUNTOS, CAPAS_TIN, PDMODE
 from .motor.escala import ALTURAS_MM, ESCALAS_COMUNES
 from .motor.geodesia import ZONAS_MEXICO
 from .motor.puntos import COLUMNAS, ORDENES
@@ -28,6 +28,8 @@ MENUS = (
         {"clave": "punto_editar", "nombre": "Editar punto…", "icono": "map-pin-pen", "comando": "CVEDITARPUNTO"},
         {"clave": "etiquetas_puntos", "nombre": "Etiquetas de puntos…", "icono": "tags"},
         {"clave": "convertir_puntos", "nombre": "Convertir puntos…", "icono": "arrow-left-right"},
+        {"clave": "puntos_a_entidad", "nombre": "Convertir puntos a entidad punto", "corto": "A entidad punto", "icono": "map-pin-check", "comando": "CVPUNTOSAENTIDAD",
+         "descripcion": "Pasa los puntos de un plano anterior (bloques) a entidades punto con sus rótulos de texto, en un solo paso de deshacer."},
         {"clave": "renumerar", "nombre": "Renumerar puntos…", "icono": "list-ordered"},
         {"clave": "localizar", "nombre": "Localizar punto…", "icono": "locate-fixed", "solo_lee": True},
         {"separador": True},
@@ -211,8 +213,10 @@ def contexto(plano) -> dict:
             "urls": {"orden": reverse("herramientas:civil_orden", args=["__ORDEN__"]), "tarea": reverse("tvplataforma:tarea", kwargs={"tarea_id": MARCA}),
                      "formatos": reverse("herramientas:civil_formatos")},
             "alturas_mm": dict(ALTURAS_MM),
-            "capas": {"puntos": {k: CAPAS_PUNTOS[k].nombre for k in ("terreno", "proyecto")}, "tin": {k: c.nombre for k, c in CAPAS_TIN.items()}},
-            "bloques": dict(BLOQUES),
+            "capas": {"puntos": {k: CAPAS_PUNTOS[k].nombre for k in ("terreno", "proyecto")}, "tin": {k: c.nombre for k, c in CAPAS_TIN.items()},
+                      "rotulos": {rol: CAPAS_PUNTOS[capa].nombre for rol, capa in CAPA_DE_ROL.items()}},
+            "bloques": dict(BLOQUES),          # los bloques de punto de los planos anteriores: se leen y se pueden convertir
+            "pdmode": PDMODE,
             "columnas": [[k, n] for k, n in COLUMNAS.items()],
             "ordenes": dict(ORDENES),
         },

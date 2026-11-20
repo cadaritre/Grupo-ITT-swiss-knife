@@ -21,7 +21,7 @@
   const alAbrir = {};
 
   // -- Estado de la extensión ---------------------------------------------------------------------------------------------------
-  const est = { ocupado: false, escala: { denominador: 1000, alturas_mm: { ...C.alturas_mm }, zona: 14, hemisferio: "N" }, sinBatch: null, sinPicks: false, elegidos: {} };
+  const est = { ocupado: false, escala: { denominador: 1000, alturas_mm: { ...C.alturas_mm }, zona: 14, hemisferio: "N" }, sinBatch: null, copiaEnLote: undefined, sinPicks: false, elegidos: {} };
   try { Object.assign(est.escala, JSON.parse(localStorage.getItem(LLAVE) || "{}").escala || {}); } catch (_) { /* sin almacenamiento */ }
   const guardarAjustes = () => { try { localStorage.setItem(LLAVE, JSON.stringify({ escala: est.escala })); } catch (_) { /* nada */ } };
 
@@ -63,13 +63,31 @@
     for (const p of pasos) await pedir(p, 300000);
   }
 
-  /** Inserta un DXF (base64) en el plano: dibujo temporal + entities_copy_to (un paso de deshacer). Devuelve los handles nuevos. */
-  async function insertarDxf(b64, nombre = "civil.dxf") {
+  /**
+   * Inserta un DXF (base64) en el plano: dibujo temporal + entities_copy_to (un paso de deshacer). Devuelve los handles nuevos.
+   * `opciones.borrar`: lo que el resultado reemplaza; con un editor que copia desde otro documento dentro de un lote (parche 110) la copia y el
+   * borrado son UN paso de deshacer; con uno anterior, la copia y el borrado van uno tras otro (dos pasos). `opciones.bloques`: definiciones
+   * de bloque que se quitan en el mismo paso si ya nadie las usa. `opciones.variables`: variables del dibujo (PDMODE, PDSIZE) que se ponen
+   * al terminar. `opciones.etiqueta`: el nombre del paso de deshacer.
+   */
+  async function insertarDxf(b64, nombre = "civil.dxf", opciones = {}) {
     // Ocupado mientras el dibujo temporal existe: la página no lo toma por un plano más (pestaña) ni guarda a media copia.
     window.TVCad.ocupar();
-    try { return await insertarDxfLibre(b64, nombre); } finally { window.TVCad.soltar(); }
+    try {
+      await aplicarVariables(opciones.variables);          // antes de copiar: cambiarlas es su propio paso de deshacer y no debe quedar encima del resultado
+      return await insertarDxfLibre(b64, nombre, opciones);
+    } finally { window.TVCad.soltar(); }
   }
-  async function insertarDxfLibre(b64, nombre) {
+  /** PDMODE y PDSIZE del dibujo (el marcador de los puntos): la copia entre dibujos no trae el encabezado. Solo si cambian. */
+  async function aplicarVariables(v) {
+    if (!v || !Object.keys(v).length) return;
+    try {
+      const actual = ((await pedir({ op: "sysvar", get: Object.keys(v) })).result || {}).values || {};
+      if (Object.entries(v).every(([k, x]) => Math.abs(Number(actual[k]) - Number(x)) < 1e-9)) return;
+      await pedir({ op: "sysvar", set: v });
+    } catch (err) { console.warn("Civil: no se pudieron poner las variables del dibujo", v, err); }
+  }
+  async function insertarDxfLibre(b64, nombre, opciones = {}) {
     const plano = await documentoActivo();
     const antes = new Set(((await pedir({ op: "state" })).documents || []).map((d) => d.id));
     let temporal = null;
@@ -91,13 +109,61 @@
       }
       if (temporal === null) throw new ErrorCivil("El editor no abrió el resultado. Inténtalo de nuevo.");
       const handles = (await consultar({ detail: "summary", document_id: temporal })).map((e) => e.handle);
-      if (!handles.length) return [];
+      const reemplazar = (opciones.borrar || []).filter(Boolean);
+      if (!handles.length) { await borrar(reemplazar); return []; }
+      if (reemplazar.length && (await sabeCopiarDeOtro(plano))) return copiarYBorrarEnUnPaso(plano, temporal, handles, reemplazar, opciones);
       const r = await pedir({ op: "entities_copy_to", handles, document_id: plano }, 300000);
+      await borrar(reemplazar);
       return (r.result && r.result.created) || [];
     } finally {
       await pedir({ op: "activate", document_id: plano }).catch(() => {});
       if (temporal !== null) await pedir({ op: "close", discard: true, document_id: temporal }).catch(() => {});
     }
+  }
+
+  /**
+   * ¿El editor copia desde otro documento (`source_document_id`, parche 110)? Se pregunta una vez, sin tocar nada: con un documento que no existe,
+   * el editor nuevo contesta `document_closed`; uno anterior ignora el campo, busca los handles en el plano y contesta `entity_absent`.
+   * Nunca se prueba con handles reales: un editor anterior los copiaría dentro del propio plano.
+   */
+  async function sabeCopiarDeOtro(plano) {
+    if (est.copiaEnLote === undefined) {
+      try {
+        await pedir({ op: "entities_copy_to", source_document_id: 2147483000, handles: ["FFFFFFFFFFF"], document_id: plano });
+        est.copiaEnLote = false;
+      } catch (err) {
+        const resp = (err && err.respuesta) || {};
+        est.copiaEnLote = (resp.code || codigo(err)) === "document_closed";
+      }
+    }
+    return est.copiaEnLote;
+  }
+
+  /**
+   * La copia desde el dibujo temporal y el borrado de lo que reemplaza, como un solo paso de deshacer: un `batch` sobre el plano cuyo primer
+   * paso copia desde el temporal. Devuelve los handles nuevos. Los bloques que se piden quitar van en el mismo lote; si alguien más los usa,
+   * se repite el lote sin ellos.
+   */
+  async function copiarYBorrarEnUnPaso(plano, temporal, handles, reemplazar, opciones) {
+    await pedir({ op: "activate", document_id: plano });
+    const pasos = (conBloques) => [
+      { op: "entities_copy_to", source_document_id: temporal, handles, document_id: plano },
+      { op: "entities_delete", handles: reemplazar },
+      ...(conBloques ? (opciones.bloques || []).map((name) => ({ op: "block_delete", name })) : []),
+    ];
+    for (const conBloques of (opciones.bloques || []).length ? [true, false] : [false]) {
+      try {
+        const r = await pedir({ op: "batch", document_id: plano, steps: pasos(conBloques), label: opciones.etiqueta || "Civil" }, 300000);
+        const paso = ((r.result && r.result.steps) || [])[0] || {};
+        return (paso.result && paso.result.created) || [];
+      } catch (err) {
+        const resp = (err && err.respuesta) || {};
+        const cod = (resp.step_response && resp.step_response.code) || resp.code || codigo(err);
+        if (conBloques && resp.failed_step >= 2 && ["block_referenced", "block_protected", "block_in_edit", "block_missing"].includes(cod)) continue;
+        throw err;
+      }
+    }
+    return [];
   }
 
   // -- Colocar un resultado: la persona dice dónde ------------------------------------------------------------------------------
@@ -366,37 +432,105 @@
     return { handle: e.handle, vertices: [xyz(p.first_corner), xyz(p.second_corner), xyz(p.third_corner)] };
   }
 
-  function punto(e) {
-    if (e.type === "Point") return [...xyz(e.location || (e.properties && e.properties.location)), "", ""];
-    const a = e.attributes || {};
-    return [...xyz(e.position || (e.properties && e.properties.insert_point)), a.NUM || "", a.DESC || ""];
-  }
+  // -- Puntos de Civil --------------------------------------------------------------------------------------------------------------
+  // Un punto es una entidad POINT en (X, Y, Z) en la capa de puntos de terreno o de proyecto, con XDATA TVCIVIL [punto, número, tipo]. Sus
+  // rótulos (número, elevación, descripción) son TEXT, cada uno en su capa, con XDATA [rotulo, número, tipo, rol, handle del punto]; el rol
+  // es num, elev o desc. Los planos anteriores traen un bloque PT_TERRENO o PT_PROYECTO con atributos NUM, ELEV y DESC: se leen igual
+  // (`legado`) y «Convertir puntos a entidad punto» los pasa al modelo nuevo. Todo lo que lee puntos pasa por `leerPuntos`.
+  const ROLES = ["num", "elev", "desc"];
+  const ATRIBUTO = { num: "NUM", elev: "ELEV", desc: "DESC" };
+  const mayus = (h) => String(h || "").toUpperCase();
+  const textoDe = (e) => String(e.value ?? (e.properties && e.properties.value) ?? "");
+  const posicionDe = (e) => xyz(e.location || e.position || (e.properties && (e.properties.location || e.properties.insert_point)));
 
-  /** Un punto de Civil (bloque PT_*) como lo necesita «redibujar_puntos»: posición, tipo y atributos tal como están. */
-  function puntoCivil(e) {
-    const [x, y, z] = xyz(e.position || (e.properties && e.properties.insert_point));
-    const bloque = e.block || (e.properties && (e.properties.block_name || e.properties.name)) || "";
-    const tipo = bloque === C.bloques.proyecto || e.layer === C.capas.puntos.proyecto ? "proyecto" : "terreno";
-    return { handle: e.handle, x, y, z, tipo, atributos: { ...(e.attributes || {}) } };
-  }
-  const esPuntoCivil = (e) => Object.values(C.bloques).includes(e.block) || Object.values(C.capas.puntos).includes(e.layer);
+  /** Un punto como lo necesita el servidor: [x, y, z, número, descripción]. */
+  const punto = (p) => [p.x, p.y, p.z, numDe(p), p.atributos.DESC || ""];
+  const numDe = (p) => String(p.numero || p.atributos.NUM || "");
+  /** Los handles de un punto y de sus rótulos (lo que se borra al reemplazarlo). */
+  const manejadoresDe = (pts) => pts.flatMap((p) => [p.handle, ...Object.values(p.rotulos || {}).map((r) => r.handle)]);
+  /** Lo que «redibujar_puntos» necesita de un punto: dónde, de qué tipo, quién es y qué dicen sus rótulos (uno vacío no se dibuja). */
+  const paraMotor = (p) => ({ x: p.x, y: p.y, z: p.z, tipo: p.tipo, numero: numDe(p), atributos: { ...p.atributos } });
 
-  async function insercionesDe(tipo) {
-    const capas = tipo ? [C.capas.puntos[tipo]] : Object.values(C.capas.puntos);
-    const salida = [];
-    for (const capa of capas) {
-      const ins = await consultar({ type: "INSERT", layer: capa, detail: "full", fields: ["handle", "block", "layer", "position", "attributes"] });
-      salida.push(...ins.filter((e) => Object.values(C.bloques).includes(e.block)).map((e) => puntoCivil({ ...e, layer: e.layer || capa })));
+  /** XDATA TVCIVIL de muchos handles, en tandas (el editor las contesta de una vez). */
+  async function xdataCivil(handles) {
+    const salida = new Map();
+    for (let i = 0; i < handles.length; i += 4000) {
+      const r = await pedir({ op: "xdata_get", app: "TVCIVIL", handles: handles.slice(i, i + 4000) }, 120000);
+      for (const it of r.items || []) { const v = it.xdata && it.xdata.TVCIVIL; if (v) salida.set(mayus(it.handle), v); }
     }
     return salida;
   }
 
-  async function puntosDe(tipo) {
-    const capa = C.capas.puntos[tipo];
-    const ins = await consultar({ type: "INSERT", layer: capa, detail: "full", fields: ["handle", "block", "position", "attributes"] });
-    const pts = await consultar({ type: "Point", layer: capa, detail: "geometry" });
-    return [...ins.filter((e) => Object.values(C.bloques).includes(e.block)).map(punto), ...pts.map(punto)];
+  /**
+   * Los puntos de Civil del plano, de los dos modelos. `tipo`: "terreno", "proyecto" o null (los dos). Cada punto:
+   * { handle, x, y, z, tipo, numero, atributos: {NUM, ELEV, DESC} (lo que dicen sus rótulos; vacío si no hay), rotulos: {num: {handle, ...}},
+   *   legado, escala (el bloque: su escala de inserción) }. Con `rotulos: false` no se leen los rótulos (solo posición y número).
+   */
+  async function leerPuntos({ tipo = null, rotulos = true } = {}) {
+    const tipos = tipo ? [tipo] : ["terreno", "proyecto"];
+    const salida = [], nuevos = [];
+    for (const t of tipos) {
+      const capa = C.capas.puntos[t];
+      for (const e of await consultar({ type: "Point", layer: capa, detail: "geometry" })) {
+        const [x, y, z] = posicionDe(e);
+        const p = { handle: e.handle, x, y, z, tipo: t, numero: "", atributos: { NUM: "", ELEV: "", DESC: "" }, rotulos: {}, legado: false };
+        nuevos.push(p); salida.push(p);
+      }
+      // el modelo anterior: un bloque PT_* por punto, con atributos
+      for (const e of await consultar({ type: "INSERT", layer: capa, detail: "full" })) {
+        const bloque = e.block || (e.properties && (e.properties.block_name || e.properties.name)) || "";
+        if (bloque !== C.bloques[t]) continue;
+        const [x, y, z] = xyz(e.position || (e.properties && e.properties.insert_point));
+        const pr = e.properties || {};
+        const a = e.attributes || {};
+        salida.push({ handle: e.handle, x, y, z, tipo: t, numero: String(a.NUM || ""), atributos: { NUM: String(a.NUM || ""), ELEV: String(a.ELEV || ""), DESC: String(a.DESC || "") },
+          rotulos: {}, legado: true, bloque, escala: Number(pr.x_scale || (pr.scale && pr.scale.x) || 0) || null });
+      }
+    }
+    if (!nuevos.length) return salida;
+    const porHandle = new Map(nuevos.map((p) => [mayus(p.handle), p]));
+    const xp = await xdataCivil(nuevos.map((p) => p.handle));
+    for (const p of nuevos) { const v = xp.get(mayus(p.handle)); if (v && v[0] === "punto") p.numero = String(v[1] ?? ""); }
+    if (!rotulos) { for (const p of nuevos) p.atributos.NUM = p.numero; return salida; }
+    // los rótulos: primero por el handle del punto que traen; los que no lo resuelven, por tipo, número y rol, el punto más cercano que no lo tenga
+    const textos = [];
+    for (const rol of ROLES) for (const e of await consultar({ type: "Text", layer: C.capas.rotulos[rol], detail: "full" })) textos.push({ rol, e });
+    const xt = await xdataCivil(textos.map((t) => t.e.handle));
+    const sueltos = [];
+    for (const { rol, e } of textos) {
+      const v = xt.get(mayus(e.handle));
+      if (!v || v[0] !== "rotulo") continue;
+      const pr = e.properties || {};
+      const ip = pr.insertion_point || e.position || { x: 0, y: 0 };
+      const r = { handle: e.handle, rol, valor: textoDe(e), x: ip.x ?? ip[0], y: ip.y ?? ip[1], altura: Number(pr.height || e.height || 0), rotacion: Number(pr.rotation || 0) };
+      const dueno = porHandle.get(mayus(v[4]));
+      if (dueno && numDe(dueno) === String(v[1]) && dueno.tipo === v[2] && !dueno.rotulos[rol]) dueno.rotulos[rol] = r;
+      else sueltos.push({ r, numero: String(v[1]), tipo: v[2] });
+    }
+    if (sueltos.length) {
+      const por = new Map();
+      for (const p of nuevos) { const k = `${p.tipo}|${numDe(p)}`; if (!por.has(k)) por.set(k, []); por.get(k).push(p); }
+      for (const { r, numero, tipo: t } of sueltos) {
+        const libres = (por.get(`${t}|${numero}`) || []).filter((p) => !p.rotulos[r.rol]);
+        if (!libres.length) continue;
+        libres.sort((a, b) => Math.hypot(a.x - r.x, a.y - r.y) - Math.hypot(b.x - r.x, b.y - r.y));
+        libres[0].rotulos[r.rol] = r;
+      }
+    }
+    for (const p of nuevos) for (const [rol, r] of Object.entries(p.rotulos)) p.atributos[ATRIBUTO[rol]] = r.valor;
+    return salida;
   }
+
+  /** Los puntos de Civil que corresponden a lo que la persona eligió (el punto, uno de sus rótulos o el bloque de un plano anterior). */
+  async function puntosDeEntidades(entidades) {
+    const hs = new Set(entidades.map((e) => mayus(e.handle)));
+    return (await leerPuntos()).filter((p) => hs.has(mayus(p.handle)) || Object.values(p.rotulos).some((r) => hs.has(mayus(r.handle))));
+  }
+  const esEntidadDePunto = (e) => Object.values(C.capas.puntos).includes(e.layer) || Object.values(C.capas.rotulos).includes(e.layer) || Object.values(C.bloques).includes(e.block);
+  const TIPOS_PUNTO = ["Point", "Block Reference", "INSERT", "Insert"];
+
+  /** Un punto para cada fila de las hojas viejas: [x, y, z, número, descripción] de los puntos de terreno, de proyecto, o de la selección. */
+  async function puntosDe(tipo) { return (await leerPuntos({ tipo })).map(punto); }
 
   /** Caras 3D de la capa de una triangulación. `records` con proyección: ~360 bytes por cara en vez de ~1 kB de `query` completo. */
   async function carasDe(tipo) {
@@ -540,10 +674,18 @@
   const zona = () => ({ zona: est.escala.zona, hemisferio: est.escala.hemisferio });
 
   async function detectarEscala() {
-    // La escala viaja con el plano: los bloques de punto se insertan a escala E/1000.
+    // La escala viaja con el plano: el tamaño del marcador de los puntos (PDSIZE) es 1.2 mm de papel por la escala. Los planos anteriores
+    // la guardan en la escala del bloque de punto (E/1000).
     try {
-      const r = await pedir({ op: "query", type: "INSERT", detail: "full", limit: 1, where: [{ path: "/block", op: "in", value: Object.values(C.bloques) }] });
-      const e = (r.entities || [])[0];
+      const r = await pedir({ op: "query", type: "Point", layer: C.capas.puntos.terreno, limit: 1, detail: "summary" }).catch(() => null);
+      const r2 = r && r.count ? r : await pedir({ op: "query", type: "Point", layer: C.capas.puntos.proyecto, limit: 1, detail: "summary" }).catch(() => null);
+      if (r2 && r2.count) {
+        const v = ((await pedir({ op: "sysvar", get: ["pdsize"] })).result || {}).values || {};
+        const mm = est.escala.alturas_mm.punto_simbolo || C.alturas_mm.punto_simbolo;
+        if (v.pdsize > 0 && mm > 0) { est.escala.denominador = Math.round((v.pdsize / mm) * 1000 * 1000) / 1000; pintarEscala(); return; }
+      }
+      const q = await pedir({ op: "query", type: "INSERT", detail: "full", limit: 1, where: [{ path: "/block", op: "in", value: Object.values(C.bloques) }] });
+      const e = (q.entities || [])[0];
       const s = e && e.properties && (e.properties.x_scale || (e.properties.scale && e.properties.scale.x));
       if (s > 0) { est.escala.denominador = Math.round(s * 1000 * 1000) / 1000; pintarEscala(); }
     } catch (_) { /* sin puntos de Civil: se queda la guardada */ }
@@ -581,13 +723,9 @@
         }
         guardarAjustes(); pintarEscala();
         if (valor(f, "redibujar") && anterior !== n) {
-          // Los puntos se insertan a escala E/1000: se vuelven a dibujar a la escala nueva, con sus rótulos tal como estaban.
-          const pts = await insercionesDe(null);
-          if (pts.length) {
-            const res = await calcular("redibujar_puntos", { puntos: pts });
-            await insertarDxf(res.dxf, "puntos.dxf");
-            await borrar(pts.map((e) => e.handle));
-          }
+          // El marcador (PDSIZE) y los rótulos van por la escala: se vuelven a dibujar a la escala nueva, con sus rótulos tal como estaban.
+          const pts = await leerPuntos();
+          if (pts.length) await redibujar(pts, manejadoresDe(pts), {}, "Civil: escala de los puntos");
         }
         cerrarHoja();
         avisar(`Escala 1:${n}`);
@@ -764,13 +902,13 @@
     });
     alAbrir.importar = async () => {
       cargarFormatos();
-      try { est.libre = Number(sigNumero(await insercionesDe())); } catch (_) { est.libre = 1; }
+      try { est.libre = Number(sigNumero(await leerPuntos({ rotulos: false }))); } catch (_) { est.libre = 1; }
     };
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Dibujando los puntos…", async () => {
         const r = await calcular("importar_puntos", opciones());
-        await insertarDxf(r.dxf, nombreArchivo.replace(/\.[^.]+$/, "") + ".dxf");
+        await insertarDxf(r.dxf, nombreArchivo.replace(/\.[^.]+$/, "") + ".dxf", { variables: r.variables });
         await pedir({ op: "action", name: "zoom_extents" }).catch(() => {});
         cerrarHoja();
         avisar(`${r.resumen.puntos.toLocaleString("es-MX")} puntos importados`);
@@ -785,10 +923,8 @@
   /** Hasta tres puntos de ese tipo del plano, para el ejemplo de la hoja (sin leerlos todos). */
   async function muestraDe(cuales) {
     if (cuales !== "terreno" && cuales !== "proyecto") return [];
-    const capa = C.capas.puntos[cuales];
     try {
-      const r = await pedir({ op: "query", type: "INSERT", layer: capa, detail: "full", fields: ["handle", "block", "position", "attributes"], limit: 3 });
-      return (r.entities || []).filter((e) => Object.values(C.bloques).includes(e.block)).map(punto);
+      return (await leerPuntos({ tipo: cuales })).slice(0, 3).map(punto);
     } catch (_) { return []; }
   }
 
@@ -861,9 +997,9 @@
         const cuales = valor(f, "cuales");
         let pts;
         if (cuales === "seleccion") {
-          const e = await elegir({ mensaje: "Elige los puntos", tipos: ["Block Reference", "INSERT", "Insert", "Point"] });
+          const e = await elegir({ mensaje: "Elige los puntos", tipos: TIPOS_PUNTO });
           if (!e) return;
-          pts = e.map(punto);
+          pts = (await puntosDeEntidades(e)).map(punto);
         } else pts = await puntosDe(cuales);
         if (!pts.length) throw new ErrorCivil("No hay puntos de ese tipo en el plano.");
         const fm = formato();
@@ -915,12 +1051,12 @@
     zona.addEventListener("dragleave", () => { delete zona.dataset.encima; });
     zona.addEventListener("drop", (ev) => { ev.preventDefault(); delete zona.dataset.encima; if (ev.dataTransfer.files.length) { entrada.files = ev.dataTransfer.files; entrada.dispatchEvent(new Event("change")); } });
     for (const n of ["capas_por", "puntos_como", "nombres", "altitudes"]) { const c = f.elements[n]; (c instanceof RadioNodeList ? [...c] : [c]).forEach((x) => x.addEventListener("change", previa)); }
-    alAbrir.importar_kml = async () => { try { est.libre = Number(sigNumero(await insercionesDe())); } catch (_) { est.libre = 1; } };
+    alAbrir.importar_kml = async () => { try { est.libre = Number(sigNumero(await leerPuntos({ rotulos: false }))); } catch (_) { est.libre = 1; } };
     f.addEventListener("submit", (ev) => {
       ev.preventDefault();
       trabajo(f, "Dibujando…", async () => {
         const r = await calcular("importar_kml", opciones());
-        await insertarDxf(r.dxf, nombreArchivo.replace(/\.[^.]+$/, "") + ".dxf");
+        await insertarDxf(r.dxf, nombreArchivo.replace(/\.[^.]+$/, "") + ".dxf", { variables: r.variables });
         await pedir({ op: "action", name: "zoom_extents" }).catch(() => {});
         cerrarHoja();
         const s = r.resumen;
@@ -932,6 +1068,7 @@
 
   // -- Google Earth: exportar KML o KMZ -----------------------------------------------------------------------------------------
   /** Textos (TEXT y MTEXT) dentro de una caja del plano: sus nombres posibles para los polígonos. */
+  const ROTULOS_DE_PUNTO = new Set(Object.values(C.capas.rotulos));          // los rótulos de los puntos no son nombres de polígonos
   async function textosEnCaja(caja) {
     const salida = [];
     for (const tipo of ["TEXT", "MTEXT"]) {
@@ -940,7 +1077,7 @@
         const alineado = e.type === "Text" && p.alignment_point && ((p.horizontal_alignment && p.horizontal_alignment !== "Left") || (p.vertical_alignment && p.vertical_alignment !== "Baseline"));
         const pos = alineado ? p.alignment_point : p.insertion_point;
         const valorT = String(e.value ?? p.value ?? "");
-        if (pos && valorT.trim()) salida.push({ valor: valorT, posicion: [pos.x, pos.y], altura: Number(p.height || e.height || 0) });
+        if (pos && valorT.trim() && !ROTULOS_DE_PUNTO.has(e.layer)) salida.push({ valor: valorT, posicion: [pos.x, pos.y], altura: Number(p.height || e.height || 0) });
       }
     }
     return salida;
@@ -1170,9 +1307,9 @@
     }
     const especiales = {
       async puntos(cuenta) {
-        const e = await elegir({ mensaje: "Selecciona los puntos (clic, ventana o captura) y pulsa Enter", tipos: ["Block Reference", "INSERT", "Insert", "Point"] });
+        const e = await elegir({ mensaje: "Selecciona los puntos (clic, ventana o captura) y pulsa Enter", tipos: TIPOS_PUNTO });
         if (!e) return;
-        const pts = e.filter((x) => x.type === "Point" || esPuntoCivil(x)).map((x) => ({ tipo: x.type === "Point" ? "Point" : puntoCivil(x).tipo, p: punto(x) }));
+        const pts = (await puntosDeEntidades(e)).map((x) => ({ tipo: x.tipo, p: punto(x) }));
         if (!pts.length) throw new ErrorCivil("Lo que seleccionaste no son puntos de Civil.");
         el().puntos = pts;
         const otros = pts.filter((x) => !usa(x.tipo)).length;
@@ -1811,16 +1948,14 @@
         const cuales = valor(f, "cuales");
         let pts;
         if (cuales === "seleccion") {
-          const e = await elegir({ mensaje: "Elige los puntos", tipos: ["Block Reference", "INSERT", "Insert"] });
+          const e = await elegir({ mensaje: "Elige los puntos", tipos: TIPOS_PUNTO });
           if (!e) return;
-          pts = e.filter(esPuntoCivil).map(puntoCivil);
-        } else pts = await insercionesDe(cuales);
+          pts = await puntosDeEntidades(e);
+        } else pts = await leerPuntos({ tipo: cuales === "todos" ? null : cuales });
         if (!pts.length) throw new ErrorCivil("No hay puntos de Civil ahí. Impórtalos primero.");
         const inicio = parseInt(valor(f, "inicio"), 10), incremento = parseInt(valor(f, "incremento"), 10);
         if (!(inicio >= 0) || !(incremento >= 1)) throw new ErrorCivil("Revisa el primer número y el incremento.");
-        const r = await calcular("redibujar_puntos", { puntos: pts, renumerar: { inicio, incremento, prefijo: valor(f, "prefijo") || "", orden: valor(f, "orden") } });
-        await insertarDxf(r.dxf, "puntos.dxf");
-        await borrar(pts.map((p) => p.handle));
+        const r = await redibujar(pts, manejadoresDe(pts), { renumerar: { inicio, incremento, prefijo: valor(f, "prefijo") || "", orden: valor(f, "orden") } }, "Civil: renumerar puntos");
         cerrarHoja();
         avisar(`${r.resumen.puntos.toLocaleString("es-MX")} puntos renumerados`);
       });
@@ -1904,12 +2039,12 @@
       trabajo(f, "Buscando…", async () => {
         const buscado = String(valor(f, "numero") || "").trim().toUpperCase();
         if (!buscado) throw new ErrorCivil("Escribe el número del punto.");
-        const pts = await insercionesDe(null);
-        const p = pts.find((q) => String(q.atributos.NUM || "").trim().toUpperCase() === buscado);
+        const pts = await leerPuntos({ rotulos: false });
+        const p = pts.find((q) => numDe(q).trim().toUpperCase() === buscado);
         if (!p) throw new ErrorCivil(`No hay un punto ${valor(f, "numero")} en el plano.`);
         cerrarHoja();
         await irA(p.x, p.y, p.handle);
-        avisar(`Punto ${p.atributos.NUM}: Y ${mil(p.y, 3)} · X ${mil(p.x, 3)}${p.atributos.ELEV ? ` · Z ${p.atributos.ELEV}` : ""}`);
+        avisar(`Punto ${numDe(p)}: Y ${mil(p.y, 3)} · X ${mil(p.x, 3)}${p.z ? ` · Z ${mil(p.z, 3)}` : ""}`);
       }, { soloLee: true });
     });
   }
@@ -1922,9 +2057,9 @@
         const cuales = valor(f, "cuales");
         let pts;
         if (cuales === "seleccion") {
-          const e = await elegir({ mensaje: "Elige los puntos", tipos: ["Block Reference", "INSERT", "Insert", "Point"] });
+          const e = await elegir({ mensaje: "Elige los puntos", tipos: TIPOS_PUNTO });
           if (!e) return;
-          pts = e.map(punto);
+          pts = (await puntosDeEntidades(e)).map(punto);
         } else pts = await puntosDe(cuales);
         if (!pts.length) throw new ErrorCivil("No hay puntos de ese tipo en el plano.");
         const datos = [["Proyecto", valor(f, "proyecto") || ""], ["Plano", nombrePlano()]];
@@ -2062,13 +2197,13 @@
   const elevTexto = (z, dec) => (z === null || z === undefined || z === "" || !Number.isFinite(+z) ? "" : (+z).toFixed(dec));
   const sigNumero = (pts) => {
     let n = 0;
-    for (const p of pts) { const m = String(p.atributos.NUM || "").match(/(\d+)\s*$/); if (m) n = Math.max(n, parseInt(m[1], 10)); }
+    for (const p of pts) { const m = numDe(p).match(/(\d+)\s*$/); if (m) n = Math.max(n, parseInt(m[1], 10)); }
     return String(n + 1);
   };
-  async function redibujar(pts, borrarAntes = [], extra = {}) {
-    const r = await calcular("redibujar_puntos", { puntos: pts, ...extra });
-    await insertarDxf(r.dxf, "puntos.dxf");
-    await borrar(borrarAntes);
+  /** Vuelve a dibujar puntos (POINT y rótulos TEXT) y quita los handles `borrarAntes`: la copia y el borrado son un solo paso de deshacer. */
+  async function redibujar(pts, borrarAntes = [], extra = {}, etiqueta = "Civil: puntos") {
+    const r = await calcular("redibujar_puntos", { puntos: pts.map(paraMotor), ...extra });
+    await insertarDxf(r.dxf, "puntos.dxf", { borrar: borrarAntes, variables: r.variables, etiqueta });
     return r;
   }
   function datosPunto(f) {
@@ -2087,8 +2222,8 @@
       ev.preventDefault();
       trabajo(f, "Dibujando…", async () => {
         const d = datosPunto(f);
-        const existentes = await insercionesDe(null);
-        if (existentes.some((p) => String(p.atributos.NUM || "").trim().toUpperCase() === d.num.toUpperCase())) throw new ErrorCivil(`Ya hay un punto ${d.num}.`);
+        const existentes = await leerPuntos({ rotulos: false });
+        if (existentes.some((p) => numDe(p).trim().toUpperCase() === d.num.toUpperCase())) throw new ErrorCivil(`Ya hay un punto ${d.num}.`);
         let x, y;
         if (valor(f, "donde") === "coordenadas") {
           x = numero(f, "x", NaN); y = numero(f, "y", NaN);
@@ -2098,14 +2233,14 @@
           if (!q) return;
           [x, y] = q;
         }
-        await redibujar([{ x, y, z: d.z ?? 0, tipo: valor(f, "tipo"), atributos: { NUM: d.num, ELEV: elevTexto(d.z, d.dec), DESC: d.desc } }]);
+        await redibujar([{ x, y, z: d.z ?? 0, tipo: valor(f, "tipo"), numero: d.num, atributos: { NUM: d.num, ELEV: elevTexto(d.z, d.dec), DESC: d.desc }, rotulos: {} }], [], {}, "Civil: dibujar punto");
         f.elements.numero.value = (() => { const m = d.num.match(/^(.*?)(\d+)$/); return m ? `${m[1]}${parseInt(m[2], 10) + 1}` : ""; })();
         f.elements.elevacion.value = "";
         avisar(`Punto ${d.num} dibujado`);
       });
     });
     return async () => {   // al abrir: el siguiente número libre
-      if (!f.elements.numero.value) { try { f.elements.numero.value = sigNumero(await insercionesDe(null)); } catch (_) { /* nada */ } }
+      if (!f.elements.numero.value) { try { f.elements.numero.value = sigNumero(await leerPuntos({ rotulos: false })); } catch (_) { /* nada */ } }
     };
   }
 
@@ -2116,17 +2251,18 @@
     let actual = null;
     f.querySelector('[data-civil-elegir="punto"]').addEventListener("click", async () => {
       try {
-        const e = await elegir({ mensaje: "Elige el punto", tipos: ["Block Reference", "INSERT", "Insert"], maximo: 1 });
+        const e = await elegir({ mensaje: "Elige el punto", tipos: TIPOS_PUNTO, maximo: 1 });
         if (!e) return;
-        if (!esPuntoCivil(e[0])) throw new ErrorCivil("Eso no es un punto de Civil.");
-        actual = puntoCivil(e[0]);
-        f.elements.numero.value = actual.atributos.NUM || "";
+        if (!esEntidadDePunto(e[0])) throw new ErrorCivil("Eso no es un punto de Civil.");
+        [actual] = await puntosDeEntidades(e);
+        if (!actual) throw new ErrorCivil("Eso no es un punto de Civil.");
+        f.elements.numero.value = numDe(actual);
         f.elements.elevacion.value = actual.atributos.ELEV ? actual.z : "";
         f.elements.descripcion.value = actual.atributos.DESC || "";
         f.elements.x.value = actual.x.toFixed(4); f.elements.y.value = actual.y.toFixed(4);
         const dec = ((actual.atributos.ELEV || "").split(".")[1] || "").length;
         if ([...f.elements.decimales_z.options].some((o) => +o.value === dec)) f.elements.decimales_z.value = String(dec);
-        cuenta.textContent = `Punto ${actual.atributos.NUM || "sin número"} · ${actual.tipo}`; cuenta.classList.add("civil-elegido");
+        cuenta.textContent = `Punto ${numDe(actual) || "sin número"} · ${actual.tipo}`; cuenta.classList.add("civil-elegido");
         f.elements.elegido.value = "1"; f.dispatchEvent(new Event("change"));
       } catch (err) { avisar(err instanceof ErrorCivil ? err.message : "No se pudo leer el punto.", "error"); }
     });
@@ -2136,7 +2272,9 @@
         if (!actual) throw new ErrorCivil("Elige el punto.");
         const d = datosPunto(f);
         const x = numero(f, "x", actual.x), y = numero(f, "y", actual.y);
-        await redibujar([{ x, y, z: d.z ?? actual.z, tipo: actual.tipo, atributos: { NUM: d.num, ELEV: elevTexto(d.z, d.dec), DESC: d.desc } }], [actual.handle]);
+        // el punto y sus rótulos cambian juntos: se dibujan de nuevo y se borran los anteriores, en un solo paso
+        await redibujar([{ x, y, z: d.z ?? actual.z, tipo: actual.tipo, numero: d.num, atributos: { NUM: d.num, ELEV: elevTexto(d.z, d.dec), DESC: d.desc }, rotulos: {} }],
+          manejadoresDe([actual]), {}, "Civil: editar punto");
         actual = null; f.elements.elegido.value = ""; cuenta.textContent = cuenta.dataset.vacio; cuenta.classList.remove("civil-elegido"); f.dispatchEvent(new Event("change"));
         cerrarHoja();
         avisar(`Punto ${d.num} actualizado`);
@@ -2156,9 +2294,9 @@
         const dec = valor(f, "decimales_z");
         let n = 0;
         if (dec !== "") {
-          const pts = (await insercionesDe(null)).filter((p) => p.atributos.ELEV);
+          const pts = (await leerPuntos()).filter((p) => p.atributos.ELEV);
           if (pts.length) {
-            await redibujar(pts.map((p) => ({ ...p, atributos: { ...p.atributos, ELEV: elevTexto(p.z, +dec) } })), pts.map((p) => p.handle));
+            await redibujar(pts.map((p) => ({ ...p, atributos: { ...p.atributos, ELEV: elevTexto(p.z, +dec) } })), manejadoresDe(pts), {}, "Civil: decimales de la elevación");
             n = pts.length;
           }
         }
@@ -2174,15 +2312,67 @@
       ev.preventDefault();
       trabajo(f, "", async () => {
         const a = valor(f, "a");
-        const e = await elegir({ mensaje: `Elige los puntos que pasan a ${a}`, tipos: ["Block Reference", "INSERT", "Insert"] });
+        const e = await elegir({ mensaje: `Elige los puntos que pasan a ${a}`, tipos: TIPOS_PUNTO });
         if (!e) return;
-        const pts = e.filter(esPuntoCivil).map(puntoCivil).filter((p) => p.tipo !== a);
+        const pts = (await puntosDeEntidades(e)).filter((p) => p.tipo !== a);
         if (!pts.length) throw new ErrorCivil(`Esos puntos ya son de ${a}.`);
-        await redibujar(pts.map((p) => ({ ...p, tipo: a })), pts.map((p) => p.handle));
+        await redibujar(pts.map((p) => ({ ...p, tipo: a })), manejadoresDe(pts), {}, "Civil: convertir puntos");
         cerrarHoja();
         avisar(pts.length === 1 ? `1 punto pasó a ${a}` : `${pts.length.toLocaleString("es-MX")} puntos pasaron a ${a}`);
       });
     });
+  }
+
+  // -- Puntos de un plano anterior: de bloque a entidad punto -------------------------------------------------------------------
+  /** Los puntos del plano que todavía son un bloque PT_* con atributos (el modelo anterior). */
+  async function puntosDeBloque() { return (await leerPuntos({ rotulos: false })).filter((p) => p.legado); }
+
+  /** Pasa todos los puntos de bloque a entidad punto con sus rótulos de texto: un solo paso de deshacer; quita los bloques que ya nadie usa. */
+  async function convertirAEntidad() {
+    await trabajo(null, "", async () => {
+      const viejos = await puntosDeBloque();
+      if (!viejos.length) { avisar("Los puntos de este plano ya son entidades punto."); return; }
+      const r = await calcular("convertir_puntos_a_entidad", { puntos: viejos.map((p) => ({ handle: p.handle, x: p.x, y: p.y, z: p.z, tipo: p.tipo, atributos: p.atributos, escala_insercion: p.escala })) });
+      await insertarDxf(r.dxf, "puntos.dxf", { borrar: viejos.map((p) => p.handle), bloques: [...new Set(viejos.map((p) => p.bloque).filter(Boolean))], variables: r.variables,
+        etiqueta: "Civil: convertir puntos a entidad punto" });
+      await ofrecerConversion();
+      avisar(viejos.length === 1 ? "1 punto pasó a entidad punto" : `${viejos.length.toLocaleString("es-MX")} puntos pasaron a entidad punto`);
+      for (const a of (r.avisos || []).slice(0, 2)) avisar(a);
+    });
+  }
+
+  /** Un renglón sobre el lienzo, sin bloquear nada: el plano trae puntos de bloque de la versión anterior y se ofrece convertirlos. */
+  const llaveOferta = `${LLAVE}-oferta`;
+  async function ofrecerConversion() {
+    const caja = $("civil-oferta");
+    if (!caja) return;
+    let cerrada = false;
+    try { cerrada = localStorage.getItem(llaveOferta) === "1"; } catch (_) { /* sin almacenamiento */ }
+    let n = 0;
+    try {
+      if (!cerrada && window.TVCad.estado().editable) {
+        // un vistazo barato (no se leen los puntos nuevos): ¿hay bloques de punto en las capas de puntos?
+        for (const t of ["terreno", "proyecto"]) {
+          const r = await pedir({ op: "query", type: "INSERT", layer: C.capas.puntos[t], detail: "full", limit: 50 });
+          n += (r.entities || []).filter((e) => e.block === C.bloques[t] || (e.properties && (e.properties.block_name || e.properties.name)) === C.bloques[t]).length;
+        }
+      }
+    } catch (_) { n = 0; }
+    caja.hidden = !n;
+    if (!n) return;
+    $("civil-oferta-texto").textContent = `Este plano tiene puntos de la versión anterior (bloques). Conviértelos a entidades punto con sus rótulos de texto.`;
+    const lienzo = $("cad-lienzo");
+    if (lienzo && caja.parentElement !== lienzo) lienzo.append(caja);
+  }
+  function prepararOferta() {
+    const caja = $("civil-oferta");
+    if (!caja) return;
+    $("civil-oferta-convertir").addEventListener("click", () => { caja.hidden = true; accion("puntos_a_entidad"); });
+    $("civil-oferta-cerrar").addEventListener("click", () => {
+      caja.hidden = true;
+      try { localStorage.setItem(llaveOferta, "1"); } catch (_) { /* nada */ }
+    });
+    window.TVCad.on("editable", () => ofrecerConversion());
   }
 
   // -- Curvas ya dibujadas: etiquetar y suavizar --------------------------------------------------------------------------------
@@ -2417,6 +2607,7 @@
     punto_editar: () => abrirHoja("civil-hoja-punto-editar"),
     etiquetas_puntos: () => abrirHoja("civil-hoja-etiquetas-puntos"),
     convertir_puntos: () => abrirHoja("civil-hoja-convertir-puntos"),
+    puntos_a_entidad: convertirAEntidad,
     etiquetar_curvas: () => { abrirHoja("civil-hoja-etiquetar-curvas"); alAbrir.etiquetar_curvas(); },
     unir_curvas: () => abrirHoja("civil-hoja-unir-curvas"),
     suavizar_curvas: () => abrirHoja("civil-hoja-suavizar-curvas"),
@@ -2504,18 +2695,19 @@
   async function montar() {
     document.querySelectorAll("[data-civil-cuenta]").forEach((c) => { c.dataset.vacio = c.textContent; });
     llenarEscala = prepararEscala();
-    prepararImportar(); prepararExportar(); prepararImportarKml(); prepararExportarKml(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararEtiquetarCurvas(); prepararUnirCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararEjeEspirales(); prepararPerfil(); prepararSecciones(); prepararVolumen();
+    prepararImportar(); prepararExportar(); prepararImportarKml(); prepararExportarKml(); prepararTriangular(); prepararBorrar(); prepararCurvas(); prepararCuadro(); prepararCuadroCurvas(); prepararRenumerar(); prepararRevisar(); prepararLocalizar(); alAbrirPuntoNuevo = prepararPuntoNuevo(); prepararPuntoEditar(); prepararEtiquetasPuntos(); prepararConvertirPuntos(); prepararOferta(); prepararEtiquetarCurvas(); prepararUnirCurvas(); prepararSuavizarCurvas(); prepararReporte(); prepararInsertar(); prepararRumbos(); prepararNumerar(); prepararMemoria(); prepararCuadricula(); prepararMasa(); prepararLotes(); prepararEjeEspirales(); prepararPerfil(); prepararSecciones(); prepararVolumen();
     pintarEscala();
     // Civil en la cinta del editor, como una pestaña más (civil-cinta.js); sin esa operación en el editor, la barra de siempre.
     const enCinta = window.TVCivilCinta ? await window.TVCivilCinta.montar({ accion, tiene: tieneAccion, ocupado: () => est.ocupado }) : false;
     if (!enCinta) montarBarra();
-    window.TVCad.on("cargado", () => detectarEscala());
+    window.TVCad.on("cargado", () => { detectarEscala(); ofrecerConversion(); });
     detectarEscala();
+    ofrecerConversion();
     document.dispatchEvent(new CustomEvent("tvcivil:listo", { detail: { cinta: enCinta } }));
   }
 
   window.TVCad.listo.then(montar);
-  window.TVCivil = Object.freeze({ version: 2, insertarDxf, calcular, consultar, enUnPaso, lugarLibre, accion, tieneAccion, registrarAccion,
+  window.TVCivil = Object.freeze({ version: 2, insertarDxf, calcular, consultar, enUnPaso, lugarLibre, accion, tieneAccion, registrarAccion, leerPuntos,
     abrirHoja, ocupado: () => est.ocupado,
     // para las hojas de otros módulos (cad/local/satelite.js): elegir y señalar como Civil, con su hoja y su zona UTM
     elegir, senalar, polilinea, avisar, ErrorCivil, zona: () => zona(), escala: () => ({ ...est.escala }) });

@@ -13,6 +13,7 @@ import pytest
 
 from itt_herramientas.cad import servicio as cad_servicio
 from itt_herramientas.civil import actualizar_motor, servicio
+from itt_herramientas.civil.motor.lectura import leer_puntos
 from itt_herramientas.pruebas.conftest import url
 
 pytestmark = pytest.mark.django_db
@@ -104,7 +105,7 @@ def test_cuadro_de_curvas_y_renumerar_en_la_misma_peticion(cliente_de, dibujante
     pts = [{"x": X0 + i, "y": Y0, "z": 100, "tipo": "terreno", "atributos": {"NUM": f"P{9 - i}", "ELEV": "100.000", "DESC": "TN"}} for i in range(3)]
     r = mandar(cl, "redibujar_puntos", {"puntos": pts, "renumerar": {"inicio": 1, "incremento": 1, "orden": "oeste_este"}, "escala": {"denominador": 500}})
     doc = ezdxf.read(io.StringIO(base64.b64decode(r.json()["resultado"]["dxf"]).decode()))
-    assert [(i.get_attrib_text("NUM"), i.dxf.xscale) for i in doc.modelspace().query("INSERT")] == [("1", 0.5), ("2", 0.5), ("3", 0.5)]
+    assert [p.numero for p in leer_puntos(doc)] == ["1", "2", "3"] and doc.header["$PDSIZE"] == pytest.approx(0.6) and r.json()["resultado"]["variables"]["pdmode"] == 34
 
 
 def test_revisar_triangulacion_va_a_la_cola(cliente_de, dibujante):
@@ -266,6 +267,7 @@ def test_la_pagina_del_plano_trae_civil_solo_para_editar(cliente_de, dibujante, 
         assert quitado not in html, quitado
     cfg = json.loads(pagina.split('id="civil-config" type="application/json">')[1].split("</script>")[0])
     assert cfg["capas"]["tin"]["terreno"] == "TRIANGULACION" and cfg["bloques"]["terreno"] == "PT_TERRENO"
+    assert cfg["capas"]["rotulos"] == {"num": "PUNTOS_NUMERO", "elev": "PUNTOS_ELEVACION", "desc": "PUNTOS_DESCRIPCION"} and cfg["pdmode"] == 34
     assert cfg["urls"]["formatos"].endswith("/cad/civil/formatos/") and ["LAT", "Latitud"] in cfg["columnas"] and cfg["ordenes"]["PNEZD"]
     assert "__ORDEN__" in cfg["urls"]["orden"]
     html = cliente_de(supervisora).get(url("cad_plano", pk=p.pk)).content.decode()
@@ -347,7 +349,7 @@ def test_importar_puntos_con_delimitador_propio_y_columnas_en_el_orden_que_se_qu
     # y la orden completa dibuja
     r = mandar(cl, "importar_puntos", {"archivo": _b64(texto), "formato": fm, "escala": {"denominador": 500, "zona": 14}}).json()["resultado"]
     doc = ezdxf.read(io.StringIO(base64.b64decode(r["dxf"]).decode()))
-    assert sorted(i.get_attrib_text("NUM") for i in doc.modelspace().query("INSERT")) == ["1", "2"]
+    assert sorted(p.numero for p in leer_puntos(doc)) == ["1", "2"] and len(doc.modelspace().query("POINT")) == 2 and not doc.modelspace().query("INSERT")
     # un delimitador que choca con el calificador o un decimal imposible se dicen con claridad
     mal = mandar(cl, "importar_puntos", {"archivo": _b64(texto), "formato": {"delimitador": '"', "calificador": '"'}})
     assert mal.status_code == 422 and "calificador" in mal.json()["error"]
@@ -375,8 +377,8 @@ def test_kml_sale_del_plano_y_vuelve_igual(cliente_de, dibujante):
     doc = ezdxf.read(io.StringIO(base64.b64decode(dentro["dxf"]).decode()))
     poli, = [p for p in doc.modelspace().query("LWPOLYLINE") if p.closed]
     assert sorted((round(x, 3), round(y, 3)) for x, y in poli.get_points("xy")) == sorted([(X0, Y0), (X0 + 40, Y0), (X0 + 40, Y0 + 25), (X0, Y0 + 25)])
-    ins, = doc.modelspace().query("INSERT")
-    assert ins.dxf.name == "PT_PROYECTO" and ins.get_attrib_text("DESC") == "7"
+    p, = leer_puntos(doc)
+    assert p.tipo == "proyecto" and p.descripcion == "7" and not p.legado
     # sin zona del plano no se puede convertir, y un archivo que no es KML se dice
     assert "zona" in mandar(cl, "importar_kml", {"archivo": r["archivo"]}).json()["error"].lower()
     assert mandar(cl, "importar_kml", {"archivo": _b64("hola"), "escala": {"zona": 14}}).status_code == 422

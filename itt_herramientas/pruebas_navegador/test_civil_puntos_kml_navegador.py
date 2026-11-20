@@ -19,7 +19,7 @@ from itt_herramientas.models import FormatoPuntos
 
 from . import cinta
 from .test_cad_navegador import LARGO, _persona, cad, esperar_estado, navegar  # noqa: F401 (fixtures)
-from .test_civil_navegador import (X0, Y0, MOTORES, archivo_pnezd, cuenta, elegir_en_dibujo, enfocar, esperar_aviso, esperar_libre, menu, pedir,  # noqa: F401
+from .test_civil_navegador import (X0, Y0, MOTORES, archivo_pnezd, cuenta, puntos_civil, elegir_en_dibujo, enfocar, esperar_aviso, esperar_libre, menu, pedir,  # noqa: F401
                                    poner_aqui)
 from .test_pwa_navegador import esperar
 
@@ -107,19 +107,19 @@ def test_puntos_delimitador_propio_columnas_y_formato_guardado(cad, navegar, cre
     # 3. importar: los puntos quedan donde van y un solo Deshacer los quita
     p.locator('[data-civil-form="importar"] [data-civil-enviar]').click()
     esperar(p, "!document.getElementById('civil-hoja-importar').open", LARGO * 2)
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 40
-    puntos = {e["attributes"]["NUM"]: e for e in entidades(p, type="INSERT", layer="PUNTOS_TERRENO", fields=["position", "attributes"])}
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 40
+    puntos = {e["numero"]: e for e in puntos_civil(p, "terreno")}
     e1, e40 = puntos["1"], puntos["40"]
-    assert e1["attributes"]["DESC"] == "BN" and e1["position"] == pytest.approx([X0 + 10, Y0 + 20, 100.25], abs=1e-6)
-    assert e40["position"] == pytest.approx([X0 + 10 + 2.5 * 7, Y0 + 20 + 3.5 * 4, 100.25 + 0.125 * 39], abs=1e-6)
+    assert e1["atributos"]["DESC"] == "BN" and [e1["x"], e1["y"], e1["z"]] == pytest.approx([X0 + 10, Y0 + 20, 100.25], abs=1e-6)
+    assert [e40["x"], e40["y"], e40["z"]] == pytest.approx([X0 + 10 + 2.5 * 7, Y0 + 20 + 3.5 * 4, 100.25 + 0.125 * 39], abs=1e-6)
     pedir(p, {"op": "undo"})
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 0
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 0
     pedir(p, {"op": "redo"})
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 40
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 40
 
     # 4. otra sesión (el plano sin guardar se pierde al recargar): el formato sigue en la cuenta y con él el mismo archivo se lee sin tocar nada
     p = preparar_pagina(n, plano)
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 0
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 0
     menu(p, "puntos", "importar")
     esperar(p, "[...document.querySelectorAll('#civil-imp-guardado option')].some(o => o.value === 'Colector X')", LARGO)
     p.locator("#civil-imp-guardado").select_option("Colector X")
@@ -130,7 +130,7 @@ def test_puntos_delimitador_propio_columnas_y_formato_guardado(cad, navegar, cre
     assert [p.locator(f'#civil-imp-vista [data-civil-col="{i}"]').input_value() for i in range(5)] == ["Z", "E", "N", "P", "D"]
     p.locator('[data-civil-form="importar"] [data-civil-enviar]').click()
     esperar(p, "!document.getElementById('civil-hoja-importar').open", LARGO * 2)
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 40
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 40
     menu(p, "puntos", "importar")
     # borrar el formato pide un segundo toque
     p.locator("[data-civil-form=importar] [data-civil-formato-borrar]").click()
@@ -256,12 +256,12 @@ def test_kml_kmz_importar_exportar_y_volver_a_importar(cad, navegar, crear_usuar
     esperadas = [[(0, 0), (80, 0), (80, 60), (0, 60)], [(30, 20), (50, 20), (50, 40), (30, 40)], [(100, 0), (140, 0), (140, 30), (100, 30)]]
     for c, e in zip(sorted(original), sorted(sorted((X0 + x, Y0 + y) for x, y in v) for v in esperadas)):
         assert len(c) == len(e) and all(abs(a - b) <= 2e-3 for u, v in zip(c, e) for a, b in zip(u, v)), (c, e)   # de geográficas a UTM, al milímetro
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 2
-    insercion = {e["attributes"]["DESC"]: e for e in entidades(p, type="INSERT", layer="PUNTOS_TERRENO", fields=["position", "attributes"])}
-    assert insercion["BN-1"]["position"] == pytest.approx([X0 + 10, Y0 + 10, 2240.5], abs=2e-3)
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 2
+    insercion = {e["atributos"]["DESC"]: e for e in puntos_civil(p, "terreno")}
+    assert [insercion["BN-1"][k] for k in "xyz"] == pytest.approx([X0 + 10, Y0 + 10, 2240.5], abs=2e-3)
     capas = {e["layer"] for e in entidades(p) if e["type"] in ("LwPolyline", "Polyline")}
     assert capas - {"0"} == {"Manzanas", "Manzanas - Lotes", "Calles"}, capas           # una capa por carpeta
-    nombres = sorted((e.get("value") or (e.get("properties") or {}).get("value") or "") for e in entidades(p) if e["type"] in ("Text", "MText"))
+    nombres = sorted((e.get("value") or (e.get("properties") or {}).get("value") or "") for e in entidades(p) if e["type"] in ("Text", "MText") and not e["layer"].startswith("PUNTOS_"))
     assert "Manzana A" in nombres and "Lote 1" in nombres and "Calle Juárez" in nombres, nombres
     # un solo Deshacer devuelve el plano a como estaba
     pedir(p, {"op": "undo"})
@@ -361,7 +361,7 @@ def test_triangulacion_de_proyecto_de_punta_a_punta(cad, navegar, crear_usuario,
         p.locator(f'[data-civil-form="triangular"] input[name=tipo][value={tipo}]').check()
         p.locator('[data-civil-form="triangular"] button[type=submit]').click()
         esperar(p, "!document.getElementById('civil-hoja-triangular').open", LARGO * 3)
-    assert cuenta(p, "INSERT", "PUNTOS_TERRENO") == 300 and cuenta(p, "INSERT", "PUNTOS_PROYECTO") == 300
+    assert cuenta(p, "Point", "PUNTOS_TERRENO") == 300 and cuenta(p, "Point", "PUNTOS_PROYECTO") == 300
     caras_t, caras_p = cuenta(p, "3DFACE", "TRIANGULACION"), cuenta(p, "3DFACE", "TRIANGULACION_PROYECTO")
     assert caras_t > 400 and caras_p > 400
 
