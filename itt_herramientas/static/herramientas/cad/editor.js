@@ -196,7 +196,10 @@
   async function canal(peticion, tiempoMs = 120000) {
     if (!control) throw new Error("El editor no está listo.");
     nPeticion += 1;
-    const r = await control.request({ protocol: 1, request_id: `tv-${SERIE}-${nPeticion}-${Date.now()}`, ...peticion }, { timeoutMs: tiempoMs });
+    // En el turno único de la página (control.js, `TVCad.enviar`): el editor atiende una petición a la vez y otra al mismo tiempo haría
+    // fallar la que está en curso.
+    const sobre = { protocol: 1, request_id: `tv-${SERIE}-${nPeticion}-${Date.now()}`, ...peticion };
+    const r = await (window.TVCad && window.TVCad.enviar ? window.TVCad.enviar(control, sobre, { timeoutMs: tiempoMs }) : control.request(sobre, { timeoutMs: tiempoMs }));
     return r || {};
   }
   // Abrir, cambiar de pestaña y cerrar no se pueden con una orden de la persona a medias (`command_busy`): como AutoCAD al cambiar de

@@ -192,6 +192,14 @@ pestañas de archivo de AutoCAD; también en pantalla completa.
   cambio de la página (mostrar una pestaña, abrir, activar o cerrar un documento) se descarta, y mientras la pestaña activa abre su
   plano la página no sigue al editor. Lo prueba `test_cambiar_de_pestana_con_el_editor_lento_termina_en_la_activa` forzando las dos
   carreras (un bloqueo que tarda 3 s; una lectura del estado retenida hasta después del cambio).
+- **Una petición a la vez al editor.** El canal de control del editor atiende una sola petición (las consultas, siempre): otra al mismo
+  tiempo se rechaza («busy») y el editor anota ese rechazo en su línea de órdenes, lo que hace responder como **fallida** la que estaba
+  en curso aunque terminó bien (visto el 19-11: «No se pudo leer» una plantilla mientras la página guardaba el borrador de
+  recuperación). Por eso todo lo que la página pide al editor (editor.js, Civil, la carpeta del proyecto, plantillas, modo táctil) pasa
+  por un solo turno, `TVCad.enviar` en `control.js`: las consultas y `cancel` van directo, lo demás espera a la anterior dentro de su
+  propio tiempo; un «busy» de otro cliente se reintenta con otro `request_id`. Lo prueba
+  `test_dos_peticiones_a_la_vez_esperan_su_turno_y_ninguna_falla` (una petición en curso que espera a la persona y otra que espera su
+  turno). Que el rechazo de una petición no marque como fallida a la que está en curso es un arreglo pendiente del editor (fork).
 - **Un dibujo que no es de la biblioteca** (NUEVO dentro del editor, o un archivo de este equipo con ABRIR) sale como pestaña «Fuera de la
   biblioteca»: «Guardar en la biblioteca» lo deja como plano nuevo (`POST /cad/desde/editor/`) y la pestaña pasa a ser ese plano.
 - **Guardar como copia** (conflicto, bloqueo perdido) deja la copia en la misma pestaña, sin salir de la página.

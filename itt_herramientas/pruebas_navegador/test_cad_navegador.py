@@ -319,6 +319,34 @@ def test_tvcad_da_la_barra_y_el_estado_a_las_extensiones(cad, navegar, crear_usu
     assert not n.errores, n.errores
 
 
+@pytest.mark.parametrize("motor", MOTORES)
+def test_dos_peticiones_a_la_vez_esperan_su_turno_y_ninguna_falla(cad, navegar, crear_usuario, roles, motor):
+    """El editor atiende una petición a la vez: otra al mismo tiempo se rechazaba («busy») y ese rechazo, anotado en su línea de
+    órdenes, hacía responder como fallida la que estaba en curso (una plantilla que no «se pudo leer» mientras la página guardaba el
+    borrador). Aquí una petición queda en curso (señalar un punto, que espera a la persona) y la página pide otra: tiene que esperar su
+    turno, sin rechazo, y hacerse en cuanto la primera termina."""
+    ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")
+    p0 = servicio.crear_vacio(ana, "Turnos", "", "dxf")
+    n = navegar(ana, motor)
+    p = n.ir(f"/cad/{p0.pk}/")
+    esperar_estado(p, "guardado")
+    esperar(p, "TVCad.estaListo()")
+    p.evaluate("""() => {
+        const fin = (nombre) => [(r) => { window[nombre] = { ok: true, status: r.status }; },
+                                 (e) => { window[nombre] = { ok: false, codigo: e.codigo, code: e.respuesta && e.respuesta.code }; }];
+        window.__punto = null; window.__orden = null;
+        TVCad.pedir({ op: 'getpoint', prompt: 'Señala un punto' }, { tiempoMs: 60000 }).then(...fin('__punto'));
+        setTimeout(() => TVCad.ejecutar('CIRCLE 390000,3168000 5', { tiempoMs: 60000 }).then(...fin('__orden')), 400);
+    }""")
+    p.wait_for_timeout(1500)
+    assert p.evaluate("window.__orden") is None, p.evaluate("window.__orden")        # espera su turno: no se rechazó
+    p.evaluate("TVCad.pedir({op: 'cancel'}).catch(() => null)")                  # la persona no señala: se cancela la primera
+    esperar(p, "window.__orden !== null && window.__punto !== null", LARGO)
+    assert p.evaluate("window.__orden") == {"ok": True, "status": "completed"}, p.evaluate("window.__orden")
+    assert p.evaluate("TVCad.pedir({op: 'query', type: 'Circle', detail: 'summary', limit: 1}).then(q => q.count)") == 1
+    assert not _errores_propios(n, motor), n.errores
+
+
 @pytest.mark.parametrize("ancho", [360, 1280])
 def test_biblioteca_nuevo_subir_buscar_y_zip(sin_tactil, navegar, crear_usuario, roles, ancho, tmp_path):
     ana = _persona(crear_usuario, roles, "ana", "Ana López", "cad")

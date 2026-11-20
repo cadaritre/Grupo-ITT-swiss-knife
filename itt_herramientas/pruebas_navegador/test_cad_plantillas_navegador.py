@@ -84,14 +84,7 @@ def menu_de_pestana(p, pestana: str, item: str):
     """Clic derecho en la pestaña `pestana` del editor y clic en `item` (from_template | save_as_template) de su menú."""
     sin_avisos_del_editor(p)
     marco = p.locator("#cad-editor").bounding_box()
-    limite = time.monotonic() + 30
-    while True:
-        r = pedir(p, {"op": "layouts"})
-        if pestana in r.get("tabs", {}):
-            break
-        assert time.monotonic() < limite, f"sin pestaña {pestana}: {r}"
-        p.wait_for_timeout(300)
-    x, y, w, h = r["tabs"][pestana]
+    x, y, w, h = pestana_del_editor(p, pestana)
     cx, cy = marco["x"] + x + w / 2, marco["y"] + y + h / 2
     menu = {}
     for intento in range(3):
@@ -120,11 +113,22 @@ def menu_de_pestana(p, pestana: str, item: str):
     return True
 
 
+def pestana_del_editor(p, pestana: str):
+    """Dónde está la pestaña `pestana` en la tira del editor; la espera (el editor la dibuja un poco después de abrir el plano)."""
+    limite = time.monotonic() + 30
+    while True:
+        r = pedir(p, {"op": "layouts"})
+        if pestana in r.get("tabs", {}):
+            return r["tabs"][pestana]
+        assert time.monotonic() < limite, f"sin pestaña {pestana}: {r}"
+        p.wait_for_timeout(300)
+
+
 def sin_menu(p, pestana: str) -> bool:
     """El menú de la pestaña no ofrece plantillas (solo lectura, modo táctil)."""
     sin_avisos_del_editor(p)
     marco = p.locator("#cad-editor").bounding_box()
-    x, y, w, h = pedir(p, {"op": "layouts"})["tabs"][pestana]
+    x, y, w, h = pestana_del_editor(p, pestana)
     p.mouse.click(marco["x"] + x + w / 2, marco["y"] + y + h / 2, button="right")
     p.wait_for_timeout(1200)
     menu = pedir(p, {"op": "layouts"}).get("tab_menu", {})

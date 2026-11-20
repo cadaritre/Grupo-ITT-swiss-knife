@@ -40,6 +40,9 @@
  *                                      solo, `?canvas=1`, como en el modo táctil). Devuelve { cx, cy, k (unidades por px CSS), w, h, ox, oy
  *                                      (esquina del área de dibujo en px CSS del marco), aMarco(x, y) / deMarco(px, py) en px del marco y
  *                                      aPagina(x, y) / dePagina(px, py) en px de la página }. La usan el modo táctil y Civil: nunca difieren.
+ *   await TVCad.enviar(canal, sobre, opciones)
+ *                                      Para editor.js: manda un sobre ya armado por `canal` (su `ocsControl`) en el turno único de la
+ *                                      página (el editor atiende una petición a la vez; ver `enviar` abajo). Las extensiones usan `pedir`.
  *   TVCad.registro()                   las últimas peticiones que cambian algo (op, orden, si se aceptó y la revisión que dejó) y los
  *                                      pasos a «Sin guardar»; para diagnosticar en el teléfono (también sale en la consola).
  *   TVCad.on(evento, fn) / off(...)    eventos: "listo" (estado), "cambio" ({ sucio }), "guardado" ({ revision, formato }),
@@ -84,6 +87,41 @@
     const m = marco();
     try { return m && m.contentWindow && m.contentWindow.ocsControl; } catch (_) { return null; }
   }
+  // El canal del editor atiende UNA petición a la vez (fuera de las consultas, que responde siempre). Otra que llega mientras tanto se
+  // rechaza («busy»), y el editor anota ese rechazo en su línea de órdenes: eso hace que la petición en curso se responda como fallida
+  // aunque terminó bien (p. ej. leer una plantilla mientras la página guardaba el borrador de recuperación). Por eso todo lo que esta
+  // página le pide al editor —editor.js, Civil, la carpeta del proyecto, las plantillas, el modo táctil— pasa por un solo turno: las
+  // consultas y «cancel» (que va a la petición en curso) pasan directo; lo demás espera a que termine la anterior. El tiempo de cada una
+  // cuenta desde que se pide, también lo que esperó su turno. Si aun así el editor dice «busy» (otro cliente), se reintenta con otro
+  // request_id hasta su tiempo.
+  const DIRECTAS = new Set(["state", "hello", "operation", "events", "capabilities", "commands", "properties", "measure", "snap", "grips",
+    "query", "records", "record_schema", "tools", "entities", "layers", "header", "history", "xdata_get", "get_selection", "audit",
+    "text_search", "text_audit", "blocks", "block_instances", "cad_get_blocks", "cad_extract_block_instances", "keytips", "layouts",
+    "dim_style", "extents", "documents", "references", "image_views", "ribbon_items", "image_tiles", "ribbon_define", "ribbon_remove",
+    "cancel"]);
+  let fila = Promise.resolve();
+  const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function conReintento(c, sobre, opciones, hasta) {
+    for (let i = 1; ; i++) {
+      const r = await c.request(sobre, { ...opciones, timeoutMs: Math.max(1000, hasta - Date.now()) });
+      if (!(r && r.ok === false && r.code === "busy") || Date.now() + 150 > hasta) return r;
+      await dormir(150);
+      sobre = { ...sobre, request_id: `${String(sobre.request_id).replace(/~\d+$/, "")}~${i}` };
+    }
+  }
+  /** Manda `sobre` por el canal `c` del editor en su turno (ver arriba). `opciones` como las de `ocsControl.request`. */
+  function enviar(c, sobre, opciones = {}) {
+    const hasta = Date.now() + (opciones.timeoutMs || 30000);
+    if (DIRECTAS.has(sobre && sobre.op)) return conReintento(c, sobre, opciones, hasta);
+    const turno = fila;
+    const r = (async () => {
+      const espera = await Promise.race([turno.then(() => true), dormir(Math.max(0, hasta - Date.now())).then(() => false)]);
+      if (!espera) throw new Error("El editor no respondió a tiempo.");
+      return conReintento(c, sobre, opciones, hasta);
+    })();
+    fila = turno.then(() => r).catch(() => {});
+    return r;
+  }
   const copia = () => ({ listo: estado.listo, editable: estado.editable, plano: estado.plano && { ...estado.plano }, documento: estado.documento });
 
   // La página del editor (editor.js) avisa con eventos del documento.
@@ -122,7 +160,7 @@
       n += 1;
       const sobre = { protocol: 1, request_id: `tvcad-${Date.now().toString(36)}-${n}`, ...peticion };
       if (sobre.document_id === undefined && estado.documento && !["state", "new", "open", "capabilities"].includes(sobre.op)) sobre.document_id = estado.documento;
-      respuesta = await c.request(sobre, sondeoMs ? { timeoutMs: tiempoMs, pollMs: sondeoMs } : { timeoutMs: tiempoMs });
+      respuesta = await enviar(c, sobre, sondeoMs ? { timeoutMs: tiempoMs, pollMs: sondeoMs } : { timeoutMs: tiempoMs });
     } catch (err) {
       throw new ErrorEditor("tiempo", "El editor no respondió a tiempo.", undefined);
     }
@@ -184,6 +222,7 @@
     soltar() { ocupaciones = Math.max(0, ocupaciones - 1); },
     ocupado: () => ocupaciones > 0,
     anotar,
+    enviar,
     registro: () => registro.slice(),
     on(evento, fn) { if (!oyentes.has(evento)) oyentes.set(evento, new Set()); oyentes.get(evento).add(fn); },
     off(evento, fn) { (oyentes.get(evento) || new Set()).delete(fn); },
