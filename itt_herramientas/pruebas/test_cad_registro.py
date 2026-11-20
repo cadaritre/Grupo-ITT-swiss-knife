@@ -54,3 +54,44 @@ def test_el_borrador_lo_escribe_en_el_registro_y_nunca_falla(cliente_de, dibujan
     assert cl.post(url("cad_borrador", pk=plano.pk), DXF, content_type="application/octet-stream", HTTP_X_TV_REVISION="1").status_code == 200
     assert not [x for x in caplog.records if "registro sin guardar" in x.getMessage()]
     assert BorradorPlano.objects.filter(plano=plano).count() == 1
+
+
+# -- El arranque vigilado: el informe de un editor que no arrancó (POST /cad/<id>/arranque/) -------------------------------------------
+
+ARRANQUE = {"v": 1, "etapa": "editor", "motivo": "plazo", "desde": "red", "modo": "t", "recuperado": True, "ms": 61234,
+            "pasos": [["memoria", 3], ["preparar", 5], ["marco", 900], ["compilar", 4100], ["editor", 16200]],
+            "eq": {"w": 800, "h": 1280, "dpr": 1.8, "tactil": 1, "fino": 0, "mem": 8, "cpu": 8, "webgpu": 1, "sw": 1, "app": 0},
+            "gl": "ANGLE (ARM, Mali-G68 MC4, OpenGL ES 3.2) · 8192", "aviso": ""}
+
+
+def test_el_informe_de_arranque_se_valida_campo_por_campo():
+    out = json.loads(registro.arranque(ARRANQUE))
+    assert out["etapa"] == "editor" and out["desde"] == "red" and out["modo"] == "t" and out["recuperado"] == 1 and out["ms"] == 61234
+    assert out["eq"] == ARRANQUE["eq"] and out["pasos"][-1] == ["editor", 16200] and "Mali-G68" in out["gl"] and "aviso" not in out
+    raro = {**ARRANQUE, "etapa": "dibujo", "desde": "<x>", "eq": {"w": -1, "mem": "8", "dpr": True, "otro": 5}, "pasos": [["x", 1], ["marco", "1"]],
+            "gl": "Malié\n" + "x" * 500, "aviso": 7, "plano": "contenido"}
+    out = json.loads(registro.arranque(raro))
+    assert out["etapa"] == "?" and out["desde"] == "?" and out["eq"] == {} and out["pasos"] == [] and "plano" not in out and "aviso" not in out
+    assert out["gl"].startswith("Mali??") and len(out["gl"]) == 120
+    largo = {**ARRANQUE, "pasos": [["marco", i] for i in range(5000)], "aviso": "y" * 5000}
+    assert len(registro.arranque(largo)) <= registro.LIMITE
+    assert json.loads(registro.arranque(None)) == {"malformado": "tipo"}
+
+
+def test_el_arranque_detenido_va_al_registro_con_el_equipo(cliente_de, dibujante, plano, caplog):
+    cl = cliente_de(dibujante)
+    caplog.set_level(logging.INFO, logger="itt_herramientas.cad")
+    r = cl.post(url("cad_arranque", pk=plano.pk), json.dumps(ARRANQUE), content_type="application/json",
+                HTTP_USER_AGENT="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36")
+    assert r.status_code == 204
+    lineas = [x.getMessage() for x in caplog.records if "cad arranque" in x.getMessage()]
+    assert len(lineas) == 1 and f"plano={plano.pk}" in lineas[0] and "Android 10; K" in lineas[0] and '"etapa":"editor"' in lineas[0], lineas
+    caplog.clear()
+    assert cl.post(url("cad_arranque", pk=plano.pk), "{roto", content_type="application/json").status_code == 204
+    assert '"malformado"' in [x.getMessage() for x in caplog.records if "cad arranque" in x.getMessage()][0]
+    # Solo con acceso al plano y por POST.
+    assert cl.get(url("cad_arranque", pk=plano.pk)).status_code == 405
+    from django.test import Client
+
+    from .conftest import HOST
+    assert Client(HTTP_HOST=HOST).post(url("cad_arranque", pk=plano.pk), "{}", content_type="application/json").status_code in (302, 401, 403, 404)

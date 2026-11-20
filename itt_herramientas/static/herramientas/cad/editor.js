@@ -136,9 +136,10 @@
 
   // -- Peticiones -------------------------------------------------------------------------------------------------------------
   let sinSesion = false;
-  async function pedir(url, { metodo = "GET", json, cuerpo, cabeceras = {}, keepalive = false, cache } = {}) {
+  async function pedir(url, { metodo = "GET", json, cuerpo, cabeceras = {}, keepalive = false, cache, plazoMs } = {}) {
     const opciones = { method: metodo, credentials: "same-origin", keepalive, headers: { Accept: "application/json", ...cabeceras } };
     if (cache) opciones.cache = cache;
+    if (plazoMs && window.AbortSignal && AbortSignal.timeout) opciones.signal = AbortSignal.timeout(plazoMs);
     if (metodo !== "GET") opciones.headers["X-CSRFToken"] = csrf();
     if (json !== undefined) { opciones.headers["Content-Type"] = "application/json"; opciones.body = JSON.stringify(json); }
     else if (cuerpo !== undefined) opciones.body = cuerpo;
@@ -232,14 +233,16 @@
     for (let i = 0; i < crudo.length; i++) bytes[i] = crudo.charCodeAt(i);
     return bytes.buffer;
   }
+  // El canal existe cuando el editor terminó de compilar e instanciar su WebAssembly (`ocsControl.ready`). Sin plazo propio: lo pone la
+  // vigilancia del arranque (abajo). Si el marco avisa que no pudo cargar el editor (`ocs:error` open_failed), se deja de esperar.
   async function esperarCanal() {
-    for (let i = 0; i < 600; i++) {
-      let c = null;
-      try { c = frame.contentWindow && frame.contentWindow.ocsControl; } catch (_) { c = null; }
-      if (c) { await c.ready; return c; }
+    for (;;) {
+      if (falloDelMarco) throw new Atasco("compilar", falloDelMarco);
+      let c = null, b = null;
+      try { c = frame.contentWindow && frame.contentWindow.ocsControl; b = frame.contentWindow && frame.contentWindow.wasmBindings; } catch (_) { c = null; }
+      if (c && b && b.ocs_control_submit) { await c.ready; return c; }
       await espera(200);
     }
-    throw new Error("El editor no terminó de abrir. Recarga la página.");
   }
   function engancharGuardadoDelEditor() {
     try {
@@ -255,17 +258,27 @@
       };
     } catch (_) { /* marco de otro origen: no puede pasar (mismo origen por diseño) */ }
   }
-  async function cargarMarco() {
-    control = null;
+  // Cada etapa del arranque tiene su plazo (docs/cad.md, «El arranque vigilado»): la página del editor y su WebAssembly (desde el equipo
+  // o de la red), compilarlo, y la primera respuesta del editor ya corriendo (su dibujo arrancó: si la tarjeta de video no lo deja,
+  // el editor nunca responde y antes la página esperaba sin fin).
+  async function cargarMarco(desde) {
+    control = null; falloDelMarco = null;
+    etapaArranque("marco");
     const listo = new Promise((r) => frame.addEventListener("load", r, { once: true }));
     frame.src = C.urls.editor;
-    await listo;
-    control = await esperarCanal();
+    // De la red, la primera vez de cada versión el editor viaja entero: con una conexión lenta se dice que tarda, no que se atoró.
+    const lento = desde === "equipo" ? 0 : setTimeout(() => {
+      const mb = Math.round(((C.guardado && C.guardado.descarga) || 37 * 1048576) / 1048576);
+      cargaDe(t0, `Descargando el CAD (${mb} MB)… Con una conexión lenta tarda unos minutos.`);
+    }, 15000);
+    try { await conTope(listo, desde === "equipo" ? PLAZO.marcoEquipo : plazoDescarga(), "marco"); } finally { clearTimeout(lento); }
+    cargaDe(t0, "Abriendo el editor…");
+    etapaArranque("compilar");
+    control = await conTope(esperarCanal(), PLAZO.compilar, "compilar");
     engancharGuardadoDelEditor();
-    try {
-      const est = await canal({ op: "state" });
-      if (est.modal) await canal({ op: "action", name: "close_modal", document_id: est.document_id });
-    } catch (_) { /* sin diálogo que cerrar */ }
+    etapaArranque("editor");
+    const est = await conTope(canal({ op: "state" }, PLAZO.editor), PLAZO.editor, "editor").catch((err) => { throw err instanceof Atasco ? err : new Atasco("editor", "sin_respuesta"); });
+    if (est.modal) await canal({ op: "action", name: "close_modal", document_id: est.document_id }).catch(() => {});
     // Con varias pestañas, las de la página son las únicas: las del editor no se muestran (solo en esta sesión del editor).
     if (P) await canal({ op: "file_tabs", on: false }, 10000).catch(() => {});
     await registrarFuentes();
@@ -450,7 +463,10 @@
   function alError(m) {
     if (m.code === "host_save_failed") return;                           // lo provocamos nosotros al rechazar un guardado
     if (m.code === "read_only") { avisar(activa.e.lecturaMotivo || "Este plano está abierto en solo lectura.", "error"); return; }
-    if (m.code === "open_failed") { carga(""); error(activa, "No se pudo abrir el plano en el editor. Descárgalo y revísalo en tu programa de dibujo."); return; }
+    if (m.code === "open_failed") {
+      if (!control) { falloDelMarco = "editor_no_cargo"; return; }        // aún arrancando: lo dice la vigilancia del arranque
+      carga(""); error(activa, "No se pudo abrir el plano en el editor. Descárgalo y revísalo en tu programa de dibujo."); return;
+    }
     if (m.code === "save_failed") { activa.e.guardando = false; refrescarEstado(); error(activa, "El editor no pudo preparar el archivo para guardarlo. Inténtalo de nuevo."); }
   }
 
@@ -971,7 +987,10 @@
     // El latido lleva la versión sobre la que se edita: si el bloqueo caducó y otra persona guardó mientras tanto, el servidor no lo
     // retoma y responde `perdido` con `motivo: "cambio"` (auditoría M-7).
     const cuerpo = accion === "latido" ? { accion, sesion: t.sesion, revision: t.e.base } : { accion, sesion: t.sesion };
-    const r = await pedir(t.cfg.urls.bloqueo, { metodo: "POST", json: cuerpo });
+    const r = await pedir(t.cfg.urls.bloqueo, { metodo: "POST", json: cuerpo, plazoMs: 30000 }).catch((err) => {
+      if (err && (err.name === "TimeoutError" || err.name === "AbortError")) throw new Error("El servidor no respondió a tiempo. Revisa la conexión y recarga la página.");
+      throw err;
+    });
     const d = await datos(r);
     if (r.status === 410) { error(t, "Este plano se eliminó."); throw new Error("eliminado"); }
     if (!r.ok) throw new Error(d.error || "No se pudo comprobar quién edita el plano.");
@@ -1687,6 +1706,7 @@
     const panel = $("cad-grande");
     if (!panel) return Promise.resolve(true);
     carga("");
+    alFrente(panel);
     const mb = (bytes / 1048576).toLocaleString("es-MX", { maximumFractionDigits: 1 });
     $("cad-grande-texto").textContent = `Pesa ${mb} MB y abrirlo necesita más memoria de la que el navegador de este equipo deja usar: se cerraría sin avisar. Ábrelo en una computadora o descárgalo.`;
     panel.hidden = false;
@@ -1703,30 +1723,175 @@
   refrescarEstado(t0);
   pintarPestanas();
   // El editor guardado en este equipo (instalador.js, docs/cad.md «El editor guardado en el equipo»): en la computadora se guarda solo
-  // la primera vez y cada versión nueva baja solo lo que cambió; en el teléfono, solo si se descargó (modo táctil). Si el editor no arranca
-  // desde lo guardado, esa versión se borra y se abre de la red.
-  const ENEL_TELEFONO = matchMedia("(max-width: 767px) and (pointer: coarse)").matches;
-  async function arrancar() {
-    await cabeEnEsteEquipo(t0);
-    const campo = Campo(t0);
-    let desde = "red";
+  // la primera vez y cada versión nueva baja solo lo que cambió; en un equipo solo táctil (teléfono o tableta), solo si se descargó a
+  // pedido (modo táctil, «Sin conexión»). Si el editor no arranca desde lo guardado, esa versión se borra y se abre de la red.
+  const SOLO_TACTIL = matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+  const ENEL_TELEFONO = matchMedia("(max-width: 767px) and (pointer: coarse)").matches || SOLO_TACTIL;
+
+  // -- El arranque vigilado (docs/cad.md, «El arranque vigilado») -----------------------------------------------------------------
+  // Cada etapa tiene un plazo que solo corre con la página a la vista (un teléfono congela las pestañas de atrás). Si una no termina,
+  // nunca queda una carga sin fin: si el editor venía de lo guardado en el equipo, esa copia se borra y se abre de la red (una vez); si
+  // aun así no arranca, se dice claro qué pasó, con «Reintentar», el otro modo y «Descargar el plano», y la página manda al servidor
+  // en qué etapa se detuvo y en qué equipo (POST arranque/, solo al registro del servidor).
+  const PLAZO = Object.freeze({ preparar: 45000, marcoEquipo: 30000, compilar: 90000, editor: 45000 });
+  // De la red, la página del editor espera a su WebAssembly (~33 MB comprimido): un minuto más lo que tardaría a 100 KB/s.
+  const plazoDescarga = () => 60000 + Math.round(((C.guardado && C.guardado.descarga) || 37 * 1048576) / 100);
+  class Atasco extends Error { constructor(etapa, motivo) { super(motivo || etapa); this.etapa = etapa; this.motivo = motivo || "plazo"; } }
+  let falloDelMarco = null;
+  const arranque = { t0: performance.now(), pasos: [], etapa: "memoria", desde: "red", recuperado: false };
+  function etapaArranque(nombre) {
+    arranque.etapa = nombre;
+    arranque.pasos.push([nombre, Math.round(performance.now() - arranque.t0)]);
+  }
+  // `promesa` o un Atasco de `etapa` a los `ms` de tiempo con la página a la vista (saltos de un congelamiento no cuentan).
+  function conTope(promesa, ms, etapa) {
+    return new Promise((ok, mal) => {
+      let usado = 0, antes = performance.now(), fin = false;
+      const reloj = setInterval(() => {
+        const ahora = performance.now();
+        if (document.visibilityState === "visible") usado += Math.min(ahora - antes, 2000);
+        antes = ahora;
+        if (usado >= ms && !fin) { fin = true; clearInterval(reloj); mal(new Atasco(etapa)); }
+      }, 500);
+      Promise.resolve(promesa).then((v) => { clearInterval(reloj); if (!fin) { fin = true; ok(v); } }, (e) => { clearInterval(reloj); if (!fin) { fin = true; mal(e); } });
+    });
+  }
+  // Lo que dice el equipo de sí mismo, para el informe: nada del plano ni de la persona.
+  function tarjetaDeVideo() {
     try {
-      if (ENEL_TELEFONO) { if (campo && campo.prepararEditor) desde = await campo.prepararEditor((x) => carga(x)); }
-      else if (C.guardado && window.TVCadEditor) desde = await window.TVCadEditor.preparar({ decir: (x) => carga(x), automatico: true });
-    } catch (_) { desde = "red"; /* se abre desde la red, como sin el CAD guardado */ }
+      const gl = document.createElement("canvas").getContext("webgl2");
+      if (!gl) return "sin WebGL2";
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      const nombre = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || "");
+      const tope = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+      const ext2 = gl.getExtension("WEBGL_lose_context"); if (ext2) ext2.loseContext();
+      return `${nombre} · ${tope}`;
+    } catch (_) { return "sin WebGL2"; }
+  }
+  function avisoDelEditor() {
+    try { const b = frame.contentDocument && frame.contentDocument.getElementById("ocs-err-text"); return b ? b.innerText.slice(0, 400) : ""; } catch (_) { return ""; }
+  }
+  function informarArranque(err, gl) {
+    if (!C.urls || !C.urls.arranque) return;
+    const m = (q) => { try { return matchMedia(q).matches ? 1 : 0; } catch (_) { return 0; } };
+    const datos = { v: 1, etapa: err.etapa, motivo: err.motivo, desde: arranque.desde, modo: enTactil() ? "t" : "c", recuperado: arranque.recuperado,
+      ms: Math.round(performance.now() - arranque.t0), pasos: arranque.pasos,
+      eq: { w: innerWidth, h: innerHeight, dpr: Math.round((devicePixelRatio || 1) * 100) / 100, tactil: SOLO_TACTIL ? 1 : 0, fino: m("(any-pointer: fine)"),
+        mem: Number(navigator.deviceMemory) || 0, cpu: Number(navigator.hardwareConcurrency) || 0, webgpu: navigator.gpu ? 1 : 0,
+        sw: navigator.serviceWorker && navigator.serviceWorker.controller ? 1 : 0, app: m("(display-mode: standalone)") },
+      gl, aviso: avisoDelEditor() };
+    try {
+      fetch(C.urls.arranque, { method: "POST", credentials: "same-origin", keepalive: true,
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() }, body: JSON.stringify(datos) }).catch(() => {});
+    } catch (_) { /* sin red: nada que hacer */ }
+  }
+  // Los paneles de la carga van sobre todo, también sobre la capa táctil (que tapa el área de dibujo y no deja tocar lo que hay debajo).
+  function alFrente(panel) {
+    if (enTactil() && panel.parentElement !== document.body) document.body.append(panel);
+    panel.classList.toggle("cad-lienzo__grande--frente", enTactil());
+  }
+  function atascado(err) {
+    carga("");
+    const panel = $("cad-atasco");
+    const gl = tarjetaDeVideo();
+    informarArranque(err, gl);
+    if (window.TVCad && window.TVCad.anotar) window.TVCad.anotar({ op: "arranque-detenido", ok: false, revision: 0 });
+    if (!panel) { error(t0, "El CAD no terminó de abrir. Recarga la página."); return; }
+    const descarga = err.etapa === "preparar" || (err.etapa === "marco" && arranque.desde === "red");
+    let titulo, texto;
+    if (descarga) {
+      titulo = "El CAD no terminó de descargarse.";
+      texto = "La conexión se detuvo o va muy lenta. Revisa la conexión y vuelve a intentarlo.";
+    } else if (gl === "sin WebGL2") {
+      titulo = "Este navegador no deja dibujar el plano.";
+      texto = "El CAD necesita WebGL 2, y aquí está apagado o no funciona con esta tarjeta de video. Actualiza Chrome y vuelve a intentarlo; si sigue igual, ábrelo en una computadora o descarga el plano.";
+    } else {
+      titulo = "El CAD no pudo arrancar en este equipo.";
+      texto = "El editor se descargó, pero no arrancó en este navegador. Vuelve a intentarlo; si sigue igual, ábrelo en una computadora o descarga el plano.";
+    }
+    $("cad-atasco-titulo").textContent = titulo;
+    $("cad-atasco-texto").textContent = texto;
+    const modo = $("cad-atasco-modo");
+    if (modo) modo.querySelector("span").textContent = enTactil() ? "Abrir en modo completo" : "Abrir en modo táctil";
+    alFrente(panel);
+    panel.hidden = false;
+    anunciar("atasco", { etapa: err.etapa, motivo: err.motivo, desde: arranque.desde });
+  }
+  // «Reintentar»: la página se vuelve a abrir con el editor de la red (lo guardado en el equipo se borra antes: pudo ser la causa).
+  const RED = "tv.cad.arranque.red";
+  function reabrir({ tactil } = {}) {
+    try { sessionStorage.setItem(RED, "1"); } catch (_) { /* sin almacenamiento: se reintenta igual */ }
+    if (tactil !== undefined) { try { localStorage.setItem("tv.cad.tactil", JSON.stringify(tactil)); } catch (_) { /* solo esta vez */ } }
+    location.reload();
+  }
+  if ($("cad-atasco-reintentar")) $("cad-atasco-reintentar").addEventListener("click", () => reabrir());
+  if ($("cad-atasco-modo")) $("cad-atasco-modo").addEventListener("click", () => reabrir({ tactil: !enTactil() }));
+  function pedidoDeRed() {
+    try { const si = sessionStorage.getItem(RED) === "1"; sessionStorage.removeItem(RED); return si; } catch (_) { return false; }
+  }
+  const versionFijada = () => (C.guardado ? C.guardado.version : (C.tactil || {}).version);
+  // ¿El service worker serviría el editor de lo guardado en este equipo? (Si la versión fijada está completa en Cache Storage, sí,
+  // aunque la página no la haya preparado ahora: también en el teléfono.)
+  async function guardadoAqui() {
+    if (!window.TVCadEditor || !versionFijada() || !("caches" in window)) return false;
+    try {
+      if (!(await conTope(caches.has(`itt-cad-editor-${versionFijada()}`), 10000, "preparar"))) return false;   // lo común: nada guardado
+      return !!(await conTope(window.TVCadEditor.estado(), 10000, "preparar")).alDia;
+    } catch (_) { return false; }
+  }
+  async function prepararEditor() {
+    const campo = Campo(t0);
+    if (ENEL_TELEFONO) return campo && campo.prepararEditor ? campo.prepararEditor((x) => carga(x)) : "red";
+    if (!C.guardado || !window.TVCadEditor) return "red";
+    // Guardar el editor nunca detiene la apertura: si deja de avanzar, se corta y el editor se abre de la red.
+    const corte = window.AbortController ? new AbortController() : null;
+    let ultimo = performance.now();
+    const decir = (x) => { ultimo = performance.now(); carga(x); };
+    const trabajo = window.TVCadEditor.preparar({ decir, automatico: true, senal: corte && corte.signal });
+    const vigia = new Promise((r) => {
+      const reloj = setInterval(() => {
+        if (document.visibilityState !== "visible") { ultimo = performance.now(); return; }
+        if (performance.now() - ultimo > PLAZO.preparar) { clearInterval(reloj); if (corte) corte.abort(); r("red"); }
+      }, 1000);
+      trabajo.finally(() => clearInterval(reloj));
+    });
+    return Promise.race([trabajo, vigia]);
+  }
+  async function arrancar() {
+    etapaArranque("memoria");
+    await cabeEnEsteEquipo(t0);
+    etapaArranque("preparar");
+    let desde = "red", aqui = Promise.resolve(false);
+    if (pedidoDeRed()) { if (window.TVCadEditor) await conTope(window.TVCadEditor.fallo(versionFijada()), 10000, "preparar").catch(() => {}); }
+    else {
+      try { desde = await prepararEditor(); } catch (_) { desde = "red"; /* se abre desde la red, como sin el CAD guardado */ }
+      // Sin «preparar», el service worker igual sirve una copia completa que ya esté en el equipo (p. ej. la que una tableta guardó sola
+      // antes del 20-11-2026). Se averigua a la par, sin retrasar el marco: el «atrás» del modo táctil depende de cuándo navega el marco
+      // (test_cad_tactil_5_navegador.py).
+      if (desde !== "equipo") aqui = guardadoAqui().then((si) => { if (si) arranque.desde = "equipo"; return si; });
+    }
+    arranque.desde = desde;
     if (window.TVCadEditor && window.TVCadEditor.pintarMenu) window.TVCadEditor.pintarMenu();
     try {
-      await cargarMarco();
+      await cargarMarco(desde);
     } catch (err) {
-      if (desde !== "equipo" || !window.TVCadEditor) throw err;
-      await window.TVCadEditor.fallo(C.guardado ? C.guardado.version : (C.tactil || {}).version);
-      await cargarMarco();
+      if ((desde !== "equipo" && !(await aqui)) || !window.TVCadEditor) throw err;
+      // Lo guardado en este equipo no arrancó (falló o se quedó detenido): se borra y el editor se abre de la red, una vez.
+      arranque.recuperado = true;
+      informarArranque(err instanceof Atasco ? err : new Atasco(arranque.etapa, "error"), "");
+      await conTope(window.TVCadEditor.fallo(versionFijada()), 10000, "preparar").catch(() => {});
+      arranque.desde = "red";
+      carga("Abriendo el editor…");
+      await cargarMarco("red");
     }
     await alListo(t0);
     if (P && !enTactil() && !(C.tactil && matchMedia("(pointer: coarse)").matches)) await restaurarPestanas();
   }
   if (frame) {
-    const empezar = () => arrancar().catch((err) => { carga(""); error(t0, err.message); });
+    const empezar = () => arrancar().catch((err) => {
+      if (err instanceof Atasco) { atascado(err); return; }
+      carga(""); error(t0, err.message);
+    });
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", empezar); else setTimeout(empezar, 0);
   } else carga("");
 })();

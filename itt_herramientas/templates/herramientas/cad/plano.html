@@ -84,6 +84,17 @@
       <button type="button" class="tv-boton tv-boton--secundario" id="cad-grande-intentar">{% icono "triangle-alert" %}<span>Intentar abrirlo aquí</span></button>
     </div>
   </div>
+  {# El editor no arrancó a tiempo (docs/cad.md, «El arranque vigilado»): nunca una carga sin fin. #}
+  <div class="cad-lienzo__grande" id="cad-atasco" role="alert" hidden>
+    {% icono "circle-alert" %}
+    <p class="cad-lienzo__grande-titulo" id="cad-atasco-titulo"></p>
+    <p class="tv-tenue" id="cad-atasco-texto"></p>
+    <div class="cad-lienzo__grande-acciones">
+      <button type="button" class="tv-boton tv-boton--primario" id="cad-atasco-reintentar">{% icono "rotate-cw" %}<span>Reintentar</span></button>
+      {% if config.tactil %}<button type="button" class="tv-boton tv-boton--secundario" id="cad-atasco-modo">{% icono "hand" %}<span>Abrir en modo táctil</span></button>{% endif %}
+      <a class="tv-boton tv-boton--secundario" href="{% url 'herramientas:cad_archivo' p.pk %}?descargar=1">{% icono "download" %}<span>Descargar el plano</span></a>
+    </div>
+  </div>
 </div>
 {% elif sin_archivo %}
 {% vacio titulo="El archivo de este plano no está en el servidor." icono="file-x" %}<p class="tv-tenue cad-sin-archivo">Los planos no tienen copia de seguridad fuera del servidor y este archivo se perdió (por ejemplo, al restaurar o cambiar de servidor). Si tienes una copia, súbela como plano nuevo.</p>{% if puede_eliminar %}<button type="button" class="tv-boton tv-boton--secundario" data-tv-abrir="cad-eliminar">{% icono "trash-2" %}<span>Eliminar el plano</span></button>{% endif %}{% endvacio %}

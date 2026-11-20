@@ -280,7 +280,7 @@ def _versiones(p: Plano) -> list[dict]:
 
 
 def _urls(p: Plano) -> dict:
-    nombres = ("archivo", "estado", "bloqueo", "guardar", "copia", "borrador", "borrador_descartar", "renombrar", "imprimir", "convertir", "drive",
+    nombres = ("archivo", "estado", "arranque", "bloqueo", "guardar", "copia", "borrador", "borrador_descartar", "renombrar", "imprimir", "convertir", "drive",
                "duplicar", "eliminar")
     urls = {n: reverse(f"herramientas:cad_{n}", args=[p.pk]) for n in nombres}
     urls["referencias"] = reverse("herramientas:cad_referencias", args=[p.pk])
@@ -587,6 +587,20 @@ def estado(request, pk):
     if request.GET.get("ligero") != "1":            # la lista de versiones (hasta 30) solo si se pide: la página que vigila no la usa
         datos["versiones"] = _versiones(p)
     return _json(datos)
+
+
+@ver
+@require_POST
+def arranque(request, pk):
+    """El editor no arrancó en esta página (docs/cad.md, «El arranque vigilado»): qué etapa se detuvo y en qué equipo, solo al journal."""
+    _plano(pk)
+    try:
+        datos = json.loads(request.body[:8000] or b"{}")
+    except ValueError:
+        datos = None
+    servicio.log.info("cad arranque plano=%s cuenta=%s ua=%s %s", pk, request.user.pk,
+                      registro._texto(request.headers.get("User-Agent", ""), 160), registro.arranque(datos))
+    return HttpResponse(status=204)
 
 
 @editar

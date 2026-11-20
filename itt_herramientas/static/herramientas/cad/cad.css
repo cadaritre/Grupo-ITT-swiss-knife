@@ -130,6 +130,8 @@
 .cad-lienzo__grande { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--tv-espacio-3);
   padding: var(--tv-espacio-5) var(--tv-espacio-4); background: var(--tv-fondo); text-align: center; overflow-y: auto; }
 .cad-lienzo__grande[hidden] { display: none; }
+/* En modo táctil la capa táctil tapa el área de dibujo: el aviso va a la página entera, encima de todo, para que sus botones se puedan tocar. */
+.cad-lienzo__grande--frente { position: fixed; z-index: 45; background: var(--tv-fondo); padding-bottom: env(safe-area-inset-bottom); }
 .cad-lienzo__grande > svg { width: 32px; height: 32px; color: var(--tv-tenue); }
 .cad-lienzo__grande p { margin: 0; max-width: 36rem; }
 .cad-lienzo__grande-titulo { font-weight: 600; }

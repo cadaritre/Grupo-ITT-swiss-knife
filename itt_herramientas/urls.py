@@ -137,6 +137,7 @@ urlpatterns = [
     path("cad/<uuid:pk>/referencias/", cad_carpetas.referencias, name="cad_referencias"),
     path("cad/<uuid:pk>/estado/", cad.estado, name="cad_estado"),
     path("cad/<uuid:pk>/pestana/", cad.pestana, name="cad_pestana"),
+    path("cad/<uuid:pk>/arranque/", cad.arranque, name="cad_arranque"),
     path("cad/<uuid:pk>/bloqueo/", cad.bloqueo, name="cad_bloqueo"),
     path("cad/<uuid:pk>/guardar/", cad.guardar, name="cad_guardar"),
     path("cad/<uuid:pk>/copia/", cad.copia, name="cad_copia"),

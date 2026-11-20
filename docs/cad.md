@@ -597,14 +597,15 @@ editor (~33 MB con gzip, casi todo el `.wasm`) vivía solo en la caché HTTP del
 compilación nueva (`/cad/editor/<versión>/`, a veces varias por semana) bajaba el `.wasm` entero otra vez.
 
 **Qué ve la persona.**
-- **Computadora (y tableta):** automático. La primera vez que abre un plano, la carga dice «Guardando el CAD en esta computadora… 12 de
+- **Computadora:** automático. La primera vez que abre un plano, la carga dice «Guardando el CAD en esta computadora… 12 de
   37 MB» y el editor abre de lo guardado. «Más acciones» termina con «CAD guardado en esta computadora · 118 MB» y, debajo, «Se abre sin
   descargar nada y se actualiza solo con lo que cambie.» (o, si el navegador no concedió el almacenamiento persistente, «… Si el
   navegador se queda sin espacio podría borrarlo; se vuelve a guardar solo.»), con el botón «Quitar». Quitado: «El CAD se descarga cada
   vez que abres un plano.» y «Guardar el CAD en esta computadora». Con una versión nueva: «Actualizando el CAD de esta computadora… 1.2
   de 3.4 MB».
-- **Teléfono:** como antes, a pedido («Descargar CAD en este teléfono» en «Sin conexión» del modo táctil, solo en la app instalada), con el
-  mismo código; sus actualizaciones también bajan solo los parches.
+- **Teléfono y tableta solo táctil** (puntero grueso y ninguno fino; desde el 20-11-2026 también la tableta, ver «Tableta Android»): a
+  pedido («Descargar CAD en este teléfono» en «Sin conexión» del modo táctil, solo en la app instalada), con el mismo código; sus
+  actualizaciones también bajan solo los parches. Una computadora con pantalla táctil y ratón o panel sigue siendo computadora.
 
 **Por qué automático en la computadora.** Es lo que el navegador ya bajaba al abrir un plano (la misma cantidad de bytes la primera vez),
 ahora guardado de forma fiable y visible, con «Quitar». Un botón «Descargar» sería un paso más para lo mismo, y quien no lo tocara
@@ -787,6 +788,53 @@ Pruebas: `test_cad.py::test_un_plano_grande_se_anuncia_antes_de_abrirlo_en_un_te
 `test_cad_navegador.py::test_un_plano_grande_se_anuncia_en_el_telefono_antes_de_bajar_el_editor` (Chromium y WebKit: el aviso antes de bajar
 el editor, «Intentar abrirlo aquí» y, en la computadora, el avance en %); en el fork, `tresvizo/pruebas/plano_grande_web.py` (abrir, mover,
 editar, guardar y reabrir el sintético con topes de tiempo y memoria) y `bounded::tests`, `piece_tests`.
+
+## Tableta Android y el arranque vigilado (20-11-2026)
+
+El dueño, en una Galaxy Tab S9 FE (Exynos 1380, Mali-G68; Chrome 157, agente reducido «Linux; Android 10; K» sin «Mobile»): «nunca abre
+el OpenCAD». La página tomaba el modo táctil y se quedaba en «Abriendo el editor…» sin fin; el servidor nunca veía `bloqueo/` ni
+`archivo/`. En los teléfonos Android (Adreno 650, Mali-G715) abre.
+
+**Lo que se encontró** (Playwright/Chromium con perfiles de tableta: el agente exacto y el de «sitio de escritorio», `isMobile` sí y no,
+toque, 800 × 1280 y 1280 × 800, DPR 1.5–2, `deviceMemory` 4 y 8, con y sin WebGPU, WebGPU colgado, sin WebGL 2; planos de 1, 5 y 20 MB):
+- En la emulación los perfiles de tableta abren (modo táctil, 2–4 s). La página no mira el agente ni «Mobile»; decide por el ancho
+  (≤ 767 px) y el puntero, y el editor web dibuja con WebGL 2 (`iced`, `Backend::Hardware(OpenGL)`): WebGPU no interviene.
+- **Si el editor no logra arrancar su dibujo** (sin WebGL 2, o un contexto que el controlador no da), el WebAssembly carga, el canal
+  existe, pero el editor nunca responde: `iced` deja la aplicación sin aviso (su `Control::Crash`) o espera para siempre. Nada lo decía:
+  `esperarCanal` esperaba `ocsControl.ready` sin plazo, la primera consulta tardaba 120 s en vencer y su error se tragaba, y la página se
+  quedaba en la carga. Reproducido: con WebGL 2 apagado, 130 s de carga, luego `bloqueo/` y «Abriendo el plano… 35 %» para siempre.
+- **Lo único que en nuestra página distingue a la tableta del teléfono** es el ancho: con ≥ 768 px tomaba el camino de la computadora,
+  que guarda el editor solo (Cache Storage, servido por el service worker) y lo abre de ahí. El teléfono lo abre de la red. Si el editor
+  guardado no arrancaba *colgándose* (no fallando), la página nunca lo borraba ni lo abría de la red: solo atendía un error.
+- En modo táctil la capa táctil tapa el área de dibujo: el aviso de «Planos grandes» y sus botones quedaban debajo, sin poder tocarse.
+- **No se pudo confirmar en el equipo real** cuál de los dos (la GPU Mali-G68 con WebGL 2, o el editor guardado en la tableta) detiene
+  a esa tableta: aquí no hay tableta ni GPU Mali (SwiftShader). Por eso el arreglo cubre los dos y el servidor recibe dónde se detuvo.
+
+**El arreglo** (`static/herramientas/cad/editor.js`, `instalador.js`, `cad/registro.py`, `POST /cad/<id>/arranque/`):
+- **La tableta es como el teléfono para el editor:** un equipo solo táctil (puntero grueso, ninguno fino) lo abre de la red y lo guarda
+  solo a pedido. Es el camino probado en Android, sin 123 MB guardados sin preguntar en un equipo que puede ir con datos móviles. La
+  interfaz no cambia: modo táctil si es solo táctil (como antes), el editor completo con «Más › Modo completo».
+- **El arranque vigilado:** cada etapa tiene un plazo que corre solo con la página a la vista (un teléfono congela las pestañas de atrás):
+  preparar el editor guardado (45 s sin avanzar: se corta, también la espera del turno de otra pestaña, y se abre de la red), la página
+  del editor (30 s desde el equipo; de la red, 1 min más lo que tardaría a 100 KB/s, y a los 15 s dice «Descargando el CAD (37 MB)… Con
+  una conexión lenta tarda unos minutos.»), compilar el WebAssembly (90 s) y la primera respuesta del editor ya corriendo (45 s). El
+  bloqueo tiene 30 s.
+- **Lo guardado que no arranca** (falla o se queda detenido) se borra y el editor se abre de la red, una vez, sin que la persona haga nada.
+- **Si aun así no arranca**, nunca queda una carga sin fin: «El CAD no pudo arrancar en este equipo.» (o «Este navegador no deja dibujar
+  el plano.», si no hay WebGL 2; o «El CAD no terminó de descargarse.») con qué hacer, y «Reintentar» (reabre con el editor de la red),
+  «Abrir en modo completo» / «Abrir en modo táctil» y «Descargar el plano». Los avisos van encima de la capa táctil.
+- **El informe al servidor** (una vez por arranque detenido o recuperado; solo al journal, `INFO itt_herramientas.cad`, «cad arranque
+  plano=… cuenta=… ua=… {…}»): la etapa, de dónde venía el editor, el modo, cuánto tardó cada etapa, la pantalla, el puntero, la memoria,
+  si hay WebGPU y service worker, si es la app instalada, la tarjeta de video que da WebGL 2 (nombre y tamaño máximo de textura) y el
+  aviso de error del editor si lo mostró. Nada del plano. `cad/registro.py` lo valida campo por campo y lo recorta a 2 000 caracteres.
+
+**Pruebas:** `pruebas_navegador/test_cad_tableta_navegador.py` (los cinco perfiles con 1 MB, 5 y 20 MB; sin WebGL 2 → el aviso a tiempo,
+el informe y el otro modo; lo guardado dañado → se recupera de la red; el aviso de «Planos grandes» se toca en modo táctil) y
+`pruebas/test_cad_registro.py` (el informe).
+
+**Lo que puede seguir distinto en la tableta real:** la GPU Mali-G68 y su controlador (WebGL 2 de verdad, no SwiftShader), la memoria que
+Android deja a la pestaña y lo que Chrome de Android hace con el service worker y Cache Storage. Si la tableta sigue sin abrir, el aviso
+ya lo dice en pantalla y el journal trae la etapa y la tarjeta de video (`journalctl -u tv-portal | grep "cad arranque"`).
 
 ## Espacio, archivos que faltan y autoría
 
@@ -1167,6 +1215,8 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
   uv run pytest itt_herramientas/pruebas_navegador/test_cad_mosaicos_navegador.py      # mosaicos: nítido al volver, nivel anterior al acercar, sin costuras a escala 1–1.5 con la vista girada
 TV_CAD_MEDIR=<GeoTIFF con el patrón de nitidez> uv run pytest \
   itt_herramientas/pruebas_navegador/test_cad_mosaicos_navegador.py -k medir            # la medición de «Ortofotos enormes» (cad_local_rasters grande --nitidez)
+TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
+  uv run pytest itt_herramientas/pruebas_navegador/test_cad_tableta_navegador.py      # tableta Android: perfiles, arranque vigilado, recuperar lo guardado
 TV_CAD_TACTIL=1 ITT_DATOS_CAD=/tmp/datos uv run pytest \
   itt_herramientas/pruebas_navegador/test_cad_datos_moviles_navegador.py -k chromium      # «Datos móviles», ~10 min por motor (tiempo real)
 ```

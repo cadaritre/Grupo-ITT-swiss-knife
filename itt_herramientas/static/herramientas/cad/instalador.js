@@ -3,7 +3,7 @@
  *
  * - Cache Storage, una caché por versión fijada del editor (`itt-cad-editor-<versión>`), que sirve el service worker de Herramientas
  *   (offline/sw_cad_editor.js). Se pide `navigator.storage.persist()` para que el navegador no lo borre cuando le falte espacio.
- * - En la computadora (y la tableta) se guarda solo la primera vez que se abre un plano, antes de abrir el editor: es lo que el navegador
+ * - En la computadora se guarda solo la primera vez que se abre un plano, antes de abrir el editor: es lo que el navegador
  *   ya bajaba, pero ahora se queda. «Quitar» lo borra y deja de guardarlo en este equipo hasta «Guardar el CAD en esta computadora». En el
  *   teléfono es a pedido («Descargar CAD en este teléfono», campo.js) y aquí solo se pone al día.
  * - Una versión nueva baja solo lo que cambió: lo que tiene el mismo SHA-256 que en la versión guardada se copia de allí; lo que cambió y
@@ -14,7 +14,7 @@
  *   versión cuenta como guardada solo con su marca completa, que se escribe al final (base `tv-cad-campo`, tienda `estado`, `editor:<v>`).
  * - Cerrar sesión no lo borra: es el programa, igual para todas las cuentas, sin datos de nadie.
  *
- * API: window.TVCadEditor = { estado(), preparar({decir, automatico}), descargar(alProgreso), quitar(), activado(), activar(si),
+ * API: window.TVCadEditor = { estado(), preparar({decir, automatico, senal}), descargar(alProgreso, senal), quitar(), activado(), activar(si),
  *      versionInstalada(), versionesGuardadas(), uso(), equipo(), fallo(version), pintarMenu() }
  */
 (function () {
@@ -127,9 +127,9 @@
     h.set("X-TV-SHA256", a.sha256);
     return h;
   }
-  async function deLaRed(cache, url, a, alAvanzar) {
+  async function deLaRed(cache, url, a, alAvanzar, senal) {
     // Lo que el navegador ya trajo al abrir el plano (los archivos con huella se guardan un año) no se baja otra vez.
-    const resp = await fetch(url, { credentials: "same-origin" });
+    const resp = await fetch(url, { credentials: "same-origin", signal: senal });
     if (!resp.ok || !resp.body) throw new Error("La descarga se interrumpió. Vuelve a intentarlo: lo ya bajado no se repite.");
     let llegaron = 0;
     const contar = new TransformStream({ transform(trozo, ctl) { llegaron += trozo.byteLength; if (alAvanzar) alAvanzar(trozo.byteLength); ctl.enqueue(trozo); } });
@@ -175,19 +175,21 @@
   let bajando = null;
   // Baja el editor fijado (o lo que cambió desde la versión guardada). alProgreso({hechos, total, bytes, totalBytes}). Una sola vez a la
   // vez en todo el navegador (varias pestañas abriendo planos a la vez): las demás esperan y encuentran la versión ya guardada.
-  function descargar(alProgreso) {
+  // `senal` (AbortSignal): la página del plano la corta si la descarga deja de avanzar; también deja de esperar el turno de otra pestaña.
+  function descargar(alProgreso, senal) {
     if (bajando) return bajando;
-    const trabajo = () => descargarAhora(alProgreso);
-    bajando = (navigator.locks && navigator.locks.request ? navigator.locks.request("tv-cad-editor", trabajo) : trabajo())
+    const trabajo = () => descargarAhora(alProgreso, senal);
+    bajando = (navigator.locks && navigator.locks.request ? navigator.locks.request("tv-cad-editor", senal ? { signal: senal } : {}, trabajo) : trabajo())
       .finally(() => { bajando = null; soltarTrabajador(); });
     return bajando;
   }
-  async function descargarAhora(alProgreso) {
+  async function descargarAhora(alProgreso, senal) {
     if (!hayCaches()) throw new Error("Este navegador no puede guardar el CAD.");
+    const seguir = () => { if (senal && senal.aborted) throw new Error("Se dejó de guardar el CAD."); };
     if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (_) { /* se intenta igual */ } }
     // El service worker de Herramientas es quien sirve el editor guardado: se registra aquí si esta página aún no lo tenía.
     if ("serviceWorker" in navigator) { try { await navigator.serviceWorker.register("/sw.js", { scope: "/" }); } catch (_) { /* sin él, solo con conexión */ } }
-    const r = await fetch(G.urls.paquete, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
+    const r = await fetch(G.urls.paquete, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" }, signal: senal });
     if (!r.ok) throw new Error(r.status === 401 ? "Tu sesión terminó. Vuelve a entrar." : "No se pudo saber qué descargar. Inténtalo de nuevo.");
     const paquete = await r.json();
     const nombre = PREFIJO + paquete.version;
@@ -220,6 +222,7 @@
     const decir = () => { if (alProgreso) alProgreso({ hechos, total, bytes: Math.min(bytes, totalBytes), totalBytes }); };
     decir();
     for (const x of plan) {
+      seguir();
       const antes = bytes;
       let listo = x.como === "hecho";
       if (x.como === "copia") listo = await copiar(cache, x.url, await (await caches.open(x.viejo.nombre)).match(x.viejo.url, { ignoreVary: true }), x.a).catch(() => false);
@@ -230,12 +233,13 @@
       if (!listo) {
         // Sin copia ni parche (o falló): el archivo entero. Si se pensaba otra cosa, se suma lo que de verdad se baja.
         if (x.como !== "red") { totalBytes += x.a.descarga - x.costo; bytes = antes; }
-        await deLaRed(cache, x.url, x.a, (n) => { bytes += n * (x.a.descarga / x.a.bytes); decir(); });
+        await deLaRed(cache, x.url, x.a, (n) => { bytes += n * (x.a.descarga / x.a.bytes); decir(); }, senal);
       }
       bytes = antes + (listo ? x.costo : x.a.descarga);
       hechos += 1;
       decir();
     }
+    seguir();
     const marca = { version: paquete.version, fecha: new Date().toISOString(), bytes: paquete.bytes, descarga: paquete.descarga,
       archivos: Object.fromEntries(paquete.archivos.map((a) => [a.ruta, a.sha256])) };
     await estadoDB("readwrite", (e) => req(e.put({ clave: `editor:${paquete.version}`, marca })));
@@ -259,7 +263,7 @@
       return !!(await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 10000))]));
     } catch (_) { return false; }
   }
-  async function preparar({ decir, automatico } = {}) {
+  async function preparar({ decir, automatico, senal } = {}) {
     if (!G.version || !G.urls || !G.urls.paquete || !hayCaches()) return "red";
     const ed = await estado();
     if (ed.alDia) return (await swListo()) ? "equipo" : "red";
@@ -270,7 +274,7 @@
     const texto = ed.instalada ? `Actualizando el CAD de ${donde}…` : `Guardando el CAD en ${donde}…`;
     if (decir) decir(texto);
     try {
-      await descargar(({ bytes, totalBytes }) => { if (decir) decir(`${texto} ${MB(bytes)} de ${MB(totalBytes)}`); });
+      await descargar(({ bytes, totalBytes }) => { if (decir) decir(`${texto} ${MB(bytes)} de ${MB(totalBytes)}`); }, senal);
       return "equipo";
     } catch (_) { return "red"; }
   }
