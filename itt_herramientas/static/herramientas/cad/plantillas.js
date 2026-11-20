@@ -138,7 +138,7 @@
     try { localStorage.setItem(LLAVE_FUENTE, f); } catch (_) { /* sin almacenamiento */ }
     decir("");
     if (f === "mias") cargarMias();
-    else if (f === "biblioteca") cargarBiblioteca(false);
+    else if (f === "biblioteca") cargarBiblioteca();
     else pintarCarpeta();
   }
   async function abrir() {
@@ -161,7 +161,7 @@
     const texto = document.createElement("span"); texto.className = "cad-elegir__texto";
     const fuerte = document.createElement("strong"); fuerte.textContent = x.nombre;
     const meta = document.createElement("span"); meta.className = "tv-tenue";
-    meta.textContent = [x.proyecto, x.disponible ? tamano(x.bytes) : "Archivo no disponible"].filter(Boolean).join(" · ");
+    meta.textContent = [x.ubicacion ? `En ${x.ubicacion}` : "", x.disponible ? tamano(x.bytes) : "Archivo no disponible"].filter(Boolean).join(" · ");
     texto.append(fuerte, meta); b.append(fmt, texto);
     b.addEventListener("click", () => desdeBiblioteca(x));
     li.append(b);
@@ -196,40 +196,17 @@
     $("cad-plantilla-mias-vacio").hidden = mias.length > 0;
     if (fuente === "mias") decir("");
   }
-  const bib = { q: "", proyecto: "", pagina: 1, paginas: 1, n: 0 };
-  async function cargarBiblioteca(mas) {
-    const lista = $("cad-plantilla-lista");
-    if (!mas) bib.pagina = 1;
-    const n = ++bib.n;
-    decir("Buscando…");
-    let d;
-    try { d = await json(`${C.pestanas.elegir}?${new URLSearchParams({ q: bib.q, proyecto: bib.proyecto, pagina: String(bib.pagina) })}`); }
-    catch (err) { if (n === bib.n) decir(err instanceof TypeError ? "Sin conexión." : err.message); return; }
-    if (n !== bib.n) return;
-    bib.paginas = d.paginas;
-    if (d.proyectos) pintarCarpetas(d.proyectos);
-    const filas = d.planos.map((x) => filaPlano(x));
-    if (mas) lista.append(...filas); else lista.replaceChildren(...filas);
-    decir(d.total ? (d.total === 1 ? "1 plano" : `${d.total} planos`) : "Ningún plano coincide.");
-    $("cad-plantilla-mas").hidden = bib.pagina >= bib.paginas;
+  // De la biblioteca: carpeta por carpeta, con las migas y el árbol de «Planos» (arbol.js). Se empieza donde se eligió la última vez;
+  // en la raíz, «Plantillas» (donde quedan las guardadas) va primero.
+  let explorador = null;
+  async function cargarBiblioteca() {
+    let A;
+    try { A = await window.TVCadArbolCargar(); } catch (err) { decir(err.message); return; }
+    if (!explorador) explorador = A.explorador({ url: C.pestanas.elegir, urlCarpetas: C.carpetas.lista, arbol: $("cad-plantilla-arbol"), migas: $("cad-plantilla-migas"),
+      lista: $("cad-plantilla-lista"), mas: $("cad-plantilla-mas"), q: $("cad-plantilla-q"), alcance: $("cad-plantilla-en"), clave: "plantilla",
+      recordar: "tv.cad.plantilla.carpeta", primero: "Plantillas", decir: (t) => { if (fuente === "biblioteca") decir(t); }, filaPlano: (x) => filaPlano(x) });
+    await explorador.abrir();
   }
-  function pintarCarpetas(proyectos) {
-    const caja = $("cad-plantilla-carpetas");
-    caja.hidden = !proyectos.length;
-    const chip = (texto, valor) => {
-      const b = document.createElement("button"); b.type = "button"; b.className = "cad-elegir__carpeta"; b.textContent = texto;
-      b.setAttribute("aria-pressed", String(bib.proyecto === valor));
-      b.addEventListener("click", () => { bib.proyecto = valor; for (const x of caja.children) x.setAttribute("aria-pressed", String(x === b)); cargarBiblioteca(false); });
-      return b;
-    };
-    // «Plantillas» (donde quedan las guardadas) va primero.
-    const orden = [...proyectos].sort((a, b) => (b === "Plantillas") - (a === "Plantillas"));
-    caja.replaceChildren(chip("Todos", ""), ...orden.slice(0, 24).map((p) => chip(p, p)));
-  }
-  let esperaQ = 0;
-  $("cad-plantilla-q").addEventListener("input", (ev) => { clearTimeout(esperaQ); esperaQ = setTimeout(() => { bib.q = ev.target.value.trim(); cargarBiblioteca(false); }, 250); });
-  $("cad-plantilla-form").addEventListener("submit", (ev) => { ev.preventDefault(); bib.q = $("cad-plantilla-q").value.trim(); cargarBiblioteca(false); });
-  $("cad-plantilla-mas").addEventListener("click", () => { bib.pagina += 1; cargarBiblioteca(true); });
 
   // De esta computadora: un archivo elegido o soltado, o un dibujo de la carpeta del proyecto. Se lee aquí; nada se sube.
   function pintarCarpeta() {

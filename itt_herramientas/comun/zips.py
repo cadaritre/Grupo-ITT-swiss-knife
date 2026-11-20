@@ -79,6 +79,9 @@ def de_la_cuenta(cuenta_id: int, token: str) -> tuple[Path, str] | None:
         return None
     for archivo in [*_carpeta().glob(f"{int(cuenta_id)}-{token}-*.zip"), *_carpeta("planos").glob(f"{int(cuenta_id)}-{token}-planos.zip")]:
         tipo = archivo.stem.rsplit("-", 1)[-1]
+        propio = archivo.with_suffix(".nombre")              # el ZIP de una carpeta de CAD se llama como ella (cad/carpetas.py)
+        if propio.is_file():
+            return archivo, propio.read_text(encoding="utf-8")[:200]
         fecha = timezone.localtime(timezone.datetime.fromtimestamp(archivo.stat().st_mtime, tz=timezone.get_current_timezone())).date()
         return archivo, f"{PREFIJOS.get(tipo, 'Documentos')} {fecha.isoformat()}.zip"
     return None

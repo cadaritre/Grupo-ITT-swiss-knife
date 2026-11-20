@@ -446,8 +446,26 @@ def _nueva_version(plano: Plano, temporal: Path, formato: str, usuario, nota: st
     return v
 
 
-def crear(usuario, temporal: Path, nombre: str, proyecto: str = "", origen: dict | None = None, formato: str | None = None) -> Plano:
-    """Plano nuevo con su versión 1. `temporal` se mueve (no se copia)."""
+def _lugar(usuario, carpeta, proyecto: str):
+    """Dónde va un plano nuevo: la carpeta dada (viva) o, con el `proyecto` escrito de antes, ese proyecto (se crea si no hay); si no, la
+    raíz. Devuelve (carpeta o None, nombre del proyecto)."""
+    from . import carpetas
+
+    if carpeta is not None:
+        c = carpeta if hasattr(carpeta, "pk") else carpetas.carpeta_activa(carpeta)
+        if c is None or c.eliminada is not None:
+            raise ErrorUsuario("Esa carpeta ya no existe. Recarga la página.")
+    else:
+        c = carpetas.proyecto_llamado(proyecto, usuario)
+    if c is None:
+        return None, ""
+    raiz = carpetas.Arbol(conteos=False).proyecto(c.pk)
+    return c, (raiz.nombre if raiz else c.nombre)[:PROYECTO_MAX]
+
+
+def crear(usuario, temporal: Path, nombre: str, proyecto: str = "", origen: dict | None = None, formato: str | None = None, carpeta=None) -> Plano:
+    """Plano nuevo con su versión 1. `temporal` se mueve (no se copia). Va en `carpeta` (una `CarpetaCad` o su id) o, si no se da, en el
+    proyecto llamado `proyecto` (la etiqueta de antes; se crea si no existe) o en la raíz."""
     formato = formato_de_archivo(temporal, formato)
     tam = temporal.stat().st_size
     if tam > limites()["bytes"]:
@@ -455,7 +473,8 @@ def crear(usuario, temporal: Path, nombre: str, proyecto: str = "", origen: dict
         raise ErrorUsuario(f"El plano pesa más de {megas(limites()['bytes'])}, el máximo en la web.")
     with transaction.atomic():
         asegurar_espacio(tam)
-        p = Plano(cuenta_id=usuario.pk, nombre=nombre_limpio(nombre), proyecto=proyecto_limpio(proyecto), formato=formato, bytes=tam,
+        lugar, nombre_proyecto = _lugar(usuario, carpeta, proyecto_limpio(proyecto))
+        p = Plano(cuenta_id=usuario.pk, nombre=nombre_limpio(nombre), proyecto=nombre_proyecto, carpeta=lugar, formato=formato, bytes=tam,
                   revision=0, origen=origen or {"tipo": "subida"})
         p.save()
         _nueva_version(p, temporal, formato, usuario, nota=_nota_origen(p.origen))
@@ -468,14 +487,14 @@ def _nota_origen(origen: dict) -> str:
             "plantilla": "Plantilla de presentación"}.get((origen or {}).get("tipo", ""), "")
 
 
-def crear_desde_ruta(usuario, origen_ruta: Path, nombre: str, proyecto: str = "", origen: dict | None = None) -> Plano:
+def crear_desde_ruta(usuario, origen_ruta: Path, nombre: str, proyecto: str = "", origen: dict | None = None, carpeta=None) -> Plano:
     """Copia un archivo existente (salida de otra herramienta) a la biblioteca."""
     if not origen_ruta.is_file():
         raise ErrorUsuario("El archivo ya no existe. Vuelve a generarlo.")
     temporal = carpeta_temporal() / f"{uuid.uuid4().hex}.tmp"
     shutil.copyfile(origen_ruta, temporal)
     try:
-        return crear(usuario, temporal, nombre, proyecto, origen)
+        return crear(usuario, temporal, nombre, proyecto, origen, carpeta=carpeta)
     finally:
         temporal.unlink(missing_ok=True)
 
@@ -483,13 +502,13 @@ def crear_desde_ruta(usuario, origen_ruta: Path, nombre: str, proyecto: str = ""
 PLANTILLAS = Path(__file__).resolve().parent / "plantillas"
 
 
-def crear_vacio(usuario, nombre: str, proyecto: str, formato: str) -> Plano:
+def crear_vacio(usuario, nombre: str, proyecto: str, formato: str, carpeta=None) -> Plano:
     if formato not in FORMATOS:
         raise ErrorUsuario("Elige DWG o DXF.")
     temporal = carpeta_temporal() / f"{uuid.uuid4().hex}.tmp"
     shutil.copyfile(PLANTILLAS / f"vacio.{formato}", temporal)
     try:
-        return crear(usuario, temporal, nombre or "Plano nuevo", proyecto, {"tipo": "nuevo"}, formato)
+        return crear(usuario, temporal, nombre or "Plano nuevo", proyecto, {"tipo": "nuevo"}, formato, carpeta=carpeta)
     finally:
         temporal.unlink(missing_ok=True)
 
@@ -531,7 +550,9 @@ def guardar_copia(plano_id, usuario, temporal: Path, nombre: str | None = None) 
     original = Plano.objects.filter(pk=plano_id).first()
     base = nombre_limpio(nombre) if nombre else (f"{original.nombre} (copia)" if original else "Plano recuperado")
     origen = {"tipo": "copia", "id": str(original.pk), "nombre": original.nombre} if original else {"tipo": "copia"}
-    return crear(usuario, temporal, base, original.proyecto if original else "", origen)
+    # en la misma carpeta que el original (si sigue viva; si no, en la raíz)
+    lugar = original.carpeta if original and original.carpeta_id and original.carpeta.eliminada is None else None
+    return crear(usuario, temporal, base, "", origen, carpeta=lugar)
 
 
 def duplicar(plano: Plano, usuario) -> Plano:
@@ -540,7 +561,9 @@ def duplicar(plano: Plano, usuario) -> Plano:
         raise ErrorUsuario("Este plano no tiene una versión guardada.")
     if not archivo_disponible(v):
         raise ErrorUsuario("El archivo de este plano no está en el servidor: no se puede duplicar.")
-    return crear_desde_ruta(usuario, ruta_version(v), f"{plano.nombre} (copia)", plano.proyecto, {"tipo": "copia", "id": str(plano.pk), "nombre": plano.nombre})
+    lugar = plano.carpeta if plano.carpeta_id and plano.carpeta.eliminada is None else None
+    return crear_desde_ruta(usuario, ruta_version(v), f"{plano.nombre} (copia)", "", {"tipo": "copia", "id": str(plano.pk), "nombre": plano.nombre},
+                            carpeta=lugar)
 
 
 def restaurar_version(plano_id, numero: int, usuario, sesion: str = "") -> Plano:
@@ -571,10 +594,17 @@ def restaurar_version(plano_id, numero: int, usuario, sesion: str = "") -> Plano
     return p
 
 
-def renombrar(plano: Plano, nombre: str, proyecto: str) -> Plano:
+def renombrar(plano: Plano, nombre: str, proyecto: str | None = None) -> Plano:
+    """Cambia el nombre. Con `proyecto` (la etiqueta de antes, de clientes viejos de la API) distinto del suyo, el plano pasa a ese proyecto
+    (vacío: a la raíz); igual, no se mueve."""
     plano.nombre = nombre_limpio(nombre, plano.nombre)
-    plano.proyecto = proyecto_limpio(proyecto)
-    plano.save(update_fields=["nombre", "proyecto"])
+    plano.save(update_fields=["nombre"])
+    if proyecto is not None and " ".join(proyecto.split()).casefold() != plano.proyecto.casefold():
+        from . import carpetas
+
+        destino = carpetas.proyecto_llamado(proyecto_limpio(proyecto))
+        Plano.objects.filter(pk=plano.pk).update(carpeta=destino, proyecto=destino.nombre[:PROYECTO_MAX] if destino else "")
+        plano.refresh_from_db(fields=["carpeta", "proyecto"])
     return plano
 
 
@@ -724,15 +754,25 @@ def eliminar(plano: Plano, usuario) -> None:
         raise ErrorUsuario(f"{otro} está editando este plano. Espera a que termine para eliminarlo.")
     plano.eliminado, plano.eliminado_por_id = timezone.now(), usuario.pk
     plano.eliminado_por_nombre = autoria.de_usuario(usuario)[0]
+    plano.lote_papelera = None                                  # eliminado aparte: se restaura solo, no con su carpeta
     plano.bloqueo_cuenta_id, plano.bloqueo_nombre, plano.bloqueo_sesion, plano.bloqueo_latido = None, "", "", None
-    plano.save(update_fields=["eliminado", "eliminado_por_id", "eliminado_por_nombre", "bloqueo_cuenta_id", "bloqueo_nombre", "bloqueo_sesion", "bloqueo_latido"])
+    plano.save(update_fields=["eliminado", "eliminado_por_id", "eliminado_por_nombre", "lote_papelera", "bloqueo_cuenta_id", "bloqueo_nombre",
+                              "bloqueo_sesion", "bloqueo_latido"])
 
 
-def restaurar(plano: Plano, usuario) -> None:
+def restaurar(plano: Plano, usuario) -> bool:
+    """Vuelve a su carpeta; si su carpeta ya no está (en la papelera o borrada), a la raíz de «Planos». Devuelve si fue a la raíz.
+    Un plano que se eliminó con su carpeta vuelve con ella (se restaura la carpeta)."""
     if not (es_admin(usuario) or (puede_editar(usuario) and usuario.pk in (plano.cuenta_id, plano.eliminado_por_id))):
         raise SinPermiso("Solo quien lo eliminó, quien lo creó o quien administra las herramientas puede restaurarlo.")
-    plano.eliminado, plano.eliminado_por_id, plano.eliminado_por_nombre = None, None, ""
-    plano.save(update_fields=["eliminado", "eliminado_por_id", "eliminado_por_nombre"])
+    a_raiz = bool(plano.carpeta_id) and (plano.carpeta is None or plano.carpeta.eliminada is not None)
+    plano.eliminado, plano.eliminado_por_id, plano.eliminado_por_nombre, plano.lote_papelera = None, None, "", None
+    campos = ["eliminado", "eliminado_por_id", "eliminado_por_nombre", "lote_papelera"]
+    if a_raiz:
+        plano.carpeta, plano.proyecto = None, ""
+        campos += ["carpeta", "proyecto"]
+    plano.save(update_fields=campos)
+    return a_raiz
 
 
 def destruir(plano: Plano) -> None:
@@ -742,7 +782,8 @@ def destruir(plano: Plano) -> None:
 
 
 def papelera(usuario):
-    consulta = Plano.objects.filter(eliminado__isnull=False).order_by("-eliminado")
+    """Los planos eliminados uno por uno (los que se fueron con su carpeta van dentro de ella: `carpetas.papelera`)."""
+    consulta = Plano.objects.filter(eliminado__isnull=False, lote_papelera__isnull=True).order_by("-eliminado")
     if es_admin(usuario):
         return consulta
     from django.db.models import Q
@@ -751,7 +792,9 @@ def papelera(usuario):
 
 
 def vaciar_papelera() -> int:
-    n = 0
+    from . import carpetas
+
+    n = carpetas.vaciar_papelera()
     for p in Plano.objects.filter(eliminado__isnull=False):
         destruir(p)
         n += 1
@@ -768,8 +811,10 @@ def limpiar() -> int:
     """Diario: planos en la papelera desde hace 30 días, borradores de más de 30 días, salidas de más de un día y temporales."""
     import time
 
+    from . import carpetas
+
     ahora = timezone.now()
-    n = 0
+    n = carpetas.limpiar(ahora)
     for p in Plano.objects.filter(eliminado__lt=ahora - timedelta(days=PAPELERA_DIAS)):
         destruir(p)
         n += 1

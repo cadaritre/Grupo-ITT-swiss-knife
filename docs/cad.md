@@ -56,6 +56,110 @@ página va con `Referrer-Policy: same-origin` (Caddy). `img-src` no cambia: las 
 Sin clave, o para supervisión, o en una versión anterior, la CSP es la de siempre. Lo prueban `test_cad_satelite.py` (la cabecera) y
 `test_cad_satelite_navegador.py` (otro origen se bloquea).
 
+## Proyectos y carpetas (19-11-2026)
+
+Pedido del dueño: «que se puedan crear carpetas dentro de la herramienta de CAD, para poder manejar varios archivos dentro de un solo
+proyecto». La biblioteca deja de ser una lista plana: es un árbol, como Autodesk Docs, Google Drive o Dropbox.
+
+- **Modelo** (`CarpetaCad`, `cad/carpetas.py`). Un **proyecto** es una carpeta de arriba y lleva el **cliente**; las **carpetas** se anidan
+  hasta 20 niveles (`PROFUNDIDAD_MAX`: más allá, una ruta de Windows pasa de ~250 caracteres al descomprimir el ZIP) y hasta 5000 en la
+  biblioteca. El nombre es único entre hermanas sin distinguir mayúsculas; no admite `< > : " / \ | ? *` (Windows, el ZIP y las rutas de
+  las referencias). **Cada plano vive en un solo lugar** (`Plano.carpeta`; vacío = la raíz de «Planos»). `Plano.proyecto` es el nombre del
+  proyecto donde está: lo ponen crear, mover y renombrar (una consulta por proyecto) y lo usan la cabecera del plano, la paleta y la página
+  sin conexión. Como los planos, las carpetas son **de la empresa**: una sola biblioteca para los dos perfiles corporativos (desde 1.2.17
+  solo las cotizaciones, los reportes y los croquis son de un perfil); quien trabaja en TresVizo ve el mismo árbol.
+- **«Planos»** (`/cad/` y `/cad/carpetas/<id>/`): el árbol a la izquierda (abrir y cerrar, cuántos planos tiene cada carpeta con las
+  suyas, lo abierto se recuerda en el equipo, teclado ↑ ↓ ← → Inicio Fin Intro y `*`), las migas arriba y, a la derecha, las carpetas
+  (siempre primero) y los planos de la carpeta abierta. En el teléfono (≤ 767 px) no hay árbol al lado: se recorre con las migas y las filas.
+  - **Nuevo proyecto** (en la raíz: nombre y cliente, con las sugerencias de clientes del perfil) o **Nueva carpeta** (dentro); **Nuevo
+    plano** y **Subir** van a la carpeta abierta.
+  - **Menú de cada fila** (⋯; también el de la carpeta abierta, junto a los botones): Abrir, Cambiar nombre (y cliente si es un
+    proyecto), Mover a…, Descargar, Descargar en ZIP (carpeta), Disponible sin conexión (carpeta, en el teléfono) y Eliminar.
+  - **Mover**: arrastrando planos o carpetas (los elegidos, si se arrastra uno elegido) a una fila de carpeta, al árbol o a las migas; y con
+    **«Mover a…»** (el menú de la fila o la barra de selección), una hoja con el árbol, un filtro por nombre y «Nueva carpeta aquí», que
+    sirve con teclado y en el teléfono. No se puede mover una carpeta dentro de sí misma, ni a donde ya hay una con su nombre («Ya hay una
+    carpeta «Base» en «Norte». Cámbiale el nombre antes de moverla.»). **Mover un plano que alguien edita está permitido**: el bloqueo es
+    del plano y lo sigue a donde vaya; quien lo edita no nota nada.
+  - **Buscar**: dentro de una carpeta, «En esta carpeta» (con las suyas, lo normal) o «En todos los planos»; cada resultado dice dónde está
+    («En Obra Norte › Base»). Las carpetas cuyo nombre (o cliente) coincide también salen, y en la paleta de Herramientas. **Ordenar**:
+    Nombre (por omisión), Fecha de modificación, Tipo o Tamaño; las carpetas, por nombre o por fecha.
+  - **Subir**: varios archivos a la vez a la carpeta abierta, o **una carpeta de la computadora** (soltada en cualquier parte de la página,
+    o con «Subir una carpeta»): sus subcarpetas se crean aquí (`POST /cad/carpetas/rutas/`, se reusan las que ya existen con ese nombre, así
+    subir otra vez la misma carpeta no la duplica) y cada plano va a la suya. Solo se suben los DWG y DXF; lo demás se dice («Se omitieron 3
+    archivos que no son DWG ni DXF»). Hasta 1000 planos por vez.
+  - **Descargar en ZIP** una carpeta: sus planos y subcarpetas, cada uno en su versión vigente, con las mismas rutas (`Obra/Base/base.dwg`),
+    en una tarea (`armar_zip_carpeta`); el archivo se llama como la carpeta. Hasta 2000 planos y 1 GB (el tope de los ZIP de planos); un DWG
+    va sin volver a comprimir. Los planos elegidos siguen yendo juntos en un ZIP (hasta 50).
+- **Papelera**: eliminar una carpeta la manda a la papelera **con todo lo que tiene**, como un lote (`lote_papelera`): la hoja lo dice
+  («Se mueve a la papelera con 2 planos y 1 carpeta. Se puede restaurar entera durante 30 días.») y la papelera la muestra como una fila
+  («Proyecto con 2 planos y 1 carpeta»). **Restaurar** la trae entera, en su lugar; si su carpeta de arriba ya no está, a la raíz; si ya hay
+  otra con su nombre, como «Obra (2)». Lo que se había eliminado aparte antes sigue en la papelera. Un plano eliminado aparte cuya carpeta
+  ya no está vuelve a la raíz. A los 30 días se borra con todo lo suyo (`limpiar`); «Vaciar papelera» y «Eliminar para siempre» también.
+- **Permisos**: crear, renombrar y mover siguen los roles de edición de CAD (`cad`, `admin`); `supervision` ve el árbol, busca y descarga.
+  Eliminar una carpeta: quien administra, o quien edita si todos sus planos son suyos (o está vacía) y nadie más edita uno de ellos («Beto
+  está editando «Planta». Espera a que termine para eliminar la carpeta.»), como con un plano. Restaurar: quien la eliminó, quien la creó o
+  quien administra. Los permisos y el bloqueo de cada plano no cambian.
+- **Donde se elige un plano** (`GET /cad/elegir/?carpeta=&q=&en=`): «Abrir otro plano» (pestañas) empieza en la carpeta del plano a la
+  vista y «Desde plantilla › De la biblioteca» donde se eligió la última vez («Plantillas» primero en la raíz); las dos con las mismas migas,
+  las carpetas como filas y, en pantallas de 900 px o más, el árbol al lado. Al escribir se busca en toda la biblioteca («En esta carpeta» lo
+  acota). `arbol.js` (árbol, migas, explorador y «Mover a…») se carga solo al usar una hoja: la página del plano no crece por ellas.
+- **Un dibujo nuevo hecho en el editor** («Guardar en la biblioteca») queda en la carpeta del plano con que se abrió la página; una copia por
+  conflicto y Duplicar, junto al original. Lo que llega de otras herramientas con un cliente (el croquis) va al proyecto con ese nombre (se
+  crea si no hay) y «Guardar como plantilla…», al proyecto «Plantillas».
+- **Rendimiento**: el árbol entero son dos consultas (las carpetas y cuántos planos tiene cada una, `Arbol`), sin recorrer la base carpeta por
+  carpeta. Con 2000 planos en 300 carpetas (`test_una_biblioteca_grande_cuesta_las_mismas_consultas`): la página de una carpeta, 21 consultas
+  (sesión y permisos incluidos), igual que con una biblioteca chica; `GET /cad/carpetas/` (el árbol para las hojas, con `ETag` y 304),
+  `/cad/elegir/` y mover un proyecto con 66 carpetas, cada uno con un tope fijo de consultas.
+- **Servidor**: `GET /cad/carpetas/`, `POST /cad/carpetas/nueva/` `{nombre, padre, cliente}`, `POST /cad/carpetas/rutas/` `{padre, rutas}`,
+  `POST /cad/mover/` `{planos, carpetas, destino}`, `POST /cad/carpetas/<id>/renombrar/`, `…/eliminar/`, `…/restaurar/`, `…/destruir/`
+  (quien administra), `…/zip/` y `GET …/planos/`; `POST /cad/<id>/referencias/` (abajo). Subir lleva el metadato `carpeta`.
+- **Migración `0020_cad_carpetas`** (aditiva: una tabla nueva y dos columnas que admiten vacío en `Plano`; sin tocar archivos). Cada etiqueta
+  «Proyecto o cliente» distinta (sin distinguir mayúsculas, acentos ni espacios de más: «Obra Norte», «obra  norte» y «Óbra Norte» son
+  una) pasa a ser un **proyecto** con la forma escrita más reciente, y sus planos (también los de la papelera) quedan dentro. **Los planos
+  sin etiqueta se quedan en la raíz de «Planos»**, no en una carpeta «Sin proyecto»: la raíz ya es ese lugar (como «Mi unidad» en Drive), se
+  ven al abrir «Planos» sin un clic más, y una carpeta inventada se podría renombrar o borrar sin que nadie sepa qué era. Cada proyecto guarda
+  la etiqueta de la que salió (`CarpetaCad.etiqueta`). **Deshacerla** (`migrate herramientas 0019`) quita las carpetas y las columnas; cada
+  plano conserva su etiqueta (las variantes de una misma etiqueta quedan con la forma del proyecto, y un «/» del nombre, como espacio).
+- **Teléfono, «Disponible sin conexión» para una carpeta** (detrás de `TV_CAD_TACTIL`, con el CAD descargado en la app instalada): el menú de
+  la carpeta dice cuántos planos y cuánto pesan («¿Llevar «Obra» al teléfono? 12 planos, 34 MB. Mejor con wifi.») y lleva cada uno por el
+  mismo camino que un plano solo (`TVCadCampo.llevar`: no aparta el plano; lo cambiado sin conexión se sube como versión o copia), con su
+  avance. La carpeta queda marcada en el teléfono (un ícono en su fila; `TVCadCampo.carpetas()`): al abrirla con conexión, si tiene planos
+  nuevos o con versión nueva que el teléfono no tiene, lo dice con «Poner al día» (una pregunta de unos bytes; `GET …/planos/` trae el
+  SHA-256 de cada versión: lo que ya está al día no se baja). «Quitar del teléfono» quita sus planos, salvo los que tienen cambios sin subir.
+
+### Referencias externas desde la biblioteca
+
+Un plano que usa otro DWG o DXF como referencia externa (xref, `..\Base\base.dwg` o `base.dwg`) lo toma **primero de la biblioteca** y solo
+después de la carpeta vinculada de la computadora. `POST /cad/<id>/referencias/` (`{rutas, bases}`, `carpetas.resolver_referencias`) busca
+como AutoCAD, dentro del proyecto del plano:
+
+1. **la ruta guardada**, relativa a la carpeta del plano (`..\Base\base.dwg`); una absoluta (`C:\Obra\Base\base.dwg`), por sus últimas
+   carpetas dentro del proyecto; y las anidadas (que aparecen al abrir su padre), relativas a las carpetas de las referencias ya
+   encontradas (`bases`);
+2. **la misma carpeta** del plano, por nombre;
+3. **todo el proyecto**, por nombre; si hay varios, el más cercano a la raíz del proyecto, y el panel dice cuántos hay.
+
+Solo planos vivos, del formato que dice la ruta (`base.dwg` nunca toma un `base.dxf`), nunca de otro proyecto; un plano en la raíz solo
+busca en la raíz. El orden pone la ruta guardada antes que la misma carpeta (el pedido decía «misma carpeta, luego ruta relativa»): es lo que
+hace AutoCAD (la ruta guardada, luego la carpeta del plano) y así `..\Base\base.dwg` nunca toma un `base.dwg` que esté por casualidad junto
+al plano; con una ruta sin carpetas (`base.dwg`) los dos pasos son el mismo.
+
+- **Solo lectura**: se dan al editor con `ocs_xref_supply(ruta, bytes, documento)`, como las de la computadora (parche 58: por documento;
+  otra pestaña con el mismo nombre no se toca). El plano no cambia y la referencia no se edita desde él. Las imágenes siguen siendo solo de
+  la computadora.
+- **Datos móviles**: la respuesta trae el SHA-256 de la versión vigente de cada referencia. Si el teléfono tiene ese plano «Disponible sin
+  conexión» y es el mismo, no se baja nada (si es otro, se baja una vez y la copia del teléfono queda al día); dos pestañas que usan el mismo
+  dibujo lo bajan una vez (hasta 128 MB en la página). Un plano sin referencias no hace la pregunta: abrirlo cuesta lo mismo que antes.
+- **«Referencias externas»** dice de dónde vino cada una: «En la biblioteca» con «Biblioteca: Obra › Base · base.dwg · versión 3», o
+  «Esta computadora: Referencias/base.dwg». Las que están en la biblioteca no cuentan para el aviso «Vincular la carpeta del proyecto».
+- Código: `cad/carpetas.py` (`resolver_referencias`), `static/herramientas/cad/local/local.js` (`resolverEnBiblioteca`, `darXrefs`).
+
+**Pruebas**: `pruebas/test_cad_carpetas.py` (modelo, migración ida y vuelta, mover, renombrar, papelera y restaurar, permisos, perfiles,
+ZIP, subir una carpeta, referencias, consultas con 2000 planos) y `pruebas_navegador/test_cad_carpetas_navegador.py` (Chromium y WebKit:
+crear, renombrar y anidar; arrastrar al árbol y «Mover a…» solo con teclado; buscar en una carpeta; soltar una carpeta con subcarpetas y
+«Subir una carpeta»; papelera y restaurar; las hojas del editor por el árbol; una xref de la misma carpeta en solo lectura con su origen en
+el panel; el teléfono con carpetas y una carpeta sin conexión).
+
 ## La página del editor
 
 - Abre la versión vigente (o una anterior con `?version=n`, o el borrador) por el canal de control (`op: open`) o por `ocs:open` (con puente).
@@ -167,7 +271,7 @@ táctil, que sigue con un plano por ventana, ni en una versión anterior), **cad
 pestañas de archivo de AutoCAD; también en pantalla completa.
 
 - **Abrir.** El botón **+** de la tira y «Abrir otro plano» en «Más acciones» abren una hoja con la biblioteca: búsqueda (nombre, proyecto o
-  persona), los proyectos o clientes como carpetas, quién edita cada plano y cuáles ya están abiertos (uno abierto no se abre dos veces: se
+  persona; al escribir, en toda la biblioteca), la carpeta del plano a la vista con sus migas y el árbol (ver «Proyectos y carpetas»), quién edita cada plano y cuáles ya están abiertos (uno abierto no se abre dos veces: se
   va a su pestaña). Duplicar abre la copia en otra pestaña.
 - **Cada pestaña es un plano completo del servidor**: su bloqueo (tomado y con latido por pestaña: cada una es una página del editor para el
   servidor), sus versiones, su borrador de recuperación, «Sin guardar», solo lectura y permisos, la recuperación al abrir y el ETag/304.
@@ -226,8 +330,8 @@ marco de planos.» Es el «Desde plantilla…» de AutoCAD (LAYOUT › Plantilla
   - **Mis plantillas**: las que esta cuenta marcó con la estrella o guardó con «Guardar como plantilla…», la usada más reciente primero.
     Para el marco de siempre son dos toques: el marco y «Insertar» (con una sola presentación ya va marcada). La marca es de la cuenta
     (`PlantillaCad`); el plano sigue siendo de la biblioteca de todos. Un plano en la papelera no sale; al restaurarlo vuelve.
-  - **De la biblioteca**: la misma búsqueda, carpetas de proyecto o cliente y páginas que «Abrir otro plano» (`/cad/elegir/`), con la
-    estrella para agregar o quitar de «Mis plantillas». «Plantillas» va primero entre las carpetas.
+  - **De la biblioteca**: la misma búsqueda, árbol, migas y páginas que «Abrir otro plano» (`/cad/elegir/`), con la estrella para agregar
+    o quitar de «Mis plantillas». Empieza en la carpeta de la última vez; en la raíz, «Plantillas» va primero.
   - **De esta computadora**: un archivo DWT, DWG o DXF elegido o soltado, o un dibujo de la carpeta del proyecto vinculada (la de
     «Referencias»). Se lee en el navegador y se le da al editor: **nunca se sube** (hasta 200 MB, por la memoria del editor). Para tenerlo
     en la biblioteca, se sube en «Planos».
@@ -729,7 +833,7 @@ el panel, el aviso y «Insertar imagen georreferenciada» son siempre de la pest
   nombre, nunca la imagen de otro proyecto, aunque los dos archivos se llamen y pesen igual. Si dos planos usan el mismo archivo de la
   misma carpeta (hojas del mismo proyecto), comparten sus mosaicos y no se vuelven a leer. El editor nunca busca una imagen «por el
   nombre» (parche 58).
-- **Dibujos de referencia**: se dan al documento de su plano (`ocs_xref_supply(ruta, bytes, document_id)`): la xref de otra pestaña con el
+- **Dibujos de referencia**: primero de la biblioteca (ver «Referencias externas desde la biblioteca»); los de la carpeta se dan al documento de su plano (`ocs_xref_supply(ruta, bytes, document_id)`): la xref de otra pestaña con el
   mismo nombre no se vuelve a cargar con el archivo de este proyecto (parche 58).
 - **Atrás**: una pestaña que pasa atrás se queda solo con sus niveles gruesos (de hasta 1024 px por lado), hasta 256 MB entre todas,
   para volver sin esperar; lo decide el editor. **Cerrar** una pestaña suelta todo lo suyo (sus mosaicos, sus lecturas y pirámides en
@@ -1025,6 +1129,9 @@ TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
   uv run pytest itt_herramientas/pruebas_navegador/test_cad_navegador.py -k "not webkit"   # luego -k webkit; un navegador a la vez
 uv run pytest itt_herramientas/pruebas/test_cad_datos_moviles.py                         # ETag/304, gzip, latido, panel de Civil, sw.js
 uv run pytest itt_herramientas/pruebas/test_cad_pestanas.py                              # pestañas: bloqueo por pestaña, la hoja, permisos
+uv run pytest itt_herramientas/pruebas/test_cad_carpetas.py                              # proyectos y carpetas, migración, papelera, xrefs, consultas
+TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
+  uv run pytest itt_herramientas/pruebas_navegador/test_cad_carpetas_navegador.py -k chromium    # carpetas en «Planos», hojas, xref, teléfono; luego webkit
 TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
   uv run pytest itt_herramientas/pruebas_navegador/test_cad_pestanas_navegador.py -k chromium   # Esc en cada camino y las pestañas; luego webkit
 uv run pytest itt_herramientas/pruebas/test_cad_guardado.py                              # paquete, parches (bsdiff + brotli), cómo se sirven

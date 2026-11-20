@@ -24,7 +24,7 @@
  *   solo cuando cambia (huella `tactil.pagina` de la página del plano).
  *
  * API: window.TVCadCampo = { instalada(), estadoEditor(), descargarEditor(alProgreso), prepararEditor(decir), quitarEditor(), versionInstalada(),
- *      llevar(id), quitar(id), plano(id), planos(), copiaVigente(id), actualizarCopia(id, datos), alGuardarVersion(id, datos), cambios(id),
+ *      llevar(id), quitar(id), plano(id), planos(), carpetas(), marcarCarpeta({id, nombre}, si), copiaVigente(id), actualizarCopia(id, datos), alGuardarVersion(id, datos), cambios(id),
  *      guardarCambios(datos), actualizarCambios(id, campos), descartarCambios(id), descartarCambiosDePagina(id), subir(id), hoja(ui), uso() }
  */
 (function () {
@@ -194,6 +194,22 @@
     if (await plano(id)) await actualizarCopia(id, { bytes: datos.bytes.slice(0), revision: datos.revision, formato: datos.formato });
   }
   async function quitar(id) { await con("planos", "readwrite", (s) => req(s.delete(id))); }
+  // Carpetas «Disponibles sin conexión» de esta cuenta (lista.js): solo la marca; sus planos son registros de `planos` como los demás.
+  async function carpetas() {
+    const x = await con("estado", "readonly", (e) => req(e.get("carpetas"))).catch(() => null);
+    const c = await cuentaActual();
+    return ((x && x.lista) || []).filter((y) => c && y.cuenta === c);
+  }
+  async function marcarCarpeta({ id, nombre }, si) {
+    const c = await cuentaActual();
+    if (!c) throw new Error("Vuelve a entrar para llevar planos al teléfono.");
+    await con("estado", "readwrite", async (e) => {
+      const x = await req(e.get("carpetas"));
+      const lista = ((x && x.lista) || []).filter((y) => !(y.id === id && y.cuenta === c));
+      if (si) lista.push({ id, nombre, cuenta: c, desde: new Date().toISOString() });
+      await req(e.put({ clave: "carpetas", lista }));
+    });
+  }
   // `origen: "pagina"`: la copia que deja la página del plano con conexión (ver arriba); sin él, lo hecho en la página sin conexión.
   // `borrador`: la fecha del borrador del servidor que tiene estos mismos cambios.
   async function guardarCambios({ id, nombre, formato, base, bytes, origen, borrador }) {
@@ -410,7 +426,7 @@
   }
 
   window.TVCadCampo = Object.freeze({ instalada, estadoEditor, descargarEditor, prepararEditor, quitarEditor, versionInstalada, llevar, quitar, plano, planos,
-    copiaVigente, actualizarCopia, alGuardarVersion, cambios, todosLosCambios, guardarCambios, actualizarCambios, descartarCambios, descartarCambiosDePagina,
+    copiaVigente, actualizarCopia, alGuardarVersion, cambios, carpetas, marcarCarpeta, todosLosCambios, guardarCambios, actualizarCambios, descartarCambios, descartarCambiosDePagina,
     subir, decidir, hoja, uso, recordarSesion, cuentaActual, confirmar,
     ponerCsrf: (t) => { tokenCsrf = String(t || ""); }, guardarPagina,
     fuentes: async () => { const x = await con("estado", "readonly", (e) => req(e.get("fuentes"))).catch(() => null); return (x && x.lista) || []; } });

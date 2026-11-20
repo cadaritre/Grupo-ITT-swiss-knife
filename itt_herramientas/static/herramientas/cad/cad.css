@@ -341,3 +341,101 @@ html.cad-completa:not(.cad-tactil) .cad-pestanas { margin: 0 0 0; }
 .cad-local__pie { flex-wrap: wrap; }
 .cad-local-ins p { margin: 0; overflow-wrap: anywhere; }
 .cad-local__chico { min-height: 32px; padding: 0 var(--tv-espacio-2); font-size: var(--tv-texto-sm); }
+
+/* -- Proyectos y carpetas (docs/cad.md, «Proyectos y carpetas») ------------------------------------------------------------------- */
+.cad-biblioteca { display: grid; grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr); gap: var(--tv-espacio-4); align-items: start; }
+.cad-contenido { min-width: 0; }
+.cad-arbol { position: sticky; top: var(--tv-espacio-3); max-height: calc(100dvh - 2 * var(--tv-espacio-3)); overflow: auto; padding: var(--tv-espacio-2);
+  border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); background: var(--tv-superficie); }
+@media (max-width: 767px) {
+  .cad-biblioteca { grid-template-columns: minmax(0, 1fr); }
+  .cad-biblioteca > .cad-arbol { display: none; }                  /* en el teléfono se recorre con las migas y las filas de carpeta */
+}
+.cad-arbol__lista, .cad-arbol__hijas { list-style: none; margin: 0; padding: 0; }
+.cad-arbol__item[aria-expanded="false"] > .cad-arbol__hijas { display: none; }
+.cad-arbol__item[hidden] { display: none; }
+.cad-arbol__fila { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 2px 8px 2px calc(4px + var(--nivel, 0) * 14px); border-radius: var(--tv-radio);
+  color: var(--tv-texto); text-decoration: none; cursor: pointer; font-size: var(--tv-texto-sm); }
+.cad-arbol__fila:hover { background: color-mix(in srgb, var(--tv-primario) 8%, transparent); }
+.cad-arbol__fila:focus-visible { outline: 2px solid var(--tv-foco); outline-offset: -2px; }
+.cad-arbol__item[aria-selected="true"] > .cad-arbol__fila { background: var(--tv-seleccion); color: var(--tv-sobre-seleccion); font-weight: 600; }
+.cad-arbol__fila--no { opacity: .45; cursor: not-allowed; }
+.cad-arbol__fila--soltar, .cad-plano.cad-plano--soltar, .cad-migas--soltar { outline: 2px dashed var(--tv-primario); outline-offset: -2px;
+  background: color-mix(in srgb, var(--tv-primario) 12%, transparent); }
+.cad-arbol__flecha { display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px; margin: 0; padding: 0; border: 0; border-radius: 4px; background: none;
+  color: inherit; cursor: pointer; }
+.cad-arbol__flecha .tv-icono { width: 14px; height: 14px; transition: transform .12s ease; }
+.cad-arbol__item[aria-expanded="true"] > .cad-arbol__fila .cad-arbol__flecha .tv-icono { transform: rotate(90deg); }
+.cad-arbol__flecha--vacia { visibility: hidden; }
+.cad-arbol__fila > .tv-icono { flex: none; width: 16px; height: 16px; color: var(--tv-tenue); }
+.cad-arbol__item[aria-selected="true"] > .cad-arbol__fila > .tv-icono { color: inherit; }
+.cad-arbol__nombre { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-arbol__cuenta { flex: none; font-size: 12px; color: var(--tv-tenue); }
+.cad-arbol__item[aria-selected="true"] > .cad-arbol__fila .cad-arbol__cuenta { color: inherit; opacity: .8; }
+@media (prefers-reduced-motion: reduce) { .cad-arbol__flecha .tv-icono { transition: none; } }
+
+.cad-migas:empty { display: none; }
+.cad-migas a, .cad-migas span { border-radius: var(--tv-radio); }
+.cad-subir__titulo { margin: 0; font-size: var(--tv-texto-base, 1rem); }
+.cad-subir__carpeta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tv-espacio-2) var(--tv-espacio-3); font-size: var(--tv-texto-sm); }
+.cad-subir__carpeta .tv-boton { cursor: pointer; }
+.cad-subir__carpeta:focus-within .tv-boton { outline: 2px solid var(--tv-foco); outline-offset: 2px; }
+.cad-filtros__fila:has(.cad-filtros__en) { grid-template-columns: minmax(0, 2fr) minmax(9rem, 12rem) minmax(9rem, 12rem) auto; }
+.cad-filtros__fila:not(:has(.cad-filtros__en)) { grid-template-columns: minmax(0, 2fr) minmax(9rem, 12rem) auto; }
+@media (max-width: 599px) {
+  .cad-filtros__fila:has(.cad-filtros__en), .cad-filtros__fila:not(:has(.cad-filtros__en)) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .cad-filtros__buscar { grid-column: 1 / -1; }
+}
+.cad-filtros__resumen { margin: var(--tv-espacio-2) 0 0; font-size: var(--tv-texto-sm); color: var(--tv-tenue); }
+.cad-carpeta__icono { display: inline-grid; place-items: center; flex: none; width: 2.25rem; height: 2.25rem; border-radius: var(--tv-radio);
+  background: color-mix(in srgb, var(--tv-primario) 10%, transparent); color: var(--tv-primario); }
+.cad-carpeta__icono .tv-icono { width: 1.25rem; height: 1.25rem; }
+.cad-plano__ubicacion { color: var(--tv-texto); }
+.cad-plano__ubicacion::after { content: "·"; margin-left: var(--tv-espacio-2); color: var(--tv-tenue); }
+.cad-plano[draggable="true"] { cursor: grab; }
+.cad-plano--arrastrando { opacity: .5; }
+.cad-campo-marca { display: inline-flex; color: var(--tv-primario); }
+.cad-campo-marca[hidden] { display: none; }
+.cad-vacia .tv-vacio { margin: 0; }
+
+.cad-menu-fila { position: fixed; z-index: 70; display: grid; min-width: 13rem; padding: 4px; border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande);
+  background: var(--tv-superficie); box-shadow: var(--tv-sombra-3); }
+.cad-menu-fila[hidden] { display: none; }
+.cad-menu-fila > button { display: flex; align-items: center; gap: var(--tv-espacio-2); min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--tv-radio);
+  background: none; color: var(--tv-texto); font: inherit; text-align: left; cursor: pointer; }
+.cad-menu-fila > button[hidden] { display: none; }
+.cad-menu-fila > button:hover, .cad-menu-fila > button:focus-visible { background: color-mix(in srgb, var(--tv-primario) 10%, transparent); outline: none; }
+.cad-menu-fila > button .tv-icono { width: 16px; height: 16px; color: var(--tv-tenue); }
+.cad-menu-fila__peligro { color: var(--tv-estado-error-texto, #b42318) !important; }
+.cad-zip-carpeta { position: fixed; left: 50%; bottom: var(--tv-espacio-4); z-index: 65; transform: translateX(-50%); margin: 0; padding: 10px 16px;
+  border-radius: var(--tv-radio-grande); background: var(--tv-superficie); box-shadow: var(--tv-sombra-3); }
+.cad-zip-carpeta[hidden] { display: none; }
+
+.cad-mover { width: min(34rem, 100vw - 32px); }
+.cad-mover__filtro { width: 100%; box-sizing: border-box; min-height: 44px; margin: 0 0 var(--tv-espacio-2); }
+.cad-mover__arbol { max-height: min(50vh, 26rem); overflow: auto; padding: var(--tv-espacio-1); border: 1px solid var(--tv-separador); border-radius: var(--tv-radio-grande); }
+.cad-mover__destino { margin: var(--tv-espacio-2) 0 0; font-size: var(--tv-texto-sm); overflow-wrap: anywhere; }
+.cad-mover__nueva { margin-right: auto; }
+@media (pointer: coarse) { .cad-arbol__fila { min-height: 44px; } }
+
+/* Las hojas del editor («Abrir otro plano», «Desde plantilla»): migas, carpetas y planos; el árbol al lado en pantallas anchas. */
+.cad-explorar { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tv-espacio-3); }
+.cad-explorar__arbol { display: none; }
+@media (min-width: 900px) {
+  .cad-explorar { grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr); }
+  .cad-explorar__arbol { display: block; max-height: min(55vh, 30rem); overflow: auto; padding: var(--tv-espacio-1); border: 1px solid var(--tv-separador);
+    border-radius: var(--tv-radio-grande); }
+}
+.cad-explorar__lado { min-width: 0; }
+.cad-elegir__migas { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; margin: 0 0 var(--tv-espacio-2); font-size: var(--tv-texto-sm); }
+.cad-elegir__migas > * + *::before { content: "›"; margin-right: 4px; color: var(--tv-tenue); }
+.cad-migas__boton { padding: 2px 6px; border: 0; border-radius: var(--tv-radio); background: none; color: var(--tv-enlace, var(--tv-primario)); font: inherit; cursor: pointer; }
+.cad-migas__boton:hover { text-decoration: underline; }
+.cad-elegir__migas [aria-current] { padding: 2px 6px; font-weight: 600; }
+.cad-elegir__icono { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: var(--tv-radio); background: color-mix(in srgb, var(--tv-primario) 10%, transparent);
+  color: var(--tv-primario); }
+.cad-elegir__icono .tv-icono { width: 1.1rem; height: 1.1rem; }
+.cad-elegir__alcance { min-height: 44px; }
+.cad-elegir__buscar--con-alcance { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--tv-espacio-2); }
+.cad-ren-lugar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tv-espacio-2); }
+.cad-ren-lugar p { margin: 0; overflow-wrap: anywhere; }

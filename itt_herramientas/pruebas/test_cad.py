@@ -107,8 +107,10 @@ def test_sin_rol_de_cad_no_entra(cliente_de, usuaria, plano):
 def test_supervision_ve_y_descarga_pero_no_edita(cliente_de, supervisora, plano):
     cl = cliente_de(supervisora)
     r = cl.get(url("cad"))
+    assert r.status_code == 200 and "Agrícola Norte" in r.content.decode()           # su proyecto, en la raíz
+    r = cl.get(url("cad_carpeta", pk=plano.carpeta_id))
     assert r.status_code == 200 and "Predio Norte" in r.content.decode()
-    assert "Nuevo plano" not in r.content.decode()
+    assert "Nuevo plano" not in r.content.decode() and "Nueva carpeta" not in r.content.decode()
     assert cl.get(url("cad_archivo", pk=plano.pk)).status_code == 200
     pagina = cl.get(url("cad_plano", pk=plano.pk)).content.decode()
     config = json.loads(pagina.split('id="cad-config" type="application/json">')[1].split("</script>")[0])
@@ -146,10 +148,10 @@ def test_subir_un_dwg_por_tus_lo_agrega_a_la_biblioteca(cliente_de, dibujante):
     assert (p.nombre, p.formato, p.proyecto, p.origen["tipo"]) == ("Plano del predio", "dwg", "Agrícola Norte", "subida")
 
 
-def test_la_zona_de_subida_declara_el_proyecto(cliente_de, dibujante):
-    """Sin declararlo, la subida no manda el campo y el plano quedaba sin proyecto (lo destapó el ensayo por la pila real)."""
+def test_la_zona_de_subida_declara_la_carpeta(cliente_de, dibujante):
+    """Sin declararlo, la subida no manda el campo y el plano quedaba fuera de su carpeta (lo destapó el ensayo por la pila real)."""
     html = cliente_de(dibujante).get(url("cad")).content.decode()
-    assert "data-meta=" in html and "&quot;proyecto&quot;" in html
+    assert "data-meta=" in html and "&quot;carpeta&quot;" in html
 
 
 def test_subir_un_archivo_que_no_es_cad_o_con_extension_falsa_se_rechaza(cliente_de, dibujante):
@@ -448,7 +450,7 @@ def test_eliminar_lo_propio_si_lo_ajeno_no(cliente_de, dibujante, otro, plano):
     plano.refresh_from_db()
     assert plano.eliminado is not None and plano.eliminado_por_nombre == "Ana Dibujo"
     assert cliente_de(dibujante).get(url("cad_plano", pk=plano.pk)).status_code == 404
-    assert "Predio Norte" not in cliente_de(dibujante).get(url("cad")).content.decode()
+    assert "Predio Norte" not in cliente_de(dibujante).get(url("cad_carpeta", pk=plano.carpeta_id)).content.decode()
 
 
 def test_eliminar_el_plano_que_uno_mismo_tiene_abierto(cliente_de, dibujante, otro, plano):

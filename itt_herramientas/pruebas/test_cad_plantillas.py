@@ -81,8 +81,9 @@ def test_la_hoja_de_la_biblioteca_dice_cuales_son_mis_plantillas_y_su_archivo(cl
     servicio.crear_vacio(ana, "Planta", "Obra", "dwg")
     c = cliente_de(ana)
     marcar(c, marco, en=True)
-    d = c.get(url("cad_elegir")).json()
+    d = c.get(url("cad_elegir"), {"q": "a", "en": "todo"}).json()
     filas = {x["nombre"]: x for x in d["planos"]}
+    assert filas["Marco A1"]["ubicacion"] == "Plantillas" and filas["Planta"]["ubicacion"] == "Obra"
     assert filas["Marco A1"]["plantilla"] is True and filas["Planta"]["plantilla"] is False
     assert filas["Marco A1"]["archivo"] == url("cad_archivo", pk=marco.pk)
     assert c.get(filas["Marco A1"]["archivo"]).status_code == 200
