@@ -292,6 +292,7 @@
       abrir(carpeta) {
         if (carpeta !== undefined) est.carpeta = carpeta || RAIZ;
         else if (op.recordar) { try { est.carpeta = localStorage.getItem(op.recordar) || RAIZ; } catch (_) { /* */ } }
+        if (op.q) est.q = op.q.value.trim();               // lo que ya se escribió mientras la hoja se preparaba
         pintarArbol();
         return cargar(false);
       },

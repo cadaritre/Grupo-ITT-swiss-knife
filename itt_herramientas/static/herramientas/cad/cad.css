@@ -271,10 +271,6 @@ html.cad-completa:not(.cad-tactil) .cad-pestanas { margin: 0 0 0; }
 
 /* «Abrir otro plano» */
 .cad-elegir__buscar { margin: 0 0 var(--tv-espacio-2); }
-.cad-elegir__carpetas { display: flex; gap: var(--tv-espacio-1); overflow-x: auto; padding-bottom: 4px; margin: 0 0 var(--tv-espacio-2); }
-.cad-elegir__carpeta { flex: none; padding: 4px 12px; border: 1px solid var(--tv-separador); border-radius: 999px; background: var(--tv-superficie); color: var(--tv-texto);
-  font-size: var(--tv-texto-sm); cursor: pointer; white-space: nowrap; }
-.cad-elegir__carpeta[aria-pressed="true"] { background: var(--tv-seleccion); color: var(--tv-sobre-seleccion); border-color: transparent; }
 .cad-elegir__lista { list-style: none; margin: 0 0 var(--tv-espacio-2); padding: 0; max-height: min(55vh, 30rem); overflow: auto; border: 1px solid var(--tv-separador);
   border-radius: var(--tv-radio-grande); }
 .cad-elegir__lista:empty { display: none; }
