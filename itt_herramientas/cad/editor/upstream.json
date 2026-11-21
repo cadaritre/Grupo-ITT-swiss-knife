@@ -1,6 +1,6 @@
 {
   "_nota": "Cada archivo se baja de su «fuente» (la de arriba, salvo que el archivo traiga la suya) y se usa solo si su SHA-256 coincide. tipo «publica»: descarga directa de la publicación de GitHub; tipo «gh»: `gh release download` con la sesión de gh de la Mac (repositorio privado). El servidor nunca descarga nada: recibe los archivos dentro del paquete de la versión. «puente»: la compilación trae el puente ?embed=1 (ocs:open con solo lectura, ocs:save); v2026.45 no lo trae y la página usa el canal de control y openCadStudioSaveFile. «base»: la versión oficial sobre la que está hecha la compilación; «version» nombra la ruta servida (/cad/editor/<version>/), así un cambio de compilación nunca reusa la caché del navegador. «anteriores»: las 2 o 3 compilaciones previas (la más nueva primero); `preparar.py` les hace un parche de cada archivo que cambió (el .wasm, el .js), así quien ya tiene guardada una de ellas baja solo lo que cambió (docs/cad.md, «El editor guardado en el equipo»).",
-  "version": "tv-v2026.45-15",
+  "version": "tv-v2026.45-16",
   "base": "v2026.45",
   "publicada": "2026-11-20",
   "puente": false,
@@ -10,15 +10,15 @@
     "tag": "v2026.45"
   },
   "web": {
-    "archivo": "OpenCADStudio-tv-v2026.45-15-web.zip",
-    "sha256": "2377b8cdd43dde36187b8adef3f1b6490e5bd28b62622c572b904380b2fcb0f8",
-    "bytes": 63165373,
+    "archivo": "OpenCADStudio-tv-v2026.45-16-web.zip",
+    "sha256": "fead323ddee164b17ad9f7ba225eac3db7b9b32679635e786e116addb6463e98",
+    "bytes": 63165254,
     "fuente": {
       "tipo": "gh",
       "repo": "cadaritre/OpenCADStudio-TresVizo",
-      "tag": "tv-v2026.45-15"
+      "tag": "tv-v2026.45-16"
     },
-    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico, registro de fuentes SHX (`font_register`), `open`/`save` completos en WebKit, respuestas de control al momento, `view_set`, `?canvas=1` con `?embed=1`, sin copias locales del plano en el navegador, sin avisos de arranque en solo lienzo y la lista de presentaciones (`layouts`, `layout_set`); precisión relativa al ojo exacta en WebKit (vista de 1 mm en UTM), máscaras de MTEXT/MultiLeader y wipeouts por orden de dibujo en Estructura alámbrica 2D, `state.viewport_rect` y `screen_scale` (dónde está el área de dibujo en la página), proxies que se conservan al guardar y arreglos del códec (MTEXT con columnas, R12); referencias del modo táctil elegidas por la persona (`snap` con `modes` y `limit`), Cercano exacto sobre la curva también dentro de bloques y a través de ventanas, `explode`, `trim` y `extend` (rápidos y con valla) que toman la geometría de todos los niveles de bloques, y cotas con su propia escala (`dim_create`, `dim_style`); la rejilla de un píxel físico en su píxel (completa a escala 1–1.5, como Chrome en Windows) y curvas teseladas según el zoom (error de cuerda ≤ 0.25 px, sin marcar el plano como modificado); la extensión del dibujo con las reglas de CAD (`extents`: solo lo dibujado, sin centros de arcos casi rectos ni capas congeladas) y curvas refinadas por su error de cuerda a cualquier tamaño; varios planos abiertos en una ventana (`documents`, `file_tabs`, guardar un documento dado) y Esc como en AutoCAD; imágenes y referencias externas leídas de la carpeta del proyecto en la computadora sin subir nada (`references`, `image_views`, `image_attach`, `image_set`, `ocs_image_supply`, `ocs_xref_supply` por documento), imágenes georreferenciadas con archivo de mundo o GeoTIFF y ortofotos enormes por mosaicos; la pestaña «Civil» en la cinta con sus órdenes CV…, plantillas de presentación (LAYOUT › Plantilla y Guardar como plantilla), imágenes de la carpeta por mosaicos con niveles de detalle (`image_tiles`, sin `ocs_image_supply`), vértices de imagen en doble precisión, planos grandes construidos solo alrededor de la vista con avance al abrir, y «ver todo» que se mantiene al cambiar el tamaño del área de dibujo; planos grandes sin el tope de 4 GB: tipos de línea complejos recorridos solo en la vista y curvas de las referencias grandes afinadas miembro por miembro donde se dibujan (defecto 37: el plano de 48.7 MB abre en Chromium con 2.1 GB de pico); vistas previas y fantasmas relativos al ojo en doble precisión (la línea elástica de PLINE empieza en su punto con coordenadas UTM; mover, rotar, escalar, reflejar, desfase, empalme, recorte, extender y el rastreo polar y de referencias), rutas de archivo y valores vinculados dibujados tal cual (nunca como códigos de MTEXT), una petición rechazada por ocupado ya no hace fallar la que está en curso, y copiar entidades desde otro documento abierto en un solo paso de deshacer con sus vínculos XDATA traducidos (puntos de Civil como entidades POINT)."
+    "_nota": "Nuestra compilación corregida (repositorio privado, sobre v2026.45): rejilla y zoom en f64 con coordenadas UTM, getpoint/user_select en el lienzo web, `batch` atómico, registro de fuentes SHX (`font_register`), `open`/`save` completos en WebKit, respuestas de control al momento, `view_set`, `?canvas=1` con `?embed=1`, sin copias locales del plano en el navegador, sin avisos de arranque en solo lienzo y la lista de presentaciones (`layouts`, `layout_set`); precisión relativa al ojo exacta en WebKit (vista de 1 mm en UTM), máscaras de MTEXT/MultiLeader y wipeouts por orden de dibujo en Estructura alámbrica 2D, `state.viewport_rect` y `screen_scale` (dónde está el área de dibujo en la página), proxies que se conservan al guardar y arreglos del códec (MTEXT con columnas, R12); referencias del modo táctil elegidas por la persona (`snap` con `modes` y `limit`), Cercano exacto sobre la curva también dentro de bloques y a través de ventanas, `explode`, `trim` y `extend` (rápidos y con valla) que toman la geometría de todos los niveles de bloques, y cotas con su propia escala (`dim_create`, `dim_style`); la rejilla de un píxel físico en su píxel (completa a escala 1–1.5, como Chrome en Windows) y curvas teseladas según el zoom (error de cuerda ≤ 0.25 px, sin marcar el plano como modificado); la extensión del dibujo con las reglas de CAD (`extents`: solo lo dibujado, sin centros de arcos casi rectos ni capas congeladas) y curvas refinadas por su error de cuerda a cualquier tamaño; varios planos abiertos en una ventana (`documents`, `file_tabs`, guardar un documento dado) y Esc como en AutoCAD; imágenes y referencias externas leídas de la carpeta del proyecto en la computadora sin subir nada (`references`, `image_views`, `image_attach`, `image_set`, `ocs_image_supply`, `ocs_xref_supply` por documento), imágenes georreferenciadas con archivo de mundo o GeoTIFF y ortofotos enormes por mosaicos; la pestaña «Civil» en la cinta con sus órdenes CV…, plantillas de presentación (LAYOUT › Plantilla y Guardar como plantilla), imágenes de la carpeta por mosaicos con niveles de detalle (`image_tiles`, sin `ocs_image_supply`), vértices de imagen en doble precisión, planos grandes construidos solo alrededor de la vista con avance al abrir, y «ver todo» que se mantiene al cambiar el tamaño del área de dibujo; planos grandes sin el tope de 4 GB: tipos de línea complejos recorridos solo en la vista y curvas de las referencias grandes afinadas miembro por miembro donde se dibujan (defecto 37: el plano de 48.7 MB abre en Chromium con 2.1 GB de pico); vistas previas y fantasmas relativos al ojo en doble precisión (la línea elástica de PLINE empieza en su punto con coordenadas UTM; mover, rotar, escalar, reflejar, desfase, empalme, recorte, extender y el rastreo polar y de referencias), rutas de archivo y valores vinculados dibujados tal cual (nunca como códigos de MTEXT), una petición rechazada por ocupado ya no hace fallar la que está en curso, y copiar entidades desde otro documento abierto en un solo paso de deshacer con sus vínculos XDATA traducidos (puntos de Civil como entidades POINT); y ningún shader del editor web lleva valores de tipo arreglo, que el compilador de las GPU Mali rechaza en WebGL 2 (la tableta Galaxy Tab S9 FE no arrancaba)."
   },
   "nativo": {
     "x86_64": {
@@ -34,6 +34,19 @@
   },
   "anteriores": [
     {
+      "version": "tv-v2026.45-15",
+      "web": {
+        "archivo": "OpenCADStudio-tv-v2026.45-15-web.zip",
+        "sha256": "2377b8cdd43dde36187b8adef3f1b6490e5bd28b62622c572b904380b2fcb0f8",
+        "bytes": 63165373,
+        "fuente": {
+          "tipo": "gh",
+          "repo": "cadaritre/OpenCADStudio-TresVizo",
+          "tag": "tv-v2026.45-15"
+        }
+      }
+    },
+    {
       "version": "tv-v2026.45-14",
       "web": {
         "archivo": "OpenCADStudio-tv-v2026.45-14-web.zip",
@@ -43,19 +56,6 @@
           "tipo": "gh",
           "repo": "cadaritre/OpenCADStudio-TresVizo",
           "tag": "tv-v2026.45-14"
-        }
-      }
-    },
-    {
-      "version": "tv-v2026.45-13",
-      "web": {
-        "archivo": "OpenCADStudio-tv-v2026.45-13-web.zip",
-        "sha256": "a97bf74df2075a6ffbdba945db66fe62358ca4b22895f02442aa7e5813e4f73f",
-        "bytes": 63169899,
-        "fuente": {
-          "tipo": "gh",
-          "repo": "cadaritre/OpenCADStudio-TresVizo",
-          "tag": "tv-v2026.45-13"
         }
       }
     }
