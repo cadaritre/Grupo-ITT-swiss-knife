@@ -64,6 +64,9 @@ def limpio(crudo: str | None) -> str | None:
 ETAPAS = ("memoria", "preparar", "marco", "compilar", "editor", "bloqueo", "plano")
 DESDE = ("equipo", "red")
 _TEXTO = re.compile(r"[^\x20-\x7e]")
+# El aviso de errores del editor entero hasta aquí: la primera línea (p. ej. «[wgpu_hal::gles::device] Shader compilation failed: 0:175:
+# S0032: …») y lo que sigue (el pipeline que falló), sin pasar del LIMITE con el resto del informe (motivo `gpu`: docs/cad.md).
+AVISO_MAX = 1200
 _EQUIPO = {"w": 20000, "h": 20000, "dpr": 16, "mem": 64, "cpu": 512, "tactil": 1, "fino": 1, "webgpu": 1, "sw": 1, "app": 1}
 
 
@@ -94,7 +97,7 @@ def arranque(d) -> str:
     salida["pasos"] = pasos[-FILAS_MAX:]
     eq = d.get("eq") if isinstance(d.get("eq"), dict) else {}
     salida["eq"] = {k: n for k, tope in _EQUIPO.items() if (n := _numero(eq.get(k), tope)) is not None}
-    for k, largo in (("motivo", 40), ("gl", 120), ("aviso", 400)):
+    for k, largo in (("motivo", 40), ("gl", 120), ("aviso", AVISO_MAX)):
         t = _texto(d.get(k), largo)
         if t:
             salida[k] = t

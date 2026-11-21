@@ -272,12 +272,14 @@
       cargaDe(t0, `Descargando el CAD (${mb} MB)… Con una conexión lenta tarda unos minutos.`);
     }, 15000);
     try { await conTope(listo, desde === "equipo" ? PLAZO.marcoEquipo : plazoDescarga(), "marco"); } finally { clearTimeout(lento); }
+    // Desde aquí, un error fatal de la tarjeta de video termina el arranque en cuanto aparece (`vigilarGpu`), sin esperar el plazo.
+    const gpu = vigilarGpu();
     cargaDe(t0, "Abriendo el editor…");
     etapaArranque("compilar");
-    control = await conTope(esperarCanal(), PLAZO.compilar, "compilar");
+    control = await conTope(Promise.race([esperarCanal(), gpu]), PLAZO.compilar, "compilar");
     engancharGuardadoDelEditor();
     etapaArranque("editor");
-    const est = await conTope(canal({ op: "state" }, PLAZO.editor), PLAZO.editor, "editor").catch((err) => { throw err instanceof Atasco ? err : new Atasco("editor", "sin_respuesta"); });
+    const est = await conTope(Promise.race([canal({ op: "state" }, PLAZO.editor), gpu]), PLAZO.editor, "editor").catch((err) => { throw err instanceof Atasco ? err : new Atasco("editor", "sin_respuesta"); });
     if (est.modal) await canal({ op: "action", name: "close_modal", document_id: est.document_id }).catch(() => {});
     // Con varias pestañas, las de la página son las únicas: las del editor no se muestran (solo en esta sesión del editor).
     if (P) await canal({ op: "file_tabs", on: false }, 10000).catch(() => {});
@@ -1028,6 +1030,7 @@
         vigilarLiberacion(t);
       }
     } catch (err) {
+      if (arranque.gpu) return;                                          // ya lo dice «El CAD no pudo arrancar en este equipo»
       if (err.message !== "eliminado") error(t, err.message);
       cargaDe(t, "");
     } finally {
@@ -1738,7 +1741,39 @@
   const plazoDescarga = () => 60000 + Math.round(((C.guardado && C.guardado.descarga) || 37 * 1048576) / 100);
   class Atasco extends Error { constructor(etapa, motivo) { super(motivo || etapa); this.etapa = etapa; this.motivo = motivo || "plazo"; } }
   let falloDelMarco = null;
-  const arranque = { t0: performance.now(), pasos: [], etapa: "memoria", desde: "red", recuperado: false };
+  const arranque = { t0: performance.now(), pasos: [], etapa: "memoria", desde: "red", recuperado: false, listo: false, gpu: false };
+  // Un error fatal de la tarjeta de video: un shader que su controlador no compila (la tableta Mali-G68 del 20-11-2026: «Shader
+  // compilation failed: … S0032: no default precision defined for variable 'vec4[8]'»), el dispositivo o el contexto WebGL perdidos.
+  // wgpu lo trata como fatal y el editor ya no responde nunca; antes la página esperaba el plazo de la etapa (47 s en esa tableta).
+  // Lo dice el aviso de errores del propio editor (`#ocs-err`, sys.rs del fork) o el evento `webglcontextlost` de su lienzo. Mientras
+  // el arranque no termina (también al abrir el plano), en cuanto aparece se corta con el motivo `gpu`.
+  const FATAL_GPU = /Shader compilation failed|Shader translation error|Handling wgpu errors as fatal|wgpu error|device (is )?lost|context (was )?lost/i;
+  let vigiaGpu = null;
+  function vigilarGpu() {
+    if (vigiaGpu) vigiaGpu.parar();
+    let lienzo = null, perdido = false, reloj = null, fallar = null;
+    const promesa = new Promise((_, mal) => { fallar = mal; });
+    promesa.catch(() => {});
+    const parar = () => clearInterval(reloj);
+    reloj = setInterval(() => {
+      if (arranque.listo) { parar(); return; }
+      let doc = null;
+      try { doc = frame.contentDocument; } catch (_) { return; }
+      if (!doc) return;
+      const c = doc.querySelector("canvas");
+      if (c && c !== lienzo) { lienzo = c; c.addEventListener("webglcontextlost", () => { perdido = true; }, { once: true }); }
+      const pre = doc.getElementById("ocs-err-text");
+      if (!perdido && !(pre && FATAL_GPU.test(pre.textContent || ""))) return;
+      parar();
+      arranque.gpu = true;
+      const err = new Atasco(arranque.etapa, "gpu");
+      fallar(err);
+      // Ya abriendo el plano, la espera es la de `alListo`, que no mira esta promesa: se corta aquí.
+      if (arranque.abriendo) atascado(err);
+    }, 250);
+    vigiaGpu = { promesa, parar };
+    return promesa;
+  }
   function etapaArranque(nombre) {
     arranque.etapa = nombre;
     arranque.pasos.push([nombre, Math.round(performance.now() - arranque.t0)]);
@@ -1769,7 +1804,7 @@
     } catch (_) { return "sin WebGL2"; }
   }
   function avisoDelEditor() {
-    try { const b = frame.contentDocument && frame.contentDocument.getElementById("ocs-err-text"); return b ? b.innerText.slice(0, 400) : ""; } catch (_) { return ""; }
+    try { const b = frame.contentDocument && frame.contentDocument.getElementById("ocs-err-text"); return b ? b.innerText.slice(0, 1200) : ""; } catch (_) { return ""; }
   }
   function informarArranque(err, gl) {
     if (!C.urls || !C.urls.arranque) return;
@@ -1791,6 +1826,8 @@
     panel.classList.toggle("cad-lienzo__grande--frente", enTactil());
   }
   function atascado(err) {
+    if (arranque.atascado) return;                                       // una vez por arranque (la vigía de la GPU y la espera)
+    arranque.atascado = true;
     carga("");
     const panel = $("cad-atasco");
     const gl = tarjetaDeVideo();
@@ -1805,6 +1842,9 @@
     } else if (gl === "sin WebGL2") {
       titulo = "Este navegador no deja dibujar el plano.";
       texto = "El CAD necesita WebGL 2, y aquí está apagado o no funciona con esta tarjeta de video. Actualiza Chrome y vuelve a intentarlo; si sigue igual, ábrelo en una computadora o descarga el plano.";
+    } else if (err.motivo === "gpu") {
+      titulo = "El CAD no pudo arrancar en este equipo.";
+      texto = "El editor se descargó, pero la tarjeta de video de este equipo no lo dejó dibujar. Actualiza Chrome y vuelve a intentarlo; si sigue igual, ábrelo en una computadora o descarga el plano.";
     } else {
       titulo = "El CAD no pudo arrancar en este equipo.";
       texto = "El editor se descargó, pero no arrancó en este navegador. Vuelve a intentarlo; si sigue igual, ábrelo en una computadora o descarga el plano.";
@@ -1875,6 +1915,8 @@
     try {
       await cargarMarco(desde);
     } catch (err) {
+      // Un error de la tarjeta de video no es de lo guardado: el editor de la red fallaría igual. Se dice ya, sin borrar nada.
+      if (err instanceof Atasco && err.motivo === "gpu") throw err;
       if ((desde !== "equipo" && !(await aqui)) || !window.TVCadEditor) throw err;
       // Lo guardado en este equipo no arrancó (falló o se quedó detenido): se borra y el editor se abre de la red, una vez.
       arranque.recuperado = true;
@@ -1884,7 +1926,12 @@
       carga("Abriendo el editor…");
       await cargarMarco("red");
     }
+    arranque.abriendo = true;
     await alListo(t0);
+    arranque.abriendo = false;
+    arranque.listo = true;
+    if (vigiaGpu) vigiaGpu.parar();
+    if (arranque.gpu) return;
     if (P && !enTactil() && !(C.tactil && matchMedia("(pointer: coarse)").matches)) await restaurarPestanas();
   }
   if (frame) {

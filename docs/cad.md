@@ -836,6 +836,43 @@ el informe y el otro modo; lo guardado dañado → se recupera de la red; el avi
 Android deja a la pestaña y lo que Chrome de Android hace con el service worker y Cache Storage. Si la tableta sigue sin abrir, el aviso
 ya lo dice en pantalla y el journal trae la etapa y la tarjeta de video (`journalctl -u tv-portal | grep "cad arranque"`).
 
+## Tableta Mali: los shaders del editor y el arranque que se corta (20-11-2026)
+
+Con el arranque vigilado ya en producción (1.2.23), el informe de la Galaxy Tab S9 FE del dueño (Mali-G68, Chrome 157, modo completo,
+el editor guardado en el equipo) dijo dónde estaba: etapa «editor», 47 s, `sin_respuesta`, y el aviso del propio editor
+«[wgpu_hal::gles::device] Shader compilation failed: 0:175: S0032: no default precision defined for variable 'vec4[8]'».
+
+**La causa** (editor, defecto 39 del fork): el editor web dibuja solo con WebGL 2 (`Api::OpenGL` fijado en el original, aunque haya
+`navigator.gpu`); wgpu traduce cada shader a GLSL ES 3.00 y el controlador lo compila. Los degradados de `iced` arman arreglos
+(`vec4[8](…)`) que el compilador de Mali rechaza aunque el GLSL es válido, y wgpu lo trata como fatal: el editor muere al preparar su
+dibujo, antes de responder nada. Los teléfonos que sí abren tienen otra GPU (Adreno) u otro controlador de Mali.
+
+**El arreglo en el editor** (`tv-v2026.45-16` = la -15 y solo esto): ningún shader del editor web lleva un valor de tipo arreglo (ni los
+de `iced` ni los del propio editor), con los mismos píxeles; una prueba del fork los traduce todos como lo hace el editor y falla si
+vuelve uno.
+
+**El arreglo en la página** (`static/herramientas/cad/editor.js`, `vigilarGpu`): desde que la página del editor carga hasta que el plano
+abre, un error fatal de la tarjeta de video corta el arranque **al momento** (antes, el plazo de la etapa: 45 s). Se reconoce en el aviso
+de errores del editor (`#ocs-err`: «Shader compilation failed», «Shader translation error», «Handling wgpu errors as fatal», «wgpu error»,
+dispositivo o contexto perdido) o en el `webglcontextlost` de su lienzo. Se ve «El CAD no pudo arrancar en este equipo.» con «El editor
+se descargó, pero la tarjeta de video de este equipo no lo dejó dibujar…», «Reintentar», el otro modo y «Descargar el plano». No se borra
+el editor guardado: no es la causa y el de la red fallaría igual. El informe lleva `"motivo":"gpu"` y el aviso hasta 1 200 caracteres
+(`registro.AVISO_MAX`): la primera línea del error entera y el pipeline que falló.
+
+**WebGPU:** `wgpu` trae WebGPU compilado y lo usaría si Chrome da un adaptador, pero el original fija WebGL 2 (c8840e270, «force WebGL2
+backend», por adaptadores de Chromium que fallaban con WebGPU) y todo lo corregido de precisión y dibujo está probado en WebGL 2 (en
+Windows, ANGLE sobre Direct3D 11). Por eso la tableta usa WebGL 2 aunque el informe diga `webgpu: 1`; no es la lista de bloqueo de
+Chrome. Se queda así: cambiarlo no es un arreglo de un renglón sino otro camino de dibujo en todos los equipos, por probar entero.
+
+**Pruebas:** `pruebas_navegador/test_cad_gpu_navegador.py` envuelve el compilador de WebGL 2 de Chromium para que rechace lo mismo que
+Mali, con su mensaje, también en el marco del editor: en cada perfil de tableta (los de TB y el de la tableta del dueño, con y sin WebGPU)
+el plano abre sin un solo shader rechazado (con la -15 se corta al momento con el error de la tableta); una tarjeta que no compila ningún
+shader corta el arranque al momento, con el aviso, el informe `gpu` y lo guardado intacto. `pruebas/test_cad_registro.py`, el informe.
+
+**Lo que puede seguir distinto en la tableta real:** la emulación rechaza lo que el error de Mali nombra (valores de tipo arreglo); si el
+controlador tuviera otra peculiaridad, la página ahora lo dice en segundos y el journal trae la línea entera
+(`journalctl -u tv-portal | grep "cad arranque"`).
+
 ## Espacio, archivos que faltan y autoría
 
 - **Espacio:** CAD tiene su propia reserva de 20 GB, aparte de los 12 GB de Herramientas (Portal, `docs/arquitectura.md` §9.1 y §13). La
@@ -1217,6 +1254,8 @@ TV_CAD_MEDIR=<GeoTIFF con el patrón de nitidez> uv run pytest \
   itt_herramientas/pruebas_navegador/test_cad_mosaicos_navegador.py -k medir            # la medición de «Ortofotos enormes» (cad_local_rasters grande --nitidez)
 TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
   uv run pytest itt_herramientas/pruebas_navegador/test_cad_tableta_navegador.py      # tableta Android: perfiles, arranque vigilado, recuperar lo guardado
+TV_CAD_EDITOR_PRUEBAS=~/.cache/tresvizo-cad/editor \
+  uv run pytest itt_herramientas/pruebas_navegador/test_cad_gpu_navegador.py         # compilador de Mali emulado; un fallo de la GPU se corta al momento
 TV_CAD_TACTIL=1 ITT_DATOS_CAD=/tmp/datos uv run pytest \
   itt_herramientas/pruebas_navegador/test_cad_datos_moviles_navegador.py -k chromium      # «Datos móviles», ~10 min por motor (tiempo real)
 ```

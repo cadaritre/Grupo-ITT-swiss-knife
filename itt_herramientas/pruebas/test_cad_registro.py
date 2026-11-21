@@ -78,6 +78,26 @@ def test_el_informe_de_arranque_se_valida_campo_por_campo():
     assert json.loads(registro.arranque(None)) == {"malformado": "tipo"}
 
 
+# Lo que mostró el editor en la tableta Mali-G68 (20-11-2026), con lo que el informe de entonces cortaba a los 400 caracteres.
+AVISO_GPU = ("[wgpu_hal::gles::device] Shader compilation failed: 0:175: S0032: no default precision defined for variable 'vec4[8]' "
+             "[wgpu::backend::wgpu_core] Shader translation error for stage ShaderStages(FRAGMENT): 0:175: S0032: no default precision "
+             "defined for variable 'vec4[8]' [wgpu::backend::wgpu_core] Please report it to https://github.com/gfx-rs/wgpu "
+             "[wgpu::backend::wgpu_core] Handling wgpu errors as fatal by default panicked at /home/runner/.cargo/registry/src/"
+             "index.crates.io-1949cf8c6b5b557f/wgpu-29.0.4/src/backend/wgpu_core.rs:1409:26: wgpu error: Validation Error Caused by: "
+             "In Device::create_render_pipeline, label = 'iced_wgpu.quad.gradient.pipeline' Internal error in ShaderStages(FRAGMENT) "
+             "shader: 0:175: S0032: no default precision defined for variable 'vec4[8]'")
+
+
+def test_un_fallo_de_la_tarjeta_de_video_llega_entero():
+    """Motivo `gpu` (la página corta el arranque en cuanto el editor muestra el error): el aviso llega con el pipeline que falló."""
+    assert 400 < len(AVISO_GPU) <= registro.AVISO_MAX
+    out = json.loads(registro.arranque({**ARRANQUE, "motivo": "gpu", "aviso": AVISO_GPU}))
+    assert out["motivo"] == "gpu" and out["aviso"] == AVISO_GPU and "iced_wgpu.quad.gradient.pipeline" in out["aviso"]
+    largo = {**ARRANQUE, "motivo": "gpu", "pasos": [["marco", i] for i in range(5000)], "aviso": AVISO_GPU + "z" * 5000}
+    texto = registro.arranque(largo)
+    assert len(texto) <= registro.LIMITE and json.loads(texto)["aviso"] == (AVISO_GPU + "z" * 5000)[:registro.AVISO_MAX]
+
+
 def test_el_arranque_detenido_va_al_registro_con_el_equipo(cliente_de, dibujante, plano, caplog):
     cl = cliente_de(dibujante)
     caplog.set_level(logging.INFO, logger="itt_herramientas.cad")
